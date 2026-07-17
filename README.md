@@ -22,7 +22,7 @@ npx skills add Hadden-Industries/agent-skills --skill defining-concepts
 
 ## How It Works
 
-These skills are built on the open [Agent Skills specification](https://agentskills.io/specification). They rely on a progressive disclosure model designed to protect your agent's context window. At startup, the agent only loads the skill's name and description. The full instructional body is only read into context when the agent explicitly decides the skill is relevant to your current prompt.
+These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices). They rely on a progressive disclosure model designed to protect your agent's context window. At startup, the agent only loads the skill's name and description. The full instructional body is only read into context when the agent explicitly decides the skill is relevant to your current prompt.
 
 ## Repository Structure
 
