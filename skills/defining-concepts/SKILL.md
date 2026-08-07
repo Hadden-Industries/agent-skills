@@ -103,7 +103,7 @@ You must format your response EXACTLY according to the template below. Do not in
 
 # Example
 * **Input**:
-> Use the /`defining-concepts` skill to produce a definition for "Judicial Plea Status", that may have the types of "Not known", "Guilty", "Not guilty", "No plea taken", "Consented", "Resisted), "Guilty by post", "Admitted", or "Denied".
+> Use the /`defining-concepts` skill to produce a definition for "Judicial Plea Status", that may have the types of "Not known", "Guilty", "Not guilty", "No plea taken", "Consented", "Resisted", "Guilty by post", "Admitted", or "Denied".
 
 * **Output**: 
 > See [judicial_plea_status_definition.md](references/judicial_plea_status_definition.md)
