@@ -1,6 +1,8 @@
 ---
 name: defining-concepts
 description: Generates strictly ISO/IEC 11179-4 compliant concept definitions from a designation. Use when asked to define a concept, formulate a standardized definition, audit terminology, or create a semantic artifact.
+category: research
+allowed-tools: [search_web, read_url_content]
 ---
 
 # Overview
@@ -98,3 +100,10 @@ You must format your response EXACTLY according to the template below. Do not in
 
 * [Insert Source] (Note on semantic value)
 * (Note: I have verified that these URLs are currently active).
+
+# Example
+* **Input**:
+> Use the /`defining-concepts` skill to produce a definition for "Judicial Plea Status", that may have the types of "Not known", "Guilty", "Not guilty", "No plea taken", "Consented", "Resisted), "Guilty by post", "Admitted", or "Denied".
+
+* **Output**: 
+> See [judicial_plea_status_definition.md](references/judicial_plea_status_definition.md)
