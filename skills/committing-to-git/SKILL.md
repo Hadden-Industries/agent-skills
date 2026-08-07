@@ -10,10 +10,10 @@ allowed-tools: [run_command, write_to_file, view_file]
 When asked to draft a commit message or commit current workspace changes, follow Sections 1–3. Execute Section 4 only when the user has explicitly requested creation of the commit. Execute `git push` only when the user has explicitly requested pushing. A request to push existing commits MUST NOT implicitly authorize staging or committing uncommitted workspace changes.
 
 ## 1. Pre-Commit Verification Workflow
-1. **Mandatory Execution Order**: To inspect the complete set of current uncommitted changes, you MUST:
-   1. Execute `git status --untracked-files=all`.
-   2. Execute `git diff HEAD` to inspect all staged and unstaged changes to tracked files.
-   3. Inspect the complete contents of every untracked text file reported by `git status`; inspect the type and relevant metadata of untracked binary files sufficiently to determine their purpose.
+* **Mandatory Execution Order**: To inspect the complete set of current uncommitted changes, you MUST:
+  1. Execute `git status --untracked-files=all`.
+  2. Execute `git diff HEAD` to inspect all staged and unstaged changes to tracked files.
+  3. Inspect the complete contents of every untracked text file reported by `git status`; inspect the type and relevant metadata of untracked binary files sufficiently to determine their purpose.
 
 ## 2. Commit Message Composition
 1. **Strict Scope Enforcement**: Base the commit message's technical scope and file modifications EXCLUSIVELY on the current uncommitted changes identified by the Pre-Commit Verification Workflow.
@@ -32,24 +32,28 @@ When asked to draft a commit message or commit current workspace changes, follow
    2. **User Experience Changes Section**:
       - Include this section only when the changes have an observable impact on the end user.
       - Format:
-```
-User Experience Changes:
-  - <first change>
-  - <second change>
-  - <Nth change>
-```
+
+      ```
+      User Experience Changes:
+        - <first change>
+        - <second change>
+        - <Nth change>
+      ```
+
       - **Content Scope**: Strictly describe only changes that are observable by the end user.
       - Describe each user-visible outcome as an imperative change statement beginning with a base-form verb (e.g., "Enable", "Improve", "Prevent", "Reduce", etc.).
       - Avoid technical jargon, framework details (e.g. "Jest", "Node.js heap", "OOM"), or implementation specifics in this section. Frame it purely around what the end user perceives or experiences differently as a result of these changes (e.g. "Enable the visualisation of a new file type", "Improve rendering performance").
    3. **File Changes Section**:
       - Format:
-```
-File Changes:
-  1. `<first changed file's file path>`
-     - <distinct logical change and brief rationale>
-     - <Nth distinct logical change and brief rationale>
-  2. `<Nth changed file's file path>`
-```
+
+      ```
+      File Changes:
+        1. `<first changed file's file path>`
+           - <distinct logical change and brief rationale>
+           - <Nth distinct logical change and brief rationale>
+        2. `<Nth changed file's file path>`
+      ```
+
       - Include every changed file exactly once.
       - Order file paths **alphabetically** using relative workspace paths (e.g., `src/app/css/toolstyle.css`).
 
@@ -58,7 +62,7 @@ File Changes:
 2. **Iterate**: Do not create the commit until the user explicitly approves the proposed commit message. If the user requests changes, revise the message and request approval again.
 
 ## 4. Execution Commands
-1. **Scratch File**: Write the approved commit message to a scratch file in your conversation artifacts scratch directory (`scratch/commit_msg.txt` in your artifact directory outside the workspace repository). Never create scratch files inside the repository working tree to avoid accidental staging or triggering Git file watchers.
+1. **Scratch File Creation**: Write the approved commit message to a scratch file in your conversation artifacts scratch directory (`scratch/commit_msg.txt` in your artifact directory outside the workspace repository). Never create scratch files inside the repository working tree to avoid accidental staging or triggering Git file watchers.
 2. **Local Git CLI Execution**: To ensure local workspace files and `.git` refs remain cleanly synchronized, you MUST run the following local Git CLI commands in order. If any command fails or exits with a non-zero status, stop immediately and DO NOT execute any subsequent command:
    1. `git add -A`
    2. `git diff --cached` to verify that the staged snapshot exactly matches the verified uncommitted changes on which the approved commit message was based. If it does not, DO NOT commit; re-run the Pre-Commit Verification Workflow, revise the commit message as necessary, and return to Section 3 for explicit user approval.
