@@ -15,6 +15,19 @@ Your objective is to ingest inputs from the user (a concept's Designation, an op
 
 # Workflow
 
+Copy this checklist and track your progress:
+
+```
+Research Progress:
+- [ ] Step 1: Etymological and Linguistic Analysis
+- [ ] Step 2: Global Vocabulary Reuse Check
+- [ ] Step 3: Genus-Differentia Formulation (ISO 704)
+- [ ] Step 4: ISO/IEC 11179-4 Mandatory Requirements Validation
+- [ ] Step 5: ISO/IEC 11179-4 Recommendations Validation
+- [ ] Step 6: Ontological Category Error Check
+- [ ] Step 7: Final Citation and Link Verification
+```
+
 ## Step 1: Etymological and Linguistic Analysis
 
 * Analyze the morphological and etymological roots of the provided Designation.
