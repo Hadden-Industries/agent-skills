@@ -1,0 +1,20 @@
+{
+  "skill_name": "reading-epubs",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Read the attached EPUB and summarize chapter 3 in five bullets.",
+      "expected_output": "The agent checks Pandoc, converts the EPUB with the bundled script, locates chapter 3 in the generated Markdown, reads only relevant sections, and summarizes them without using a native EPUB preview."
+    },
+    {
+      "id": 2,
+      "prompt": "Find every place this EPUB discusses eventual consistency and quote the two most relevant passages.",
+      "expected_output": "The agent converts the EPUB first, searches the generated Markdown for the topic, reads bounded surrounding ranges, and returns quotations grounded in the converted text."
+    },
+    {
+      "id": 3,
+      "prompt": "Can you read this .epub? Pandoc is not installed here.",
+      "expected_output": "The agent runs the Pandoc check, loads only the installation reference after the missing-tool result, installs Pandoc when permitted or reports the blocked installation command, and never falls back to native EPUB reading."
+    }
+  ]
+}
