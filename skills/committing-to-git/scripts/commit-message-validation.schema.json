@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Message Validation Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "valid",
+    "manualReviewRequired",
+    "subject",
+    "sections",
+    "files",
+    "summary",
+    "issues"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "manualReviewRequired": {
+      "type": "boolean"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "scope",
+        "length",
+        "target",
+        "maximum"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            null,
+            "build",
+            "ci",
+            "docs",
+            "feat",
+            "fix",
+            "perf",
+            "refactor",
+            "test"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target": {
+          "const": 50
+        },
+        "maximum": {
+          "const": 72
+        }
+      }
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userExperience",
+        "fileChanges"
+      ],
+      "properties": {
+        "userExperience": {
+          "$ref": "#/$defs/sectionStatus"
+        },
+        "fileChanges": {
+          "$ref": "#/$defs/sectionStatus"
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedCount",
+        "listedCount",
+        "setMatches",
+        "orderValid",
+        "unique"
+      ],
+      "properties": {
+        "expectedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "setMatches": {
+          "type": "boolean"
+        },
+        "orderValid": {
+          "type": "boolean"
+        },
+        "unique": {
+          "type": "boolean"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "errors",
+        "reviews"
+      ],
+      "properties": {
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reviews": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    }
+  },
+  "$defs": {
+    "sectionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present",
+        "structureValid"
+      ],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "structureValid": {
+          "type": "boolean"
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "error",
+            "review"
+          ]
+        },
+        "code": {
+          "enum": [
+            "SUBJECT_FORMAT_INVALID",
+            "SUBJECT_TYPE_NOT_ALLOWED",
+            "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
+            "SUBJECT_TRAILING_PERIOD",
+            "SUBJECT_TOO_LONG",
+            "SECTION_SPACING_INVALID",
+            "SECTION_ORDER_INVALID",
+            "UNEXPECTED_BLANK_LINE",
+            "UX_SECTION_DUPLICATE",
+            "UX_SECTION_EMPTY",
+            "UX_ENTRY_FORMAT_INVALID",
+            "FILE_SECTION_MISSING",
+            "FILE_SECTION_DUPLICATE",
+            "FILE_SECTION_EMPTY",
+            "FILE_ENTRY_FORMAT_INVALID",
+            "FILE_ENTRY_NUMBERING_INVALID",
+            "FILE_ENTRY_MISSING_CHANGE",
+            "FILE_DUPLICATE",
+            "FILE_ORDER_INVALID",
+            "FILE_MISSING_FROM_MESSAGE",
+            "FILE_NOT_CURRENTLY_CHANGED",
+            "BODY_LINE_OVER_LIMIT"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
