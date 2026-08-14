@@ -5,7 +5,7 @@ Hadden-Industries/agent-skills.
 
 EXPECTED LOCATION
 -----------------
-    <repo>/scripts/setup_skill_engineering_profile.py
+    <repo>/scripts/set_up_skill_engineering_profile.py
 
 The repository root is derived from this script's own location. The current
 working directory is irrelevant.
