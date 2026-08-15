@@ -128,6 +128,15 @@ agent-skills/
 │   └── set_up_skill_engineering_profile.py
 │                                         # Development bootstrap — COMMITTED
 │
+├── tests/                                # Script contract tests — COMMITTED
+│   ├── helpers/
+│   │   └── json-schema.mjs               # Dependency-free schema checker
+│   └── committing-to-git/
+│       └── validate-commit-message.test.mjs
+│
+├── .tessl-plugin/
+│   └── plugin.json                       # Tessl package root — COMMITTED
+│
 ├── .agents/
 │   ├── skills/                           # Generated Codex/Antigravity skills
 │   └── plugins/
@@ -148,6 +157,8 @@ agent-skills/
 |---|---|:---:|
 | `skills/` | Canonical skills maintained by this repository | **Yes** |
 | `scripts/set_up_skill_engineering_profile.py` | Reproducible development bootstrap | **Yes** |
+| `.tessl-plugin/plugin.json` | Tessl package root that makes `tessl skill lint` resolvable | **Yes** |
+| `tests/` | Contract tests for skill scripts and their committed schemas | **Yes** |
 | `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
 | `.claude/skills/` | Local Claude Code authoring skills | No |
 | `.venv/` | Local `skills-ref` environment | No |
@@ -218,7 +229,7 @@ The bootstrap also installs local evaluation tooling:
 | Tool | Local entry point | Primary role |
 |---|---|---|
 | `skills-ref` | `.agent-tools/bin/skills-ref.cmd` | Official Agent Skills format validation |
-| Tessl CLI | `.agent-tools/bin/tessl.cmd` | Independent lint/review of skills |
+| Tessl CLI | `.agent-tools/bin/tessl.cmd` | Independent lint of the plugin package (local); cloud review of skills (Tessl account required) |
 | OpenAI Plugin Eval | `.agent-tools/bin/plugin-eval.cmd` | Codex-oriented analysis, token-budget analysis, and benchmarks |
 
 On macOS/Linux, the generated wrappers omit the `.cmd` suffix.
@@ -479,24 +490,33 @@ This checks the Agent Skills structure and frontmatter against the reference imp
 
 ## Layer 2 — independent lint and review
 
-Run Tessl lint:
+Tessl splits into a local half and an account-gated half. Know which is which before relying on either.
+
+### Lint (local, no account)
+
+Tessl lint operates on a **plugin package root**, not on an individual skill directory. This repository provides one at `.tessl-plugin/plugin.json`, so lint runs against the whole `skills/` tree at once and needs no Tessl account:
 
 ```powershell
-.\.agent-tools\bin\tessl.cmd skill lint ".\skills\$Skill"
+.\.agent-tools\bin\tessl.cmd skill lint .
 ```
 
-Then review:
+Passing a single skill path fails with `Not a Tessl plugin: no .tessl-plugin/plugin.json or tile.json found in the package root`. That is the expected result of pointing lint below the package root, not a broken install.
+
+### Review (cloud, account required)
+
+`tessl skill review` is deprecated. The current command runs an asynchronous review on Tessl's servers, so it requires a Tessl account, an authenticated session, and a workspace:
 
 ```powershell
-.\.agent-tools\bin\tessl.cmd skill review ".\skills\$Skill"
+.\.agent-tools\bin\tessl.cmd login
+.\.agent-tools\bin\tessl.cmd review run ".\skills\$Skill"
 ```
 
-Treat automated recommendations as review input, not unquestionable truth. In particular, do not let an external optimizer silently rewrite a carefully designed behavioral contract.
+Without `tessl login` the command exits with `Skill review requires you to be logged in`. The bootstrap deliberately does not authenticate, so this layer is optional; skipping it leaves Layers 1, 3 and 4 intact.
 
-If deliberately using Tessl's optimization mode, inspect every resulting diff:
+Treat automated recommendations as review input, not unquestionable truth. In particular, do not let an external optimizer silently rewrite a carefully designed behavioral contract. If deliberately using Tessl's fix mode, inspect every resulting diff:
 
 ```powershell
-.\.agent-tools\bin\tessl.cmd skill review --optimize ".\skills\$Skill"
+.\.agent-tools\bin\tessl.cmd review fix ".\skills\$Skill"
 ```
 
 ## Layer 3 — `skill-check`
@@ -633,7 +653,8 @@ Use the smallest evaluation set that provides credible evidence for the change.
 |---|---|
 | Typo / prose clarification with no semantic change | `skills-ref`, diff review |
 | Reference documentation change | `skills-ref`, affected scenario smoke test |
-| Script implementation change | script tests + `skills-ref` + end-to-end scenario |
+| Script implementation change | `node --test` suite + `skills-ref` + end-to-end scenario |
+| Script output-shape change | `node --test` suite, with the committed JSON schema updated in the same change |
 | `description` / trigger change | `skills-ref` + positive/negative trigger evals |
 | Core workflow instruction change | old-vs-new behavioral eval + static review |
 | New mandatory constraint | pressure/failure cases + regression scenarios |
@@ -890,6 +911,8 @@ Use the generated wrapper:
 
 The bootstrap does not log in to Tessl. Authentication/preferences used later by Tessl may be user-level state.
 
+`tessl skill lint` needs no account, but it resolves a plugin package root rather than a skill directory. The committed `.tessl-plugin/plugin.json` supplies that root, so lint works immediately after bootstrap. `tessl review run` and `tessl review fix` execute on Tessl's servers and require `tessl login` plus a workspace; without them, Layer 2's review half is unavailable.
+
 ### OpenAI Plugin Eval
 
 The bootstrap maintains a sparse local checkout under:
@@ -952,10 +975,28 @@ For a CLI/tool dependency:
 $Skill = "committing-to-git"
 
 .\.agent-tools\bin\skills-ref.cmd validate ".\skills\$Skill"
-.\.agent-tools\bin\tessl.cmd skill lint ".\skills\$Skill"
-.\.agent-tools\bin\tessl.cmd skill review ".\skills\$Skill"
 .\.agent-tools\bin\plugin-eval.cmd analyze ".\skills\$Skill" --format markdown
 ```
+
+Tessl lint is not per-skill; it validates the whole plugin package root at once:
+
+```powershell
+.\.agent-tools\bin\tessl.cmd skill lint .
+```
+
+`tessl review run` additionally requires an authenticated Tessl account (see Layer 2).
+
+## Run the script contract tests
+
+```powershell
+node --test "tests/**/*.test.mjs"
+```
+
+These cover skills that ship executable scripts. They run the script the way the skill does — as a subprocess against a throwaway Git repository — and assert that its JSON output still conforms to the schema committed alongside it.
+
+This matters because a skill's instructions branch on specific output fields. `committing-to-git` Section 3 keys off `valid`, `manualReviewRequired`, and the `error`/`review` severities; if the script's output shape changes and the schema is not updated with it, those instructions silently become wrong while every structural check still passes. The suite also cross-checks that the validator's issue codes and the schema's declared enum are the same set.
+
+The tests use only the Node standard library and a small committed schema checker, so the repository needs no `package.json`, no lockfile, and no third-party dependency. Node 24 treats the test runner's positional arguments as glob patterns, so pass the quoted glob rather than a bare `tests/` directory.
 
 ## Inspect token-budget concerns
 

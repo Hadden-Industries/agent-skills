@@ -7,6 +7,7 @@
     "schemaVersion",
     "valid",
     "manualReviewRequired",
+    "scope",
     "subject",
     "sections",
     "files",
@@ -22,6 +23,29 @@
     },
     "manualReviewRequired": {
       "type": "boolean"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "resolved"
+      ],
+      "properties": {
+        "requested": {
+          "enum": [
+            "auto",
+            "staged",
+            "worktree"
+          ]
+        },
+        "resolved": {
+          "enum": [
+            "staged",
+            "worktree"
+          ]
+        }
+      }
     },
     "subject": {
       "type": "object",

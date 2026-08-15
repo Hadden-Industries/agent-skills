@@ -1,28 +1,32 @@
 ---
 name: committing-to-git
 description: Use when asked to draft, write, or revise a git commit message, or when asked to commit current uncommitted workspace changes. Make sure to use this skill whenever the user asks you to "commit", "draft a commit", "make a commit", or mentions saving their work to git. Also use when pushing a commit that was created by this workflow.
-category: development
-allowed-tools: [run_command, write_to_file, view_file]
-compatibility: Requires Git and Node.js.
+compatibility: Requires Git with commit signing configured (and, for SSH signing, an allowed-signers file), plus Node.js.
+metadata:
+  category: development
 ---
 
 # Committing To Git
 
-When asked to draft a commit message or commit current workspace changes, follow Sections 1–4. Execute Section 5 only when the user has explicitly requested creation of the commit. Execute `git push` only when the user has explicitly requested pushing. A request to push existing commits MUST NOT implicitly authorize staging or committing uncommitted workspace changes.
+When asked to draft a commit message or commit current workspace changes, follow Sections 1-4. Execute Section 5 only when the user has explicitly requested creation of the commit. Committing a partial set of the uncommitted changes is legitimate; never assume every changed file belongs in the commit. Execute `git push` only when the user has explicitly requested pushing. A request to push existing commits MUST NOT implicitly authorize staging or committing uncommitted workspace changes.
 
 ## 1. Pre-Commit Verification Workflow
 * **Mandatory Execution Order**: To inspect the complete set of current uncommitted changes, you MUST:
   1. Execute `git status --untracked-files=all`.
   2. Execute `git diff HEAD` to inspect all staged and unstaged changes to tracked files.
-  3. Inspect the complete contents of every untracked text file reported by `git status` by explicitly executing a file-reading tool (e.g. `view_file`). **CRITICAL**: Do NOT rely on your memory of what you wrote. Inspect the type and relevant metadata of untracked binary files sufficiently to determine their purpose.
+  3. Inspect the complete contents of every untracked text file reported by `git status` by explicitly executing a native file-reading tool (not `cat` or another shell command). **CRITICAL**: Do NOT rely on your memory of what you wrote. Inspect the type and relevant metadata of untracked binary files sufficiently to determine their purpose.
+  4. Execute `git diff --cached --name-only` to determine the **commit scope**, then classify the request:
+     - **Partial commit**: the index already contains a deliberately staged subset, or the user asked to commit specific files. Committing a subset of the uncommitted changes is legitimate and MUST be supported. The commit scope is the staged set.
+     - **Full commit**: nothing is staged and the user asked to commit the current changes. The commit scope is every uncommitted change.
+     - If the index holds a staged subset and it is unclear whether the user wants only those files, ASK before proceeding. Never silently widen a partial commit into a full one.
 
 ## 2. Commit Message Composition
-1. **Strict Scope Enforcement**: Base the commit message's technical scope and file modifications EXCLUSIVELY on the current uncommitted changes identified by the Pre-Commit Verification Workflow.
+1. **Strict Scope Enforcement**: Base the commit message's technical scope and file modifications EXCLUSIVELY on the commit scope determined in Section 1, step 4: the files that will actually be committed, which for a partial commit is the staged subset rather than every uncommitted change.
    - DO NOT fabricate file changes or list features drawn from conversation history, memory of earlier edits, or past prompts.
    - YOU MAY use conversation history solely to explain the rationale or context behind the changes (the "why"), provided it strictly aligns with the verified uncommitted changes.
    - DO NOT list files, features, or fixes that are already committed in previous commits, even if they were part of the same task session.
    - DO NOT mention fixes for intermediate regressions or syntax errors introduced during your own uncommitted edits.
-2. **Imperative Mood Throughout**: Use the imperative, present-tense mood for the subject line's `<description>` and all commit-message change descriptions and bullet points (e.g., "Fix", "Add", "Update", "Suppress" — NEVER "Fixed", "Added", "Updates", or "Suppressing"). **CRITICAL**: Before asking for review, you MUST isolate the first word of the subject line and the first word of every bullet point, and explicitly confirm that each is a base-form verb.
+2. **Imperative Mood Throughout**: Use the imperative, present-tense mood for the subject line's `<description>` and all commit-message change descriptions and bullet points (e.g., "Fix", "Add", "Update", "Suppress"; NEVER "Fixed", "Added", "Updates", or "Suppressing"). **CRITICAL**: Before asking for review, you MUST isolate the first word of the subject line and the first word of every bullet point, and explicitly confirm that each is a base-form verb.
 3. **Body Line Wrapping**: Wrap body prose at 72 characters. Never hard-wrap file paths, URLs, command names, identifiers, or other indivisible tokens.
 4. **Structure**:
    - Separate all sections with **exactly one blank line**.
@@ -63,7 +67,11 @@ When asked to draft a commit message or commit current workspace changes, follow
 
 1. **Scratch File**: Write the proposed commit message to `scratch/commit_msg.txt` in your conversation artifacts scratch directory outside the workspace repository. Never create the scratch file inside the repository working tree.
 
-2. **Mandatory Validator**: You MUST validate the proposed commit message using `scripts/validate-commit-message.mjs`. Resolve the script path relative to this skill's directory and execute: `node <skill-path>/scripts/validate-commit-message.mjs <path-to-scratch/commit_msg.txt>`
+2. **Mandatory Validator**: You MUST validate the proposed commit message using `scripts/validate-commit-message.mjs`. Resolve the script path relative to this skill's directory and execute: `node <skill-path>/scripts/validate-commit-message.mjs [--scope auto|staged|worktree] <path-to-scratch/commit_msg.txt>`
+
+   The validator compares `File Changes` against the commit scope. The default `auto` scope uses the staged set whenever the index holds staged changes and the whole working tree otherwise, which matches what `git commit` would actually record. Pass `--scope` explicitly only to override that.
+
+   **CRITICAL**: Check the returned `"scope"` object. If `"resolved"` does not match the commit scope classified in Section 1, step 4, stop and resolve the discrepancy before continuing: a mismatch means the message is being checked against a different set of files from the one that will be committed.
 
 3. **Validator Authority**: Treat the validator as authoritative for all mechanically testable commit-message requirements, including:
    - subject syntax, type, capitalization, trailing period, and character length;
@@ -86,8 +94,10 @@ When asked to draft a commit message or commit current workspace changes, follow
 
 ## 5. Execution Commands
 * **Local Git CLI Execution**: To ensure local workspace files and `.git` refs remain cleanly synchronized, you MUST run the following local Git CLI commands in order. If any command fails or exits with a non-zero status, stop immediately and DO NOT execute any subsequent command:
-   1. `git add -A`
-   2. `git diff --cached --name-only` to verify that the staged snapshot exactly matches the verified uncommitted changes on which the approved commit message was based. **CRITICAL**: You MUST explicitly compare this output list against the files you intended to stage. If any unintended files are in this list, you MUST unstage them before committing. If the snapshot is fundamentally incorrect, DO NOT commit; re-run the Pre-Commit Verification Workflow, revise the commit message as necessary, and return to Section 4 for explicit user approval.
+   1. Stage exactly the commit scope determined in Section 1, step 4:
+      - **Partial commit**: DO NOT run `git add -A`. The staged subset is already the intended commit; stage any further intended paths individually with `git add -- <path>...`. **CRITICAL**: `git add -A` would silently pull every unrelated working-tree change into the commit and discard the user's staging decisions.
+      - **Full commit**: `git add -A`.
+   2. `git diff --cached --name-only` to verify that the staged snapshot exactly matches the commit scope on which the approved commit message was based. **CRITICAL**: You MUST explicitly compare this output list against the files you intended to stage. If any unintended files are in this list, you MUST unstage them before committing. If the snapshot is fundamentally incorrect, DO NOT commit; re-run the Pre-Commit Verification Workflow, revise the commit message as necessary, and return to Section 4 for explicit user approval.
    3. `git commit -S -F <path-to-scratch/commit_msg.txt>`
    4. `git verify-commit HEAD`. This command MUST exit with status 0. If verification fails, stop immediately and DO NOT push.
    5. If and only if the user explicitly requested pushing, execute `git push`.

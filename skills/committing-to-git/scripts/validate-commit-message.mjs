@@ -48,7 +48,7 @@ function repositoryRoot() {
   ).trim();
 }
 
-function currentChangedFiles(root) {
+function worktreeChangedFiles(root) {
   const tracked = splitNul(
     runGit([
       "-C",
@@ -73,6 +73,52 @@ function currentChangedFiles(root) {
   );
 
   return [...new Set([...tracked, ...untracked])];
+}
+
+function stagedChangedFiles(root) {
+  return splitNul(
+    runGit([
+      "-C",
+      root,
+      "diff",
+      "--name-only",
+      "--cached",
+      "-z",
+      "HEAD",
+      "--",
+    ]),
+  );
+}
+
+/**
+ * Determines which files the commit message is expected to describe.
+ *
+ * A partial commit is legitimate: the author may stage a subset of the changed
+ * files and commit only those. Comparing the message against every change in
+ * the working tree would reject that, so the index is the authority whenever it
+ * holds staged changes. This mirrors `git commit`, which commits the index.
+ */
+function resolveScope(root, requested) {
+  if (requested === "worktree") {
+    return { resolved: "worktree", files: worktreeChangedFiles(root) };
+  }
+
+  const staged = stagedChangedFiles(root);
+
+  if (requested === "staged") {
+    if (staged.length === 0) {
+      throw new Error(
+        "scope 'staged' was requested but nothing is staged; " +
+          "stage the files to commit, or use --scope worktree.",
+      );
+    }
+
+    return { resolved: "staged", files: staged };
+  }
+
+  return staged.length > 0
+    ? { resolved: "staged", files: staged }
+    : { resolved: "worktree", files: worktreeChangedFiles(root) };
 }
 
 function compareBinary(a, b) {
@@ -114,7 +160,7 @@ function normalizeMessage(text) {
     : normalized;
 }
 
-function validateMessage(text, expectedFiles) {
+function validateMessage(text, expectedFiles, fileScope) {
   const issues = [];
   const message = normalizeMessage(text);
   const lines = message.split("\n");
@@ -506,13 +552,18 @@ function validateMessage(text, expectedFiles) {
   const expectedSet = new Set(expectedFiles);
   const listedSet = new Set(uniqueListedFiles);
 
+  const staged = fileScope.resolved === "staged";
+
   for (const path of expectedFiles) {
     if (!listedSet.has(path)) {
       issues.push(
         issue(
           "error",
           "FILE_MISSING_FROM_MESSAGE",
-          "A currently changed file is missing from File Changes.",
+          staged
+            ? "A file staged for this commit is missing from " +
+                "File Changes."
+            : "A currently changed file is missing from File Changes.",
           { path },
         ),
       );
@@ -525,8 +576,11 @@ function validateMessage(text, expectedFiles) {
         issue(
           "error",
           "FILE_NOT_CURRENTLY_CHANGED",
-          "File Changes contains a path that is not currently " +
-            "changed relative to HEAD.",
+          staged
+            ? "File Changes contains a path that is not staged " +
+                "for this commit."
+            : "File Changes contains a path that is not currently " +
+                "changed relative to HEAD.",
           { path },
         ),
       );
@@ -561,6 +615,11 @@ function validateMessage(text, expectedFiles) {
     schemaVersion: 1,
     valid: errorCount === 0,
     manualReviewRequired: reviewCount > 0,
+
+    scope: {
+      requested: fileScope.requested,
+      resolved: fileScope.resolved,
+    },
 
     subject: {
       type: normalizedType,
@@ -600,28 +659,66 @@ function validateMessage(text, expectedFiles) {
   };
 }
 
+const ALLOWED_SCOPES = ["auto", "staged", "worktree"];
+
 function usageError(message) {
   console.error(message);
   console.error(
     "Usage: node scripts/validate-commit-message.mjs " +
-      "<commit-message-file>",
+      "[--scope auto|staged|worktree] <commit-message-file>",
   );
 
   process.exit(2);
 }
 
-const args = process.argv.slice(2);
+function parseArguments(argv) {
+  let requestedScope = "auto";
+  const positional = [];
 
-if (args.length !== 1) {
-  usageError("Expected exactly one commit-message file path.");
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+
+    if (argument === "--scope") {
+      requestedScope = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (argument.startsWith("--scope=")) {
+      requestedScope = argument.slice("--scope=".length);
+      continue;
+    }
+
+    positional.push(argument);
+  }
+
+  if (positional.length !== 1) {
+    usageError("Expected exactly one commit-message file path.");
+  }
+
+  if (!ALLOWED_SCOPES.includes(requestedScope)) {
+    usageError(
+      `Unknown scope '${requestedScope}'. ` +
+        `Expected one of: ${ALLOWED_SCOPES.join(", ")}.`,
+    );
+  }
+
+  return { messagePath: positional[0], requestedScope };
 }
+
+const { messagePath, requestedScope } = parseArguments(
+  process.argv.slice(2),
+);
 
 try {
   const root = repositoryRoot();
-  const message = readFileSync(args[0], "utf8");
-  const expectedFiles = currentChangedFiles(root);
+  const message = readFileSync(messagePath, "utf8");
+  const { resolved, files } = resolveScope(root, requestedScope);
 
-  const result = validateMessage(message, expectedFiles);
+  const result = validateMessage(message, files, {
+    requested: requestedScope,
+    resolved,
+  });
 
   process.stdout.write(
     `${JSON.stringify(result, null, 2)}\n`,
