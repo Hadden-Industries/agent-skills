@@ -4,7 +4,8 @@
  * This supports only the keyword subset used by the schemas committed in this
  * repository: `type` (including union arrays and `integer`), `const`, `enum`,
  * `required`, `properties`, `additionalProperties: false`, `items`, `minimum`,
- * `minLength`, and local `$ref` pointers into `$defs`.
+ * `minLength`, and local `$ref` pointers into `$defs`. The annotation keywords
+ * `title` and `description` are accepted and carry no validation effect.
  *
  * A full JSON Schema implementation is deliberately avoided so that validating
  * a committed schema needs no third-party dependency and no package manifest.
@@ -17,6 +18,7 @@ const SUPPORTED_KEYWORDS = new Set([
   "$defs",
   "$ref",
   "title",
+  "description",
   "type",
   "const",
   "enum",

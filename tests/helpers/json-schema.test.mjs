@@ -80,6 +80,20 @@ test("each violation is reported", () => {
   }
 });
 
+test("annotation keywords are accepted and do not affect validation", () => {
+  const annotated = {
+    title: "Annotated",
+    description: "Annotations carry documentation, not constraints.",
+    type: "object",
+    additionalProperties: false,
+    required: ["value"],
+    properties: { value: { description: "A counter.", type: "integer" } },
+  };
+
+  assert.deepEqual(schemaErrors({ value: 1 }, annotated), []);
+  assert.ok(schemaErrors({ value: "one" }, annotated).length > 0);
+});
+
 test("unsupported keywords fail loudly rather than being ignored", () => {
   assert.throws(
     () => schemaErrors({ value: 1 }, { type: "object", properties: { value: { multipleOf: 2 } } }),
