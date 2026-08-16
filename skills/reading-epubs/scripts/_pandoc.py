@@ -8,6 +8,14 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+# The agent runs these scripts from its own project directory, never from the
+# skill directory, so a bare "references/..." path in the output would not
+# resolve for the caller. Anchor them here instead.
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+
+INSTALLATION_REFERENCE = str(SKILL_ROOT / "references" / "pandoc-installation.md")
+TROUBLESHOOTING_REFERENCE = str(SKILL_ROOT / "references" / "conversion-troubleshooting.md")
+
 
 def find_pandoc() -> Optional[Path]:
     """Return a usable-looking Pandoc executable path, including common fresh-install locations."""

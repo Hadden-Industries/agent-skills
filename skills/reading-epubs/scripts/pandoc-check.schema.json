@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pandoc Check Result",
+  "description": "Output contract for scripts/check_pandoc.py. The payload is one of the variants under $defs, selected by its `status` field; the repository's schema checker supports no union keyword, so callers select the variant themselves before validating.",
+  "$defs": {
+    "ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "installed",
+        "path",
+        "version",
+        "epub_input",
+        "markdown_output"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "const": "ok"
+        },
+        "installed": {
+          "const": true
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "epub_input": {
+          "const": true
+        },
+        "markdown_output": {
+          "const": true
+        }
+      }
+    },
+    "missing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "installed",
+        "installation_reference"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "const": "missing"
+        },
+        "installed": {
+          "const": false
+        },
+        "installation_reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "unusable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "installed",
+        "path",
+        "reason",
+        "installation_reference"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "const": "unusable"
+        },
+        "installed": {
+          "const": true
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installation_reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

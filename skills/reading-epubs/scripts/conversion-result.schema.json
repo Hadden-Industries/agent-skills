@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPUB Conversion Result",
+  "description": "Output contract for scripts/convert_epub.py. The payload is one of the variants under $defs, selected by its `status` field; the repository's schema checker supports no union keyword, so callers select the variant themselves before validating.",
+  "$defs": {
+    "ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "cached",
+        "markdown",
+        "assets",
+        "manifest",
+        "pandoc_log",
+        "style_map",
+        "warning_count",
+        "line_count",
+        "heading_count",
+        "source_sha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "const": "ok"
+        },
+        "cached": {
+          "type": "boolean"
+        },
+        "markdown": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assets": {
+          "type": ["string", "null"]
+        },
+        "manifest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pandoc_log": {
+          "type": ["string", "null"]
+        },
+        "style_map": {
+          "description": "Generated Lua module mapping the book's CSS classes to Markdown semantics; null only if a cached result predates it.",
+          "type": ["string", "null"]
+        },
+        "warning_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "line_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heading_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_sha256": {
+          "type": "string",
+          "minLength": 64
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "error"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "const": "error"
+        },
+        "error": {
+          "enum": [
+            "invalid_epub",
+            "pandoc_missing",
+            "pandoc_failed",
+            "empty_markdown",
+            "output_directory_not_owned"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "pandoc_log": {
+          "type": ["string", "null"]
+        },
+        "troubleshooting_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installation_reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

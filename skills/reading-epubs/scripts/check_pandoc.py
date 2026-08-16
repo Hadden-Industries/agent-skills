@@ -6,15 +6,19 @@ from __future__ import annotations
 import json
 import sys
 
-from _pandoc import find_pandoc, pandoc_version_line, run_pandoc
+from _pandoc import INSTALLATION_REFERENCE, find_pandoc, pandoc_version_line, run_pandoc
 
 EXIT_OK = 0
 EXIT_MISSING = 10
 EXIT_UNUSABLE = 11
 
+# Declared by scripts/pandoc-check.schema.json. Bump both together whenever the
+# output shape changes; SKILL.md branches on these fields.
+SCHEMA_VERSION = 1
+
 
 def emit(payload: dict) -> None:
-    print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    print(json.dumps({"schemaVersion": SCHEMA_VERSION, **payload}, ensure_ascii=False, separators=(",", ":")))
 
 
 def main() -> int:
@@ -24,7 +28,7 @@ def main() -> int:
             {
                 "status": "missing",
                 "installed": False,
-                "installation_reference": "references/pandoc-installation.md",
+                "installation_reference": INSTALLATION_REFERENCE,
             }
         )
         return EXIT_MISSING
@@ -37,7 +41,7 @@ def main() -> int:
                 "installed": True,
                 "path": str(pandoc),
                 "reason": "pandoc --version failed",
-                "installation_reference": "references/pandoc-installation.md",
+                "installation_reference": INSTALLATION_REFERENCE,
             }
         )
         return EXIT_UNUSABLE
@@ -52,7 +56,7 @@ def main() -> int:
                 "path": str(pandoc),
                 "version": version,
                 "reason": "could not query Pandoc formats",
-                "installation_reference": "references/pandoc-installation.md",
+                "installation_reference": INSTALLATION_REFERENCE,
             }
         )
         return EXIT_UNUSABLE
@@ -73,7 +77,7 @@ def main() -> int:
                 "path": str(pandoc),
                 "version": version,
                 "reason": "missing required Pandoc features: " + ", ".join(missing_features),
-                "installation_reference": "references/pandoc-installation.md",
+                "installation_reference": INSTALLATION_REFERENCE,
             }
         )
         return EXIT_UNUSABLE

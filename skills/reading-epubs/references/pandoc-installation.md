@@ -6,7 +6,7 @@ Read this file **only when** `scripts/check_pandoc.py` exits `10` (missing) or `
 
 1. Prefer an existing platform package manager over downloading an arbitrary binary.
 2. Use one installation method only. Do not create a second Pandoc installation merely because the first shell has not refreshed its `PATH`.
-3. After installation, rerun `python scripts/check_pandoc.py`. Do not continue until it returns exit `0`.
+3. After installation, rerun `python <skill-path>/scripts/check_pandoc.py`, resolving the path relative to this skill's directory. Do not continue until it reports `"status":"ok"` (exit `0`).
 4. If installation requires credentials, elevation, or interaction the agent cannot provide, report the exact blocked command to the user. Do not bypass the requirement by reading the EPUB directly.
 
 ## Windows
@@ -57,9 +57,9 @@ If the distribution package is too old or unavailable, use the official Pandoc r
 Always finish by running the checker with the environment's Python 3 launcher:
 
 ```text
-python scripts/check_pandoc.py
+python <skill-path>/scripts/check_pandoc.py
 ```
 
-Use `python3` instead when `python` is not the Python 3 command on that platform.
+Use `python3`, or `py -3` on Windows, when `python` is not the Python 3 command on that platform.
 
 A valid result has `"status":"ok"` and confirms both `epub_input` and `markdown_output`.
