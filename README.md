@@ -18,7 +18,9 @@ The repository follows one core rule:
 
 * **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Generates strictly ISO/IEC 11179-4 compliant concept definitions from a designation. It features advanced etymological analysis, worldwide vocabulary reuse checking, and strict ontological category error prevention.
 
-* **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever an input or referenced file is EPUB, has an .epub extension, or the user asks to inspect, search, quote, summarize, analyze, or extract content from an EPUB. Always use this workflow instead of treating EPUB as natively readable or relying on an agent/runtime EPUB preview.
+* **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
+
+  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/evals/README.md) for the method, the null results, and the limits.
 
 ## Installation
 
@@ -59,7 +61,7 @@ These skills are built on the open [Agent Skills specification](https://agentski
 A good Agent Skill is not merely valid Markdown. It should:
 
 - **trigger for the right requests** and stay out of unrelated requests;
-- produce **materially better behavior** than the agent without the skill;
+- produce **materially better behavior** than the agent without the skill, or reach the same result at materially lower cost;
 - contain only the instructions needed at activation time;
 - progressively load detailed references rather than spending context up front;
 - use scripts for deterministic or repetitive work when that is better than generating code dynamically;
@@ -295,10 +297,20 @@ Be explicit about:
 - **when it should not trigger;**
 - what successful behavior looks like;
 - what failure modes you are trying to prevent;
+- **whether the gain is better output, cheaper output, or both;**
 - whether deterministic work belongs in a script rather than prose instructions;
 - what information belongs in `SKILL.md` versus lazily loaded references.
 
 A useful skill should have a narrower purpose than “make the agent better at X”.
+
+Answer the cost question before writing anything. A skill whose value is
+efficiency is a legitimate and often easier skill to justify, because resource
+use is measurable where output quality is arguable — but it has to be built for
+that from the start. It will need a task the agent can already complete, a
+recorded baseline cost, and a saving large enough to clear the skill's own
+overhead. Deciding this afterwards tends to produce an evaluation that measures
+correctness, finds no difference, and concludes the skill is worthless when it
+is merely cheaper.
 
 ## 2. Establish a baseline
 
@@ -308,9 +320,13 @@ Capture:
 
 - what the agent already does well;
 - the specific mistakes, omissions, or inefficiencies the skill should correct;
-- outputs that can be compared after the skill exists.
+- outputs that can be compared after the skill exists;
+- **what the task cost without the skill** — tokens consumed, tool calls, files opened — since a saving cannot be claimed against a figure that was never recorded.
 
-This prevents writing instructions for behavior the underlying agent already performs reliably.
+This prevents writing instructions for behavior the underlying agent already
+performs reliably. Note that "performs reliably" and "performs cheaply" are
+different findings: an agent that reaches the right answer by reading an entire
+document has succeeded, and is still worth improving.
 
 For behavioral or discipline-oriented skills, include pressure cases where appropriate:
 
@@ -617,6 +633,71 @@ Evaluate what matters for that skill, for example:
 
 When the difference is subjective or high-impact, use blind comparison where the available authoring tooling supports it.
 
+### Score consumption, not only correctness
+
+A capable agent often reaches the right answer with or without the skill, so a
+correctness rubric reports no difference and the evaluation looks like a
+failure. `reading-epubs` was measured this way: **every arm of every controlled
+run answered correctly**, and the skill's value appeared only in what answering
+cost — 45% fewer tokens for Haiku 4.5, 9% for Opus.
+
+Capture, from each run's own usage report:
+
+- tokens consumed;
+- tool calls made;
+- distinct files opened;
+- exactness of any quoted material, checked against the source character for character.
+
+The first three need no human grading.
+
+### Vary the model, not just the skill
+
+Benefit frequently scales *inversely* with model capability, because much of
+what a skill supplies is what a strong model would work out unaided. Running
+one model hides this. Run at least a weak and a strong one: the interesting
+comparison is often the diagonal, where a weaker agent with the skill
+outperforms a stronger agent without it.
+
+### Isolate the baseline deliberately
+
+A "without skill" arm that can see the skill is not a baseline. Omitting to
+mention it is not enough — an agent will find a skill in its own working
+directory, and a scratch path containing the repository name is a strong hint.
+Instruct the baseline explicitly to work from first principles and to report
+whether it encountered relevant tooling, then check that report before
+believing the numbers.
+
+### Net the skill's own cost
+
+A skill is not free. Its `description` is loaded in every session whether or not
+it is used, and its body is loaded on every activation. A saving only counts
+once it has paid for both:
+
+```text
+net benefit  =  (saving per use  −  invoke cost)  ×  uses
+                −  trigger cost  ×  every session
+```
+
+The trigger term is the unforgiving one, because it is charged even in sessions
+where the skill never fires. A narrowly useful skill with a verbose description
+can be net negative across a fleet while looking beneficial in every run that
+used it.
+
+`plugin-eval explain-budget` reports both costs. For `reading-epubs` they are
+roughly 98 trigger tokens and 1,500 invoke tokens, against a measured saving of
+about 30,000 tokens on one real book — clearing its own overhead about twentyfold
+on a single use. A skill saving 500 tokens per use would not clear it at all.
+
+State this ratio when claiming an efficiency benefit. "Saves tokens" is not a
+result; "saves 20× what it costs to carry" is.
+
+### Do not over-read a single run
+
+One run per arm has no statistical power. Published work in this area has found
+apparent single-digit improvements that did not survive a properly powered
+study. Treat a handful of runs as directional evidence, record the sample size
+alongside the result, and say plainly what the numbers do not establish.
+
 ## Layer 6 — trigger evaluation
 
 A well-written skill that never activates is ineffective. A skill that activates everywhere wastes context and can distort unrelated work.
@@ -675,7 +756,8 @@ Use the smallest evaluation set that provides credible evidence for the change.
 | `description` / trigger change | `skills-ref` + positive/negative trigger evals |
 | Core workflow instruction change | old-vs-new behavioral eval + static review |
 | New mandatory constraint | pressure/failure cases + regression scenarios |
-| New skill | baseline-without-skill + behavioral eval + trigger eval + static review |
+| New skill | baseline-without-skill + behavioral eval + trigger eval + static review + baseline-versus-skill resource measurement |
+| Skill justified on efficiency rather than output | the above, plus consumption measured across at least two model tiers, and the saving netted against the skill's own trigger and invoke cost |
 | Large/refactored skill | full layered review + token/progressive-disclosure review |
 | Host-specific behavior change | affected-host test + at least one portability sanity check |
 
@@ -801,7 +883,8 @@ For a meaningful new or modified skill:
 - [ ] Scripts have been exercised independently where applicable.
 - [ ] `skills-ref validate` passes.
 - [ ] Static/semantic review has been performed at a depth appropriate to the change.
-- [ ] Behavioral evaluation demonstrates the intended improvement.
+- [ ] Behavioral evaluation demonstrates the intended improvement, whether that is better output or the same output at a lower cost.
+- [ ] Where the claim is efficiency, the saving is measured against a recorded baseline and exceeds the skill's own trigger and invoke cost.
 - [ ] Trigger-sensitive changes include should-trigger and should-not-trigger cases.
 - [ ] Important existing behavior has not regressed.
 - [ ] Portability has been checked on relevant agent hosts.

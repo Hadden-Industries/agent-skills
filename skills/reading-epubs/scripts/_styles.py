@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 # Fixed order so a class carrying several declarations always nests its
 # constructors the same way, and the generated map is reproducible.
@@ -230,7 +230,11 @@ def _lua_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def render_lua(style_map: Dict[str, List[str]], list_markers: List[str]) -> str:
+def render_lua(
+    style_map: Dict[str, List[str]],
+    list_markers: List[str],
+    toc_anchors: Optional[List[str]] = None,
+) -> str:
     """Serialise both maps as a Lua module the filter loads with dofile().
 
     A generated Lua table avoids needing a JSON parser inside the filter, and
@@ -262,15 +266,33 @@ def render_lua(style_map: Dict[str, List[str]], list_markers: List[str]) -> str:
     for class_name in list_markers:
         lines.append(f"    [{_lua_string(class_name)}] = true,")
 
+    lines.extend(
+        [
+            "  },",
+            "  -- Anchors the book's table of contents points at. Nothing in",
+            "  -- the Markdown links to them, because the navigation document",
+            "  -- is not converted, so without this they would be stripped as",
+            "  -- unreferenced and toc.json would address nothing.",
+            "  toc_anchors = {",
+        ]
+    )
+
+    for anchor in toc_anchors or []:
+        lines.append(f"    [{_lua_string(anchor)}] = true,")
+
     lines.extend(["  },", "}"])
 
     return "\n".join(lines) + "\n"
 
 
-def write_style_map(epub_path: Path, output_dir: Path) -> Tuple[Path, Dict[str, List[str]], List[str]]:
+def write_style_map(
+    epub_path: Path, output_dir: Path, toc_anchors: Optional[List[str]] = None
+) -> Tuple[Path, Dict[str, List[str]], List[str]]:
     style_map, list_markers = build_maps(epub_path)
     destination = output_dir / STYLE_MAP_NAME
 
-    destination.write_text(render_lua(style_map, list_markers), encoding="utf-8")
+    destination.write_text(
+        render_lua(style_map, list_markers, toc_anchors), encoding="utf-8"
+    )
 
     return destination, style_map, list_markers

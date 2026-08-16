@@ -22,12 +22,21 @@
 local map_path = os.getenv("READING_EPUBS_STYLE_MAP")
 local style_map = {}
 local list_markers = {}
+local referenced = {}
 
 if map_path then
   local loaded, result = pcall(dofile, map_path)
   if loaded and type(result) == "table" then
     style_map = result.styles or {}
     list_markers = result.list_markers or {}
+
+    -- Seed the referenced set with the table of contents' targets. The
+    -- navigation document is not converted, so nothing inside the Markdown
+    -- links to these; without seeding them they would be stripped as
+    -- unreferenced and the emitted toc.json would address nothing.
+    for anchor in pairs(result.toc_anchors or {}) do
+      referenced[anchor] = true
+    end
   end
 end
 
@@ -86,8 +95,6 @@ local function semantics_of(classes)
 
   return names
 end
-
-local referenced = {}
 
 local function collect_reference(el)
   if el.target and el.target:sub(1, 1) == "#" then
@@ -271,6 +278,117 @@ local function clean_link(el)
   return strip_classes(el)
 end
 
+-- Code blocks need the opposite treatment to everything else here.
+--
+-- Pandoc's Markdown writer emits an indented code block whenever a CodeBlock
+-- carries no attributes, and there is no writer setting that overrides this.
+-- Stripping the class therefore does not just lose the language: it loses the
+-- fence, leaving code that an extractor has to de-indent and that carries no
+-- delimiter at all. A non-empty attribute is the only way to guarantee ``` .
+--
+-- So the class stays, but it must not be the publisher's styling leaking into
+-- an info string that conventionally names a language. The stylesheet settles
+-- which is which: a class the book styles is presentation, a class it does not
+-- style is almost always a language identifier, since Pandoc has already
+-- normalised `language-python` and `sourceCode python` down to `python`.
+local FALLBACK_LANGUAGE = "text"
+
+-- Checked before the stylesheet, so that a syntax-highlighting theme defining
+-- `.python` cannot demote a genuine language to plain text.
+local KNOWN_LANGUAGES = {
+  bash = true, c = true, cpp = true, csharp = true, css = true, diff = true,
+  go = true, haskell = true, html = true, ini = true, java = true,
+  javascript = true, json = true, kotlin = true, lua = true, makefile = true,
+  markdown = true, matlab = true, objectivec = true, perl = true, php = true,
+  powershell = true, python = true, r = true, ruby = true, rust = true,
+  scala = true, sh = true, shell = true, sql = true, swift = true,
+  toml = true, typescript = true, xml = true, yaml = true,
+}
+
+-- Marker classes that Pandoc and syntax highlighters attach alongside the real
+-- language. They are never languages themselves, and an unstyled one would
+-- otherwise be mistaken for one by the fallback below.
+local NON_LANGUAGE_CLASSES = {
+  code = true, hljs = true, highlight = true, lineanchors = true,
+  numberlines = true, pre = true, prettyprint = true, sourcecode = true,
+  verbatim = true,
+}
+
+local function code_language(classes)
+  for _, class_name in ipairs(classes) do
+    if KNOWN_LANGUAGES[class_name:lower()] then
+      return class_name:lower()
+    end
+  end
+
+  for _, class_name in ipairs(classes) do
+    local lowered = class_name:lower()
+    if not NON_LANGUAGE_CLASSES[lowered] and style_map[class_name] == nil then
+      return class_name
+    end
+  end
+
+  return FALLBACK_LANGUAGE
+end
+
+local function sniff_language(text)
+  local trimmed = text:match("^%s*(.-)%s*$") or ""
+
+  while true do
+    local rest = trimmed:match("^<!%-%-.-%-%->%s*(.*)$")
+    if not rest then
+      break
+    end
+    trimmed = rest
+  end
+
+  if trimmed == "" then
+    return nil
+  end
+
+  if trimmed:match("^<%?xml") then
+    return "xml"
+  end
+
+  local lowered = trimmed:lower()
+  if lowered:match("^<!doctype%s+html") or lowered:match("^<html[%s>]") then
+    return "html"
+  end
+
+  -- An opening tag alone is not enough, because grammar notation has the same
+  -- shape:
+  --
+  --     <relation assign>
+  --              ::=   <relvar name> := <relation exp>
+  --
+  -- That is BNF, and a book on relational theory is full of it. Real markup
+  -- either closes a tag or carries a quoted attribute, and requiring one of
+  -- those separates the two without special-casing either.
+  if trimmed:match("^<%a[%w:%-%.]*[%s>/]") then
+    local closes = trimmed:match("</%a") or trimmed:find("/>", 1, true)
+    local has_attribute = trimmed:match("=%s*\"") or trimmed:match("=%s*'")
+
+    if closes or has_attribute then
+      return "xml"
+    end
+  end
+
+  return nil
+end
+
+local function clean_code_block(el)
+  local identifier = is_link_target(el.identifier) and el.identifier or ""
+  local language = code_language(el.classes)
+
+  if language == FALLBACK_LANGUAGE then
+    language = sniff_language(el.text) or FALLBACK_LANGUAGE
+  end
+
+  el.attr = pandoc.Attr(identifier, { language }, {})
+
+  return el
+end
+
 return {
   { Link = collect_reference },
   -- Must precede the span pass: the marker span identifying a dash bullet is
@@ -283,6 +401,6 @@ return {
     Table = strip_classes,
     Link = clean_link,
     Image = strip_classes,
-    CodeBlock = strip_classes,
+    CodeBlock = clean_code_block,
   },
 }

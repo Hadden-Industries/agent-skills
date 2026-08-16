@@ -237,11 +237,22 @@ for (const { extension, wrapper, note } of SPINE_SHAPES) {
     assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
 
     const markdown = readFileSync(result.json.markdown, "utf8");
+    const tocAnchors = new Set(
+      JSON.parse(readFileSync(result.json.toc, "utf8")).entries.map(({ anchor }) => anchor),
+    );
 
-    assert.doesNotMatch(
-      markdown,
-      new RegExp(String.raw`chapter-\d\.${extension}`, "u"),
-      "a spine filename must not survive into the text the agent reads",
+    assert.doesNotMatch(markdown, /^::: /mu, "no transport wrapper may survive");
+
+    // An anchor is worth keeping only if something addresses it: a link in the
+    // text, or an entry in the extracted table of contents. Anything else is
+    // the publisher's plumbing and should have been unwrapped.
+    const defined = [...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id);
+    const linked = new Set([...markdown.matchAll(/\]\(#([^)]+)\)/gu)].map(([, id]) => id));
+
+    assert.deepEqual(
+      defined.filter((id) => !linked.has(id) && !tocAnchors.has(id)),
+      [],
+      "an anchor nothing points at is transport noise and must be removed",
     );
   });
 }
@@ -267,6 +278,40 @@ test("an internal cross-reference still resolves after cleaning", NEEDS_PANDOC, 
     targets.filter((id) => !defined.has(id)),
     [],
     "cleaning must not leave an internal link pointing at a removed anchor",
+  );
+});
+
+// Pandoc consumes an EPUB's navigation document as structure and never emits
+// it, so a question about the table of contents cannot be answered from the
+// converted Markdown. The converter extracts it separately and resolves each
+// entry to an anchor inside the Markdown, which only works if those anchors
+// survive cleaning -- nothing in the text links to them.
+test("the table of contents is extracted and its anchors resolve", NEEDS_PANDOC, (t) => {
+  const space = workspace(t);
+  const input = space.write("book.epub", buildEpub());
+
+  const result = convert(input, ["--output-dir", space.outputDir()]);
+
+  assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
+  assert.ok(result.json.toc, "the result must report a table of contents");
+  assert.ok(existsSync(result.json.toc), "the table of contents file must exist");
+
+  const { entries } = JSON.parse(readFileSync(result.json.toc, "utf8"));
+
+  assert.equal(entries.length, result.json.toc_entries);
+  assert.deepEqual(
+    entries.map(({ title }) => title),
+    ["The First Chapter", "The Second Chapter"],
+    "the navigation document's titles must be recovered in order",
+  );
+
+  const markdown = readFileSync(result.json.markdown, "utf8");
+  const defined = new Set([...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id));
+
+  assert.deepEqual(
+    entries.filter(({ anchor }) => !defined.has(anchor)),
+    [],
+    "every table-of-contents anchor must address a point in the Markdown",
   );
 });
 

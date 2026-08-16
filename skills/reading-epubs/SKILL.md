@@ -1,6 +1,6 @@
 ---
 name: reading-epubs
-description: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB - inspecting, searching, quoting, summarizing, analyzing, or extracting from a file that is EPUB or has an .epub extension. Always use this workflow instead of treating EPUB as natively readable or relying on an agent/runtime EPUB preview. Do not use for producing or converting content into EPUB, for other ebook or document formats such as PDF, MOBI, or AZW3, for organizing or renaming ebook files without reading them, or for writing code that parses EPUB.
+description: Use when a task needs the content of an EPUB - inspecting, searching, quoting, summarizing, analyzing, or extracting from a file that is EPUB or has an .epub extension. Converts the book to cleaned Markdown first, so always use this workflow instead of treating EPUB as natively readable or relying on an agent/runtime EPUB preview. Do not use for producing or converting content into EPUB, for other ebook or document formats such as PDF, MOBI, or AZW3, for organizing or renaming ebook files without reading them, or for writing code that parses EPUB.
 compatibility: Requires Python 3.9+ to run bundled scripts and Pandoc for EPUB conversion; bundled installation guidance covers Windows, macOS, and Linux.
 metadata:
   category: document-processing
@@ -46,6 +46,7 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
    - `empty_markdown`, `output_directory_not_owned` (exit `22`): the conversion produced nothing usable, or the chosen output directory holds files this converter did not create. Never overwrite the latter — choose a different directory.
 
 3. **Read progressively.** Do not load a large generated Markdown file in full unless the task genuinely requires it.
+   - Start from the `toc` file when the book has one. It lists each entry's title, nesting level, and an `anchor` that appears in the Markdown, so a section can be reached directly. Pandoc discards the book's navigation document, so this file is the only place the table of contents exists.
    - Inspect structure first with the agent's normal text-search tools. If `rg` is available: `rg -n '^#{1,6} ' "<markdown>"`.
    - Search for task-relevant terms before reading: `rg -n -i '<term>' "<markdown>"`.
    - Read only the relevant line ranges or sections.
@@ -55,6 +56,7 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
 4. **Check conversion status before relying on the result.**
    - `warning_count`, `line_count`, and `heading_count` are reported on every success, including a cache hit. If `warning_count` is above zero, read `pandoc_log` only when those warnings could affect the requested content.
    - The converter strips the publisher's styling and keeps what it means: a bold class becomes `**bold**`, italic becomes `*italic*`, monospace becomes `` `code` ``, and layout-only classes are removed entirely. Where a book sets bulleted lists as dash-prefixed paragraphs — as ISO standards do — those become real Markdown lists. The mapping is derived from the book's own stylesheet and written to the `style_map` path. Read it only when the formatting in the Markdown looks wrong and you need to know why.
+   - Code listings arrive as fenced blocks carrying the book's declared language, or `text` where it declares none. Quote them from inside the fence; the indentation there is the book's. `repaired_code_blocks` counts listings rewritten to survive an upstream Pandoc defect, and is 0 for most books.
    - If conversion fails, read the file named by `troubleshooting_reference` and follow it. **Do not fall back to native EPUB reading.**
    - For exact quotations, verify the relevant passage in the generated Markdown rather than quoting from memory or a preview.
 
@@ -64,6 +66,9 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
 - `scripts/convert_epub.py`: validates and converts an EPUB to cleaned Pandoc Markdown, extracts media, caches results, and emits a compact JSON manifest summary.
 - `scripts/_pandoc.py`: shared Pandoc discovery and reference-path helpers imported by both scripts; not run directly.
 - `scripts/_styles.py`: reads the EPUB's own stylesheets and derives which of its CSS classes carry meaning; not run directly.
+- `scripts/_toc.py`: extracts the book's navigation and resolves each entry to an anchor in the converted Markdown; not run directly.
+- `scripts/_repair.py`: rewrites code listings Pandoc would otherwise flatten, for the books that contain them; not run directly.
+- `evals/measure_conversion.py`: reports how much less an agent reads through this workflow than by opening the spine documents itself. For evaluating the skill, not for answering questions about a book.
 - `scripts/clean_epub.lua`: removes the wrappers and anchors Pandoc derives from EPUB source filenames, converts the publisher's styling classes into real Markdown, and discards the rest. Keeps document content and any anchor the document links to.
 - `scripts/pandoc-check.schema.json`, `scripts/conversion-result.schema.json`: the two scripts' output contracts; consult when interpreting an unfamiliar field.
 - `references/pandoc-installation.md`: load only when the Pandoc check fails.

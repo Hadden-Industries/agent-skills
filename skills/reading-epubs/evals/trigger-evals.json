@@ -1,0 +1,17 @@
+[
+  { "query": "Read the attached EPUB and summarize chapter 3 in five bullets.", "should_trigger": true },
+  { "query": "What does this book say about eventual consistency? Blindsight.epub is attached.", "should_trigger": true },
+  { "query": "I've got an ebook here - can you find every mention of quorum reads?", "should_trigger": true },
+  { "query": "Search Blindsight.epub for the passage about the scramblers and quote it exactly.", "should_trigger": true },
+  { "query": "Summarise the normative requirements in the attached ISO standard.", "should_trigger": true },
+  { "query": "Pull the table of contents out of this .epub so I can see how it is structured.", "should_trigger": true },
+  { "query": "Which chapter of the attached ebook covers metadata registries?", "should_trigger": true },
+
+  { "query": "Convert my Markdown notes into an EPUB for my e-reader.", "should_trigger": false },
+  { "query": "Extract the text from this PDF and summarize it.", "should_trigger": false },
+  { "query": "Read chapter 3 of this .mobi file.", "should_trigger": false },
+  { "query": "Rename every .epub in my library folder to 'Author - Title.epub'.", "should_trigger": false },
+  { "query": "Why won't my Calibre server start?", "should_trigger": false },
+  { "query": "Write a Python function that parses an EPUB's container.xml.", "should_trigger": false },
+  { "query": "Is EPUB 3 or PDF better for screen-reader accessibility?", "should_trigger": false }
+]

@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
+from _repair import REPAIRED_NAME, needs_repair, write_repaired_epub
 from _styles import STYLE_MAP_NAME, write_style_map
+from _toc import TOC_NAME, build_toc, write_toc
 
 from _pandoc import (
     INSTALLATION_REFERENCE,
@@ -47,7 +49,13 @@ SCHEMA_VERSION = 1
 # Reported on both a fresh conversion and a cache hit. Dropping them on a cache
 # hit would silently remove the signal SKILL.md step 4 uses to decide whether a
 # conversion is trustworthy, from the second question about a book onwards.
-COUNT_FIELDS = ("warning_count", "line_count", "heading_count")
+COUNT_FIELDS = (
+    "warning_count",
+    "line_count",
+    "heading_count",
+    "toc_entries",
+    "repaired_code_blocks",
+)
 
 
 def emit(payload: dict) -> None:
@@ -176,6 +184,7 @@ def main() -> int:
     log_path = output_dir / LOG_NAME
     assets_path = output_dir / ASSETS_NAME
     style_map_path = output_dir / STYLE_MAP_NAME
+    toc_path = output_dir / TOC_NAME
 
     existing_manifest = load_manifest(manifest_path) if manifest_path.exists() else None
     cached_counts = manifest_counts(existing_manifest)
@@ -196,6 +205,7 @@ def main() -> int:
                 "manifest": str(manifest_path),
                 "pandoc_log": str(log_path) if log_path.exists() else None,
                 "style_map": str(style_map_path) if style_map_path.exists() else None,
+                "toc": str(toc_path) if toc_path.exists() else None,
                 **cached_counts,
                 "source_sha256": source_hash,
             }
@@ -220,14 +230,33 @@ def main() -> int:
         if assets_path.exists():
             shutil.rmtree(assets_path)
 
+    # Pandoc discards the navigation document, so the table of contents is
+    # extracted here and emitted as data. Its anchors are handed to the filter
+    # too, which would otherwise strip them as unreferenced.
+    toc_entries = build_toc(source)
+    write_toc(toc_entries, output_dir)
+
     # The Lua filter cannot read the EPUB's zip, so the class-to-semantics map
     # is derived here and handed over as a generated Lua module.
-    _, style_map, list_markers = write_style_map(source, output_dir)
+    _, style_map, list_markers = write_style_map(
+        source, output_dir, [entry["anchor"] for entry in toc_entries]
+    )
+
+    # Pandoc discards the indentation of a <pre> with no inner <code>, so a book
+    # containing one is converted from a repaired copy. Gated so that an
+    # ordinary book pays for the scan and nothing more.
+    pandoc_input = source
+    repaired_blocks = 0
+
+    if needs_repair(source):
+        repaired_blocks = write_repaired_epub(source, output_dir / REPAIRED_NAME)
+        if repaired_blocks:
+            pandoc_input = output_dir / REPAIRED_NAME
 
     filter_path = Path(__file__).with_name("clean_epub.lua").resolve()
     command = [
         str(pandoc),
-        str(source),
+        str(pandoc_input),
         "--from=epub",
         "--to=markdown",
         "--standalone",
@@ -298,9 +327,12 @@ def main() -> int:
         "style_map_classes": len(style_map),
         "style_map_semantic_classes": sum(1 for names in style_map.values() if names),
         "list_marker_classes": list_markers,
+        "toc": str(toc_path),
+        "repaired_code_blocks": repaired_blocks,
         "warning_count": warnings,
         "line_count": len(lines),
         "heading_count": headings,
+        "toc_entries": len(toc_entries),
     }
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -321,6 +353,9 @@ def main() -> int:
             "manifest": str(manifest_path),
             "pandoc_log": str(log_path) if log_path.exists() else None,
             "style_map": str(style_map_path),
+            "toc": str(toc_path),
+            "toc_entries": len(toc_entries),
+            "repaired_code_blocks": repaired_blocks,
             "warning_count": warnings,
             "line_count": len(lines),
             "heading_count": headings,

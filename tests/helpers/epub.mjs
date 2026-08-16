@@ -6,20 +6,24 @@
  * writing a ZIP container, and Node's standard library has a compressor but no
  * archive writer, so a minimal STORED-only writer lives here.
  *
- * STORED (uncompressed) entries are sufficient and are in fact what the EPUB
- * container format requires for the leading `mimetype` entry. Keeping the
- * writer dependency-free preserves the repository's position of needing no
- * `package.json`, no lockfile, and no third-party package to run its tests.
+ * Entries are deflated exactly as a real EPUB's are, apart from the leading
+ * `mimetype` entry the container format requires to be stored uncompressed.
+ * Keeping the writer dependency-free preserves the repository's position of
+ * needing no `package.json`, no lockfile, and no third-party package to run
+ * its tests.
  */
 
 import { Buffer } from "node:buffer";
+import { deflateRawSync } from "node:zlib";
 
 const LOCAL_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_HEADER_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 
 const STORED = 0;
-const VERSION_NEEDED = 10;
+const DEFLATED = 8;
+const VERSION_STORED = 10;
+const VERSION_DEFLATED = 20;
 const VERSION_MADE_BY = 20;
 
 // A fixed 1980-01-01 DOS timestamp keeps generated archives byte-for-byte
@@ -69,33 +73,43 @@ export function buildZip(entries) {
     const data = Buffer.isBuffer(contents) ? contents : Buffer.from(contents, "utf8");
     const crc = crc32(data);
 
+    // The EPUB container format requires `mimetype` to be stored uncompressed.
+    // Everything else is deflated, because that is what real EPUBs do and it
+    // is what makes their text unreadable without a conversion step. A fixture
+    // that stored its chapters in plain text would be readable straight out of
+    // the archive, and would quietly misrepresent what this skill is for.
+    const stored = name === "mimetype";
+    const body = stored ? data : deflateRawSync(data, { level: 9 });
+    const method = stored ? STORED : DEFLATED;
+    const version = stored ? VERSION_STORED : VERSION_DEFLATED;
+
     const local = Buffer.alloc(30);
 
     local.writeUInt32LE(LOCAL_HEADER_SIGNATURE, 0);
-    local.writeUInt16LE(VERSION_NEEDED, 4);
+    local.writeUInt16LE(version, 4);
     local.writeUInt16LE(0, 6);
-    local.writeUInt16LE(STORED, 8);
+    local.writeUInt16LE(method, 8);
     local.writeUInt16LE(DOS_TIME, 10);
     local.writeUInt16LE(DOS_DATE, 12);
     local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(body.length, 18);
     local.writeUInt32LE(data.length, 22);
     local.writeUInt16LE(nameBuffer.length, 26);
     local.writeUInt16LE(0, 28);
 
-    localChunks.push(local, nameBuffer, data);
+    localChunks.push(local, nameBuffer, body);
 
     const central = Buffer.alloc(46);
 
     central.writeUInt32LE(CENTRAL_HEADER_SIGNATURE, 0);
     central.writeUInt16LE(VERSION_MADE_BY, 4);
-    central.writeUInt16LE(VERSION_NEEDED, 6);
+    central.writeUInt16LE(version, 6);
     central.writeUInt16LE(0, 8);
-    central.writeUInt16LE(STORED, 10);
+    central.writeUInt16LE(method, 10);
     central.writeUInt16LE(DOS_TIME, 12);
     central.writeUInt16LE(DOS_DATE, 14);
     central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(body.length, 20);
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(nameBuffer.length, 28);
     central.writeUInt16LE(0, 30);
@@ -107,7 +121,7 @@ export function buildZip(entries) {
 
     centralChunks.push(central, nameBuffer);
 
-    offset += local.length + nameBuffer.length + data.length;
+    offset += local.length + nameBuffer.length + body.length;
   }
 
   const centralDirectory = Buffer.concat(centralChunks);

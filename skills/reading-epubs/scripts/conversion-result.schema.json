@@ -15,9 +15,12 @@
         "manifest",
         "pandoc_log",
         "style_map",
+        "toc",
         "warning_count",
         "line_count",
         "heading_count",
+        "toc_entries",
+        "repaired_code_blocks",
         "source_sha256"
       ],
       "properties": {
@@ -47,6 +50,19 @@
         "style_map": {
           "description": "Generated Lua module mapping the book's CSS classes to Markdown semantics; null only if a cached result predates it.",
           "type": ["string", "null"]
+        },
+        "toc": {
+          "description": "Table of contents extracted from the book's navigation and resolved to anchors inside the Markdown; Pandoc discards the navigation document itself.",
+          "type": ["string", "null"]
+        },
+        "toc_entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repaired_code_blocks": {
+          "description": "Bare <pre> blocks rewritten before conversion to work around Pandoc discarding their indentation; 0 for books needing no repair.",
+          "type": "integer",
+          "minimum": 0
         },
         "warning_count": {
           "type": "integer",
