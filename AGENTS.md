@@ -34,6 +34,7 @@ Treat all existing working-tree changes as user-owned and potentially valuable.
 
 - Use the current working-tree contents as the authoritative starting point for ordinary file editing.
 - Preserve all pre-existing modifications unless the user explicitly requests that they be changed or discarded.
+- Treat any change you did not make as deliberate, including content that was present earlier in the session and is now absent. Never restore it, and do not assume a regression, a sync artefact, or a tooling bug; raise it and ask if it materially affects work in progress.
 - Edit files directly using minimal, targeted changes.
 - Never use `git checkout`, `git restore`, `git reset --hard`, or another Git restoration operation to undo edits made during the current task.
 - To undo your own changes, reverse only the specific edits you introduced.
