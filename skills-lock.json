@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "skills": {
+    "committing-to-git": {
+      "source": "Hadden-Industries/agent-skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/committing-to-git/SKILL.md",
+      "computedHash": "ecf37e4547f1b83d6a8fcaf83caa3a2434e66fca77fe86405fa01ba233c84837"
+    },
+    "skill-check": {
+      "source": "olgasafonova/SkillCheck-Free",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/skill-check/SKILL.md",
+      "computedHash": "79ebc44c0b6a9389082c45c10bcd8fc6650b3979704768a606157a2146b3a6af"
+    },
+    "skill-creator": {
+      "source": "anthropics/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "5ea13a6d9f0d4bb694405d79acd00cadec0d21bb138c4dd10fcf3c500cb835c2"
+    },
+    "test-driven-development": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/test-driven-development/SKILL.md",
+      "computedHash": "a4126a9c5f17be3c228aa9e5755898ade283448b86099f56f40852e8c14532be"
+    },
+    "writing-skills": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/writing-skills/SKILL.md",
+      "computedHash": "e5dfc1a942f56dc757421b0d87ae1f38ab693ebc71138e65268fd408bb5c93d3"
+    }
+  }
+}

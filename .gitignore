@@ -1,12 +1,13 @@
 # Local Agent Skills
 .agents/skills/
 .claude/skills/
-skills-lock.json
-.agents/.skill-lock.json
 
 # Local skill-engineering environment
 .venv/
 .agent-tools/
+.env
+__pycache__/
+*.pyc
 
 # Local OpenAI Plugin Eval integration
 .agents/plugins/marketplace.json
