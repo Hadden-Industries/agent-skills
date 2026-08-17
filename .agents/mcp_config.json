@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": ".agent-tools/bin/github-mcp-server.exe",
+      "args": [
+        "stdio"
+      ]
+    }
+  }
+}

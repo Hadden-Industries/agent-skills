@@ -144,19 +144,28 @@ agent-skills/
 │   ├── helpers/
 │   │   ├── epub.mjs                      # EPUB fixture builder
 │   │   ├── json-schema.mjs               # Dependency-free schema checker
-│   │   └── json-schema.test.mjs
+│   │   ├── json-schema.test.mjs
+│   │   └── python.mjs                    # Shared interpreter probing
 │   ├── committing-to-git/
 │   │   └── validate-commit-message.test.mjs
-│   └── reading-epubs/
-│       ├── check-pandoc.test.mjs
-│       ├── convert-epub.test.mjs
-│       ├── eval-fixture.test.mjs
-│       └── harness.mjs
+│   ├── reading-epubs/
+│   │   ├── check-pandoc.test.mjs
+│   │   ├── convert-epub.test.mjs
+│   │   ├── eval-fixture.test.mjs
+│   │   └── harness.mjs
+│   └── scripts/
+│       ├── github-mcp-server.test.mjs    # Bootstrap MCP installer contract
+│       └── github_mcp_driver.py          # Loads the bootstrap for those tests
 │
 ├── .tessl-plugin/
 │   └── plugin.json                       # Tessl package root — COMMITTED
 │
+├── .mcp.json                             # MCP config (Claude Code) — COMMITTED
+├── .codex/
+│   └── config.toml                       # MCP config (Codex) — COMMITTED
+│
 ├── .agents/
+│   ├── mcp_config.json                   # MCP config (Antigravity) — COMMITTED
 │   ├── skills/                           # Generated Codex/Antigravity skills
 │   └── plugins/
 │       └── marketplace.json              # Generated local plugin metadata
@@ -165,6 +174,9 @@ agent-skills/
 │   └── skills/                           # Generated Claude Code skills
 │
 ├── .agent-tools/                         # Generated local tooling
+│   ├── bin/                              # Wrappers + github-mcp-server binary
+│   └── github-mcp-server/
+│       └── install.json                  # Installed release record
 ├── .venv/                                # Generated Python environment
 └── plugins/
     └── plugin-eval                       # Generated link/junction
@@ -181,9 +193,22 @@ agent-skills/
 | `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
 | `.claude/skills/` | Local Claude Code authoring skills | No |
 | `.venv/` | Local `skills-ref` environment | No |
-| `.agent-tools/` | Tessl, Plugin Eval checkout, and wrappers | No |
+| `.agent-tools/` | Tessl, Plugin Eval checkout, the GitHub MCP server binary, and wrappers | No |
 | `.agents/plugins/marketplace.json` | Generated local Plugin Eval metadata | No |
 | `plugins/plugin-eval` | Generated Plugin Eval junction/symlink | No |
+| `.mcp.json` | Generated MCP configuration for Claude Code | **Yes** |
+| `.codex/config.toml` | Generated MCP configuration for Codex | **Yes** |
+| `.agents/mcp_config.json` | Generated MCP configuration for Antigravity | **Yes** |
+
+The three MCP configuration files are the one category of generated state that is
+committed. They name the server by a **repository-relative** path and configure
+no credential, so they hold nothing machine-specific and nothing secret. A fresh
+clone therefore gets a working GitHub MCP server on every supported host as soon
+as the bootstrap has downloaded the binary.
+
+They are rewritten on every bootstrap run, so treat them like any other tracked
+file and review the diff. On a platform whose executable name differs from the
+committed one, a run rewrites `command` and leaves a one-line modification.
 
 Generated paths belong in the repository's committed `.gitignore`. They should not rely on a developer-specific `.git/info/exclude`.
 
@@ -250,8 +275,21 @@ The bootstrap also installs local evaluation tooling:
 | `skills-ref` | `.agent-tools/bin/skills-ref.cmd` | Official Agent Skills format validation |
 | Tessl CLI | `.agent-tools/bin/tessl.cmd` | Independent lint of the plugin package (local); cloud review of skills (Tessl account required) |
 | OpenAI Plugin Eval | `.agent-tools/bin/plugin-eval.cmd` | Codex-oriented analysis, token-budget analysis, and benchmarks |
+| GitHub MCP server | `.agent-tools/bin/github-mcp-server.exe` | GitHub platform operations from any of the three agent hosts |
 
-On macOS/Linux, the generated wrappers omit the `.cmd` suffix.
+On macOS/Linux, the generated wrappers omit the `.cmd` suffix, and the GitHub
+MCP server binary omits the `.exe` suffix.
+
+**Authentication is OAuth, not a personal access token.** On github.com the
+server runs its own browser-based OAuth flow the first time an agent uses it, and
+keeps the resulting token in memory only. Nothing needs to be exported, and no
+credential is written to the repository or to your environment.
+
+> [!IMPORTANT]
+> That flow runs **only when no token is set**. If
+> `GITHUB_PERSONAL_ACCESS_TOKEN` is present in the environment of the agent, the
+> server uses it and skips OAuth entirely. Unset it to authenticate through
+> OAuth. The bootstrap prints a note when it sees the variable set.
 
 ## Verify setup
 
@@ -941,6 +979,7 @@ In particular, it refreshes:
 - `skills-ref`;
 - Tessl CLI;
 - the OpenAI Plugin Eval checkout;
+- the GitHub MCP server release binary and the MCP configuration of all three hosts;
 - generated wrappers and activation views.
 
 Because the toolchain follows latest upstream versions, behavior can legitimately change between runs.
@@ -1030,6 +1069,59 @@ and exposes Plugin Eval through:
 A local `plugins/plugin-eval` link/junction and workspace plugin metadata may also be generated for compatible Codex workflows.
 
 The direct wrapper is the unambiguous command-line entry point; do not assume generated workspace metadata by itself performs user-level plugin registration.
+
+### GitHub MCP server
+
+The bootstrap installs the official release binary rather than building it with
+`go install`, so Go is not a prerequisite. It resolves the latest release from
+the GitHub API, picks the asset matching this machine's operating system and
+architecture, verifies the download against the release's own `checksums.txt`
+before anything is written, and extracts only the executable to:
+
+```text
+.agent-tools/bin/github-mcp-server[.exe]
+```
+
+Reruns converge without re-downloading. `.agent-tools/github-mcp-server/install.json`
+records the installed tag, asset, and the SHA-256 of the executable actually on
+disk; the download is skipped while all three still agree.
+
+It then points each supported host at that binary, in the file that host reads
+from the project or workspace root:
+
+| Host | File | Entry |
+|---|---|---|
+| Claude Code | `.mcp.json` | `mcpServers.github` |
+| Codex | `.codex/config.toml` | `[mcp_servers.github]` |
+| Antigravity | `.agents/mcp_config.json` | `mcpServers.github` |
+
+Every entry names the same repository-relative command, so the configuration
+survives the clone moving and is identical on every machine of the same
+platform. Each host starts a stdio server with that root as its working
+directory, which is what makes a relative command resolve.
+
+Every entry carries only `command` and `args`. No credential is configured for
+any host, because the server's OAuth flow triggers only when no token is set:
+naming or forwarding `GITHUB_PERSONAL_ACCESS_TOKEN` would silently replace an
+in-memory OAuth token with a long-lived one. `tests/scripts/github-mcp-server.test.mjs`
+asserts that no generated file mentions a token variable.
+
+These files are shared with servers this repository knows nothing about, so the
+merge is deliberately conservative:
+
+- the JSON files are parsed and only the `github` entry is rewritten, preserving
+  other servers, unrelated top-level keys, and any option hand-added to the
+  `github` entry itself;
+- the Codex file is TOML that carries comments and ordering a parse-and-rewrite
+  round trip would flatten, so only a marker-delimited block is generated and
+  everything outside it is copied through untouched. A hand-written
+  `[mcp_servers.github]` outside that block is refused rather than duplicated,
+  because TOML forbids declaring the same table twice and appending would break
+  the whole Codex configuration rather than just this server.
+
+`tests/scripts/github-mcp-server.test.mjs` covers the platform-to-asset mapping,
+the archive extraction, and every one of those merge guarantees without touching
+the network.
 
 ### Latest-following policy
 
@@ -1192,6 +1284,52 @@ Use the direct wrapper:
 ```
 
 The local checkout and generated workspace metadata are development conveniences; they should not be confused with user-level plugin registration.
+
+</details>
+
+<details>
+<summary><strong>The bootstrap cannot replace <code>github-mcp-server.exe</code> because it is in use</strong></summary>
+
+Windows keeps a running executable locked, and an agent connected to the GitHub
+MCP server holds it open.
+
+Close the agents currently using it — Claude Code, Codex, Antigravity — and
+rerun. The bootstrap only tries to replace the binary when the release actually
+changed, so this cannot block an otherwise up-to-date rerun.
+
+</details>
+
+<details>
+<summary><strong>The GitHub MCP server download fails with HTTP 403 or 429</strong></summary>
+
+The bootstrap resolves the latest release through the unauthenticated GitHub
+API, which allows 60 requests an hour per address. Wait for the window to reset
+and rerun.
+
+Nothing is written until the download has been checked against the release
+checksum manifest, so a failed attempt leaves the previous install intact.
+
+</details>
+
+<details>
+<summary><strong>An agent shows the GitHub MCP server as failed to connect</strong></summary>
+
+Check the two things the bootstrap cannot verify for you.
+
+First, authentication. The server opens a browser for OAuth on first use, so an
+agent running somewhere that cannot open one — a remote shell, a container — has
+no way to complete the flow. Nothing is cached between runs, since the token is
+held in memory only.
+
+Second, the working directory. The generated configuration names the binary by a
+repository-relative path, which resolves only if the host was started at the
+repository root. Confirm the binary runs:
+
+```powershell
+.\.agent-tools\bin\github-mcp-server.exe --version
+```
+
+If that works but the agent still fails, the host was started somewhere else.
 
 </details>
 

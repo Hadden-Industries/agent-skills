@@ -1,0 +1,5 @@
+# BEGIN mcp_servers.github - managed by scripts/set_up_skill_engineering_profile.py
+[mcp_servers.github]
+command = ".agent-tools/bin/github-mcp-server.exe"
+args = ["stdio"]
+# END mcp_servers.github - managed by scripts/set_up_skill_engineering_profile.py
