@@ -1,6 +1,6 @@
 /**
- * Contract tests for the GitHub MCP server installer inside
- * `scripts/set_up_skill_engineering_profile.py`.
+ * Contract tests for the GitHub MCP server installer in
+ * `scripts/set_up_mcp_servers.py`.
  *
  * The installer downloads a release binary and then rewrites configuration that
  * three different agent hosts read. Both halves are easy to get quietly wrong:
@@ -288,6 +288,28 @@ test("a Codex config with an outdated managed command is repointed", () => {
 
   assert.doesNotMatch(merged, /usr\/local\/bin/u);
   assert.equal(merged.match(/^\[mcp_servers\.github\]$/gmu).length, 1);
+});
+
+test("a managed block attributed to a renamed script is still recognised", () => {
+  // The marker names the script that owns the block, so it changes whenever that
+  // script is renamed or moved. Matching the attribution literally would leave
+  // the previous block unrecognised, which reads as a hand-written table and
+  // makes the merge refuse instead of updating it.
+  const legacy = [
+    "# BEGIN mcp_servers.github - managed by scripts/some_former_name.py",
+    "[mcp_servers.github]",
+    'command = "/opt/github-mcp-server"',
+    'args = ["stdio"]',
+    "# END mcp_servers.github - managed by scripts/some_former_name.py",
+    "",
+  ].join("\n");
+
+  const merged = value("merge_codex", { existing: legacy, name: "github", entry: ENTRY });
+
+  assert.equal(merged.match(/^\[mcp_servers\.github\]$/gmu).length, 1);
+  assert.doesNotMatch(merged, /some_former_name/u);
+  assert.doesNotMatch(merged, /opt\/github-mcp-server/u);
+  assert.match(merged, /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu);
 });
 
 test("a hand-written Codex github table is refused rather than duplicated", () => {

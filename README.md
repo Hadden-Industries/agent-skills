@@ -103,7 +103,7 @@ agent-skills/
 ├── .gitignore
 ├── LICENSE
 ├── README.md
-├── skills-lock.json                     # Source for scripts/set_up_skill_engineering_profile.py — COMMITTED
+├── skills-lock.json                     # Declares every authoring skill — COMMITTED
 │
 ├── skills/                              # Canonical skills — COMMITTED
 │   ├── committing-to-git/
@@ -136,9 +136,13 @@ agent-skills/
 │   │       └── pandoc-check.schema.json
 │   └── ...
 │
-├── scripts/
-│   └── set_up_skill_engineering_profile.py
-│                                         # Development bootstrap — COMMITTED
+├── scripts/                              # Development bootstrap — COMMITTED
+│   ├── set_up_development_environment.py # Runner: sequences the three below
+│   ├── set_up_agent_skills.py            # Skills declared in skills-lock.json
+│   ├── set_up_evaluation_tools.py        # skills-ref, Tessl, Plugin Eval
+│   ├── set_up_mcp_servers.py             # MCP servers + each host's config
+│   ├── _commands.py                      # Running external commands
+│   └── _repository.py                    # Locating the Git working tree
 │
 ├── tests/                                # Script contract tests — COMMITTED
 │   ├── helpers/
@@ -187,7 +191,7 @@ agent-skills/
 | Path | Purpose | Commit? |
 |---|---|:---:|
 | `skills/` | Canonical skills maintained by this repository | **Yes** |
-| `scripts/set_up_skill_engineering_profile.py` | Reproducible development bootstrap | **Yes** |
+| `scripts/` | Reproducible development bootstrap: one runner, three setup scripts, two internal modules | **Yes** |
 | `.tessl-plugin/plugin.json` | Tessl package root that makes `tessl skill lint` resolvable | **Yes** |
 | `tests/` | Contract tests for skill scripts and their committed schemas | **Yes** |
 | `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
@@ -242,7 +246,7 @@ On macOS/Linux, use `python3` instead of `py` where appropriate.
 From the repository root:
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py
+py scripts\set_up_development_environment.py
 ```
 
 The script derives the repository root from its own location rather than trusting the shell's current working directory.
@@ -250,7 +254,7 @@ The script derives the repository root from its own location rather than trustin
 For an intentional fork or unusual worktree without the canonical repository remote:
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py --allow-unverified-repo
+py scripts\set_up_development_environment.py --allow-unverified-repo
 ```
 
 > [!NOTE]
@@ -968,10 +972,10 @@ There is no separate updater.
 Rerun:
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py
+py scripts\set_up_development_environment.py
 ```
 
-The bootstrap converges the local skill-engineering environment on current upstream tooling.
+The runner converges the local development environment on current upstream tooling. To refresh only one part, run that part's script directly instead.
 
 In particular, it refreshes:
 
@@ -993,21 +997,52 @@ The **canonical skills in this repository are not replaced by the bootstrap**. I
 <details>
 <summary><strong>Expand implementation details</strong></summary>
 
-### Repository identity
+### Structure
 
-The script derives the repository root from:
+`scripts/set_up_development_environment.py` is a runner. It verifies the
+repository's identity once, then sequences three setup scripts that each do one
+job and each run standalone:
 
-```text
-<repo>/scripts/set_up_skill_engineering_profile.py
+| Script | Owns |
+|---|---|
+| `set_up_agent_skills.py` | The authoring skills declared in `skills-lock.json` |
+| `set_up_evaluation_tools.py` | `skills-ref`, Tessl CLI, OpenAI Plugin Eval, and the wrappers |
+| `set_up_mcp_servers.py` | MCP servers and each host's configuration |
+
+Run one directly when only that part needs refreshing:
+
+```powershell
+py scripts\set_up_mcp_servers.py
 ```
 
-and verifies the Git repository identity before making generated changes.
+Two internal modules, marked non-public by their leading underscore, hold what
+all of them need: `_commands.py` runs external commands and locates executables,
+and `_repository.py` derives and interrogates the Git working tree.
+
+### Repository identity
+
+Each script derives the repository root from its own location — the directory one
+level above it — and requires Git to agree that this is the working tree's top
+level. The name of the directory holding the scripts is never checked, so the
+same files work in a repository that calls it `util/` instead.
+
+The runner additionally verifies the Git repository identity before anything
+generated is changed, because every part deletes and rewrites directories and
+doing that in the wrong clone would destroy unrelated work. That check lives in
+the runner alone, which keeps the three parts reusable in other repositories.
 
 `--allow-unverified-repo` exists for intentional forks or worktrees.
 
 ### Generated Agent Skill views
 
-The script rebuilds:
+`set_up_agent_skills.py` reads `skills-lock.json` — the standard lock the
+`skills` CLI already writes — and re-adds each declared skill from its recorded
+source. The declared set therefore lives in exactly one place, rather than being
+duplicated between a lock file and a hardcoded list of install commands. Skills
+sharing a source are re-added in a single invocation, because `skills add` clones
+the whole source repository once per call.
+
+It rebuilds:
 
 ```text
 .agents/skills/
@@ -1016,11 +1051,26 @@ The script rebuilds:
 
 rather than allowing stale development skills to accumulate indefinitely.
 
-Before removing generated paths, it checks Git tracking state and refuses to delete tracked repository content.
+Before removing either root it checks two things and refuses on either: that Git
+tracks nothing underneath it, and that the root is actually covered by an ignore
+rule. The second check is what stops a missing `.gitignore` entry from turning
+generated state into an untracked mess after every run.
+
+Afterwards it verifies that each root holds **exactly** the declared skills —
+an unexpected leftover skill fails the run just as a missing one does — and
+reports whether `npx skills` modified `skills-lock.json` while refreshing.
+
+For upstream suites whose skills reference a sibling `../_shared/` directory, it
+vendors that directory into the installed skill as `references/_shared/` and
+rewrites the references, so a selected module from a bundle repository is
+self-contained. It reads upstream through a shallow, blobless, cone-mode sparse
+checkout limited to the `_shared` directories actually needed, so a large suite
+repository is never materialized in full. None of this repository's five skills
+currently use `../_shared`, so the step normally reports that it found nothing.
 
 ### Python tooling
 
-The script creates:
+`set_up_evaluation_tools.py` creates:
 
 ```text
 .venv/
@@ -1202,7 +1252,7 @@ $Skill = "committing-to-git"
 ## Refresh all authoring tools
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py
+py scripts\set_up_development_environment.py
 ```
 
 ## Review the final repository change
@@ -1258,7 +1308,7 @@ Project-wide generated artifacts belong in `.gitignore`, not in a developer-spec
 Rerun:
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py
+py scripts\set_up_development_environment.py
 ```
 
 The bootstrap force-reinstalls the current upstream `skills-ref` implementation rather than relying solely on package-version comparison.
@@ -1383,7 +1433,7 @@ Always inspect the diff and re-run relevant evals.
 A fresh clone plus:
 
 ```powershell
-py scripts\set_up_skill_engineering_profile.py
+py scripts\set_up_development_environment.py
 ```
 
 should be sufficient to reconstruct the development environment.

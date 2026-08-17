@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Test driver for the GitHub MCP server section of the repository bootstrap.
+Test driver for `scripts/set_up_mcp_servers.py`.
 
-The bootstrap is a single-file script rather than an importable package, so this
-driver loads it by path and calls one function per invocation. It reads a JSON
-request on stdin and writes a JSON response on stdout, which keeps the assertions
-themselves in `node --test` alongside the rest of the repository's suite.
+The setup scripts are plain scripts rather than an installed package, so this
+driver loads the module by path and calls one function per invocation. It reads a
+JSON request on stdin and writes a JSON response on stdout, which keeps the
+assertions themselves in `node --test` alongside the rest of the suite.
 
 Building archive fixtures belongs here rather than in the Node tests because
 Python's standard library writes both ZIP and gzipped-tar archives, and the
@@ -28,20 +28,48 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BOOTSTRAP = REPO_ROOT / "scripts" / "set_up_skill_engineering_profile.py"
+TARGET_NAME = "set_up_mcp_servers.py"
 
 
-def load_bootstrap() -> Any:
+def locate_target() -> Path:
     """
-    Loads the bootstrap under a module name of its own.
+    Finds the module under test one level below the repository root.
 
-    Executing it is safe because everything it does on import is define
-    constants and functions; `main()` runs only under `__main__`.
+    The setup scripts never inspect the name of the directory holding them, so
+    this does not assume one either — it searches the level where they live.
     """
-    spec = importlib.util.spec_from_file_location("bootstrap_under_test", BOOTSTRAP)
+    matches = sorted(REPO_ROOT.glob(f"*/{TARGET_NAME}"))
+
+    if not matches:
+        raise RuntimeError(
+            f"Could not find {TARGET_NAME} one level below {REPO_ROOT}"
+        )
+
+    return matches[0]
+
+
+TARGET = locate_target()
+SCRIPTS_DIR = TARGET.parent
+
+
+def load_target() -> Any:
+    """
+    Loads the module under test under a module name of its own.
+
+    The script directory goes on `sys.path` first because the module imports its
+    siblings (`_commands`, `_repository`), which resolve through that directory
+    when it is run normally but not when it is loaded by path from here.
+
+    Executing it is safe because everything it does on import is define constants
+    and functions; `main()` runs only under `__main__`.
+    """
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+
+    spec = importlib.util.spec_from_file_location("mcp_servers_under_test", TARGET)
 
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load bootstrap module: {BOOTSTRAP}")
+        raise RuntimeError(f"Could not load module under test: {TARGET}")
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -141,7 +169,7 @@ def main() -> int:
         return 2
 
     try:
-        module = load_bootstrap()
+        module = load_target()
         value = CALLS[name](module, request.get("args", {}))
     except Exception as exc:  # noqa: BLE001 - the driver reports every failure as data
         print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
