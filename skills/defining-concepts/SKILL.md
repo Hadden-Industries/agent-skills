@@ -1,8 +1,10 @@
 ---
 name: defining-concepts
 description: Generates strictly ISO/IEC 11179-4 compliant concept definitions from a designation. Use when asked to define a concept, formulate a standardized definition, audit terminology, or create a semantic artifact. Do NOT use for general software code definitions, simple dictionary lookups, or casual term explanations.
-category: research
-allowed-tools: [search_web, read_url_content]
+license: MPL-2.0
+compatibility: Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.
+metadata:
+  category: research
 ---
 
 # Overview

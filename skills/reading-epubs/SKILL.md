@@ -1,6 +1,7 @@
 ---
 name: reading-epubs
 description: Use when a task needs the content of an EPUB - inspecting, searching, quoting, summarizing, analyzing, or extracting from a file that is EPUB or has an .epub extension. Converts the book to cleaned Markdown first, so always use this workflow instead of treating EPUB as natively readable or relying on an agent/runtime EPUB preview. Do not use for producing or converting content into EPUB, for other ebook or document formats such as PDF, MOBI, or AZW3, for organizing or renaming ebook files without reading them, or for writing code that parses EPUB.
+license: MPL-2.0
 compatibility: Requires Python 3.9+ to run bundled scripts and Pandoc for EPUB conversion; bundled installation guidance covers Windows, macOS, and Linux.
 metadata:
   category: document-processing

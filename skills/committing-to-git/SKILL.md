@@ -2,6 +2,7 @@
 name: committing-to-git
 description: Use when asked to draft, write, or revise a git commit message, or when asked to commit current uncommitted workspace changes. Make sure to use this skill whenever the user asks you to "commit", "draft a commit", "make a commit", or mentions saving their work to git. Also use when pushing a commit that was created by this workflow.
 compatibility: Requires Git with commit signing configured (and, for SSH signing, an allowed-signers file), plus Node.js.
+license: MPL-2.0
 metadata:
   category: development
 ---
