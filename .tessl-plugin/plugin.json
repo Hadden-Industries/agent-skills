@@ -2,5 +2,6 @@
   "name": "hadden-industries/agent-skills",
   "version": "0.1.0",
   "description": "Agent skills authored by Hadden Industries.",
+  "license": "MPL-2.0",
   "private": true
 }

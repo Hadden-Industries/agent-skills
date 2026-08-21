@@ -101,7 +101,7 @@ The important paths are:
 agent-skills/
 ├── .gitattributes
 ├── .gitignore
-├── LICENSE
+├── LICENSE                               # Mozilla Public License 2.0
 ├── README.md
 ├── skills-lock.json                     # Declares every authoring skill — COMMITTED
 │
@@ -1456,6 +1456,12 @@ These are the primary external references for this workflow:
 - [GitHub Flavored Markdown documentation](https://docs.github.com/en/get-started/writing-on-github)
 
 When upstream guidance changes, prefer updating this repository's development workflow over preserving obsolete local conventions.
+
+---
+
+# License
+
+Repository-authored source code, documentation, and canonical skills are licensed under the [Mozilla Public License 2.0](./LICENSE). Third-party dependencies, imported skills, and external development tools retain their respective licenses.
 
 ---
 
