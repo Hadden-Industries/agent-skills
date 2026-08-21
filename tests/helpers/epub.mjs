@@ -16,6 +16,8 @@
 import { Buffer } from "node:buffer";
 import { deflateRawSync } from "node:zlib";
 
+/* eslint-disable no-bitwise -- ZIP headers and CRC32 require byte-level arithmetic. */
+
 const LOCAL_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_HEADER_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
@@ -70,7 +72,9 @@ export function buildZip(entries) {
 
   for (const { name, contents } of entries) {
     const nameBuffer = Buffer.from(name, "utf8");
-    const data = Buffer.isBuffer(contents) ? contents : Buffer.from(contents, "utf8");
+    const data = Buffer.isBuffer(contents)
+      ? contents
+      : Buffer.from(contents, "utf8");
     const crc = crc32(data);
 
     // The EPUB container format requires `mimetype` to be stored uncompressed.
@@ -188,7 +192,10 @@ const navXhtml = (extension) => `<?xml version="1.0" encoding="UTF-8"?>
 // Adobe InDesign's `_idContainer` identifiers are one common real example.
 const WRAPPERS = {
   section: (number) => [`<section id="chapter-${number}">`, "</section>"],
-  div: (number) => [`<div class="MainContent" id="_idContainer00${number}">`, "</div>"],
+  div: (number) => [
+    `<div class="MainContent" id="_idContainer00${number}">`,
+    "</div>",
+  ],
 };
 
 function chapter(number, title, paragraph, wrapper, extra = "") {

@@ -25,13 +25,22 @@ import test from "node:test";
 import { buildEpub } from "../helpers/epub.mjs";
 import { pandocAvailable, runScript } from "./harness.mjs";
 
-const NEEDS_PANDOC = { skip: pandocAvailable ? false : "Pandoc is not installed" };
+const NEEDS_PANDOC = {
+  skip: pandocAvailable ? false : "Pandoc is not installed",
+};
 
 function escapeXml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-function infoString(t, body, { css = "p { margin: 0; }\n", preClass = null } = {}) {
+function infoString(
+  t,
+  body,
+  { css = "p { margin: 0; }\n", preClass = null } = {},
+) {
   const base = mkdtempSync(join(tmpdir(), "reading-epubs-lang-"));
 
   t.after(() => {
@@ -46,9 +55,17 @@ function infoString(t, body, { css = "p { margin: 0; }\n", preClass = null } = {
     buildEpub({ css, markup: `${pre}<code>${escapeXml(body)}</code></pre>` }),
   );
 
-  const result = runScript("convert_epub.py", [input, "--output-dir", join(base, "out")]);
+  const result = runScript("convert_epub.py", [
+    input,
+    "--output-dir",
+    join(base, "out"),
+  ]);
 
-  assert.equal(result.json?.status, "ok", `expected a conversion, got: ${result.stdout}`);
+  assert.equal(
+    result.json?.status,
+    "ok",
+    `expected a conversion, got: ${result.stdout}`,
+  );
 
   const markdown = readFileSync(result.json.markdown, "utf8");
   const fence = markdown.match(/^```+([^\n]*)$/mu);
@@ -58,7 +75,11 @@ function infoString(t, body, { css = "p { margin: 0; }\n", preClass = null } = {
 
 const CASES = [
   // Recognised as markup.
-  { name: "an XML declaration", body: '<?xml version="1.0"?>\n<root/>', info: "xml" },
+  {
+    name: "an XML declaration",
+    body: '<?xml version="1.0"?>\n<root/>',
+    info: "xml",
+  },
   {
     name: "a fragment showing one element's attributes",
     body: '<svg width="4cm" height="5cm" viewBox="0 0 64 80">',
@@ -74,7 +95,11 @@ const CASES = [
     body: "<note>\n  <to>reader</to>\n</note>",
     info: "xml",
   },
-  { name: "an HTML document", body: "<!DOCTYPE html>\n<html><body>hi</body></html>", info: "html" },
+  {
+    name: "an HTML document",
+    body: "<!DOCTYPE html>\n<html><body>hi</body></html>",
+    info: "html",
+  },
 
   // Not markup, however much it may resemble it.
   {
@@ -87,8 +112,16 @@ const CASES = [
     body: 'div.background-cat {\n background-image: url("cat.svg");\n}',
     info: "text",
   },
-  { name: "a function signature", body: "rotate(angle, centerX, centerY)", info: "text" },
-  { name: "an algebraic identity", body: "x2 = x + (x - x1) = 2 * x - x1", info: "text" },
+  {
+    name: "a function signature",
+    body: "rotate(angle, centerX, centerY)",
+    info: "text",
+  },
+  {
+    name: "an algebraic identity",
+    body: "x2 = x + (x - x1) = 2 * x - x1",
+    info: "text",
+  },
 ];
 
 for (const { name, body, info } of CASES) {

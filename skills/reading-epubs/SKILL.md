@@ -18,7 +18,7 @@ The converted Markdown is the working representation; the original EPUB remains 
 
 ## Workflow
 
-Both scripts live in this skill's directory. Resolve their paths relative to it and run them with the environment's Python 3 launcher — `python` in the examples; use `python3`, or `py -3` on Windows, when that is the available command. Every script prints one line of JSON to stdout; branch on the `status` and `error` fields rather than parsing prose. Paths the scripts report back are absolute and can be opened as given.
+Both scripts live in this skill's directory. Resolve their paths relative to it and run them with the environment's Python 3 launcher: `python` in the examples; use `python3`, or `py -3` on Windows, when that is the available command. Every script prints one line of JSON to stdout; branch on the `status` and `error` fields rather than parsing prose. Paths the scripts report back are absolute and can be opened as given.
 
 1. **Check Pandoc before touching the EPUB.**
 
@@ -44,7 +44,7 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
    - `invalid_epub` (exit `20`): the file is not a readable EPUB container. `reason` says why.
    - `pandoc_missing` (exit `10`): return to step 1.
    - `pandoc_failed` (exit `21`): Pandoc ran and failed; inspect `pandoc_log`.
-   - `empty_markdown`, `output_directory_not_owned` (exit `22`): the conversion produced nothing usable, or the chosen output directory holds files this converter did not create. Never overwrite the latter — choose a different directory.
+   - `empty_markdown`, `output_directory_not_owned` (exit `22`): the conversion produced nothing usable, or the chosen output directory holds files this converter did not create. Never overwrite the latter; choose a different directory.
 
 3. **Read progressively.** Do not load a large generated Markdown file in full unless the task genuinely requires it.
    - Start from the `toc` file when the book has one. It lists each entry's title, nesting level, and an `anchor` that appears in the Markdown, so a section can be reached directly. Pandoc discards the book's navigation document, so this file is the only place the table of contents exists.
@@ -56,7 +56,7 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
 
 4. **Check conversion status before relying on the result.**
    - `warning_count`, `line_count`, and `heading_count` are reported on every success, including a cache hit. If `warning_count` is above zero, read `pandoc_log` only when those warnings could affect the requested content.
-   - The converter strips the publisher's styling and keeps what it means: a bold class becomes `**bold**`, italic becomes `*italic*`, monospace becomes `` `code` ``, and layout-only classes are removed entirely. Where a book sets bulleted lists as dash-prefixed paragraphs — as ISO standards do — those become real Markdown lists. The mapping is derived from the book's own stylesheet and written to the `style_map` path. Read it only when the formatting in the Markdown looks wrong and you need to know why.
+   - The converter strips the publisher's styling and keeps what it means: a bold class becomes `**bold**`, italic becomes `*italic*`, monospace becomes `` `code` ``, and layout-only classes are removed entirely. Where a book sets bulleted lists as dash-prefixed paragraphs (as ISO standards do), those become real Markdown lists. The mapping is derived from the book's own stylesheet and written to the `style_map` path. Read it only when the formatting in the Markdown looks wrong and you need to know why.
    - Code listings arrive as fenced blocks carrying the book's declared language, or `text` where it declares none. Quote them from inside the fence; the indentation there is the book's. `repaired_code_blocks` counts listings rewritten to survive an upstream Pandoc defect, and is 0 for most books.
    - If conversion fails, read the file named by `troubleshooting_reference` and follow it. **Do not fall back to native EPUB reading.**
    - For exact quotations, verify the relevant passage in the generated Markdown rather than quoting from memory or a preview.

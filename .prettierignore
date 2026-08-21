@@ -1,0 +1,9 @@
+.agent-tools/
+.agents/
+.claude/
+.venv/
+node_modules/
+plugins/
+skills/
+docs/
+package-lock.json

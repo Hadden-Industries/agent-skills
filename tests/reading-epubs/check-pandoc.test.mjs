@@ -20,7 +20,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { schemaErrors } from "../helpers/json-schema.mjs";
-import { SKILL_DIR, exitCodes, readScriptSource, readSchema, runScript } from "./harness.mjs";
+import {
+  SKILL_DIR,
+  exitCodes,
+  readScriptSource,
+  readSchema,
+  runScript,
+} from "./harness.mjs";
 
 const SCHEMA = readSchema("pandoc-check.schema.json");
 
@@ -33,7 +39,10 @@ const STATUS_EXIT_CODES = {
 function assertConformsToSchema(payload) {
   const variant = SCHEMA.$defs[payload.status];
 
-  assert.ok(variant, `no schema variant is declared for status "${payload.status}"`);
+  assert.ok(
+    variant,
+    `no schema variant is declared for status "${payload.status}"`,
+  );
   assert.deepEqual(
     schemaErrors(payload, variant),
     [],
@@ -44,7 +53,11 @@ function assertConformsToSchema(payload) {
 test("output conforms to the schema variant its status selects", () => {
   const result = runScript("check_pandoc.py");
 
-  assert.notEqual(result.json, null, "the checker must always emit JSON on stdout");
+  assert.notEqual(
+    result.json,
+    null,
+    "the checker must always emit JSON on stdout",
+  );
   assertConformsToSchema(result.json);
 });
 
@@ -72,14 +85,27 @@ test("every status literal in the source is declared in the schema", () => {
     [...source.matchAll(/"status":\s*"([a-z_]+)"/gu)].map((match) => match[1]),
   );
 
-  assert.ok(emitted.size > 0, "no status literals were found in the checker source");
+  assert.ok(
+    emitted.size > 0,
+    "no status literals were found in the checker source",
+  );
 
   const declared = new Set(Object.keys(SCHEMA.$defs));
-  const undeclared = [...emitted].filter((status) => !declared.has(status)).sort();
+  const undeclared = [...emitted]
+    .filter((status) => !declared.has(status))
+    .sort();
   const unused = [...declared].filter((status) => !emitted.has(status)).sort();
 
-  assert.deepEqual(undeclared, [], "the checker emits statuses the schema does not declare");
-  assert.deepEqual(unused, [], "the schema declares statuses the checker never emits");
+  assert.deepEqual(
+    undeclared,
+    [],
+    "the checker emits statuses the schema does not declare",
+  );
+  assert.deepEqual(
+    unused,
+    [],
+    "the schema declares statuses the checker never emits",
+  );
 });
 
 // The agent runs this script from its own project directory, so a bare
@@ -93,13 +119,17 @@ test("the reported installation reference resolves from the caller's directory",
     // Only the missing/unusable branches name a reference. Skipping keeps this
     // visible instead of passing vacuously on a machine that has Pandoc; the
     // converter's error paths cover the same defect deterministically.
-    t.skip("Pandoc is installed, so the checker reports no installation reference");
+    t.skip(
+      "Pandoc is installed, so the checker reports no installation reference",
+    );
 
     return;
   }
 
   const reference = result.json.installation_reference;
-  const resolved = isAbsolute(reference) ? reference : resolve(process.cwd(), reference);
+  const resolved = isAbsolute(reference)
+    ? reference
+    : resolve(process.cwd(), reference);
 
   assert.ok(
     existsSync(resolved),

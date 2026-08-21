@@ -18,7 +18,13 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,10 +101,14 @@ function runValidator({ repo, scratch }, message, extraArguments = []) {
 
   writeFileSync(messagePath, message);
 
-  const result = spawnSync(process.execPath, [VALIDATOR, ...extraArguments, messagePath], {
-    cwd: repo,
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [VALIDATOR, ...extraArguments, messagePath],
+    {
+      cwd: repo,
+      encoding: "utf8",
+    },
+  );
 
   return {
     status: result.status,
@@ -133,7 +143,11 @@ test("accepted message: exit 0 and output conforms to the schema", (t) => {
     ].join("\n"),
   );
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0, got ${result.status}: ${result.stderr}`,
+  );
   assertConformsToSchema(result.json);
   assert.equal(result.json.valid, true);
   assert.equal(result.json.summary.errors, 0);
@@ -156,13 +170,20 @@ test("rejected message: exit 1 and output still conforms to the schema", (t) => 
     ].join("\n"),
   );
 
-  assert.equal(result.status, 1, `expected exit 1, got ${result.status}: ${result.stderr}`);
+  assert.equal(
+    result.status,
+    1,
+    `expected exit 1, got ${result.status}: ${result.stderr}`,
+  );
   assertConformsToSchema(result.json);
   assert.equal(result.json.valid, false);
 
   const codes = result.json.issues.map(({ code }) => code);
 
-  assert.ok(codes.includes("SUBJECT_TOO_LONG"), `expected SUBJECT_TOO_LONG in ${codes.join(", ")}`);
+  assert.ok(
+    codes.includes("SUBJECT_TOO_LONG"),
+    `expected SUBJECT_TOO_LONG in ${codes.join(", ")}`,
+  );
   assert.ok(
     codes.includes("SUBJECT_DESCRIPTION_NOT_CAPITALIZED"),
     `expected SUBJECT_DESCRIPTION_NOT_CAPITALIZED in ${codes.join(", ")}`,
@@ -193,7 +214,9 @@ test("a file missing from the message is reported against the working tree", (t)
   assert.equal(result.json.files.listedCount, 1);
   assert.equal(result.json.files.setMatches, false);
 
-  const missing = result.json.issues.filter(({ code }) => code === "FILE_MISSING_FROM_MESSAGE");
+  const missing = result.json.issues.filter(
+    ({ code }) => code === "FILE_MISSING_FROM_MESSAGE",
+  );
 
   assert.equal(missing.length, 1);
   assert.equal(missing[0].severity, "error");
@@ -218,11 +241,17 @@ test("an overlong body line sets manualReviewRequired without failing", (t) => {
   );
 
   assertConformsToSchema(result.json);
-  assert.equal(result.json.valid, true, "an overlong line is a review issue, not an error");
+  assert.equal(
+    result.json.valid,
+    true,
+    "an overlong line is a review issue, not an error",
+  );
   assert.equal(result.status, 0);
   assert.equal(result.json.manualReviewRequired, true);
 
-  const overlong = result.json.issues.filter(({ code }) => code === "BODY_LINE_OVER_LIMIT");
+  const overlong = result.json.issues.filter(
+    ({ code }) => code === "BODY_LINE_OVER_LIMIT",
+  );
 
   assert.equal(overlong.length, 1);
   assert.equal(overlong[0].severity, "review");
@@ -249,10 +278,20 @@ test("a User Experience Changes section is recognised", (t) => {
     ].join("\n"),
   );
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0, got ${result.status}: ${result.stderr}`,
+  );
   assertConformsToSchema(result.json);
-  assert.deepEqual(result.json.sections.userExperience, { present: true, structureValid: true });
-  assert.deepEqual(result.json.sections.fileChanges, { present: true, structureValid: true });
+  assert.deepEqual(result.json.sections.userExperience, {
+    present: true,
+    structureValid: true,
+  });
+  assert.deepEqual(result.json.sections.fileChanges, {
+    present: true,
+    structureValid: true,
+  });
 });
 
 test("usage errors exit 2 and print nothing to stdout", (t) => {
@@ -266,10 +305,14 @@ test("usage errors exit 2 and print nothing to stdout", (t) => {
   assert.equal(noArguments.status, 2);
   assert.equal(noArguments.stdout, "");
 
-  const missingFile = spawnSync(process.execPath, [VALIDATOR, join(fixture.scratch, "absent.txt")], {
-    cwd: fixture.repo,
-    encoding: "utf8",
-  });
+  const missingFile = spawnSync(
+    process.execPath,
+    [VALIDATOR, join(fixture.scratch, "absent.txt")],
+    {
+      cwd: fixture.repo,
+      encoding: "utf8",
+    },
+  );
 
   assert.equal(missingFile.status, 2);
   assert.equal(missingFile.stdout, "");
@@ -303,16 +346,29 @@ test("a partial commit describing only the staged file is accepted", (t) => {
 
   const result = runValidator(fixture, PARTIAL_MESSAGE);
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0, got ${result.status}: ${result.stderr}`,
+  );
   assertConformsToSchema(result.json);
   assert.equal(result.json.valid, true);
-  assert.deepEqual(result.json.scope, { requested: "auto", resolved: "staged" });
+  assert.deepEqual(result.json.scope, {
+    requested: "auto",
+    resolved: "staged",
+  });
   assert.equal(result.json.files.expectedCount, 1);
   assert.equal(result.json.files.setMatches, true);
 
-  const unstagedComplaints = result.json.issues.filter(({ path }) => path === "src/beta.js");
+  const unstagedComplaints = result.json.issues.filter(
+    ({ path }) => path === "src/beta.js",
+  );
 
-  assert.deepEqual(unstagedComplaints, [], "an unstaged change must not be demanded in the message");
+  assert.deepEqual(
+    unstagedComplaints,
+    [],
+    "an unstaged change must not be demanded in the message",
+  );
 });
 
 test("a staged file omitted from the message is still an error", (t) => {
@@ -328,7 +384,9 @@ test("a staged file omitted from the message is still an error", (t) => {
   assertConformsToSchema(result.json);
   assert.equal(result.json.scope.resolved, "staged");
 
-  const missing = result.json.issues.filter(({ code }) => code === "FILE_MISSING_FROM_MESSAGE");
+  const missing = result.json.issues.filter(
+    ({ code }) => code === "FILE_MISSING_FROM_MESSAGE",
+  );
 
   assert.equal(missing.length, 1);
   assert.equal(missing[0].path, "src/beta.js");
@@ -354,7 +412,9 @@ test("listing an unstaged file under staged scope is an error", (t) => {
   assert.equal(result.status, 1);
   assertConformsToSchema(result.json);
 
-  const notStaged = result.json.issues.filter(({ code }) => code === "FILE_NOT_CURRENTLY_CHANGED");
+  const notStaged = result.json.issues.filter(
+    ({ code }) => code === "FILE_NOT_CURRENTLY_CHANGED",
+  );
 
   assert.equal(notStaged.length, 1);
   assert.equal(notStaged[0].path, "src/beta.js");
@@ -363,14 +423,26 @@ test("listing an unstaged file under staged scope is an error", (t) => {
 test("--scope worktree compares against the whole working tree", (t) => {
   const fixture = fixtureWithTwoChangesOneStaged(t);
 
-  const result = runValidator(fixture, PARTIAL_MESSAGE, ["--scope", "worktree"]);
+  const result = runValidator(fixture, PARTIAL_MESSAGE, [
+    "--scope",
+    "worktree",
+  ]);
 
-  assert.equal(result.status, 1, "the unstaged change must be demanded under worktree scope");
+  assert.equal(
+    result.status,
+    1,
+    "the unstaged change must be demanded under worktree scope",
+  );
   assertConformsToSchema(result.json);
-  assert.deepEqual(result.json.scope, { requested: "worktree", resolved: "worktree" });
+  assert.deepEqual(result.json.scope, {
+    requested: "worktree",
+    resolved: "worktree",
+  });
   assert.equal(result.json.files.expectedCount, 2);
 
-  const missing = result.json.issues.filter(({ code }) => code === "FILE_MISSING_FROM_MESSAGE");
+  const missing = result.json.issues.filter(
+    ({ code }) => code === "FILE_MISSING_FROM_MESSAGE",
+  );
 
   assert.equal(missing.length, 1);
   assert.equal(missing[0].path, "src/beta.js");
@@ -381,8 +453,15 @@ test("--scope=staged is accepted in the inline form", (t) => {
 
   const result = runValidator(fixture, PARTIAL_MESSAGE, ["--scope=staged"]);
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
-  assert.deepEqual(result.json.scope, { requested: "staged", resolved: "staged" });
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0, got ${result.status}: ${result.stderr}`,
+  );
+  assert.deepEqual(result.json.scope, {
+    requested: "staged",
+    resolved: "staged",
+  });
 });
 
 test("auto scope falls back to the working tree when nothing is staged", (t) => {
@@ -392,8 +471,15 @@ test("auto scope falls back to the working tree when nothing is staged", (t) => 
 
   const result = runValidator(fixture, PARTIAL_MESSAGE);
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
-  assert.deepEqual(result.json.scope, { requested: "auto", resolved: "worktree" });
+  assert.equal(
+    result.status,
+    0,
+    `expected exit 0, got ${result.status}: ${result.stderr}`,
+  );
+  assert.deepEqual(result.json.scope, {
+    requested: "auto",
+    resolved: "worktree",
+  });
 });
 
 test("--scope staged with an empty index fails rather than validating nothing", (t) => {
@@ -426,15 +512,28 @@ test("every issue code the validator emits is declared in the schema", () => {
   // should be renamed rather than silently excluded.
   const source = readFileSync(VALIDATOR, "utf8");
   const emitted = new Set(
-    [...source.matchAll(/"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"/gu)].map((match) => match[1]),
+    [...source.matchAll(/"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"/gu)].map(
+      (match) => match[1],
+    ),
   );
 
-  assert.ok(emitted.size > 0, "no issue codes were found in the validator source");
+  assert.ok(
+    emitted.size > 0,
+    "no issue codes were found in the validator source",
+  );
 
   const declared = new Set(SCHEMA.$defs.issue.properties.code.enum);
   const undeclared = [...emitted].filter((code) => !declared.has(code)).sort();
   const unused = [...declared].filter((code) => !emitted.has(code)).sort();
 
-  assert.deepEqual(undeclared, [], "validator emits codes the schema does not declare");
-  assert.deepEqual(unused, [], "schema declares codes the validator never emits");
+  assert.deepEqual(
+    undeclared,
+    [],
+    "validator emits codes the schema does not declare",
+  );
+  assert.deepEqual(
+    unused,
+    [],
+    "schema declares codes the validator never emits",
+  );
 });

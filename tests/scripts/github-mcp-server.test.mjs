@@ -30,7 +30,10 @@ import test from "node:test";
 
 import { resolvePython } from "../helpers/python.mjs";
 
-const DRIVER = join(dirname(fileURLToPath(import.meta.url)), "github_mcp_driver.py");
+const DRIVER = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "github_mcp_driver.py",
+);
 
 // The command every host configuration should name: repository-relative, POSIX
 // separators, so one string works on every platform and stays valid when the
@@ -51,7 +54,11 @@ function driver(call, args = {}) {
     throw result.error;
   }
 
-  assert.equal(result.status, 0, `driver exited ${result.status}: ${result.stderr}`);
+  assert.equal(
+    result.status,
+    0,
+    `driver exited ${result.status}: ${result.stderr}`,
+  );
 
   return JSON.parse(result.stdout);
 }
@@ -60,7 +67,10 @@ function driver(call, args = {}) {
 function value(call, args) {
   const response = driver(call, args);
 
-  assert.ok(response.ok, `expected ${call} to succeed, but it failed: ${response.error}`);
+  assert.ok(
+    response.ok,
+    `expected ${call} to succeed, but it failed: ${response.error}`,
+  );
 
   return response.value;
 }
@@ -69,7 +79,11 @@ function value(call, args) {
 function failure(call, args) {
   const response = driver(call, args);
 
-  assert.equal(response.ok, false, `expected ${call} to fail, but it returned a value`);
+  assert.equal(
+    response.ok,
+    false,
+    `expected ${call} to fail, but it returned a value`,
+  );
 
   return response.error;
 }
@@ -140,7 +154,10 @@ test("an unsupported operating system is named in the error", () => {
 });
 
 test("only Windows gets an .exe suffix", () => {
-  assert.equal(value("binary_name", { system: "Windows" }), "github-mcp-server.exe");
+  assert.equal(
+    value("binary_name", { system: "Windows" }),
+    "github-mcp-server.exe",
+  );
   assert.equal(value("binary_name", { system: "Darwin" }), "github-mcp-server");
   assert.equal(value("binary_name", { system: "Linux" }), "github-mcp-server");
 });
@@ -166,7 +183,7 @@ test("the server binary is extracted from a Windows zip", () => {
     kind: "zip",
     binary_name: "github-mcp-server.exe",
     entries: {
-      "LICENSE": "MIT",
+      LICENSE: "MIT",
       "README.md": "# github-mcp-server",
       "github-mcp-server.exe": "windows-binary-payload",
     },
@@ -181,7 +198,7 @@ test("the server binary is extracted from a gzipped tarball", () => {
     kind: "tar.gz",
     binary_name: "github-mcp-server",
     entries: {
-      "LICENSE": "MIT",
+      LICENSE: "MIT",
       "github-mcp-server": "posix-binary-payload",
     },
   });
@@ -212,7 +229,9 @@ test("a JSON host config gains the server without disturbing its neighbours", ()
     2,
   );
 
-  const merged = JSON.parse(value("merge_json", { existing, name: "github", entry: ENTRY }));
+  const merged = JSON.parse(
+    value("merge_json", { existing, name: "github", entry: ENTRY }),
+  );
 
   assert.deepEqual(merged.mcpServers.github, ENTRY);
   assert.deepEqual(merged.mcpServers.postgres, {
@@ -236,42 +255,73 @@ test("a stale command path is replaced but hand-set options survive", () => {
     },
   });
 
-  const merged = JSON.parse(value("merge_json", { existing, name: "github", entry: ENTRY }));
+  const merged = JSON.parse(
+    value("merge_json", { existing, name: "github", entry: ENTRY }),
+  );
 
   assert.equal(merged.mcpServers.github.command, COMMAND);
   assert.equal(merged.mcpServers.github.timeout, 600000);
 });
 
 test("a JSON host config is created from nothing when absent", () => {
-  const merged = JSON.parse(value("merge_json", { existing: null, name: "github", entry: ENTRY }));
+  const merged = JSON.parse(
+    value("merge_json", { existing: null, name: "github", entry: ENTRY }),
+  );
 
   assert.deepEqual(merged, { mcpServers: { github: ENTRY } });
 });
 
 test("merging a JSON host config is idempotent", () => {
-  const first = value("merge_json", { existing: null, name: "github", entry: ENTRY });
-  const second = value("merge_json", { existing: first, name: "github", entry: ENTRY });
+  const first = value("merge_json", {
+    existing: null,
+    name: "github",
+    entry: ENTRY,
+  });
+  const second = value("merge_json", {
+    existing: first,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.equal(second, first);
 });
 
 test("a Codex config gains a managed block and keeps hand-written settings", () => {
-  const existing = ['model = "gpt-5-codex"', "", "[mcp_servers.postgres]", 'command = "npx"', ""].join(
-    "\n",
-  );
+  const existing = [
+    'model = "gpt-5-codex"',
+    "",
+    "[mcp_servers.postgres]",
+    'command = "npx"',
+    "",
+  ].join("\n");
 
-  const merged = value("merge_codex", { existing, name: "github", entry: ENTRY });
+  const merged = value("merge_codex", {
+    existing,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.match(merged, /^model = "gpt-5-codex"$/mu);
   assert.match(merged, /^\[mcp_servers\.postgres\]$/mu);
   assert.match(merged, /^\[mcp_servers\.github\]$/mu);
-  assert.match(merged, /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu);
+  assert.match(
+    merged,
+    /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu,
+  );
   assert.match(merged, /^args = \["stdio"\]$/mu);
 });
 
 test("a Codex managed block is replaced in place rather than appended twice", () => {
-  const first = value("merge_codex", { existing: null, name: "github", entry: ENTRY });
-  const second = value("merge_codex", { existing: first, name: "github", entry: ENTRY });
+  const first = value("merge_codex", {
+    existing: null,
+    name: "github",
+    entry: ENTRY,
+  });
+  const second = value("merge_codex", {
+    existing: first,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.equal(second, first);
   assert.equal(second.match(/^\[mcp_servers\.github\]$/gmu).length, 1);
@@ -284,7 +334,11 @@ test("a Codex config with an outdated managed command is repointed", () => {
     entry: { command: "/usr/local/bin/github-mcp-server", args: ["stdio"] },
   });
 
-  const merged = value("merge_codex", { existing: stale, name: "github", entry: ENTRY });
+  const merged = value("merge_codex", {
+    existing: stale,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.doesNotMatch(merged, /usr\/local\/bin/u);
   assert.equal(merged.match(/^\[mcp_servers\.github\]$/gmu).length, 1);
@@ -304,21 +358,34 @@ test("a managed block attributed to a renamed script is still recognised", () =>
     "",
   ].join("\n");
 
-  const merged = value("merge_codex", { existing: legacy, name: "github", entry: ENTRY });
+  const merged = value("merge_codex", {
+    existing: legacy,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.equal(merged.match(/^\[mcp_servers\.github\]$/gmu).length, 1);
   assert.doesNotMatch(merged, /some_former_name/u);
   assert.doesNotMatch(merged, /opt\/github-mcp-server/u);
-  assert.match(merged, /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu);
+  assert.match(
+    merged,
+    /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu,
+  );
 });
 
 test("a hand-written Codex github table is refused rather than duplicated", () => {
   // Two `[mcp_servers.github]` tables are a TOML duplicate-key error, so
   // appending a managed block next to a hand-written one would break the whole
   // Codex configuration rather than just this server.
-  const existing = ["[mcp_servers.github]", 'command = "docker"', ""].join("\n");
+  const existing = ["[mcp_servers.github]", 'command = "docker"', ""].join(
+    "\n",
+  );
 
-  const error = failure("merge_codex", { existing, name: "github", entry: ENTRY });
+  const error = failure("merge_codex", {
+    existing,
+    name: "github",
+    entry: ENTRY,
+  });
 
   assert.match(error, /mcp_servers\.github/u);
 });
@@ -334,9 +401,18 @@ test("every host config points at the same repository-relative command", (t) => 
     ".mcp.json",
   ]);
 
-  assert.equal(JSON.parse(written[".mcp.json"]).mcpServers.github.command, COMMAND);
-  assert.equal(JSON.parse(written[".agents/mcp_config.json"]).mcpServers.github.command, COMMAND);
-  assert.match(written[".codex/config.toml"], /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu);
+  assert.equal(
+    JSON.parse(written[".mcp.json"]).mcpServers.github.command,
+    COMMAND,
+  );
+  assert.equal(
+    JSON.parse(written[".agents/mcp_config.json"]).mcpServers.github.command,
+    COMMAND,
+  );
+  assert.match(
+    written[".codex/config.toml"],
+    /^command = "\.agent-tools\/bin\/github-mcp-server\.exe"$/mu,
+  );
 });
 
 test("rewriting every host config leaves the files byte-identical", (t) => {
@@ -361,7 +437,10 @@ test("host configs are written without disturbing an unrelated server", (t) => {
 
   const merged = JSON.parse(readFileSync(join(repo, ".mcp.json"), "utf8"));
 
-  assert.deepEqual(merged.mcpServers.sentry, { type: "http", url: "https://mcp.sentry.dev" });
+  assert.deepEqual(merged.mcpServers.sentry, {
+    type: "http",
+    url: "https://mcp.sentry.dev",
+  });
   assert.equal(merged.mcpServers.github.command, COMMAND);
 });
 
@@ -371,7 +450,11 @@ test("every generated host config ends with exactly one trailing newline", (t) =
   const written = value("write_host_configs", { repo, command: COMMAND });
 
   for (const [path, contents] of Object.entries(written)) {
-    assert.match(contents, /[^\n]\n$/u, `${path} should end with a single newline`);
+    assert.match(
+      contents,
+      /[^\n]\n$/u,
+      `${path} should end with a single newline`,
+    );
   }
 });
 
@@ -402,8 +485,11 @@ test("the server entry carries nothing beyond the command and transport", (t) =>
     command: COMMAND,
     args: ["stdio"],
   });
-  assert.deepEqual(JSON.parse(written[".agents/mcp_config.json"]).mcpServers.github, {
-    command: COMMAND,
-    args: ["stdio"],
-  });
+  assert.deepEqual(
+    JSON.parse(written[".agents/mcp_config.json"]).mcpServers.github,
+    {
+      command: COMMAND,
+      args: ["stdio"],
+    },
+  );
 });

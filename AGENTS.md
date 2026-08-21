@@ -17,6 +17,20 @@
 # File Editing Guidance
 - Use native file-reading, searching, and targeted-editing tools for ordinary source-file operations. Do not use shell commands, ad-hoc scripts, or Git restoration commands as substitutes for targeted file editing when an appropriate native tool is available.
 
+# Skill Authoring
+
+## ASCII-Only Canonical Skill Files
+
+- Every repository-authored canonical `SKILL.md` under `skills/` MUST contain ASCII bytes only (`0x00` through `0x7F`). Use ASCII punctuation, straight quotes, and ASCII arrows or separators.
+- This rule does not apply to imported or upstream skills installed under `.agents/skills/`, `.claude/skills/`, or another generated installation directory. Never modify imported skill content solely to make it ASCII-only.
+- Both `npm run build` and `npm run build:check` MUST validate every canonical `skills/**/SKILL.md` before bundling. The build fails with the file, line, column, and offending byte when non-ASCII content is present.
+- `npm run verify` includes the ASCII gate through `npm run build:check`. Use `rg --text -n "[^\x00-\x7F]" skills -g SKILL.md` only as a targeted diagnostic when the automated gate reports a violation; exit status 1 with no matches means the diagnostic found none.
+
+## Completion Verification
+
+- Before completing a change to a repository-authored skill under `skills/`, maintained skill source under `src/`, related tests, or repository authoring/build scripts, run `npm run verify`.
+- Passing `npm run verify` establishes only deterministic local gates. It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of `git status` and the complete diff.
+
 # Git Guidance
 
 ## Local Workspace Commits & Pushing

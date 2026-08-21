@@ -16,7 +16,14 @@
  * unconditionally.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -25,11 +32,20 @@ import test from "node:test";
 
 import { buildEpub, buildZipWithoutContainer } from "../helpers/epub.mjs";
 import { schemaErrors } from "../helpers/json-schema.mjs";
-import { SKILL_DIR, exitCodes, pandocAvailable, readScriptSource, readSchema, runScript } from "./harness.mjs";
+import {
+  SKILL_DIR,
+  exitCodes,
+  pandocAvailable,
+  readScriptSource,
+  readSchema,
+  runScript,
+} from "./harness.mjs";
 
 const SCHEMA = readSchema("conversion-result.schema.json");
 
-const NEEDS_PANDOC = { skip: pandocAvailable ? false : "Pandoc is not installed" };
+const NEEDS_PANDOC = {
+  skip: pandocAvailable ? false : "Pandoc is not installed",
+};
 
 function workspace(t) {
   const base = mkdtempSync(join(tmpdir(), "reading-epubs-"));
@@ -60,7 +76,10 @@ function convert(input, args = []) {
 function assertConformsToSchema(payload) {
   const variant = SCHEMA.$defs[payload.status];
 
-  assert.ok(variant, `no schema variant is declared for status "${payload.status}"`);
+  assert.ok(
+    variant,
+    `no schema variant is declared for status "${payload.status}"`,
+  );
   assert.deepEqual(
     schemaErrors(payload, variant),
     [],
@@ -73,14 +92,17 @@ function assertConformsToSchema(payload) {
 // nothing to act on. The path also has to resolve from the caller's working
 // directory, which is the agent's project rather than the skill directory.
 function assertNamesAResolvableReference(payload) {
-  const reference = payload.troubleshooting_reference ?? payload.installation_reference;
+  const reference =
+    payload.troubleshooting_reference ?? payload.installation_reference;
 
   assert.ok(
     reference,
     `error "${payload.error}" names no troubleshooting or installation reference`,
   );
 
-  const resolved = isAbsolute(reference) ? reference : resolve(process.cwd(), reference);
+  const resolved = isAbsolute(reference)
+    ? reference
+    : resolve(process.cwd(), reference);
 
   assert.ok(
     existsSync(resolved),
@@ -91,13 +113,20 @@ function assertNamesAResolvableReference(payload) {
 
 test("a file that is not a ZIP archive is rejected as an invalid EPUB", (t) => {
   const space = workspace(t);
-  const input = space.write("not-a-zip.epub", "This is plain text, not an archive.\n");
+  const input = space.write(
+    "not-a-zip.epub",
+    "This is plain text, not an archive.\n",
+  );
 
   const result = convert(input);
 
   assert.equal(result.json.status, "error");
   assert.equal(result.json.error, "invalid_epub");
-  assert.equal(result.status, 20, "an unusable input must not share an exit code with the Pandoc checker");
+  assert.equal(
+    result.status,
+    20,
+    "an unusable input must not share an exit code with the Pandoc checker",
+  );
   assertConformsToSchema(result.json);
 });
 
@@ -105,7 +134,10 @@ test("a file that is not a ZIP archive is rejected as an invalid EPUB", (t) => {
 // broken reference path cannot shadow one another.
 test("a failure names a reference that resolves from the caller's directory", (t) => {
   const space = workspace(t);
-  const input = space.write("not-a-zip.epub", "This is plain text, not an archive.\n");
+  const input = space.write(
+    "not-a-zip.epub",
+    "This is plain text, not an archive.\n",
+  );
 
   assertNamesAResolvableReference(convert(input).json);
 });
@@ -139,7 +171,11 @@ test("the generated fixture is accepted as a well-formed EPUB container", (t) =>
   const result = convert(input, ["--output-dir", space.outputDir()]);
 
   if (pandocAvailable) {
-    assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
+    assert.equal(
+      result.json.status,
+      "ok",
+      `expected a conversion, got: ${result.stdout}`,
+    );
   } else {
     // Container validation runs before Pandoc is located, so the fixture having
     // got as far as the missing-Pandoc branch is what proves it is well formed.
@@ -156,11 +192,17 @@ test("the declared exit constants are disjoint from the checker's, bar the share
   const converter = Object.entries(exitCodes("convert_epub.py"));
 
   const failureCodes = (entries) =>
-    new Map(entries.filter(([, code]) => code !== 0).map(([name, code]) => [code, name]));
+    new Map(
+      entries
+        .filter(([, code]) => code !== 0)
+        .map(([name, code]) => [code, name]),
+    );
 
   const checkerFailures = failureCodes(checker);
   const converterFailures = failureCodes(converter);
-  const shared = [...checkerFailures.keys()].filter((code) => converterFailures.has(code)).sort();
+  const shared = [...checkerFailures.keys()]
+    .filter((code) => converterFailures.has(code))
+    .sort();
 
   // 10 is deliberately shared: it means "Pandoc is missing" in both scripts.
   // Any other overlap gives one number two meanings, and SKILL.md step 1
@@ -186,30 +228,57 @@ test("the converter declares the intended exit constants", () => {
 
 test("every error literal in the source is declared in the schema", () => {
   const source = readScriptSource("convert_epub.py");
-  const emitted = new Set([...source.matchAll(/"error":\s*"([a-z_]+)"/gu)].map((match) => match[1]));
+  const emitted = new Set(
+    [...source.matchAll(/"error":\s*"([a-z_]+)"/gu)].map((match) => match[1]),
+  );
 
-  assert.ok(emitted.size > 0, "no error literals were found in the converter source");
+  assert.ok(
+    emitted.size > 0,
+    "no error literals were found in the converter source",
+  );
 
   const declared = new Set(SCHEMA.$defs.error.properties.error.enum);
   const undeclared = [...emitted].filter((code) => !declared.has(code)).sort();
   const unused = [...declared].filter((code) => !emitted.has(code)).sort();
 
-  assert.deepEqual(undeclared, [], "the converter emits errors the schema does not declare");
-  assert.deepEqual(unused, [], "the schema declares errors the converter never emits");
+  assert.deepEqual(
+    undeclared,
+    [],
+    "the converter emits errors the schema does not declare",
+  );
+  assert.deepEqual(
+    unused,
+    [],
+    "the schema declares errors the converter never emits",
+  );
 });
 
-test("a successful conversion reports the content SKILL.md relies on", NEEDS_PANDOC, (t) => {
-  const space = workspace(t);
-  const input = space.write("fixture.epub", buildEpub());
+test(
+  "a successful conversion reports the content SKILL.md relies on",
+  NEEDS_PANDOC,
+  (t) => {
+    const space = workspace(t);
+    const input = space.write("fixture.epub", buildEpub());
 
-  const result = convert(input, ["--output-dir", space.outputDir()]);
+    const result = convert(input, ["--output-dir", space.outputDir()]);
 
-  assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
-  assert.equal(result.json.cached, false);
-  assert.ok(existsSync(result.json.markdown), "the reported markdown path must exist");
-  assert.ok(result.json.heading_count > 0, "chapter headings must survive conversion");
-  assertConformsToSchema(result.json);
-});
+    assert.equal(
+      result.status,
+      0,
+      `expected exit 0, got ${result.status}: ${result.stderr}`,
+    );
+    assert.equal(result.json.cached, false);
+    assert.ok(
+      existsSync(result.json.markdown),
+      "the reported markdown path must exist",
+    );
+    assert.ok(
+      result.json.heading_count > 0,
+      "chapter headings must survive conversion",
+    );
+    assertConformsToSchema(result.json);
+  },
+);
 
 // Pandoc's EPUB reader embeds the source filename in the identifiers it
 // generates — `::: {#chapter-1.xhtml_chapter-1 .section}` around each document
@@ -224,137 +293,198 @@ test("a successful conversion reports the content SKILL.md relies on", NEEDS_PAN
 const SPINE_SHAPES = [
   { extension: "xhtml", wrapper: "section", note: "modern producer" },
   { extension: "xml", wrapper: "section", note: "Feedbooks-style .xml spine" },
-  { extension: "xhtml", wrapper: "div", note: "InDesign-style publisher class" },
+  {
+    extension: "xhtml",
+    wrapper: "div",
+    note: "InDesign-style publisher class",
+  },
 ];
 
 for (const { extension, wrapper, note } of SPINE_SHAPES) {
-  test(`a ${extension}/${wrapper} spine (${note}) leaves no transport structure`, NEEDS_PANDOC, (t) => {
-    const space = workspace(t);
-    const input = space.write("spine.epub", buildEpub({ extension, wrapper }));
+  test(
+    `a ${extension}/${wrapper} spine (${note}) leaves no transport structure`,
+    NEEDS_PANDOC,
+    (t) => {
+      const space = workspace(t);
+      const input = space.write(
+        "spine.epub",
+        buildEpub({ extension, wrapper }),
+      );
 
-    const result = convert(input, ["--output-dir", space.outputDir()]);
+      const result = convert(input, ["--output-dir", space.outputDir()]);
 
-    assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
+      assert.equal(
+        result.json.status,
+        "ok",
+        `expected a conversion, got: ${result.stdout}`,
+      );
 
-    const markdown = readFileSync(result.json.markdown, "utf8");
-    const tocAnchors = new Set(
-      JSON.parse(readFileSync(result.json.toc, "utf8")).entries.map(({ anchor }) => anchor),
-    );
+      const markdown = readFileSync(result.json.markdown, "utf8");
+      const tocAnchors = new Set(
+        JSON.parse(readFileSync(result.json.toc, "utf8")).entries.map(
+          ({ anchor }) => anchor,
+        ),
+      );
 
-    assert.doesNotMatch(markdown, /^::: /mu, "no transport wrapper may survive");
+      assert.doesNotMatch(
+        markdown,
+        /^::: /mu,
+        "no transport wrapper may survive",
+      );
 
-    // An anchor is worth keeping only if something addresses it: a link in the
-    // text, or an entry in the extracted table of contents. Anything else is
-    // the publisher's plumbing and should have been unwrapped.
-    const defined = [...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id);
-    const linked = new Set([...markdown.matchAll(/\]\(#([^)]+)\)/gu)].map(([, id]) => id));
+      // An anchor is worth keeping only if something addresses it: a link in the
+      // text, or an entry in the extracted table of contents. Anything else is
+      // the publisher's plumbing and should have been unwrapped.
+      const defined = [...markdown.matchAll(/\{#([^\s}]+)/gu)].map(
+        ([, id]) => id,
+      );
+      const linked = new Set(
+        [...markdown.matchAll(/\]\(#([^)]+)\)/gu)].map(([, id]) => id),
+      );
 
-    assert.deepEqual(
-      defined.filter((id) => !linked.has(id) && !tocAnchors.has(id)),
-      [],
-      "an anchor nothing points at is transport noise and must be removed",
-    );
-  });
+      assert.deepEqual(
+        defined.filter((id) => !linked.has(id) && !tocAnchors.has(id)),
+        [],
+        "an anchor nothing points at is transport noise and must be removed",
+      );
+    },
+  );
 }
 
 // Cleaning must not cost the reader their navigation. Pandoc anchors a cross
 // reference on an identifier that looks exactly like the transport noise the
 // filter removes, so stripping by shape alone turns every table-of-contents
 // entry into a dangling link.
-test("an internal cross-reference still resolves after cleaning", NEEDS_PANDOC, (t) => {
-  const space = workspace(t);
-  const input = space.write("linked.epub", buildEpub({ crossLink: true }));
+test(
+  "an internal cross-reference still resolves after cleaning",
+  NEEDS_PANDOC,
+  (t) => {
+    const space = workspace(t);
+    const input = space.write("linked.epub", buildEpub({ crossLink: true }));
 
-  const result = convert(input, ["--output-dir", space.outputDir()]);
+    const result = convert(input, ["--output-dir", space.outputDir()]);
 
-  assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
+    assert.equal(
+      result.json.status,
+      "ok",
+      `expected a conversion, got: ${result.stdout}`,
+    );
 
-  const markdown = readFileSync(result.json.markdown, "utf8");
-  const targets = [...markdown.matchAll(/\]\(#([^)]+)\)/gu)].map(([, id]) => id);
-  const defined = new Set([...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id));
+    const markdown = readFileSync(result.json.markdown, "utf8");
+    const targets = [...markdown.matchAll(/\]\(#([^)]+)\)/gu)].map(
+      ([, id]) => id,
+    );
+    const defined = new Set(
+      [...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id),
+    );
 
-  assert.ok(targets.length > 0, "the fixture must produce at least one internal link");
-  assert.deepEqual(
-    targets.filter((id) => !defined.has(id)),
-    [],
-    "cleaning must not leave an internal link pointing at a removed anchor",
-  );
-});
+    assert.ok(
+      targets.length > 0,
+      "the fixture must produce at least one internal link",
+    );
+    assert.deepEqual(
+      targets.filter((id) => !defined.has(id)),
+      [],
+      "cleaning must not leave an internal link pointing at a removed anchor",
+    );
+  },
+);
 
 // Pandoc consumes an EPUB's navigation document as structure and never emits
 // it, so a question about the table of contents cannot be answered from the
 // converted Markdown. The converter extracts it separately and resolves each
 // entry to an anchor inside the Markdown, which only works if those anchors
 // survive cleaning -- nothing in the text links to them.
-test("the table of contents is extracted and its anchors resolve", NEEDS_PANDOC, (t) => {
-  const space = workspace(t);
-  const input = space.write("book.epub", buildEpub());
+test(
+  "the table of contents is extracted and its anchors resolve",
+  NEEDS_PANDOC,
+  (t) => {
+    const space = workspace(t);
+    const input = space.write("book.epub", buildEpub());
 
-  const result = convert(input, ["--output-dir", space.outputDir()]);
+    const result = convert(input, ["--output-dir", space.outputDir()]);
 
-  assert.equal(result.json.status, "ok", `expected a conversion, got: ${result.stdout}`);
-  assert.ok(result.json.toc, "the result must report a table of contents");
-  assert.ok(existsSync(result.json.toc), "the table of contents file must exist");
+    assert.equal(
+      result.json.status,
+      "ok",
+      `expected a conversion, got: ${result.stdout}`,
+    );
+    assert.ok(result.json.toc, "the result must report a table of contents");
+    assert.ok(
+      existsSync(result.json.toc),
+      "the table of contents file must exist",
+    );
 
-  const { entries } = JSON.parse(readFileSync(result.json.toc, "utf8"));
+    const { entries } = JSON.parse(readFileSync(result.json.toc, "utf8"));
 
-  assert.equal(entries.length, result.json.toc_entries);
-  assert.deepEqual(
-    entries.map(({ title }) => title),
-    ["The First Chapter", "The Second Chapter"],
-    "the navigation document's titles must be recovered in order",
-  );
+    assert.equal(entries.length, result.json.toc_entries);
+    assert.deepEqual(
+      entries.map(({ title }) => title),
+      ["The First Chapter", "The Second Chapter"],
+      "the navigation document's titles must be recovered in order",
+    );
 
-  const markdown = readFileSync(result.json.markdown, "utf8");
-  const defined = new Set([...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id));
+    const markdown = readFileSync(result.json.markdown, "utf8");
+    const defined = new Set(
+      [...markdown.matchAll(/\{#([^\s}]+)/gu)].map(([, id]) => id),
+    );
 
-  assert.deepEqual(
-    entries.filter(({ anchor }) => !defined.has(anchor)),
-    [],
-    "every table-of-contents anchor must address a point in the Markdown",
-  );
-});
+    assert.deepEqual(
+      entries.filter(({ anchor }) => !defined.has(anchor)),
+      [],
+      "every table-of-contents anchor must address a point in the Markdown",
+    );
+  },
+);
 
 // A cache hit is the common case on any repeated question about the same book,
 // so it has to report the same fields as a fresh conversion. If it omits the
 // warning counters, SKILL.md step 4 silently loses the signal it branches on
 // from the second invocation onwards.
-test("a cache hit reports the same fields as a fresh conversion", NEEDS_PANDOC, (t) => {
-  const space = workspace(t);
-  const input = space.write("fixture.epub", buildEpub());
-  const output = space.outputDir();
+test(
+  "a cache hit reports the same fields as a fresh conversion",
+  NEEDS_PANDOC,
+  (t) => {
+    const space = workspace(t);
+    const input = space.write("fixture.epub", buildEpub());
+    const output = space.outputDir();
 
-  const fresh = convert(input, ["--output-dir", output]);
-  const cached = convert(input, ["--output-dir", output]);
+    const fresh = convert(input, ["--output-dir", output]);
+    const cached = convert(input, ["--output-dir", output]);
 
-  assert.equal(fresh.json.cached, false);
-  assert.equal(cached.json.cached, true, "the second run must hit the cache");
+    assert.equal(fresh.json.cached, false);
+    assert.equal(cached.json.cached, true, "the second run must hit the cache");
 
-  assert.deepEqual(
-    Object.keys(cached.json).sort(),
-    Object.keys(fresh.json).sort(),
-    "a cache hit must not drop fields a fresh conversion reports",
-  );
-  assertConformsToSchema(cached.json);
-});
+    assert.deepEqual(
+      Object.keys(cached.json).sort(),
+      Object.keys(fresh.json).sort(),
+      "a cache hit must not drop fields a fresh conversion reports",
+    );
+    assertConformsToSchema(cached.json);
+  },
+);
 
-test("a non-empty directory the converter did not create is refused", NEEDS_PANDOC, (t) => {
-  const space = workspace(t);
-  const input = space.write("fixture.epub", buildEpub());
-  const output = space.outputDir("occupied");
+test(
+  "a non-empty directory the converter did not create is refused",
+  NEEDS_PANDOC,
+  (t) => {
+    const space = workspace(t);
+    const input = space.write("fixture.epub", buildEpub());
+    const output = space.outputDir("occupied");
 
-  // Non-empty, but with no manifest.json, so it cannot be a cache directory
-  // this converter created. Overwriting it would destroy the user's files.
-  mkdirSync(output, { recursive: true });
-  writeFileSync(join(output, "notes.txt"), "Pre-existing user content.\n");
+    // Non-empty, but with no manifest.json, so it cannot be a cache directory
+    // this converter created. Overwriting it would destroy the user's files.
+    mkdirSync(output, { recursive: true });
+    writeFileSync(join(output, "notes.txt"), "Pre-existing user content.\n");
 
-  const result = convert(input, ["--output-dir", output]);
+    const result = convert(input, ["--output-dir", output]);
 
-  assert.equal(result.json.error, "output_directory_not_owned");
-  // Checked before the exit code because this branch currently names no
-  // reference at all, leaving the agent with an error and no documented
-  // next step.
-  assertNamesAResolvableReference(result.json);
-  assert.equal(result.status, 22);
-  assertConformsToSchema(result.json);
-});
+    assert.equal(result.json.error, "output_directory_not_owned");
+    // Checked before the exit code because this branch currently names no
+    // reference at all, leaving the agent with an error and no documented
+    // next step.
+    assertNamesAResolvableReference(result.json);
+    assert.equal(result.status, 22);
+    assertConformsToSchema(result.json);
+  },
+);

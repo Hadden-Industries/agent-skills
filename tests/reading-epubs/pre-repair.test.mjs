@@ -17,7 +17,13 @@
  * catching the regression it describes.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -27,12 +33,17 @@ import test from "node:test";
 import { buildEpub } from "../helpers/epub.mjs";
 import { pandocAvailable, runScript } from "./harness.mjs";
 
-const NEEDS_PANDOC = { skip: pandocAvailable ? false : "Pandoc is not installed" };
+const NEEDS_PANDOC = {
+  skip: pandocAvailable ? false : "Pandoc is not installed",
+};
 
 const INDENTED = ["alpha", "    beta", "        gamma"].join("\n");
 
 function escapeXml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function convert(t, markup) {
@@ -49,7 +60,11 @@ function convert(t, markup) {
 
   const result = runScript("convert_epub.py", [input, "--output-dir", output]);
 
-  assert.equal(result.json?.status, "ok", `expected a conversion, got: ${result.stdout}`);
+  assert.equal(
+    result.json?.status,
+    "ok",
+    `expected a conversion, got: ${result.stdout}`,
+  );
 
   return {
     json: result.json,
@@ -80,31 +95,45 @@ test("the number of repaired blocks is reported", NEEDS_PANDOC, (t) => {
   assert.equal(json.repaired_code_blocks, 1);
 });
 
-test("a book needing no repair is converted from the original", NEEDS_PANDOC, (t) => {
-  const { json, output } = convert(t, `<pre><code>${escapeXml(INDENTED)}</code></pre>`);
+test(
+  "a book needing no repair is converted from the original",
+  NEEDS_PANDOC,
+  (t) => {
+    const { json, output } = convert(
+      t,
+      `<pre><code>${escapeXml(INDENTED)}</code></pre>`,
+    );
 
-  assert.equal(json.repaired_code_blocks, 0);
-  assert.ok(
-    !existsSync(join(output, "repaired-source.epub")),
-    "an untouched book must not be rewritten, so the cost falls only on books that need it",
-  );
-});
+    assert.equal(json.repaired_code_blocks, 0);
+    assert.ok(
+      !existsSync(join(output, "repaired-source.epub")),
+      "an untouched book must not be rewritten, so the cost falls only on books that need it",
+    );
+  },
+);
 
-test("a repaired book leaves an inspectable copy beside the output", NEEDS_PANDOC, (t) => {
-  const { output } = convert(t, `<pre>${escapeXml(INDENTED)}</pre>`);
+test(
+  "a repaired book leaves an inspectable copy beside the output",
+  NEEDS_PANDOC,
+  (t) => {
+    const { output } = convert(t, `<pre>${escapeXml(INDENTED)}</pre>`);
 
-  assert.ok(
-    existsSync(join(output, "repaired-source.epub")),
-    "the rewritten source must be inspectable rather than hidden",
-  );
-});
+    assert.ok(
+      existsSync(join(output, "repaired-source.epub")),
+      "the rewritten source must be inspectable rather than hidden",
+    );
+  },
+);
 
 // Wrapping a block in <code> keeps the text of any markup inside and discards
 // the rest. That is harmless for emphasis, and destructive for anything whose
 // meaning is not carried by its text.
 
 test("text inside a repaired block survives", NEEDS_PANDOC, (t) => {
-  const { markdown } = convert(t, `<pre>SELECT <em>column</em>\n    FROM <strong>table</strong></pre>`);
+  const { markdown } = convert(
+    t,
+    `<pre>SELECT <em>column</em>\n    FROM <strong>table</strong></pre>`,
+  );
 
   assert.equal(fencedBody(markdown), "SELECT column\n    FROM table");
 });
@@ -115,7 +144,11 @@ test("a block containing an image is left unrepaired", NEEDS_PANDOC, (t) => {
     `<pre>alpha\n    beta<img src="figure.png" alt="DIAGRAM"/></pre>`,
   );
 
-  assert.equal(json.repaired_code_blocks, 0, "repairing this would drop the image entirely");
+  assert.equal(
+    json.repaired_code_blocks,
+    0,
+    "repairing this would drop the image entirely",
+  );
   assert.match(markdown, /DIAGRAM/u, "the image must survive instead");
 });
 
@@ -125,16 +158,31 @@ test("a block containing a link is left unrepaired", NEEDS_PANDOC, (t) => {
     `<pre>see <a href="https://example.invalid/spec">the spec</a>\n    then continue</pre>`,
   );
 
-  assert.equal(json.repaired_code_blocks, 0, "repairing this would drop the address");
-  assert.match(markdown, /example\.invalid\/spec/u, "the address must survive instead");
-});
-
-test("a block containing an anchor identifier is left unrepaired", NEEDS_PANDOC, (t) => {
-  const { json } = convert(t, `<pre>alpha<span id="callout-1"></span>\n    beta</pre>`);
-
   assert.equal(
     json.repaired_code_blocks,
     0,
-    "repairing this would drop an identifier another part of the book may link to",
+    "repairing this would drop the address",
+  );
+  assert.match(
+    markdown,
+    /example\.invalid\/spec/u,
+    "the address must survive instead",
   );
 });
+
+test(
+  "a block containing an anchor identifier is left unrepaired",
+  NEEDS_PANDOC,
+  (t) => {
+    const { json } = convert(
+      t,
+      `<pre>alpha<span id="callout-1"></span>\n    beta</pre>`,
+    );
+
+    assert.equal(
+      json.repaired_code_blocks,
+      0,
+      "repairing this would drop an identifier another part of the book may link to",
+    );
+  },
+);

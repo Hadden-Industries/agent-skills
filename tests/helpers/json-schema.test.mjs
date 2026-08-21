@@ -64,8 +64,14 @@ test("each violation is reported", () => {
     ["value outside enum", (payload) => (payload.tags = ["gamma"])],
     ["unexpected property", (payload) => (payload.extra = true)],
     ["union type violated", (payload) => (payload.optional = 5)],
-    ["violation behind a $ref", (payload) => (payload.nested = { flag: "yes" })],
-    ["unexpected property behind a $ref", (payload) => (payload.nested = { flag: true, other: 1 })],
+    [
+      "violation behind a $ref",
+      (payload) => (payload.nested = { flag: "yes" }),
+    ],
+    [
+      "unexpected property behind a $ref",
+      (payload) => (payload.nested = { flag: true, other: 1 }),
+    ],
   ];
 
   for (const [label, mutate] of cases) {
@@ -96,7 +102,11 @@ test("annotation keywords are accepted and do not affect validation", () => {
 
 test("unsupported keywords fail loudly rather than being ignored", () => {
   assert.throws(
-    () => schemaErrors({ value: 1 }, { type: "object", properties: { value: { multipleOf: 2 } } }),
+    () =>
+      schemaErrors(
+        { value: 1 },
+        { type: "object", properties: { value: { multipleOf: 2 } } },
+      ),
     /unsupported keyword "multipleOf"/u,
   );
 });

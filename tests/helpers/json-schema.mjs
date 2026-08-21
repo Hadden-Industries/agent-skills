@@ -93,12 +93,16 @@ function check(value, schema, root, path, errors) {
   assertKeywordsSupported(schema, path);
 
   if ("const" in schema && value !== schema.const) {
-    errors.push(`${path}: expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`);
+    errors.push(
+      `${path}: expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`,
+    );
     return;
   }
 
   if (schema.enum && !schema.enum.includes(value)) {
-    errors.push(`${path}: ${JSON.stringify(value)} is not one of ${JSON.stringify(schema.enum)}`);
+    errors.push(
+      `${path}: ${JSON.stringify(value)} is not one of ${JSON.stringify(schema.enum)}`,
+    );
     return;
   }
 
@@ -106,16 +110,26 @@ function check(value, schema, root, path, errors) {
     const expected = Array.isArray(schema.type) ? schema.type : [schema.type];
 
     if (!expected.some((candidate) => matchesType(value, candidate))) {
-      errors.push(`${path}: expected type ${expected.join("|")}, got ${typeOf(value)}`);
+      errors.push(
+        `${path}: expected type ${expected.join("|")}, got ${typeOf(value)}`,
+      );
       return;
     }
   }
 
-  if (typeof value === "number" && typeof schema.minimum === "number" && value < schema.minimum) {
+  if (
+    typeof value === "number" &&
+    typeof schema.minimum === "number" &&
+    value < schema.minimum
+  ) {
     errors.push(`${path}: ${value} is below minimum ${schema.minimum}`);
   }
 
-  if (typeof value === "string" && typeof schema.minLength === "number" && value.length < schema.minLength) {
+  if (
+    typeof value === "string" &&
+    typeof schema.minLength === "number" &&
+    value.length < schema.minLength
+  ) {
     errors.push(`${path}: string shorter than minLength ${schema.minLength}`);
   }
 

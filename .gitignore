@@ -5,6 +5,7 @@
 # Local skill-engineering environment
 .venv/
 .agent-tools/
+node_modules/
 .env
 __pycache__/
 *.pyc

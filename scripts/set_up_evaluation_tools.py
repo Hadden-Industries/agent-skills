@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -81,6 +82,84 @@ def venv_executable(venv: Path, name: str) -> Path:
     return venv / "bin" / name
 
 
+def path_is_link_or_junction(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+
+    is_junction = getattr(path, "is_junction", None)
+
+    return bool(is_junction and is_junction())
+
+
+def probe_python(python: Path, repo: Path) -> tuple[bool, str]:
+    """Return whether a Python launcher starts, plus its diagnostic output."""
+    try:
+        result = run(
+            (python, "-c", "import sys"),
+            cwd=repo,
+            capture=True,
+            check=False,
+        )
+    except OSError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+    diagnostic = (result.stderr or result.stdout or "").strip()
+
+    return result.returncode == 0, diagnostic
+
+
+def ensure_virtual_environment(repo: Path) -> tuple[Path, Path]:
+    """Create or safely recover the disposable repository-owned .venv."""
+    repo = repo.resolve()
+    venv = repo / ".venv"
+    python = venv_python(venv)
+
+    if venv.exists() and not python.exists() and path_is_link_or_junction(venv):
+        raise SetupError(
+            "Refusing to create a virtual environment through a repository "
+            f"path that is a link or junction: {venv}"
+        )
+
+    if python.exists():
+        usable, diagnostic = probe_python(python, repo)
+
+        if usable:
+            return venv, python
+
+        if path_is_link_or_junction(venv):
+            raise SetupError(
+                "Refusing to clear an unusable virtual environment because "
+                f"the repository-owned path is a link or junction: {venv}"
+            )
+
+        print(
+            "\nExisting repository-local virtual environment cannot start; "
+            f"recreating it from {sys.executable}."
+        )
+
+        if diagnostic:
+            print(f"Previous interpreter error: {diagnostic}")
+
+        shutil.rmtree(venv)
+
+    print(f"\nCreating repository-local virtual environment: {venv}")
+    run((sys.executable, "-m", "venv", venv), cwd=repo)
+
+    if not python.exists():
+        raise SetupError(f"Virtual-environment Python not found: {python}")
+
+    usable, diagnostic = probe_python(python, repo)
+
+    if not usable:
+        detail = f"\nInterpreter error: {diagnostic}" if diagnostic else ""
+        raise SetupError(
+            "Newly created virtual-environment Python could not start: "
+            f"{python}{detail}"
+        )
+
+    return venv, python
+
+
 def ensure_python_tooling(repo: Path) -> tuple[Path, Path]:
     """
     Create/reuse .venv and refresh Python dependencies to current upstream.
@@ -90,15 +169,7 @@ def ensure_python_tooling(repo: Path) -> tuple[Path, Path]:
     """
     ensure_python_version()
 
-    venv = (repo / ".venv").resolve()
-    python = venv_python(venv)
-
-    if not python.exists():
-        print(f"\nCreating repository-local virtual environment: {venv}")
-        run((sys.executable, "-m", "venv", venv), cwd=repo)
-
-    if not python.exists():
-        raise SetupError(f"Virtual-environment Python not found: {python}")
+    venv, python = ensure_virtual_environment(repo)
 
     print("\n== Repository-local Python tooling ==")
 
@@ -150,7 +221,7 @@ def npm_local_bin(prefix: Path, command: str) -> Path:
 
 
 def ensure_tessl(repo: Path) -> Path:
-    """Install or refresh Tessl under a strictly repository-local npm prefix."""
+    """Refresh Tessl's local npm launcher and the runtime it manages."""
     npm = require_command("npm")
     prefix = repo / ".agent-tools" / "tessl"
     prefix.mkdir(parents=True, exist_ok=True)
@@ -180,8 +251,11 @@ def ensure_tessl(repo: Path) -> Path:
             f"found at: {tessl}"
         )
 
-    # Do not execute/login here: Tessl's authentication/preferences are
-    # user-level state under ~/.tessl.
+    # The npm package is a launcher. Updating it does not update an existing
+    # Tessl runtime binary, so refresh that binary explicitly as part of this
+    # updater's convergence contract. This does not authenticate Tessl.
+    run((tessl, "cli", "update"), cwd=repo)
+
     return tessl
 
 
@@ -289,15 +363,6 @@ def update_openai_sparse_checkout(repo: Path, checkout: Path) -> Path:
         )
 
     return plugin_root
-
-
-def path_is_link_or_junction(path: Path) -> bool:
-    if path.is_symlink():
-        return True
-
-    is_junction = getattr(path, "is_junction", None)
-
-    return bool(is_junction and is_junction())
 
 
 def create_directory_link(link: Path, target: Path) -> None:

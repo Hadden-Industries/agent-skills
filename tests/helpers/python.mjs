@@ -9,7 +9,9 @@
 
 import { spawnSync } from "node:child_process";
 
-const EXPLICIT_PYTHON = process.env.PYTHON ? process.env.PYTHON.split(/\s+/u) : null;
+const EXPLICIT_PYTHON = process.env.PYTHON
+  ? process.env.PYTHON.split(/\s+/u)
+  : null;
 
 // `py -3` is the launcher the repository's own bootstrap documentation uses on
 // Windows; `python3` is the usual command elsewhere. Bare `python` is the last
@@ -29,7 +31,9 @@ export function resolvePython() {
 
   for (const candidate of PYTHON_CANDIDATES) {
     const [command, ...prefix] = candidate;
-    const probe = spawnSync(command, [...prefix, "--version"], { encoding: "utf8" });
+    const probe = spawnSync(command, [...prefix, "--version"], {
+      encoding: "utf8",
+    });
 
     if (probe.status === 0) {
       cachedPython = candidate;

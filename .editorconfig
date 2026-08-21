@@ -1,0 +1,22 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs.
+# https://editorconfig.org
+
+root = true
+
+# Global defaults
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# PEP 8
+[*.py]
+indent_size = 4
+
+# YAML does not permit tab indentation
+[*.{yml,yaml}]
+indent_style = space

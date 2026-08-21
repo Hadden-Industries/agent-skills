@@ -13,7 +13,7 @@
  * Every case needs a real Pandoc, so they skip when it is absent.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -23,7 +23,9 @@ import test from "node:test";
 import { buildEpub } from "../helpers/epub.mjs";
 import { pandocAvailable, runScript } from "./harness.mjs";
 
-const NEEDS_PANDOC = { skip: pandocAvailable ? false : "Pandoc is not installed" };
+const NEEDS_PANDOC = {
+  skip: pandocAvailable ? false : "Pandoc is not installed",
+};
 
 // Indentation is load-bearing, and the trailing comments would be silently
 // reflowed by anything treating this as prose.
@@ -34,11 +36,14 @@ const SOURCE = [
   "            return call()          # trailing comment",
   "        except Timeout:",
   "            sleep(2 ** attempt)    # exponential backoff",
-  "    raise Timeout(\"gave up\")",
+  '    raise Timeout("gave up")',
 ].join("\n");
 
 function escapeXml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function convertFully(t, { css, markup }) {
@@ -55,7 +60,11 @@ function convertFully(t, { css, markup }) {
 
   const result = runScript("convert_epub.py", [input, "--output-dir", output]);
 
-  assert.equal(result.json?.status, "ok", `expected a conversion, got: ${result.stdout}`);
+  assert.equal(
+    result.json?.status,
+    "ok",
+    `expected a conversion, got: ${result.stdout}`,
+  );
 
   return {
     json: result.json,
@@ -72,7 +81,9 @@ function convert(t, fixture) {
 function fencedBlock(markdown) {
   const match = markdown.match(/^```+([^\n]*)\n([\s\S]*?)^```+\s*$/mu);
 
-  return match ? { info: match[1].trim(), body: match[2].replace(/\r/gu, "") } : null;
+  return match
+    ? { info: match[1].trim(), body: match[2].replace(/\r/gu, "") }
+    : null;
 }
 
 function block(css, preClass, codeClass) {
@@ -82,7 +93,8 @@ function block(css, preClass, codeClass) {
   return { css, markup: `${pre}${code}${escapeXml(SOURCE)}</code></pre>` };
 }
 
-const PRESENTATIONAL_CSS = "pre.Code-Grey { background: #eeeeee; padding: 4px; }\n";
+const PRESENTATIONAL_CSS =
+  "pre.Code-Grey { background: #eeeeee; padding: 4px; }\n";
 
 // Each shape appears in real books. All four must fence, because an indented
 // block carries no language and forces an extractor to strip the indent.
@@ -140,29 +152,53 @@ test("a styled class never reaches the info string", NEEDS_PANDOC, (t) => {
 });
 
 // A highlighting theme that styles `.python` must not demote a real language.
-test("a language survives even when the stylesheet styles it", NEEDS_PANDOC, (t) => {
-  const markdown = convert(t, block("pre.python { color: #333333; }\n", "python", null));
+test(
+  "a language survives even when the stylesheet styles it",
+  NEEDS_PANDOC,
+  (t) => {
+    const markdown = convert(
+      t,
+      block("pre.python { color: #333333; }\n", "python", null),
+    );
 
-  assert.equal(fencedBlock(markdown)?.info, "python");
-});
+    assert.equal(fencedBlock(markdown)?.info, "python");
+  },
+);
 
 // Pandoc marks highlighted blocks with `sourceCode` alongside the language.
 // Alone it is a marker, not a language, and a real book leaked it into two
 // fences before this was handled.
-test("a highlighter marker class never becomes the info string", NEEDS_PANDOC, (t) => {
-  const markdown = convert(t, block("p { margin: 0; }\n", "sourceCode", null));
+test(
+  "a highlighter marker class never becomes the info string",
+  NEEDS_PANDOC,
+  (t) => {
+    const markdown = convert(
+      t,
+      block("p { margin: 0; }\n", "sourceCode", null),
+    );
 
-  assert.equal(fencedBlock(markdown)?.info, "text");
-});
+    assert.equal(fencedBlock(markdown)?.info, "text");
+  },
+);
 
-test("a marker class alongside a language keeps the language", NEEDS_PANDOC, (t) => {
-  const markdown = convert(t, block("p { margin: 0; }\n", "sourceCode python", null));
+test(
+  "a marker class alongside a language keeps the language",
+  NEEDS_PANDOC,
+  (t) => {
+    const markdown = convert(
+      t,
+      block("p { margin: 0; }\n", "sourceCode python", null),
+    );
 
-  assert.equal(fencedBlock(markdown)?.info, "python");
-});
+    assert.equal(fencedBlock(markdown)?.info, "python");
+  },
+);
 
 test("no code block is emitted as an indented block", NEEDS_PANDOC, (t) => {
-  const markdown = convert(t, block(PRESENTATIONAL_CSS, "Code-Grey", "language-python"));
+  const markdown = convert(
+    t,
+    block(PRESENTATIONAL_CSS, "Code-Grey", "language-python"),
+  );
 
   assert.doesNotMatch(
     markdown,

@@ -20,7 +20,11 @@ import { fileURLToPath } from "node:url";
 
 import { resolvePython } from "../helpers/python.mjs";
 
-export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+export const REPO_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
 export const SKILL_DIR = join(REPO_ROOT, "skills", "reading-epubs");
 export const SCRIPT_DIR = join(SKILL_DIR, "scripts");
 
@@ -32,10 +36,14 @@ export { resolvePython };
 export function runScript(script, args = [], options = {}) {
   const [command, ...prefix] = resolvePython();
 
-  const result = spawnSync(command, [...prefix, join(SCRIPT_DIR, script), ...args], {
-    cwd: options.cwd ?? tmpdir(),
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    command,
+    [...prefix, join(SCRIPT_DIR, script), ...args],
+    {
+      cwd: options.cwd ?? tmpdir(),
+      encoding: "utf8",
+    },
+  );
 
   if (result.error) {
     throw result.error;
@@ -67,10 +75,9 @@ export function exitCodes(script) {
   const source = readScriptSource(script);
 
   return Object.fromEntries(
-    [...source.matchAll(/^EXIT_([A-Z_]+)\s*=\s*(\d+)$/gmu)].map(([, name, value]) => [
-      name,
-      Number(value),
-    ]),
+    [...source.matchAll(/^EXIT_([A-Z_]+)\s*=\s*(\d+)$/gmu)].map(
+      ([, name, value]) => [name, Number(value)],
+    ),
   );
 }
 
@@ -79,4 +86,5 @@ export function exitCodes(script) {
  * guaranteed on a machine running the test suite. Conversion tests that need a
  * real Pandoc skip rather than fail when it is absent.
  */
-export const pandocAvailable = runScript("check_pandoc.py").json?.status === "ok";
+export const pandocAvailable =
+  runScript("check_pandoc.py").json?.status === "ok";

@@ -1,0 +1,32 @@
+{
+  "name": "@hadden-industries/agent-skills",
+  "private": true,
+  "license": "MPL-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "format": "prettier --write \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"tests/**/*.mjs\"",
+    "format:check": "prettier --check \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"tests/**/*.mjs\"",
+    "lint": "npm run lint:js",
+    "lint:js": "eslint eslint.config.js scripts tests --max-warnings 0",
+    "fix:all": "eslint eslint.config.js scripts tests --fix && npm run format",
+    "prebuild": "npm run format:check && npm run lint",
+    "build": "node scripts/buildSkillBundles.js",
+    "build:check": "npm run format:check && npm run lint && node scripts/buildSkillBundles.js --check",
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "skills:validate": "node scripts/validateSkills.js",
+    "skills:lint": "node scripts/lintSkills.js",
+    "diff:check": "git diff --check HEAD",
+    "verify": "npm run build:check && npm test && npm run skills:validate && npm run skills:lint && npm run diff:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.8.0",
+    "prettier": "^3.9.6"
+  }
+}
