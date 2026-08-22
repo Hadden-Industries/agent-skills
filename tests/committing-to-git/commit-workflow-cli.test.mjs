@@ -48,7 +48,9 @@ test("domain command help documents its required options without running Git", (
   assert.match(result.stdout, /--mode <actual\|draft>/u);
   assert.match(result.stdout, /--scope <staged\|full\|paths>/u);
   assert.match(result.stdout, /Side effects:/u);
-  assert.match(result.stdout, /real index/u);
+  assert.match(result.stdout, /Staged scope reads the real index as-is/u);
+  assert.match(result.stdout, /may lock it to update cache metadata/u);
+  assert.match(result.stdout, /Draft full and paths do not change/u);
   assert.match(result.stdout, /Exit status:/u);
 });
 

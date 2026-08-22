@@ -66,6 +66,55 @@ export function writeIndexTree(root, env) {
   return gitText(["write-tree"], { cwd: root, env }).trim();
 }
 
+export function indexMatchesTree(root, treeOid, env) {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(treeOid)) {
+    throw new Error(`Invalid full tree object ID: ${JSON.stringify(treeOid)}.`);
+  }
+
+  const readOnlyEnv = {
+    ...env,
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+  };
+  const objectType = gitText(["cat-file", "-t", treeOid], {
+    cwd: root,
+    env: readOnlyEnv,
+  }).trim();
+
+  if (objectType !== "tree") {
+    throw new Error(
+      `Expected tree object ID ${treeOid} must identify a tree object, not ${objectType}.`,
+    );
+  }
+
+  const args = [
+    "diff",
+    "--cached",
+    "--quiet",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-renames",
+    "--ignore-submodules=none",
+    treeOid,
+    "--",
+  ];
+  const result = runGit(args, {
+    cwd: root,
+    env: readOnlyEnv,
+    allowFailure: true,
+  });
+
+  if (result.status === 0) {
+    return true;
+  }
+
+  if (result.status === 1) {
+    return false;
+  }
+
+  throw new GitCommandError(args, result);
+}
+
 const OPERATION_MARKERS = [
   ["merge", "MERGE_HEAD"],
   ["cherry-pick", "CHERRY_PICK_HEAD"],

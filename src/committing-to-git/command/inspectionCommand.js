@@ -8,9 +8,9 @@ import {
   writeInspection,
 } from "../inspection/changeInspection.js";
 import {
+  indexMatchesTree,
   repositoryRoot,
   runGit,
-  writeIndexTree,
 } from "../git/gitRepository.js";
 
 function usageError(message) {
@@ -51,11 +51,10 @@ function patchForManifest(manifest, root) {
   const env = manifest.indexFile
     ? { GIT_INDEX_FILE: manifest.indexFile }
     : undefined;
-  const currentTree = writeIndexTree(root, env);
 
-  if (currentTree !== manifest.indexTreeOid) {
+  if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
     throw new Error(
-      `Index tree drifted: manifest has ${manifest.indexTreeOid}, current tree is ${currentTree}.`,
+      `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`,
     );
   }
 

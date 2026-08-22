@@ -11,21 +11,17 @@ metadata:
 
 ## Workflow contract and enforcement boundary
 
-The helper records one Git index tree, deterministically derives mechanical message structure from it, and later reports whether the resulting commit matches the recorded tree, parent, and message. Supply what a diff cannot establish: why the change exists, which outcome it enables, and which constraint or failure it addresses.
+The helper records one index tree, derives the message structure, and reports whether the commit matches its tree, parent, and message. Supply what a diff cannot: why the change exists, the outcome it enables, and the constraint or failure it addresses.
 
-The helper enforces selected artifact shapes and cross-artifact invariants, literal path identity, structural rendering, inspection acknowledgements, and object comparisons. It does not create the commit, lock the index, establish semantic truth or authorization, or enforce verification and report gates inside the standalone publication command. The invoking agent must follow the ordered gates below. Hooks can produce a mismatch; preserve and report it instead of claiming the approved transaction succeeded.
+The helper enforces artifact invariants, literal paths, rendering, acknowledgements, and object comparisons. The agent owns actual reading, truthful semantics, coherent domains, authorization, command order, and publication gates. The helper neither commits nor locks the index across approval. Preserve hook-produced mismatches; never overstate mechanical validation.
 
-Agent-reviewed requirements include scratch placement, repository-relative scope values, actually reading before acknowledgement, imperative phrasing, truthful rationale, coherent domains, authorization, and command order. Do not describe those judgments as mechanically validated.
-
-The workflow is deliberately opinionated. Git does not require Conventional Commit subjects, a `File Changes:` section, or numbered file entries. This skill uses those conventions as a stable review interface; do not present them as universal Git best practice.
-
-Draft mode never changes the real index. Actual mode records and stages the intended tree before showing the message for approval, but it does not lock the index; later verification detects drift. Every commit created by this workflow uses `git commit -S`; changing signature-verification policy never authorizes an unsigned retry.
+Conventional Commit subjects, `File Changes:`, and numbering are this workflow's stable review interface, not universal Git rules. Drafting never changes staged entries: draft `full` and `paths` use a temporary index, while draft `staged` may update only real-index cache metadata. Actual mode stages before message approval and later detects drift. Every created commit uses `git commit -S`; verification-policy changes never authorize an unsigned retry.
 
 ## Supported transaction
 
 This skill drafts from current staged changes, all current changes, or a task-bounded set of whole paths. It can create a new root or ordinary one-parent commit and optionally push that exact commit with separate authorization.
 
-Do not use this workflow for amend, fixup, squash, merge commits, merge/rebase/cherry-pick/revert continuation, empty commits, history rewriting, or automatic rollback. It also does not render arbitrary repository-specific subject types, trailers, or footer grammars. If applicable repository instructions conflict with the message contract below, stop before staging and explain the incompatibility; do not bypass either policy.
+Unsupported operations are amend, fixup, squash, merge commits, active-operation continuation, empty commits, history rewriting, automatic rollback, and repository-specific subject types, trailers, or footer grammars. If repository instructions conflict with this message contract, stop before staging and explain the incompatibility; bypass neither policy.
 
 ## Authorization and state safety
 
@@ -37,15 +33,15 @@ Do not use this workflow for amend, fixup, squash, merge commits, merge/rebase/c
 - If actual-mode staging occurred but approval is withheld, preserve that index and report it; do not undo it automatically.
 - Never amend, reset, delete, or replace a created commit after a hook, comparison, verification, check, or push failure.
 
-## Attempt directory
+## Execution permissions
 
-At the start of every snapshot attempt, obtain one genuine UUIDv4 from a cryptographically secure platform API; do not type, predict, or imitate a UUID. Form the absolute directory name `<system-temp>/committing-to-git-<uuid-v4>`, where `<system-temp>` is the operating system's temporary directory. Create that exact directory directly with one exclusive, non-recursive directory-creation operation. Do not check whether it exists first. If creation reports `EEXIST`, discard that UUID and retry with a newly generated UUIDv4. For every other failure, stop and report it. Once creation succeeds, use the path immediately; do not add an ownership file, allocation record, numbered handover, or discovery protocol.
+Honor every host-declared boundary before metadata writes. If `.git` is known read-only and scoped elevation exists, use it for the exact command on the first attempt; never run a known-doomed probe. Elevation does not expand scope or authorize staging, committing, policy changes, or publication.
 
-Never place an attempt under the working tree, share it between transactions, or reuse it for a regenerated snapshot. A fresh snapshot always receives a fresh `committing-to-git-<uuid-v4>` directory. The skill-prefixed name makes the directory recognizable; the CSPRNG UUID and exclusive creation make concurrent allocation collision-safe. Unique scratch directories do not isolate Git state. Do not deliberately overlap transactions in one worktree or run mutating helper commands concurrently within one attempt. The helper neither discovers other attempts nor holds a cross-command lock, so do not invent a persistent lock, registry, or handover. If overlap becomes known, stop further mutation in both transactions. The coordinating agent or user must designate exactly one survivor; resume only that transaction. After it finishes or stops, preserve the loser and restart it from current state in a fresh UUID attempt. Git's operation locks reject simultaneous low-level mutations; the later snapshot gate detects drift between commands and across approval pauses.
+Every `snapshot create` mode can write Git objects. `staged` scope can lock the real index to update cache metadata without changing staged entries; actual `full` and `paths` can lock and replace its staged tree. `inspection prepare` and `snapshot verify` are read-only comparisons. `git commit` needs write access only after exact-message approval. Read [Execution permissions](references/execution-permissions.md) before snapshot creation on a restricted host and after any permission, `index.lock`, or concurrency error. If the required scoped capability is unavailable or denied, stop before mutation.
 
-Keep the optional `scope.json`, manifest, inspection artifacts, semantic content, rendered message, checks, verification, optional publication result, and reports together until the transaction finishes. The helper never removes attempts. Retain them by default and remove them only when the user or an applicable retention policy authorizes cleanup.
+## Attempt and artifact lifecycle
 
-These files are mutable workflow records, not tamper-evident evidence. Do not hand-edit generated manifests, ledgers, verification, publication, or report artifacts. Hash, canonical-rendering, and Git-object comparisons detect defined inconsistencies; they do not authenticate the artifacts against deliberate replacement. Snapshot creation, inspection preparation, message scaffolding, and publication result creation are create-only: if one of their targets already exists, preserve the occupied attempt unchanged and start a fresh UUID attempt. Reclassify current state first. Use actual `staged` for an index populated by a successful prior snapshot only when `snapshot verify` still exits `0` for that manifest; otherwise scope provenance is ambiguous, so ask before mutation. Never undo the index or blindly retry `paths`. Within an established attempt, `scope.json` may change only before snapshot creation; `content.json` may receive semantic revisions; `commit-message.txt` may be rerendered; `checks.json` may record additional checks actually run; `verification.json` may be replaced after a policy change for the same commit; and reports may be regenerated. No other generated target is replaceable.
+Before every snapshot attempt, read [Transaction artifacts](references/transaction-artifacts.md). Exclusively create one fresh external `<system-temp>/committing-to-git-<uuid-v4>` directory using a CSPRNG UUIDv4; never precheck, reuse, place it in the worktree, or add handover machinery. Serialize same-worktree mutations, keep transaction artifacts together, and apply the reference's lifecycle rules.
 
 In commands below, `<skill>` is this installed skill directory and `<attempt>` is the current external attempt directory. Use the bundled executable directly. Do not recreate its behavior with ad hoc shell, PowerShell, Python, or JavaScript.
 
@@ -93,6 +89,8 @@ The helper sends each value to Git as a literal NUL-delimited path. Do not shell
 
 ## 2. Create the exact snapshot
 
+Apply the execution-permission decision before invoking this command.
+
 Run:
 
 ```text
@@ -103,12 +101,14 @@ The helper rejects unresolved conflicts and active merge, rebase, cherry-pick, r
 
 Scope behavior is exact:
 
-- Actual `staged` and draft `staged` read the real index without restaging it.
-- Actual `full` and `paths` prepare and validate the target tree in a temporary index, write the snapshot, recheck `HEAD`, operation state, conflicts, and the original real-index tree, then install the completed tree into the real index in one final Git operation. A preparation or output failure before that installation leaves the real index unchanged.
+- Actual `staged` and draft `staged` read the real index without changing staged entries, but `git write-tree` may lock it to update cache metadata.
+- Actual `full` and `paths` prepare elsewhere, write the snapshot, recheck repository state and the original index tree, then install the completed tree in one final Git operation. Earlier failure leaves staged entries and tree unchanged.
 - Actual `paths` includes only the literal whole-path set and requires an initially empty real index.
-- Draft `full` and draft `paths` stage into a temporary index beside `snapshot.json`; the real index remains unchanged.
+- Draft `full` and draft `paths` stage into a temporary index beside `snapshot.json`; they do not lock or modify the real index.
 
-The manifest records pre-snapshot `HEAD`, the index tree, source index, fixed diff policy, raw path identities, normalized change units, and binary-aware statistics. `snapshot.json` is create-only. If it already exists or appears during creation, the helper preserves it and fails; leave that attempt intact and restart from intent and scope classification in a fresh UUID attempt.
+A temporary index isolates index state, not the repository object database: `git add` and `git write-tree` can still create objects. Treat snapshot creation as metadata-writing in every mode unless a later helper version explicitly isolates both stores.
+
+The create-only manifest records `HEAD`, index-tree and source-index identity, diff policy, raw paths, normalized changes, and binary-aware statistics. Apply the artifact reference after any collision or creation failure.
 
 Copy detection is disabled: a retained-source destination is an addition. A detected rename counts once, but similarity does not prove the command or provenance.
 
@@ -120,15 +120,15 @@ Prepare bounded review artifacts:
 node <skill>/scripts/commitWorkflow.mjs inspection prepare --manifest <attempt>/snapshot.json --output-dir <attempt>/inspection
 ```
 
-The inspection output directory is create-only. The helper refuses an existing directory instead of merging or replacing its artifacts. On that failure, preserve the attempt and restart in a fresh UUID attempt.
+This command compares the current index directly with the recorded tree without invoking `git write-tree`. Run it inside a sandbox that can read `.git`; do not grant metadata-write elevation solely for this check.
 
-Read `inspection/inventory.md` first for scale and artifact counts. It is a bounded overview, not the exhaustive file list. Then read every pending artifact in `inspection/ledger.json`, in ledger order, with a native file-reading tool:
+Read `inspection/inventory.md` first for scale and artifact counts, then every pending artifact in `inspection/ledger.json`, in order, with a native file-reading tool:
 
 - inventory pages contain the exhaustive change-unit inventory;
 - text-patch artifacts contain the complete staged patch in contiguous byte order; and
 - binary and submodule artifacts contain the metadata Git can establish.
 
-Every artifact is at most 200 lines and 16 KiB. The splitter prefers line and valid UTF-8 boundaries; an overlong logical line continues in adjacent byte-ordered artifacts. Metadata does not prove unseen binary or submodule contents, so inspect them separately when a rationale depends on them.
+Each artifact is at most 200 lines and 16 KiB, preferring line and UTF-8 boundaries while preserving overlong lines in byte order. Separately inspect unseen binary or submodule contents when a rationale depends on them.
 
 After fully reading one artifact, acknowledge its exact ID and recorded hash:
 
@@ -152,7 +152,7 @@ Run:
 node <skill>/scripts/commitWorkflow.mjs message scaffold --manifest <attempt>/snapshot.json --output <attempt>/content.json --template <attempt>/commit-message.template.txt
 ```
 
-Both scaffold targets are create-only. The helper refuses the operation if either target already exists, so it cannot erase an authored worksheet. On that failure, preserve the attempt and restart in a fresh UUID attempt. Later semantic revisions edit the established `content.json` and use `message render`; never rerun `message scaffold` in that attempt.
+Both scaffold targets are create-only. If either exists, preserve the attempt and restart with a fresh UUID rather than erasing a worksheet. Later revisions edit `content.json` and use `message render`; never rerun the scaffold in that attempt.
 
 The template is intentionally invalid while placeholders remain. Read [Commit message format](references/message-format.md), then edit only semantic fields in `content.json`. The renderer owns mechanical structure; the agent owns grounded, WHY-first meaning. Known lineage such as "adapted from" belongs in a rationale only when the request or inspected evidence establishes it; never infer lineage from content similarity. Ask when a material reason is unknown, and never invent claims.
 
@@ -174,7 +174,7 @@ Then run the manifest-backed canonical validator:
 node <skill>/scripts/commitWorkflow.mjs message validate --manifest <attempt>/snapshot.json --content <attempt>/content.json --ledger <attempt>/inspection/ledger.json <attempt>/commit-message.txt
 ```
 
-Exit `0` means there are no blocking validation errors, not necessarily that review is complete. Always read the emitted JSON; when `manualReviewRequired` is `true`, inspect every `review` issue before presenting the message and shorten any divisible overlong text. Exit `1` is a structured negative result: correct the named canonical or inspection problem, rerender when semantic input changes, and validate again. Exit `2` means a command, input, Git, renderer, schema, or artifact failure. The validator route that rereads mutable scope without all three manifest arguments is outside this workflow and is not sufficient evidence.
+Apply the validation-result contract in the message-format reference. Always read the emitted JSON: exit `0` can still require named manual review, exit `1` requires correction and revalidation, and exit `2` is an execution or artifact failure. The validator route without all three manifest arguments rereads mutable scope and is insufficient for this workflow.
 
 For a draft-only request, present the exact validated `commit-message.txt` and invite prose revisions; do not ask for commit approval. For actual mode, present that exact file and request approval to create the commit.
 
@@ -190,13 +190,15 @@ Only continue when the user authorized a commit and approved the exact rendered 
 node <skill>/scripts/commitWorkflow.mjs snapshot verify --manifest <attempt>/snapshot.json
 ```
 
-Exit `0` proves that repository root, `HEAD`, index tree, and operation state still match the approved snapshot. Exit `1` means drift: stop and create a fresh attempt, including new inspection, rendering, validation, and approval. Reclassify scope first. If the intended content is now deliberately staged, use `actual` plus `staged`; do not blindly rerun `paths` against a now-populated index. Exit `2` means an execution or artifact failure.
+This is a read-only index-to-recorded-tree comparison and does not invoke `git write-tree`. Exit `0` proves that repository root, `HEAD`, index tree, and operation state still match the approved snapshot. Exit `1` means drift: stop and create a fresh attempt, including new inspection, rendering, validation, and approval. Reclassify scope first. If the intended content is now deliberately staged, use `actual` plus `staged`; do not blindly rerun `paths` against a now-populated index. Exit `2` means an execution or artifact failure.
 
 Create the commit without path arguments and without bypassing hooks:
 
 ```text
 git commit --cleanup=verbatim -S -F <attempt>/commit-message.txt
 ```
+
+When the host protects `.git`, request scoped execution for this exact command only after the user has approved the exact message. That execution approval does not authorize publication.
 
 If this command fails, stop. Do not retry unsigned, restage, verify, report success, or push. If it succeeds, immediately record the exact created object ID:
 
@@ -255,9 +257,7 @@ The report reads actual commit identity, signature presence, parent, tree, messa
 
 ## 10. Push the exact commit only when authorized
 
-For a full-workflow push, continue only when the user authorized it, the pre-push report returned `0`, the active verification policy permits it, and no unresolved command failure remains. A verification failure explicitly resolved by the user's advisory or skipped override is resolved for this gate.
-
-Resolve one configured remote name and one full destination branch ref. Use the existing unambiguous upstream when the user asked simply to push; ask when no upstream exists, the destination is ambiguous, or the user named a different target. Do not set an upstream or edit configuration as part of this workflow.
+Before this optional step, read [Publication recovery](references/publication-recovery.md). Continue only when push is authorized, the pre-push report returned `0`, the active verification policy permits publication, and no unresolved command failure remains. Resolve one configured remote and one full destination branch ref; use an unambiguous existing upstream for a plain push request, otherwise ask. Do not set an upstream or edit configuration.
 
 Run the helper with the full created object ID and full destination ref:
 
@@ -265,7 +265,7 @@ Run the helper with the full created object ID and full destination ref:
 node <skill>/scripts/commitWorkflow.mjs publication push --commit <commit-oid> --remote <remote-name> --destination <refs/heads/branch> --output <attempt>/publication.json
 ```
 
-The helper executes a non-force `git push --porcelain` for exactly `<commit-oid>:<destination>` and writes `<publication.json>.pending` before invoking Git. Exactness refers to the destination tip; Git still transfers reachable objects as needed. Exit `0` records `pushed`; exit `1` records Git's failed result. Never retry automatically. For exit `2`, a remaining journal, or a later user-authorized retry after exit `1`, follow [Publication recovery](references/publication-recovery.md).
+The helper performs the reference's exact non-force publication and durable journaling. Never retry automatically. Preserve and classify every nonzero result through that reference.
 
 Regenerate the report with the recorded result:
 

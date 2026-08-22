@@ -83,7 +83,7 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(
     ids,
-    Array.from({ length: 27 }, (_, index) => index + 1),
+    Array.from({ length: 31 }, (_, index) => index + 1),
   );
 
   for (const evaluation of behavior.evals) {
@@ -146,6 +146,30 @@ test("the retained pilot result is arithmetically self-consistent", () => {
     collision.with_skill.passed / collision.with_skill.total,
     collision.with_skill.pass_rate,
   );
+});
+
+test("the permission-boundary smoke result is arithmetically self-consistent", () => {
+  const result = readJson(
+    join(
+      EVAL_DIRECTORY,
+      "results",
+      "2026-08-22-luna-low-permission-boundary-smoke.json",
+    ),
+  );
+  const control = result.result.without_skill;
+  const treatment = result.result.with_skill;
+  const compactedTreatment = result.post_compaction_recheck.with_skill;
+  const difference =
+    (treatment.passed / treatment.total - control.passed / control.total) * 100;
+
+  assert.equal(result.case_id, 28);
+  assert.equal(control.case_passed, control.passed === control.total);
+  assert.equal(treatment.case_passed, treatment.passed === treatment.total);
+  assert.equal(
+    compactedTreatment.case_passed,
+    compactedTreatment.passed === compactedTreatment.total,
+  );
+  assert.equal(result.result.micro_percentage_point_difference, difference);
 });
 
 test("requires a new absolute destination outside the source worktree", (t) => {

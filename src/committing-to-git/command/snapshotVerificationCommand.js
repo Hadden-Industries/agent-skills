@@ -5,9 +5,9 @@ import { resolve } from "node:path";
 
 import {
   activeGitOperations,
+  indexMatchesTree,
   repositoryRoot,
   resolveHead,
-  writeIndexTree,
 } from "../git/gitRepository.js";
 
 function usageError(message) {
@@ -47,18 +47,21 @@ try {
       ? { GIT_INDEX_FILE: manifest.indexFile }
       : undefined;
   const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
-  const actualTreeOid = repositoryMatches ? writeIndexTree(root, env) : null;
+  const treeMatches = repositoryMatches
+    ? indexMatchesTree(root, manifest.indexTreeOid, env)
+    : false;
+  const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
   const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
   const result = {
     schemaVersion: 1,
     valid:
       repositoryMatches &&
       actualHeadOid === manifest.headOid &&
-      actualTreeOid === manifest.indexTreeOid &&
+      treeMatches &&
       activeOperations.length === 0,
     repositoryMatches,
     headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
-    treeMatches: repositoryMatches && actualTreeOid === manifest.indexTreeOid,
+    treeMatches,
     operationClear: repositoryMatches && activeOperations.length === 0,
     expectedHeadOid: manifest.headOid ?? null,
     actualHeadOid,

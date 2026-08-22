@@ -1,6 +1,16 @@
 # Publication recovery
 
-Read this reference when `publication push` exits `2`, a `.pending` journal remains, the user requests a retry after exit `1`, or a later push request lacks any original transaction artifact.
+Read this reference before every `publication push`, when a `.pending` journal remains, when the user requests a retry, or when a later push request lacks an original transaction artifact.
+
+## Standard publication
+
+Continue only when the user authorized push, the full-workflow pre-push report returned `0`, the active verification policy permits publication, and no unresolved command failure remains. A verification result explicitly resolved by the user's advisory or skipped override is resolved for this gate.
+
+Resolve one configured remote name and one full destination branch ref. Use the existing unambiguous upstream for a plain push request. Ask when no upstream exists, the destination is ambiguous, or the user named a different target. Do not set an upstream or edit configuration.
+
+Run `publication push` with the full created object ID, remote name, full `refs/heads/...` destination, and a fresh output path. The helper executes non-force `git push --porcelain` for exactly `<commit-oid>:<destination>` and writes `<publication.json>.pending` before invoking Git. Exactness describes the destination tip; Git transfers every reachable object it needs.
+
+Exit `0` records `pushed`. Exit `1` records Git's failed result. Exit `2` without a journal is a pre-invocation rejection; exit `2` with a journal is an unknown remote outcome. Never retry automatically.
 
 Every authorized retry uses the next unused output path, such as `<attempt>/publication-attempt-002.json`. Preserve every earlier result and journal. Never reuse or overwrite an existing publication path; after a successful or failed retry, pass the newest completed result to `report create --publication`.
 

@@ -9,6 +9,7 @@ import {
   commitAll,
   createRepositoryFixture,
   git,
+  readGitTraceArguments,
   readJson,
   runCommitWorkflow,
   writeRepositoryFile,
@@ -260,6 +261,110 @@ test("snapshot verification rejects a moved HEAD even when the index tree still 
   );
 });
 
+test("snapshot verification does not invoke git write-tree", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-verify-read-only-");
+  const output = join(fixture.scratch, "snapshot.json");
+  const tracePath = join(fixture.scratch, "verification-git-trace.json");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", output],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  const verification = runCommitWorkflow(
+    "snapshot verify",
+    ["--manifest", output],
+    fixture.repo,
+    { env: { GIT_TRACE2_EVENT: tracePath } },
+  );
+
+  assert.equal(verification.status, 0, verification.stderr);
+  assert.equal(JSON.parse(verification.stdout).treeMatches, true);
+  assert.equal(
+    readGitTraceArguments(tracePath).some((args) =>
+      args.includes("write-tree"),
+    ),
+    false,
+  );
+});
+
+test("snapshot verification reports drift without invoking git write-tree", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-verify-drift-");
+  const output = join(fixture.scratch, "snapshot.json");
+  const tracePath = join(fixture.scratch, "drift-git-trace.json");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "approved\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", output],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "drifted\n");
+  git(["add", "--", "tracked.txt"], fixture.repo);
+
+  const verification = runCommitWorkflow(
+    "snapshot verify",
+    ["--manifest", output],
+    fixture.repo,
+    { env: { GIT_TRACE2_EVENT: tracePath } },
+  );
+  const result = JSON.parse(verification.stdout);
+
+  assert.equal(verification.status, 1, verification.stderr);
+  assert.equal(result.valid, false);
+  assert.equal(result.treeMatches, false);
+  assert.equal(result.actualTreeOid, null);
+  assert.equal(
+    readGitTraceArguments(tracePath).some((args) =>
+      args.includes("write-tree"),
+    ),
+    false,
+  );
+});
+
+test("snapshot verification rejects a commit object where a tree is required", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-verify-tree-type-");
+  const output = join(fixture.scratch, "snapshot.json");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", output],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  const manifest = readJson(output);
+  manifest.indexTreeOid = manifest.headOid;
+  writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const verification = runCommitWorkflow(
+    "snapshot verify",
+    ["--manifest", output],
+    fixture.repo,
+  );
+
+  assert.equal(verification.status, 2);
+  assert.match(verification.stderr, /must identify a tree object/u);
+});
+
 test("snapshot counts a rename once and preserves unavailable binary line statistics", (t) => {
   const fixture = createRepositoryFixture(t, "commit-stage-special-");
   const output = join(fixture.scratch, "snapshot.json");
@@ -471,7 +576,7 @@ test("path scope rejects a pre-existing staged snapshot before adding more paths
   assert.equal(git(["write-tree"], fixture.repo).stdout.trim(), treeBefore);
 });
 
-test("actual full leaves the real index unchanged when snapshot output fails", (t) => {
+test("actual full preserves real-index entries and tree when snapshot output fails", (t) => {
   const fixture = createRepositoryFixture(t, "commit-stage-output-failure-");
 
   writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");

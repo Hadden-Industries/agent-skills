@@ -73,16 +73,35 @@ export function commitAll(repo, message = "seed") {
   git(["commit", "--quiet", "-m", message], repo);
 }
 
-export function runNodeScript(script, args, cwd) {
+export function runNodeScript(script, args, cwd, options = {}) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd,
     encoding: "utf8",
+    env: options.env ? { ...process.env, ...options.env } : process.env,
     windowsHide: true,
   });
 }
 
-export function runCommitWorkflow(command, args, cwd) {
-  return runNodeScript(COMMIT_WORKFLOW, [...command.split(" "), ...args], cwd);
+export function runCommitWorkflow(command, args, cwd, options = {}) {
+  return runNodeScript(
+    COMMIT_WORKFLOW,
+    [...command.split(" "), ...args],
+    cwd,
+    options,
+  );
+}
+
+export function readGitTraceArguments(path) {
+  return readFileSync(path, "utf8")
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line))
+    .filter(
+      (event) =>
+        new Set(["start", "child_start"]).has(event.event) &&
+        Array.isArray(event.argv),
+    )
+    .map((event) => event.argv);
 }
 
 export function readJson(path) {

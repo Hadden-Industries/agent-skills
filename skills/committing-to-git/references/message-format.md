@@ -80,3 +80,13 @@ In bulk mode, assign every change-unit ID to exactly one domain in `content.json
 Choose the fewest coherent domains that preserve distinct reasons or outcomes. Group by purpose, behavior, or architecture; do not group by directory or extension unless that boundary is semantically meaningful. Do not use `Other`, `Miscellaneous`, arbitrary alphabetical buckets, or fixed-size batches. Order domains by how a reviewer should understand the change.
 
 Never propose shrinking or splitting the user's requested scope because bulk mode applies. Do not narrate hundreds or thousands of individual paths; the manifest and bounded inventory pages remain the exhaustive evidence.
+
+## Validation results
+
+Run the canonical validator with the manifest, semantic content, completed inspection ledger, and rendered message. Always read its emitted JSON.
+
+- Exit `0` means no blocking error, not necessarily that review is complete. When `manualReviewRequired` is `true`, inspect every `review` issue before presenting the message and shorten divisible overlong text.
+- Exit `1` is a structured negative result. Correct the named canonical or inspection problem, rerender after any semantic change, and validate again.
+- Exit `2` is a command, input, Git, renderer, schema, or artifact failure.
+
+The validator route without all three manifest arguments rereads mutable scope and is not transaction evidence.

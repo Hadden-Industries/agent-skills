@@ -47,6 +47,48 @@ function resolveHead(root, env) {
 function writeIndexTree(root, env) {
   return gitText(["write-tree"], { cwd: root, env }).trim();
 }
+function indexMatchesTree(root, treeOid, env) {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(treeOid)) {
+    throw new Error(`Invalid full tree object ID: ${JSON.stringify(treeOid)}.`);
+  }
+  const readOnlyEnv = {
+    ...env,
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0"
+  };
+  const objectType = gitText(["cat-file", "-t", treeOid], {
+    cwd: root,
+    env: readOnlyEnv
+  }).trim();
+  if (objectType !== "tree") {
+    throw new Error(
+      `Expected tree object ID ${treeOid} must identify a tree object, not ${objectType}.`
+    );
+  }
+  const args2 = [
+    "diff",
+    "--cached",
+    "--quiet",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-renames",
+    "--ignore-submodules=none",
+    treeOid,
+    "--"
+  ];
+  const result = runGit(args2, {
+    cwd: root,
+    env: readOnlyEnv,
+    allowFailure: true
+  });
+  if (result.status === 0) {
+    return true;
+  }
+  if (result.status === 1) {
+    return false;
+  }
+  throw new GitCommandError(args2, result);
+}
 function activeGitOperations(root) {
   const operations = OPERATION_MARKERS.filter(([, marker]) => {
     const markerPath = gitText(["rev-parse", "--git-path", marker], {
@@ -530,14 +572,15 @@ var init_snapshotVerificationCommand = __esm({
       const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath(root, manifest.repositoryRoot);
       const env = manifest.sourceIndex === "temporary" && manifest.indexFile ? { GIT_INDEX_FILE: manifest.indexFile } : void 0;
       const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
-      const actualTreeOid = repositoryMatches ? writeIndexTree(root, env) : null;
+      const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
+      const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
       const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
       const result = {
         schemaVersion: 1,
-        valid: repositoryMatches && actualHeadOid === manifest.headOid && actualTreeOid === manifest.indexTreeOid && activeOperations.length === 0,
+        valid: repositoryMatches && actualHeadOid === manifest.headOid && treeMatches && activeOperations.length === 0,
         repositoryMatches,
         headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
-        treeMatches: repositoryMatches && actualTreeOid === manifest.indexTreeOid,
+        treeMatches,
         operationClear: repositoryMatches && activeOperations.length === 0,
         expectedHeadOid: manifest.headOid ?? null,
         actualHeadOid,
@@ -784,10 +827,9 @@ function required(values, name) {
 }
 function patchForManifest(manifest, root) {
   const env = manifest.indexFile ? { GIT_INDEX_FILE: manifest.indexFile } : void 0;
-  const currentTree = writeIndexTree(root, env);
-  if (currentTree !== manifest.indexTreeOid) {
+  if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
     throw new Error(
-      `Index tree drifted: manifest has ${manifest.indexTreeOid}, current tree is ${currentTree}.`
+      `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`
     );
   }
   const base = manifest.headOid ? [manifest.headOid] : [];
@@ -2748,7 +2790,9 @@ var COMMAND_HELP = /* @__PURE__ */ new Map([
 Records one exact Git index tree and its normalized change inventory.
 
 Side effects:
-  Draft mode never changes the real index. Actual staged reads it as-is.
+  Every mode may write Git objects. Staged scope reads the real index as-is
+  and may lock it to update cache metadata without changing staged entries.
+  Draft full and paths do not change the real index.
   Actual full and paths prepare elsewhere, then install the completed tree in the real index.
 
 Output:

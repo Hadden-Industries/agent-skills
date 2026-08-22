@@ -64,6 +64,20 @@ This is complete separation in five repetitions of one prompt family. It is not 
 - The unassisted signature response preserved the commit and did not push, but blurred integrity evidence with trusted signer-identity verification. The assisted response correctly reported trusted verification as unavailable under the user's advisory override.
 - The unassisted Vite message described the ESM migration visible in the diff. The assisted message led with preventing the native-loader warning and supplied file-specific causal rationales that a reader could not recover from syntax alone.
 
+### Declared-permission smoke test
+
+After the execution-permission revision, case 28 was run once per arm with `gpt-5.6-luna` at low reasoning. The prompt explicitly declared a writable worktree, read-only `.git`, available narrowly scoped execution, an empty real index, 44 whole-path changes, and no push.
+
+| Scenario | Expectations | No skill | With skill |
+|---|---:|---:|---:|
+| Declared read-only `.git` boundary | 8 | 6/8 | 8/8 |
+
+Both arms avoided the known-doomed sandboxed mutation, lock probing, permission changes, full access, scope expansion, and push. The prompt therefore did not discriminate the basic proactive-elevation decision. The treatment nevertheless passed the complete case by using the canonical actual-`paths` snapshot helper, bounded inspection, read-only precommit snapshot verification, and the signed file-backed commit command. The control substituted direct `git add` and ad hoc staged-diff checks, omitting canonical snapshot verification.
+
+After attempt and recovery detail was moved into focused references to remove the main-file size warning, the treatment was rerun and remained 8/8. It explicitly applied both `execution-permissions.md` and `transaction-artifacts.md`, so the progressive-disclosure refactor did not drop the scored gates.
+
+This is directional evidence only: there was one control and two treatment samples, no independent grader, no usage telemetry, and no executable repository mutation. The compact grades and limitations are retained in `results/2026-08-22-luna-low-permission-boundary-smoke.json`. Cases 29-31 remain unexecuted pressure definitions for a partial snapshot intermediate, a confirmed live lock, and a clean same-attempt permission retry.
+
 ## External low-capability arm
 
 ### Gemini 3.5 Flash Low

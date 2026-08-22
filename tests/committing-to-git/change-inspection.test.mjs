@@ -15,6 +15,7 @@ import {
   commitAll,
   createRepositoryFixture,
   git,
+  readGitTraceArguments,
   readJson,
   runCommitWorkflow,
   writeRepositoryFile,
@@ -194,7 +195,7 @@ test("inspection shows every line of a similar retained-source destination as ne
   assert.match(patch, /^\+shared line 001$/mu);
 });
 
-test("draft inspection reads the recorded temporary index and leaves the real index unchanged", (t) => {
+test("draft full inspection uses its temporary index and preserves the real staged tree", (t) => {
   const fixture = createRepositoryFixture(t, "commit-draft-inspection-");
   const snapshotPath = join(fixture.scratch, "snapshot.json");
   const inspectionDir = join(fixture.scratch, "inspection");
@@ -224,6 +225,72 @@ test("draft inspection reads the recorded temporary index and leaves the real in
     readFileSync(join(inspectionDir, "chunks/C000001.patch"), "utf8"),
     /after/u,
   );
+});
+
+test("inspection preparation does not invoke git write-tree", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-inspection-read-only-");
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+  const tracePath = join(fixture.scratch, "inspection-git-trace.json");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  const inspect = runCommitWorkflow(
+    "inspection prepare",
+    ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+    fixture.repo,
+    { env: { GIT_TRACE2_EVENT: tracePath } },
+  );
+
+  assert.equal(inspect.status, 0, inspect.stderr);
+  assert.equal(readJson(join(inspectionDir, "ledger.json")).complete, false);
+  assert.equal(
+    readGitTraceArguments(tracePath).some((args) =>
+      args.includes("write-tree"),
+    ),
+    false,
+  );
+});
+
+test("inspection rejects a commit object where the manifest requires a tree", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-inspection-tree-type-");
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  const manifest = readJson(snapshotPath);
+  manifest.indexTreeOid = manifest.headOid;
+  writeFileSync(snapshotPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const inspect = runCommitWorkflow(
+    "inspection prepare",
+    ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+    fixture.repo,
+  );
+
+  assert.equal(inspect.status, 2);
+  assert.match(inspect.stderr, /must identify a tree object/u);
 });
 
 test("binary changes produce explicit unavailable-line metadata review units", (t) => {

@@ -47,7 +47,9 @@ const COMMAND_HELP = new Map([
 Records one exact Git index tree and its normalized change inventory.
 
 Side effects:
-  Draft mode never changes the real index. Actual staged reads it as-is.
+  Every mode may write Git objects. Staged scope reads the real index as-is
+  and may lock it to update cache metadata without changing staged entries.
+  Draft full and paths do not change the real index.
   Actual full and paths prepare elsewhere, then install the completed tree in the real index.
 
 Output:
