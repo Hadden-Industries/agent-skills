@@ -1,0 +1,90 @@
+[
+  {
+    "query": "Draft a commit message for everything currently changed in this repository.",
+    "should_trigger": true
+  },
+  {
+    "query": "Write the exact commit message for the files I already staged, but do not commit yet.",
+    "should_trigger": true
+  },
+  {
+    "query": "Commit these changes once I approve the message.",
+    "should_trigger": true
+  },
+  {
+    "query": "Create a signed commit from the staged snapshot and verify it, but leave it local.",
+    "should_trigger": true
+  },
+  {
+    "query": "Commit only src/parser.js; the lockfile changes must remain out.",
+    "should_trigger": true
+  },
+  {
+    "query": "Please commit the rename that is already staged. The old source path no longer exists.",
+    "should_trigger": true
+  },
+  {
+    "query": "Make the approved commit and then push that exact commit to its configured upstream.",
+    "should_trigger": true
+  },
+  {
+    "query": "Push the local commit we created yesterday; do not stage or commit today's changes.",
+    "should_trigger": true
+  },
+  {
+    "query": "The commit was created but signature trust could not be checked. Verify and report it under my advisory policy.",
+    "should_trigger": true
+  },
+  {
+    "query": "Revise the proposed File Changes section so it explains why each staged file changed.",
+    "should_trigger": true
+  },
+  {
+    "query": "Review this diff for bugs and tell me what you find; I am not asking for a commit message.",
+    "should_trigger": false
+  },
+  {
+    "query": "Explain what commit a1b2c3 changed and why.",
+    "should_trigger": false
+  },
+  {
+    "query": "Amend the previous commit to include the forgotten file.",
+    "should_trigger": false
+  },
+  {
+    "query": "Continue the cherry-pick after resolving its conflicts.",
+    "should_trigger": false
+  },
+  {
+    "query": "Rebase this branch onto main and resolve whatever conflicts occur.",
+    "should_trigger": false
+  },
+  {
+    "query": "Revert the last commit and push the revert.",
+    "should_trigger": false
+  },
+  {
+    "query": "Merge feature/parser into this branch.",
+    "should_trigger": false
+  },
+  {
+    "query": "Configure Git to sign all future commits with my SSH key.",
+    "should_trigger": false
+  },
+  {
+    "query": "Show me the working-tree status and staged file names.",
+    "should_trigger": false
+  },
+  {
+    "query": "Write a Node.js library that creates Git commits through isomorphic-git.",
+    "should_trigger": false
+  },
+  {
+    "query": "Delete the local branch whose work was already merged.",
+    "should_trigger": false
+  },
+  {
+    "query": "I need to commit to a database choice before tomorrow's architecture meeting.",
+    "should_trigger": false
+  }
+]

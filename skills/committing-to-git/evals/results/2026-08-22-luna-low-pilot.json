@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "evaluation_date": "2026-08-22",
+  "skill_name": "committing-to-git",
+  "skill_commit": "fcdec21aef3d0b66f88211e3b1d3a69f24721192",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "runner": "fresh-context internal subagents",
+  "evaluation_kind": "text-only policy reasoning",
+  "control_isolation": "Every control received an explicit instruction not to read or invoke any skill and had no tool access. Every treatment received the same substantive prompt plus an instruction to read the complete canonical skill and applicable references.",
+  "grading": "A separate grader scored both arms against the same predefined expectations.",
+  "telemetry": {
+    "tokens_consumed": null,
+    "tool_calls": null,
+    "elapsed_time_ms": null,
+    "reason_unavailable": "The internal subagent runner did not expose per-run usage or timing telemetry."
+  },
+  "raw_outputs_retained": false,
+  "cases": [
+    {
+      "name": "concurrent temporary-artifact collision",
+      "expectation_count": 7,
+      "repetitions_per_arm": 5,
+      "without_skill": {
+        "passed_by_repetition": [0, 0, 0, 0, 0],
+        "aggregate_passed": 0,
+        "aggregate_total": 35
+      },
+      "with_skill": {
+        "passed_by_repetition": [7, 7, 7, 7, 7],
+        "aggregate_passed": 35,
+        "aggregate_total": 35
+      },
+      "observed_control_failures": [
+        "Added repository, worktree, timestamp, process, nonce, or sequence components to attempt names.",
+        "Added ownership, handover, heartbeat, registry, or discovery metadata.",
+        "Retried errors other than EEXIST or created an unnecessary parent allocation protocol.",
+        "Allowed stale or create-only artifacts to be copied, regenerated, or replaced.",
+        "Treated separate scratch directories as sufficient isolation for one Git worktree."
+      ]
+    },
+    {
+      "name": "approved snapshot after HEAD moved",
+      "expectation_count": 4,
+      "repetitions_per_arm": 1,
+      "without_skill": {
+        "passed": 3,
+        "total": 4
+      },
+      "with_skill": {
+        "passed": 4,
+        "total": 4
+      },
+      "observed_control_failure": "Required new approval but did not explicitly repeat the complete snapshot, inspection, rendering, and validation transaction."
+    },
+    {
+      "name": "ordinary commit requested during cherry-pick",
+      "expectation_count": 4,
+      "repetitions_per_arm": 1,
+      "without_skill": {
+        "passed": 4,
+        "total": 4
+      },
+      "with_skill": {
+        "passed": 4,
+        "total": 4
+      },
+      "interpretation": "Flat must-pass regression case; the original wording was not discriminating."
+    },
+    {
+      "name": "SSH signature trust data inaccessible",
+      "expectation_count": 6,
+      "repetitions_per_arm": 1,
+      "without_skill": {
+        "passed": 4,
+        "total": 6
+      },
+      "with_skill": {
+        "passed": 6,
+        "total": 6
+      },
+      "observed_control_failures": [
+        "Described the SSH signature as good or valid when trusted identity verification was unavailable.",
+        "Proposed an integrity-only fallback instead of preserving the unavailable trusted-verification state."
+      ]
+    },
+    {
+      "name": "WHY-focused Vite commit message",
+      "expectation_count": 5,
+      "repetitions_per_arm": 1,
+      "without_skill": {
+        "passed": 2,
+        "total": 5
+      },
+      "with_skill": {
+        "passed": 5,
+        "total": 5
+      },
+      "observed_control_failure": "Used a mechanically accurate ESM-migration subject and descriptions but omitted the warning-prevention cause and file-specific causal rationales."
+    }
+  ],
+  "first_repetition_aggregate": {
+    "without_skill": {
+      "passed": 13,
+      "total": 26,
+      "micro_pass_rate": 0.5,
+      "macro_case_pass_rate": 0.5633
+    },
+    "with_skill": {
+      "passed": 26,
+      "total": 26,
+      "micro_pass_rate": 1.0,
+      "macro_case_pass_rate": 1.0
+    },
+    "micro_percentage_point_difference": 50.0
+  },
+  "collision_repetition_aggregate": {
+    "without_skill": {
+      "passed": 0,
+      "total": 35,
+      "pass_rate": 0.0
+    },
+    "with_skill": {
+      "passed": 35,
+      "total": 35,
+      "pass_rate": 1.0
+    }
+  },
+  "limitations": [
+    "Four cases have only one repetition per arm.",
+    "The repeated result covers one prompt family.",
+    "Text-only answers measure stated policy, not command-level compliance in a Git repository.",
+    "Thirteen of the original 26 expectations were non-discriminating because both arms passed them.",
+    "Some original expectations were compound; the durable suite splits them before future runs.",
+    "No token, tool-call, or duration comparison is available from this runner.",
+    "Multiple expectations from one response are correlated and must not be treated as independent experimental samples."
+  ]
+}

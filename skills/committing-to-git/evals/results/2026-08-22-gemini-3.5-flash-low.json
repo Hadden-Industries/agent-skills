@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "evaluation_date": "2026-08-22",
+  "skill_name": "committing-to-git",
+  "skill_commit": "fcdec21aef3d0b66f88211e3b1d3a69f24721192",
+  "model": "gemini-3.5-flash-low",
+  "reasoning_effort": "low",
+  "runner": "Antigravity CLI 1.1.18",
+  "evaluation_kind": "text-only policy reasoning",
+  "control_isolation": "Controls ran in a separate Git repository and were explicitly forbidden from consulting skills. Treatments ran in a matched repository and were explicitly required to read the complete canonical committing-to-git skill and applicable references.",
+  "activation_method": "Explicit post-activation skill loading. Antigravity automatic discovery returned an empty skill list in both repositories, so discovery attempts were excluded and this result does not measure triggering.",
+  "grading": "Two independent graders applied the predefined expectations. The primary result uses the stricter explicit-evidence grade. One zero-token infrastructure failure was excluded and replaced by a successful matched control retry.",
+  "scored_runs": 18,
+  "excluded_runs": 1,
+  "cases": [
+    {
+      "eval_id": 24,
+      "name": "concurrent temporary-artifact collision",
+      "expectation_count": 7,
+      "repetitions_per_arm": 5,
+      "without_skill": {
+        "passed_by_repetition": [0, 0, 0, 0, 0],
+        "aggregate_passed": 0,
+        "aggregate_total": 35,
+        "tokens_total": 66758,
+        "mean_model_duration_seconds": 5.8489
+      },
+      "with_skill": {
+        "passed_by_repetition": [5, 4, 4, 5, 5],
+        "aggregate_passed": 23,
+        "aggregate_total": 35,
+        "tokens_total": 355101,
+        "mean_model_duration_seconds": 16.3341
+      },
+      "stable_treatment_strengths": [
+        "All five runs rejected numbered attempt directories and owner or handover metadata.",
+        "All five runs preserved occupied inspection artifacts and used the required CSPRNG UUIDv4 path shape."
+      ],
+      "treatment_failures": [
+        "Only one of five runs explicitly prohibited an existence precheck.",
+        "No run stated both the EEXIST-only retry and the mandatory stop for every other allocation failure.",
+        "Only two of five runs explicitly explained same-worktree mutation serialization."
+      ]
+    },
+    {
+      "eval_id": 26,
+      "name": "approved snapshot after HEAD moved",
+      "expectation_count": 6,
+      "repetitions_per_arm": 1,
+      "without_skill": {"passed": 1, "total": 6, "tokens": 16841, "model_duration_seconds": 6.4959},
+      "with_skill": {"passed": 6, "total": 6, "tokens": 56072, "model_duration_seconds": 18.3628}
+    },
+    {
+      "eval_id": 9,
+      "name": "ordinary commit requested during cherry-pick",
+      "expectation_count": 7,
+      "repetitions_per_arm": 1,
+      "without_skill": {"passed": 2, "total": 7, "tokens": 15962, "model_duration_seconds": 4.7267},
+      "with_skill": {"passed": 7, "total": 7, "tokens": 57612, "model_duration_seconds": 18.4018}
+    },
+    {
+      "eval_id": 25,
+      "name": "SSH signature trust data inaccessible",
+      "expectation_count": 7,
+      "repetitions_per_arm": 1,
+      "without_skill": {"passed": 6, "total": 7, "tokens": 8064, "model_duration_seconds": 5.7288},
+      "with_skill": {"passed": 7, "total": 7, "tokens": 77973, "model_duration_seconds": 12.5137}
+    },
+    {
+      "eval_id": 27,
+      "name": "WHY-focused Vite commit message",
+      "expectation_count": 7,
+      "repetitions_per_arm": 1,
+      "without_skill": {"passed": 2, "total": 7, "tokens": 8189, "model_duration_seconds": 4.7207},
+      "with_skill": {"passed": 5, "total": 7, "tokens": 42347, "model_duration_seconds": 10.9923}
+    }
+  ],
+  "first_repetition_aggregate": {
+    "without_skill": {
+      "passed": 11,
+      "total": 34,
+      "micro_pass_rate": 0.3235,
+      "macro_mean_case_assertion_pass_rate": 0.3190,
+      "fully_passing_cases": 0,
+      "tokens_total": 65422,
+      "mean_model_duration_seconds": 5.4889
+    },
+    "with_skill": {
+      "passed": 30,
+      "total": 34,
+      "micro_pass_rate": 0.8824,
+      "macro_mean_case_assertion_pass_rate": 0.8857,
+      "fully_passing_cases": 3,
+      "tokens_total": 300857,
+      "mean_model_duration_seconds": 15.4266
+    },
+    "micro_percentage_point_difference": 55.88
+  },
+  "grading_sensitivity": {
+    "disputed_expectations": 3,
+    "strict_primary_total": {"passed": 59, "total": 124},
+    "second_grader_total": {"passed": 62, "total": 124},
+    "differences": [
+      "Collision repetition 3: the strict grader required an explicit same-worktree serialization rule; the second grader credited a more general overlap stop.",
+      "Signature control: the strict grader required the literal unavailable classification; the second grader credited equivalent unverified wording and the explanation that the trust source was inaccessible.",
+      "Vite treatment: the strict grader required the rename source endpoint and explicit import.meta.url grounding; the second grader credited the displayed destination and ESM path-handling rationale."
+    ],
+    "policy": "Retain the stricter primary result and split compound expectations before rerunning; do not silently select the more favorable interpretation."
+  },
+  "all_run_consumption": {
+    "without_skill": {
+      "runs": 9,
+      "mean_tokens": 12868.2,
+      "mean_model_duration_seconds": 5.6574
+    },
+    "with_skill": {
+      "runs": 9,
+      "mean_tokens": 65456.1,
+      "mean_model_duration_seconds": 15.7712
+    },
+    "interpretation": "The treatment improved policy compliance but used about 5.1 times as many reported tokens and 2.8 times the model duration. Antigravity usage includes platform context and cache accounting, so these figures support only within-runner comparisons."
+  },
+  "limitations": [
+    "Four prompt families have one repetition per arm; only the collision scenario has five.",
+    "These text-only answers measure stated policy, not command-level compliance in a Git repository.",
+    "Automatic Antigravity skill discovery did not expose the repository skill, so this run evaluates policy after explicit activation rather than triggering or installation portability.",
+    "The two arms necessarily have different prompt and context sizes because the treatment reads the skill; reported total tokens include that cost and Antigravity platform context.",
+    "Several expectations are compound and should be split before the next run for better failure attribution.",
+    "Multiple expectations from one response are correlated and are not independent experimental samples.",
+    "Model aliases can move; this result records the exact identifier returned by the installed client at evaluation time."
+  ]
+}
