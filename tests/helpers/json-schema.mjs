@@ -4,7 +4,7 @@
  * This supports only the keyword subset used by the schemas committed in this
  * repository: `type` (including union arrays and `integer`), `const`, `enum`,
  * `required`, `properties`, `additionalProperties: false`, `items`, `minimum`,
- * `minLength`, and local `$ref` pointers into `$defs`. The annotation keywords
+ * `minLength`, `pattern`, and local `$ref` pointers into `$defs`. The annotation keywords
  * `title` and `description` are accepted and carry no validation effect.
  *
  * A full JSON Schema implementation is deliberately avoided so that validating
@@ -28,6 +28,7 @@ const SUPPORTED_KEYWORDS = new Set([
   "items",
   "minimum",
   "minLength",
+  "pattern",
 ]);
 
 function resolveRef(root, ref) {
@@ -131,6 +132,14 @@ function check(value, schema, root, path, errors) {
     value.length < schema.minLength
   ) {
     errors.push(`${path}: string shorter than minLength ${schema.minLength}`);
+  }
+
+  if (
+    typeof value === "string" &&
+    typeof schema.pattern === "string" &&
+    !new RegExp(schema.pattern, "u").test(value)
+  ) {
+    errors.push(`${path}: string does not match pattern ${schema.pattern}`);
   }
 
   if (Array.isArray(value) && schema.items) {

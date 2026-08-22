@@ -7,11 +7,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "format": "prettier --write \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"tests/**/*.mjs\"",
-    "format:check": "prettier --check \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"tests/**/*.mjs\"",
+    "format": "prettier --write \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"src/**/*.{js,json}\" \"tests/**/*.mjs\"",
+    "format:check": "prettier --check \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"src/**/*.{js,json}\" \"tests/**/*.mjs\"",
     "lint": "npm run lint:js",
-    "lint:js": "eslint eslint.config.js scripts tests --max-warnings 0",
-    "fix:all": "eslint eslint.config.js scripts tests --fix && npm run format",
+    "lint:js": "eslint eslint.config.js scripts src tests --max-warnings 0",
+    "fix:all": "eslint eslint.config.js scripts src tests --fix && npm run format",
     "prebuild": "npm run format:check && npm run lint",
     "build": "node scripts/buildSkillBundles.js",
     "build:check": "npm run format:check && npm run lint && node scripts/buildSkillBundles.js --check",

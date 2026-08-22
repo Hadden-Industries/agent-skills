@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Publication Result",
+  "description": "Machine-readable result of pushing one exact commit object to one explicit branch ref.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "commitOid",
+    "remote",
+    "destination",
+    "refspec",
+    "exitCode",
+    "stdout",
+    "stderr"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["pushed", "failed"] },
+    "commitOid": {
+      "type": "string",
+      "minLength": 40
+    },
+    "remote": { "type": "string", "minLength": 1 },
+    "destination": {
+      "type": "string",
+      "minLength": 12
+    },
+    "refspec": { "type": "string", "minLength": 1 },
+    "exitCode": { "type": "integer", "minimum": 0 },
+    "stdout": { "type": "string" },
+    "stderr": { "type": "string" }
+  }
+}

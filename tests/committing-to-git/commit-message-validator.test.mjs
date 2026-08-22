@@ -36,9 +36,27 @@ import { schemaErrors } from "../helpers/json-schema.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-const SCRIPT_DIR = join(REPO_ROOT, "skills", "committing-to-git", "scripts");
-const VALIDATOR = join(SCRIPT_DIR, "validate-commit-message.mjs");
-const SCHEMA_PATH = join(SCRIPT_DIR, "commit-message-validation.schema.json");
+const VALIDATOR = join(
+  REPO_ROOT,
+  "skills",
+  "committing-to-git",
+  "scripts",
+  "commitWorkflow.mjs",
+);
+const VALIDATOR_SOURCE = join(
+  REPO_ROOT,
+  "src",
+  "committing-to-git",
+  "message",
+  "commitMessageValidator.js",
+);
+const SCHEMA_PATH = join(
+  REPO_ROOT,
+  "src",
+  "committing-to-git",
+  "schema",
+  "commitMessageValidation.schema.json",
+);
 
 const SCHEMA = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
 
@@ -103,7 +121,7 @@ function runValidator({ repo, scratch }, message, extraArguments = []) {
 
   const result = spawnSync(
     process.execPath,
-    [VALIDATOR, ...extraArguments, messagePath],
+    [VALIDATOR, "message", "validate", ...extraArguments, messagePath],
     {
       cwd: repo,
       encoding: "utf8",
@@ -297,17 +315,21 @@ test("a User Experience Changes section is recognised", (t) => {
 test("usage errors exit 2 and print nothing to stdout", (t) => {
   const fixture = createFixture(t);
 
-  const noArguments = spawnSync(process.execPath, [VALIDATOR], {
-    cwd: fixture.repo,
-    encoding: "utf8",
-  });
+  const noArguments = spawnSync(
+    process.execPath,
+    [VALIDATOR, "message", "validate"],
+    {
+      cwd: fixture.repo,
+      encoding: "utf8",
+    },
+  );
 
   assert.equal(noArguments.status, 2);
   assert.equal(noArguments.stdout, "");
 
   const missingFile = spawnSync(
     process.execPath,
-    [VALIDATOR, join(fixture.scratch, "absent.txt")],
+    [VALIDATOR, "message", "validate", join(fixture.scratch, "absent.txt")],
     {
       cwd: fixture.repo,
       encoding: "utf8",
@@ -356,6 +378,7 @@ test("a partial commit describing only the staged file is accepted", (t) => {
   assert.deepEqual(result.json.scope, {
     requested: "auto",
     resolved: "staged",
+    indexTreeOid: null,
   });
   assert.equal(result.json.files.expectedCount, 1);
   assert.equal(result.json.files.setMatches, true);
@@ -437,6 +460,7 @@ test("--scope worktree compares against the whole working tree", (t) => {
   assert.deepEqual(result.json.scope, {
     requested: "worktree",
     resolved: "worktree",
+    indexTreeOid: null,
   });
   assert.equal(result.json.files.expectedCount, 2);
 
@@ -461,6 +485,7 @@ test("--scope=staged is accepted in the inline form", (t) => {
   assert.deepEqual(result.json.scope, {
     requested: "staged",
     resolved: "staged",
+    indexTreeOid: null,
   });
 });
 
@@ -479,6 +504,7 @@ test("auto scope falls back to the working tree when nothing is staged", (t) => 
   assert.deepEqual(result.json.scope, {
     requested: "auto",
     resolved: "worktree",
+    indexTreeOid: null,
   });
 });
 
@@ -510,7 +536,7 @@ test("every issue code the validator emits is declared in the schema", () => {
   // validator instead of matching call sites. That convention is what keeps the
   // two lists comparable; a non-code literal in that style would fail here and
   // should be renamed rather than silently excluded.
-  const source = readFileSync(VALIDATOR, "utf8");
+  const source = readFileSync(VALIDATOR_SOURCE, "utf8");
   const emitted = new Set(
     [...source.matchAll(/"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"/gu)].map(
       (match) => match[1],

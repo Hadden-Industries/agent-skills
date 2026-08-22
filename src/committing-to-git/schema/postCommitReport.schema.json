@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Post Commit Report",
+  "description": "Machine-readable facts used to report a completed local commit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "commit",
+    "statistics",
+    "verification",
+    "checks",
+    "publication",
+    "workspace"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oid",
+        "parents",
+        "treeOid",
+        "author",
+        "committer",
+        "subject",
+        "message",
+        "signed",
+        "branch",
+        "shortOid",
+        "treeMatches",
+        "messageMatches",
+        "parentMatches"
+      ],
+      "properties": {
+        "oid": { "type": "string" },
+        "parents": { "type": "array", "items": { "type": "string" } },
+        "treeOid": { "type": "string" },
+        "author": { "$ref": "#/$defs/identity" },
+        "committer": { "$ref": "#/$defs/identity" },
+        "subject": { "type": "string" },
+        "message": { "type": "string" },
+        "signed": { "type": "boolean" },
+        "branch": { "type": ["string", "null"] },
+        "shortOid": { "type": "string" },
+        "treeMatches": { "type": "boolean" },
+        "messageMatches": { "type": "boolean" },
+        "parentMatches": { "type": "boolean" }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "additions", "deletions", "binaryFiles", "kinds"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "binaryFiles": { "type": "integer", "minimum": 0 },
+        "kinds": { "type": "object" }
+      }
+    },
+    "verification": { "type": "object" },
+    "checks": { "type": "object" },
+    "publication": { "type": "object" },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staged", "unstaged", "untracked", "conflicted"],
+      "properties": {
+        "staged": { "$ref": "#/$defs/workspaceEntries" },
+        "unstaged": { "$ref": "#/$defs/workspaceEntries" },
+        "untracked": { "$ref": "#/$defs/workspaceEntries" },
+        "conflicted": { "$ref": "#/$defs/workspaceEntries" }
+      }
+    }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "email"],
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" }
+      }
+    },
+    "workspaceEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status"],
+        "properties": {
+          "path": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    }
+  }
+}

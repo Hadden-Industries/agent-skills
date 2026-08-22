@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Snapshot Manifest",
+  "description": "Immutable description of the Git tree approved for a commit workflow.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "workflowMode",
+    "scopeKind",
+    "sourceIndex",
+    "repositoryRoot",
+    "headOid",
+    "indexTreeOid",
+    "indexFile",
+    "diffPolicy",
+    "changeUnitCount",
+    "changeUnits",
+    "statistics",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workflowMode": { "enum": ["actual", "draft"] },
+    "scopeKind": { "enum": ["staged", "full", "paths"] },
+    "sourceIndex": { "enum": ["real", "temporary"] },
+    "repositoryRoot": { "type": "string", "minLength": 1 },
+    "headOid": { "type": ["string", "null"] },
+    "indexTreeOid": { "type": "string", "minLength": 1 },
+    "indexFile": { "type": ["string", "null"] },
+    "diffPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "renameScore",
+        "copyScore",
+        "renameLimit",
+        "externalDiff",
+        "textconv"
+      ],
+      "properties": {
+        "renameScore": { "type": "integer", "minimum": 0 },
+        "copyScore": { "type": "integer", "minimum": 0 },
+        "renameLimit": { "type": "integer", "minimum": 0 },
+        "externalDiff": { "const": false },
+        "textconv": { "const": false }
+      }
+    },
+    "changeUnitCount": { "type": "integer", "minimum": 0 },
+    "changeUnits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/changeUnit" }
+    },
+    "statistics": { "$ref": "#/$defs/statistics" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "nullableString": { "type": ["string", "null"] },
+    "nullableInteger": { "type": ["integer", "null"] },
+    "changeUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "sourcePath",
+        "destinationPath",
+        "path",
+        "sourcePathBytesBase64",
+        "destinationPathBytesBase64",
+        "displayPath",
+        "oldMode",
+        "newMode",
+        "oldOid",
+        "newOid",
+        "similarity",
+        "binary",
+        "additions",
+        "deletions",
+        "stageablePaths",
+        "inspectionUnitIds"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "added",
+            "modified",
+            "deleted",
+            "renamed",
+            "copied",
+            "mode-changed",
+            "symlink-changed",
+            "type-changed",
+            "submodule-changed"
+          ]
+        },
+        "sourcePath": { "$ref": "#/$defs/nullableString" },
+        "destinationPath": { "type": "string" },
+        "path": { "$ref": "#/$defs/nullableString" },
+        "sourcePathBytesBase64": { "$ref": "#/$defs/nullableString" },
+        "destinationPathBytesBase64": { "type": "string" },
+        "displayPath": { "type": "string" },
+        "oldMode": { "type": "string" },
+        "newMode": { "type": "string" },
+        "oldOid": { "type": "string" },
+        "newOid": { "type": "string" },
+        "similarity": { "$ref": "#/$defs/nullableInteger" },
+        "binary": { "type": "boolean" },
+        "additions": { "$ref": "#/$defs/nullableInteger" },
+        "deletions": { "$ref": "#/$defs/nullableInteger" },
+        "stageablePaths": { "type": "array", "items": { "type": "string" } },
+        "inspectionUnitIds": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "additions", "deletions", "binaryFiles"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "binaryFiles": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

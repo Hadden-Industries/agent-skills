@@ -14,13 +14,31 @@ The repository follows one core rule:
 
 ## Available Skills
 
-* **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Draft, review, create, verify, and optionally push Git commits from the current local workspace. Use when asked to draft or revise a commit message or commit current uncommitted changes. Also use when pushing a commit created by this workflow.
+* **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, guides creation of an explicitly approved signed root or ordinary one-parent commit, reports whether the result matches, and can guide an explicitly authorized push of that exact commit. Use for message drafts, new local commits, or a later push from this workflow; not for amending history or continuing merge, rebase, cherry-pick, or revert operations.
 
 * **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Generates strictly ISO/IEC 11179-4 compliant concept definitions from a designation. It features advanced etymological analysis, worldwide vocabulary reuse checking, and strict ontological category error prevention.
 
 * **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
 
   Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/evals/README.md) for the method, the null results, and the limits.
+
+### What `committing-to-git` adds
+
+The skill is an opinionated review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, numbered inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
+
+- `draft` mode leaves the real index unchanged; `actual` mode records the exact intended staged tree before asking for message approval;
+- users receive one self-contained JavaScript CLI with no third-party runtime install, while maintainers work in reviewable domain modules under `src/`;
+- large diffs are split into bounded, hash-addressed artifacts so every recorded change can be read without relying on truncated terminal output;
+- the agent supplies grounded rationale that a diff cannot reveal, while the renderer owns paths, change kinds, sorting, numbering, indentation, wrapping, and section order;
+- under the [message contract](./skills/committing-to-git/references/message-format.md), messages use one numbered change-unit entry for 1-49 changes and counted semantic domains for 50 or more, preserving navigability without narrating hundreds of paths;
+- the approved index tree is reverified immediately before a signed commit, and the resulting tree, parent, and stored message are compared with the approved transaction;
+- [signature policy](./skills/committing-to-git/references/signature-verification.md) is explicitly `required`, `advisory`, or `skipped`; an unavailable SSH trust file has a narrow recovery path and never causes an unsigned retry;
+- post-commit reports distinguish approved content, actual commit facts, checks, signature state, publication state, and remaining workspace changes; and
+- an authorized push targets the full created object ID with a non-force refspec and [durable recovery evidence](./skills/committing-to-git/references/publication-recovery.md) for an uncertain network outcome.
+
+Runtime requirements are Git 2.25 or newer, Node.js 24 or newer, and configured Git commit signing. Under `required` policy, trusted SSH identity verification also needs access to the configured allowed-signers source; the user may choose `advisory` or `skipped` at any point without being pressured to keep the default.
+
+The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The exact boundaries, primary-source rationale, tests, adversarial reviews, and residual limitations are documented in the [formal assurance case](./docs/assurance-cases/2026-08-22-committing-to-git-skill.md). The historical design decisions are preserved separately in the [implementation plan](./docs/implementation-plans/2026-08-21-committing-to-git-workflow-redesign.md).
 
 ## Installation
 
@@ -53,6 +71,7 @@ These skills are built on the open [Agent Skills specification](https://agentski
 | Validate or evaluate a skill | [Validation and evaluation](#validation-and-evaluation) |
 | Understand which tool to use | [Toolchain at a glance](#toolchain-at-a-glance) |
 | Know when a change is finished | [Definition of done](#definition-of-done) |
+| Review the evidence behind `committing-to-git` | [Formal assurance case](./docs/assurance-cases/2026-08-22-committing-to-git-skill.md) |
 | Refresh the local tooling | [Update the development environment](#update-the-development-environment) |
 | Diagnose setup problems | [Troubleshooting](#troubleshooting) |
 
@@ -115,10 +134,15 @@ agent-skills/
 │
 ├── skills/                              # Canonical skills — COMMITTED
 │   ├── committing-to-git/
-│   │   ├── SKILL.md
+│   │   ├── SKILL.md                      # Signed snapshot transaction workflow
+│   │   ├── evals/
+│   │   │   └── evals.json                # Workflow pressure scenarios
+│   │   ├── references/
+│   │   │   ├── message-format.md         # WHY-first detailed and bulk message policy
+│   │   │   ├── publication-recovery.md  # Exact-OID push recovery policy
+│   │   │   └── signature-verification.md # Backend-specific trust semantics
 │   │   └── scripts/
-│   │       ├── commit-message-validation.schema.json
-│   │       └── validate-commit-message.mjs
+│   │       └── commitWorkflow.mjs         # Generated, self-contained workflow CLI
 │   ├── defining-concepts/
 │   │   ├── SKILL.md
 │   │   └── references/
@@ -147,6 +171,18 @@ agent-skills/
 │   │       └── pandoc-check.schema.json
 │   └── ...
 │
+├── src/                                  # Maintainable source for generated skill scripts
+│   └── committing-to-git/
+│       ├── cli/                          # Published command boundary
+│       ├── command/                      # Snapshot, message, report, and publication adapters
+│       ├── git/                          # Git process and path semantics
+│       ├── inspection/                   # Bounded complete diff inspection
+│       ├── message/                      # Commit-message rendering and validation
+│       ├── report/                       # Post-commit fact collection and rendering
+│       ├── schema/                       # Versioned workflow contracts
+│       ├── signature/                    # Signature verification policy
+│       └── snapshot/                     # Approved Git-tree snapshots
+│
 ├── scripts/                              # Repository authoring and bootstrap commands
 │   ├── buildSkillBundles.js              # Shared esbuild entry point and drift check
 │   ├── validateSkills.js                 # All canonical skills through skills-ref
@@ -165,7 +201,19 @@ agent-skills/
 │   │   ├── json-schema.test.mjs
 │   │   └── python.mjs                    # Shared interpreter probing
 │   ├── committing-to-git/
-│   │   └── validate-commit-message.test.mjs
+│   │   ├── artifact-schemas.test.mjs
+│   │   ├── change-inspection.test.mjs
+│   │   ├── commit-message-renderer.test.mjs
+│   │   ├── commit-message-snapshot-validation.test.mjs
+│   │   ├── commit-message-validator.test.mjs
+│   │   ├── commit-report.test.mjs
+│   │   ├── commit-snapshot.test.mjs
+│   │   ├── commit-workflow-cli.test.mjs
+│   │   ├── harness.mjs
+│   │   ├── publication.test.mjs
+│   │   ├── report-artifact-contract.test.mjs
+│   │   ├── signature-policy.test.mjs
+│   │   └── workflow-e2e.test.mjs
 │   ├── reading-epubs/
 │   │   ├── check-pandoc.test.mjs
 │   │   ├── code-blocks.test.mjs
@@ -182,6 +230,12 @@ agent-skills/
 │       ├── github-mcp-server.test.mjs    # Bootstrap MCP installer contract
 │       ├── github_mcp_driver.py          # Loads the bootstrap for those tests
 │       └── repository-verification.test.mjs
+│
+├── docs/
+│   ├── assurance-cases/
+│   │   └── 2026-08-22-committing-to-git-skill.md
+│   └── implementation-plans/
+│       └── 2026-08-21-committing-to-git-workflow-redesign.md
 │
 ├── .tessl-plugin/
 │   └── plugin.json                       # Tessl package root — COMMITTED
@@ -213,8 +267,10 @@ agent-skills/
 | Path | Purpose | Commit? |
 |---|---|:---:|
 | `skills/` | Canonical skills maintained by this repository | **Yes** |
+| `src/` | Maintainable source and schemas for generated skill executables | **Yes** |
 | `scripts/` | Repository-wide build commands and reproducible development bootstrap | **Yes** |
 | `package.json` and `package-lock.json` | Compatible authoring dependency ranges, reproducible resolutions, and commands | **Yes** |
+| `docs/` | Dated implementation plans and assurance cases for substantial changes | **Yes** |
 | `.tessl-plugin/plugin.json` | Tessl package root that makes `tessl skill lint` resolvable | **Yes** |
 | `tests/` | Contract tests for skill scripts and their committed schemas | **Yes** |
 | `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
@@ -293,7 +349,7 @@ The local authoring profile exposes these Agent Skills to Codex, Antigravity, an
 | `writing-skills` | Apply a test-driven methodology to skill authoring |
 | `test-driven-development` | Supports the RED → GREEN → REFACTOR discipline used by `writing-skills` |
 | `skill-check` | Additional static/semantic review for common skill-quality problems |
-| `committing-to-git` | Produce disciplined commits after the work is verified |
+| `committing-to-git` | Build, approve, verify, report, and optionally publish an exact signed commit transaction |
 
 The bootstrap also installs local evaluation tooling:
 
@@ -551,18 +607,20 @@ Use the [change-risk matrix](#change-risk-matrix) to decide how much evaluation 
 
 # Working on skill executables
 
-A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation.
+A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. Directly maintained scripts, such as the Python and Lua programs in `reading-epubs`, remain canonical under the skill. Bundled JavaScript, such as `committing-to-git`, is canonical under `src/<skill-name>/`; the file under `skills/<skill-name>/scripts/` is generated publication output.
 
 For an executable change:
 
 1. understand how `SKILL.md` invokes the script;
-2. add or update script-level tests where practical;
-3. reproduce the pre-change failure or limitation;
-4. implement the smallest fix;
-5. run the script-level tests;
-6. validate the containing Agent Skill;
-7. run at least one end-to-end agent scenario that exercises the script;
-8. verify that error output remains useful to an agent, not only to a human developer.
+2. identify whether its canonical implementation lives under `skills/` or `src/`;
+3. add or update script-level tests where practical;
+4. reproduce the pre-change failure or limitation;
+5. implement the smallest fix in the canonical source;
+6. run `npm run build` when the executable is bundled, then review the generated diff;
+7. run the script-level tests and `npm run build:check`;
+8. validate the containing Agent Skill;
+9. run at least one end-to-end agent scenario that exercises the executable; and
+10. verify that error output remains useful to an agent, not only to a human developer.
 
 Prefer machine-readable output for machine-consumed results. Keep diagnostics separate where the script's calling convention benefits from clean stdout.
 
@@ -844,7 +902,7 @@ The tools intentionally overlap, but they answer different questions.
 | **`skill-check`** | “What static/semantic quality smells have we missed?” |
 | **Tessl** | “What does an independent Agent Skills reviewer/linter find?” |
 | **OpenAI Plugin Eval** | “How does this look from Codex/plugin evaluation and token-budget perspectives?” |
-| **`committing-to-git`** | “How do I turn the verified change into an accurate commit?” |
+| **`committing-to-git`** | “How do I turn an approved snapshot into an accurate signed commit and, when separately authorized, publish that exact object?” |
 
 ### Authority order
 
@@ -959,7 +1017,7 @@ For a meaningful new or modified skill:
 - [ ] Portability has been checked on relevant agent hosts.
 - [ ] `npm run verify` passes after the repository-managed tools are set up.
 - [ ] Repository state and the complete intended change have been reviewed without relying on truncated output.
-- [ ] The commit message describes only the verified uncommitted change.
+- [ ] The commit message describes only the exact approved staged snapshot.
 
 ---
 
@@ -970,26 +1028,22 @@ For a meaningful new or modified skill:
 Start from a clean understanding of repository state:
 
 ```powershell
-git status
-git diff HEAD
+git status --porcelain=v2 --branch --untracked-files=all
+git diff --stat HEAD
+git diff --numstat HEAD
 ```
 
-Do not assume that every existing uncommitted change belongs to your task.
+Use the overview to choose a bounded inspection strategy. A small diff can be read with `git diff HEAD`; split a large diff by path or use the `committing-to-git` inspection artifacts so terminal truncation never becomes implicit approval. Inspect untracked content separately. Do not assume that every existing uncommitted change belongs to your task.
 
 ## Before committing
 
-Repeat:
+Recheck the complete state:
 
 ```powershell
-git status
-git diff HEAD
+git status --porcelain=v2 --branch --untracked-files=all
 ```
 
-Inspect untracked files explicitly.
-
-The commit should describe **only** the changes actually present in the verified uncommitted diff.
-
-Use the repository's `committing-to-git` skill for the detailed commit workflow.
+Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and any separately authorized push. The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
 
 ---
 
@@ -1265,9 +1319,18 @@ npm test
 
 `npm test` uses the exact dependency graph recorded in `package-lock.json`, while `package.json` permits compatible dependency updates. These tests cover skills that ship executable scripts and the repository tooling that builds or installs them. Skill contract tests run published executables the way an agent does - as subprocesses against throwaway inputs or Git repositories - and assert that their JSON output still conforms to the source schemas.
 
-This matters because a skill's instructions branch on specific output fields. `committing-to-git` Section 3 keys off `valid`, `manualReviewRequired`, and the `error`/`review` severities; if the script's output shape changes and the schema is not updated with it, those instructions silently become wrong while every structural check still passes. The suite also cross-checks that the validator's issue codes and the schema's declared enum are the same set.
+This matters because a skill's instructions branch on specific output fields.
+`committing-to-git` passes a versioned snapshot, bounded inspection ledger,
+semantic content worksheet, validation result, exact-commit signature result,
+check record, optional publication result, and post-commit report between eleven
+routes in one published workflow bundle. If one output changes without its
+schema and consumer, the workflow can silently stage, inspect, approve, verify,
+publish, or report a different state. The suite validates representative
+cross-route payloads; exact Git-tree, path, signature, report, and publication
+invariants; transactional staging failure behavior; CLI help and exit semantics;
+and agreement between validator issue codes and schema enums.
 
-The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. The shared build validates that every canonical `skills/**/SKILL.md` contains ASCII bytes only, while `npm run build:check` also checks formatting, lint, and bundle currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
+The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. The published skill bundle has no third-party runtime dependency. Run `npm run build` after changing source under `src/`. Its prebuild gate checks formatting and lint before regenerating bundles. Run the non-mutating `npm run build:check` to check formatting, lint, ASCII-only canonical `SKILL.md` files, and committed bundle currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
 ## Run deterministic local verification
 

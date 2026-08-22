@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Scope Inspection Ledger",
+  "description": "Evidence that every change unit in an approved snapshot was inspected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "indexTreeOid",
+    "sourcePatchSha256",
+    "sourcePatchBytes",
+    "unitCount",
+    "reviewedCount",
+    "complete",
+    "units"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "indexTreeOid": { "type": "string", "minLength": 1 },
+    "sourcePatchSha256": { "type": "string", "minLength": 1 },
+    "sourcePatchBytes": { "type": "integer", "minimum": 0 },
+    "unitCount": { "type": "integer", "minimum": 0 },
+    "reviewedCount": { "type": "integer", "minimum": 0 },
+    "complete": { "type": "boolean" },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "artifact",
+          "byteStart",
+          "byteEnd",
+          "byteCount",
+          "lineCount",
+          "sha256",
+          "status"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": [
+              "inventory-page",
+              "text-patch",
+              "binary-metadata",
+              "submodule-metadata"
+            ]
+          },
+          "artifact": { "type": "string", "minLength": 1 },
+          "byteStart": { "type": "integer", "minimum": 0 },
+          "byteEnd": { "type": "integer", "minimum": 0 },
+          "byteCount": { "type": "integer", "minimum": 0 },
+          "lineCount": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pending", "reviewed"] }
+        }
+      }
+    }
+  }
+}

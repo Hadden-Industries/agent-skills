@@ -5,7 +5,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skillBundles = [];
+const skillBundles = [
+  {
+    entryPoint: "./src/committing-to-git/cli/commitWorkflow.js",
+    outputFile: "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  },
+];
 
 function canonicalSkillFiles(directory) {
   const files = [];

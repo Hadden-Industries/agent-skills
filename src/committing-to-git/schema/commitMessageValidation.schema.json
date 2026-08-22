@@ -1,13 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Commit Message Validation Result",
+  "description": "Structured result of validating a commit message against its approved snapshot.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
     "valid",
     "manualReviewRequired",
+    "canonical",
+    "mode",
+    "inspection",
     "scope",
+    "manifest",
     "subject",
     "sections",
     "files",
@@ -16,7 +21,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "valid": {
       "type": "boolean"
@@ -24,39 +29,58 @@
     "manualReviewRequired": {
       "type": "boolean"
     },
+    "canonical": {
+      "type": ["boolean", "null"]
+    },
+    "mode": {
+      "enum": ["detailed", "bulk", "legacy"]
+    },
+    "inspection": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["complete", "treeMatches"],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "treeMatches": {
+          "type": "boolean"
+        }
+      }
+    },
     "scope": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "requested",
-        "resolved"
-      ],
+      "required": ["requested", "resolved", "indexTreeOid"],
       "properties": {
         "requested": {
-          "enum": [
-            "auto",
-            "staged",
-            "worktree"
-          ]
+          "enum": ["auto", "staged", "worktree", "manifest"]
         },
         "resolved": {
-          "enum": [
-            "staged",
-            "worktree"
-          ]
+          "enum": ["staged", "worktree", "snapshot"]
+        },
+        "indexTreeOid": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "indexTreeOid"],
+      "properties": {
+        "schemaVersion": {
+          "type": ["integer", "null"]
+        },
+        "indexTreeOid": {
+          "type": ["string", "null"]
         }
       }
     },
     "subject": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "scope",
-        "length",
-        "target",
-        "maximum"
-      ],
+      "required": ["type", "scope", "length", "target", "maximum"],
       "properties": {
         "type": {
           "enum": [
@@ -72,10 +96,7 @@
           ]
         },
         "scope": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "length": {
           "type": "integer",
@@ -92,11 +113,11 @@
     "sections": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "userExperience",
-        "fileChanges"
-      ],
+      "required": ["rationale", "userExperience", "fileChanges"],
       "properties": {
+        "rationale": {
+          "$ref": "#/$defs/sectionStatus"
+        },
         "userExperience": {
           "$ref": "#/$defs/sectionStatus"
         },
@@ -138,10 +159,7 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "errors",
-        "reviews"
-      ],
+      "required": ["errors", "reviews"],
       "properties": {
         "errors": {
           "type": "integer",
@@ -164,10 +182,7 @@
     "sectionStatus": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "present",
-        "structureValid"
-      ],
+      "required": ["present", "structureValid"],
       "properties": {
         "present": {
           "type": "boolean"
@@ -180,17 +195,10 @@
     "issue": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "severity",
-        "code",
-        "message"
-      ],
+      "required": ["severity", "code", "message"],
       "properties": {
         "severity": {
-          "enum": [
-            "error",
-            "review"
-          ]
+          "enum": ["error", "review"]
         },
         "code": {
           "enum": [
@@ -215,6 +223,8 @@
             "FILE_ORDER_INVALID",
             "FILE_MISSING_FROM_MESSAGE",
             "FILE_NOT_CURRENTLY_CHANGED",
+            "MESSAGE_NOT_CANONICAL",
+            "INSPECTION_INCOMPLETE",
             "BODY_LINE_OVER_LIMIT"
           ]
         },

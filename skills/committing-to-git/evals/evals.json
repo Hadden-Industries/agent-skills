@@ -1,0 +1,242 @@
+{
+  "skill_name": "committing-to-git",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Draft a commit message for all current changes. The diff changes 80 files and the aggregate git diff output is too large for one tool response.",
+      "expected_output": "Uses a temporary index, inventories size before patch output, reviews bounded ledger artifacts, and renders a bulk-domain message without changing the real index or proposing a smaller commit.",
+      "files": [],
+      "expectations": [
+        "Does not run one unbounded aggregate diff as the only inspection",
+        "Uses bulk mode because the snapshot contains at least 50 change units",
+        "Does not recommend reducing or splitting the requested scope"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Commit the already-staged rename from vite.config.js to vite.config.mjs together with the staged Dockerfile change. The old JavaScript path no longer exists. Do not include the unstaged lockfiles.",
+      "expected_output": "Uses the existing staged index without restaging the vanished rename source, records the rename as one change unit, excludes lockfiles, and requests approval for a manifest-rendered message.",
+      "files": [],
+      "expectations": [
+        "Does not pass the vanished rename source to git add",
+        "Treats the rename as one change with both endpoints",
+        "Does not include unstaged lockfiles"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Draft messages for otherwise equivalent snapshots containing 9, 10, 49, and 50 changed files. Show the File Changes section for each.",
+      "expected_output": "Uses generated right-aligned detailed ordinals through 49 changes and switches to counted semantic domains at 50 without putting a count in the heading.",
+      "files": [],
+      "expectations": [
+        "Keeps the heading exactly File Changes:",
+        "Right-aligns detailed ordinals and derives nested indentation",
+        "Switches to domains at exactly 50 change units"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Create the approved signed commit. Signature verification recognizes an SSH signature but fails because the sandbox cannot read my configured allowed-signers file. Verification is no longer mandatory for this commit; continue under advisory policy but do not push.",
+      "expected_output": "Accepts the override, preserves the created commit, labels trusted verification unavailable rather than invalid, does not claim signer trust, and does not push.",
+      "files": [],
+      "expectations": [
+        "Does not insist on required verification after the override",
+        "Does not amend, reset, or delete the created commit",
+        "Does not describe an integrity-only result as trusted verification",
+        "Does not push"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Draft the commit for renaming Vite's config to ESM. The reason is to prevent the native config loader warning; the Docker build must keep using the renamed config.",
+      "expected_output": "Leads with preventing the warning and gives causal file rationales instead of merely narrating the rename and syntax edits.",
+      "files": [],
+      "expectations": [
+        "Subject focuses on preventing the native-loader warning",
+        "Dockerfile rationale explains container-build alignment",
+        "Vite rationale connects ESM and path handling to successful native loading"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Commit the staged snapshot containing a rename, a copied fixture, a binary asset, a mode-only script change, a symlink update, and a submodule gitlink update.",
+      "expected_output": "Counts and displays each normalized Git change correctly, uses unavailable binary line counts, and does not count files inside the submodule.",
+      "files": [],
+      "expectations": [
+        "Counts a rename once",
+        "Counts only the copy destination unless the source is independently modified",
+        "Does not report binary changes as zero-line changes",
+        "Treats a submodule as one gitlink change"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Commit the 1,000-file generated migration exactly as approved. The work falls into parser, integration, fixtures, and documentation domains.",
+      "expected_output": "Keeps the full commit scope, assigns every change unit to exactly one counted domain, and avoids 1,000 individually narrated entries.",
+      "files": [],
+      "expectations": [
+        "Does not suggest reducing or splitting the commit",
+        "Shows a generated file count for every domain",
+        "Does not emit an individual narrative for every file",
+        "Uses the provided semantic domain order"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Create the approved commit but do not push. A commit-msg hook edits the message after approval, and package-lock.json remains unstaged.",
+      "expected_output": "Detects the actual-message mismatch, leaves the commit intact, prevents automatic push, and reports the remaining lockfile without claiming ownership.",
+      "files": [],
+      "expectations": [
+        "Compares the stored message with the approved message",
+        "Does not automatically amend the commit",
+        "States that push was not requested or attempted",
+        "Does not call the remaining lockfile user-owned without evidence"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Commit the current staged files while a cherry-pick is paused for resolution. Treat it as my normal feature commit.",
+      "expected_output": "Refuses the ordinary-commit workflow before mutation because an active cherry-pick is unsupported and does not reinterpret the request as authorization to continue it.",
+      "files": [],
+      "expectations": [
+        "Stops before staging or message generation",
+        "Names the active cherry-pick state",
+        "Does not run cherry-pick continue or create an ordinary commit"
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "The exact message and tree were approved, but another commit moved HEAD before the commit command while the index tree stayed unchanged. Continue with the old approval.",
+      "expected_output": "Runs snapshot verification, rejects the stale parent even though the tree matches, and requires a fresh attempt and approval.",
+      "files": [],
+      "expectations": [
+        "Compares both HEAD and the index tree",
+        "Does not create a commit from the stale manifest",
+        "Starts a fresh attempt rather than patching old artifacts"
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Commit only the whole path -literal[1].txt. A different untracked file named -literal1.txt must remain unstaged.",
+      "expected_output": "Uses actual path scope with literal NUL-delimited pathspec handling and leaves the wildcard-like sibling unstaged.",
+      "files": [],
+      "expectations": [
+        "Does not let brackets act as Git wildcard syntax",
+        "Stages only -literal[1].txt",
+        "Does not construct a shell-quoted path list"
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Commit these changes, but this repository requires a chore subject and a mandatory Reviewed-by trailer.",
+      "expected_output": "Detects that the repository contract cannot be represented by this skill's renderer and stops before staging instead of bypassing either policy.",
+      "files": [],
+      "expectations": [
+        "Explains the subject and trailer incompatibility",
+        "Does not invent a supported type or omit the trailer silently",
+        "Does not stage or commit"
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "Commit all current changes and push the resulting commit to the configured upstream after I approve the message.",
+      "expected_output": "Treats the request as explicit authorization for both later actions, still obtains exact message approval, verifies and reports the commit, and pushes only the full created OID to the resolved upstream.",
+      "files": [],
+      "expectations": [
+        "Does not ask for redundant push authorization after the user already granted it",
+        "Does not skip exact message approval",
+        "Uses the exact-OID publication helper without force",
+        "Regenerates the report with the publication result"
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "Draft a message for all current changes. I am not asking you to commit anything.",
+      "expected_output": "Uses a temporary-index draft, presents the exact validated message, and invites revisions without changing the real index or asking for commit approval.",
+      "files": [],
+      "expectations": [
+        "Uses draft full scope",
+        "Does not mutate the real index",
+        "Does not ask for commit approval"
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Push yesterday's local commit now. The original snapshot, approved message, verification, and report artifacts are gone.",
+      "expected_output": "Does not reconstruct full transaction assurance from today's workspace, explains the limitation, and offers only a separately authorized exact-OID push with limited reporting.",
+      "files": [],
+      "expectations": [
+        "Does not stage or commit current workspace changes",
+        "Does not claim the missing transaction checks passed",
+        "Requires an exact commit and destination for any standalone push"
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "Commit only my edits in src/parser.js, but that file also contains unrelated unstaged edits and nothing is staged yet.",
+      "expected_output": "Does not use whole-path scope because it would include unrelated hunks; asks for an intentionally staged snapshot and then uses staged scope.",
+      "files": [],
+      "expectations": [
+        "Identifies the same-path mixed-hunk ambiguity",
+        "Does not stage the whole parser file",
+        "Preserves unrelated hunks"
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "Draft a message for all changes and keep your workflow files in ./commit-workflow inside this repository so I can inspect them later.",
+      "expected_output": "Explains that attempt artifacts inside the worktree can self-enter full-scope snapshots, creates an absolute scratch attempt outside every worktree, and reports that location without deleting it automatically.",
+      "files": [],
+      "expectations": [
+        "Does not place temporary or preparation indexes inside the repository",
+        "Uses an absolute out-of-worktree attempt path",
+        "Does not silently delete the retained attempt"
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "Commit all current changes. Snapshot creation exits 2 because snapshot.json cannot be written after the helper prepared the target tree.",
+      "expected_output": "Recognizes that transactional preparation did not install the target tree into the real index, inspects current state, preserves any externally caused change, and starts a fresh attempt instead of assuming staging succeeded.",
+      "files": [],
+      "expectations": [
+        "Does not claim that actual full stages before snapshot output",
+        "Does not restore or reset the real index",
+        "Does not continue from the failed attempt"
+      ]
+    },
+    {
+      "id": 19,
+      "prompt": "Generate the final report for commit B using the verification.json retained from commit A; both commits use the same signing key.",
+      "expected_output": "Rejects the verification artifact because its recorded full OID differs from commit B and reruns verification for B under the selected policy.",
+      "files": [],
+      "expectations": [
+        "Does not treat key equality as commit-artifact provenance",
+        "Requires verification for commit B's exact OID",
+        "Does not generate a successful report from the mismatched artifact"
+      ]
+    },
+    {
+      "id": 20,
+      "prompt": "The manifest-backed message validator exited 0 but its JSON says manualReviewRequired is true for an overlong body token. Present the message now.",
+      "expected_output": "Reads the structured result, reviews the named issue, and presents only after confirming that the excess is an indivisible token or correcting and revalidating it.",
+      "files": [],
+      "expectations": [
+        "Does not equate exit 0 with completion of manual review",
+        "Inspects every review-severity issue",
+        "Rerenders and revalidates if divisible prose caused the excess"
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "The authorized exact-OID push exited 2 and publication.json.pending remains. Retry it now using the same publication.json path.",
+      "expected_output": "Treats the remote outcome as unknown, preserves the journal, observes the exact remote ref, refuses automatic retry, and if the user authorizes a retry uses a new numbered publication output and reports from that newest completed result.",
+      "files": [],
+      "expectations": [
+        "Does not infer that the first push failed",
+        "Does not overwrite or reuse the existing output or pending journal",
+        "Uses git ls-remote only as a current observation",
+        "Requires a fresh numbered output for an authorized retry"
+      ]
+    }
+  ]
+}

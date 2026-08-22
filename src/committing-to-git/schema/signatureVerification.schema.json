@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Signature Verification Result",
+  "description": "Backend-specific Git signature result together with the user-selected verification policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "commitOid",
+    "initialPolicy",
+    "finalPolicy",
+    "overridden",
+    "signature",
+    "integrityOnly",
+    "signatureVerified",
+    "blocksPush"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commitOid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"
+    },
+    "initialPolicy": { "$ref": "#/$defs/policy" },
+    "finalPolicy": { "$ref": "#/$defs/policy" },
+    "overridden": { "type": "boolean" },
+    "signature": { "$ref": "#/$defs/signature" },
+    "integrityOnly": { "$ref": "#/$defs/integrity" },
+    "signatureVerified": { "type": "boolean" },
+    "blocksPush": { "type": "boolean" }
+  },
+  "$defs": {
+    "policy": { "enum": ["required", "advisory", "skipped"] },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "signer", "fingerprint"],
+      "properties": {
+        "status": { "enum": ["verified", "failed", "unavailable", "skipped"] },
+        "reason": { "type": ["string", "null"] },
+        "signer": { "type": ["string", "null"] },
+        "fingerprint": { "type": ["string", "null"] },
+        "keyType": { "type": ["string", "null"] },
+        "verifierOutput": { "type": "string" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["not-run", "passed", "failed", "unavailable"] },
+        "reason": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

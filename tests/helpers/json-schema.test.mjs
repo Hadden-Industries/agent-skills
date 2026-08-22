@@ -18,7 +18,7 @@ const SCHEMA = {
   required: ["version", "name", "count", "tags", "nested"],
   properties: {
     version: { const: 1 },
-    name: { type: "string", minLength: 1 },
+    name: { type: "string", minLength: 1, pattern: "^[a-z]+$" },
     count: { type: "integer", minimum: 0 },
     optional: { type: ["string", "null"] },
     tags: { type: "array", items: { enum: ["alpha", "beta"] } },
@@ -61,6 +61,7 @@ test("each violation is reported", () => {
     ["non-integer where integer required", (payload) => (payload.count = 1.5)],
     ["below minimum", (payload) => (payload.count = -1)],
     ["below minLength", (payload) => (payload.name = "")],
+    ["string outside pattern", (payload) => (payload.name = "Example")],
     ["value outside enum", (payload) => (payload.tags = ["gamma"])],
     ["unexpected property", (payload) => (payload.extra = true)],
     ["union type violated", (payload) => (payload.optional = 5)],

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Message Semantic Content",
+  "description": "Author-supplied intent used to render the canonical commit message.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["subject", "rationale", "userExperienceChanges", "mode"],
+  "properties": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "scope", "description"],
+      "properties": {
+        "type": {
+          "enum": [
+            "build",
+            "ci",
+            "docs",
+            "feat",
+            "fix",
+            "perf",
+            "refactor",
+            "test"
+          ]
+        },
+        "scope": { "type": ["string", "null"] },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "rationale": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "userExperienceChanges": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "mode": { "enum": ["detailed", "bulk"] },
+    "changeEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["changeUnitId", "reasons"],
+        "properties": {
+          "changeUnitId": { "type": "string", "minLength": 1 },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "changeUnitIds", "reasons"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "changeUnitIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

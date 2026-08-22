@@ -1,127 +1,268 @@
 ---
 name: committing-to-git
-description: Use when asked to draft, write, or revise a git commit message, or when asked to commit current uncommitted workspace changes. Make sure to use this skill whenever the user asks you to "commit", "draft a commit", "make a commit", or mentions saving their work to git. Also use when pushing a commit that was created by this workflow.
-compatibility: Requires Git with commit signing configured (and, for SSH signing, an allowed-signers file), plus Node.js.
+description: Drafts or revises commit messages for current workspace changes, guides creation of a signed commit from an approved staged snapshot, reports whether the result matches, and optionally pushes that exact commit. Use for a requested message draft, new local commit, or that workflow's push. Do not use to amend history or finish merge, rebase, cherry-pick, or revert operations.
+compatibility: Requires a Git working tree, Node.js 24+, and Git 2.25+. Commit creation requires configured Git signing. Trusted SSH verification requires a readable allowed-signers source unless the user selects advisory or skipped verification.
 license: MPL-2.0
 metadata:
   category: development
 ---
 
-# Committing To Git
+# Committing to Git
 
-When asked to draft a commit message or commit current workspace changes, follow Sections 1-4. Execute Section 5 only when the user has explicitly requested creation of the commit. Committing a partial set of the uncommitted changes is legitimate; never assume every changed file belongs in the commit. Execute `git push` only when the user has explicitly requested pushing. A request to push existing commits MUST NOT implicitly authorize staging or committing uncommitted workspace changes.
+## Workflow contract and enforcement boundary
 
-## 1. Pre-Commit Verification Workflow
-* **Mandatory Execution Order**: To inspect the complete set of current uncommitted changes, you MUST:
-  1. Execute `git status --untracked-files=all`.
-  2. Execute `git diff HEAD` to inspect all staged and unstaged changes to tracked files.
-  3. Inspect the complete contents of every untracked text file reported by `git status` by explicitly executing a native file-reading tool (not `cat` or another shell command). **CRITICAL**: Do NOT rely on your memory of what you wrote. Inspect the type and relevant metadata of untracked binary files sufficiently to determine their purpose.
-  4. Execute `git diff --cached --name-only` to determine the **commit scope**, then classify the request:
-     - **Partial commit**: the index already contains a deliberately staged subset, or the user asked to commit specific files. Committing a subset of the uncommitted changes is legitimate and MUST be supported. The commit scope is the staged set.
-     - **Full commit**: nothing is staged and the user asked to commit the current changes. The commit scope is every uncommitted change.
-     - If the index holds a staged subset and it is unclear whether the user wants only those files, ASK before proceeding. Never silently widen a partial commit into a full one.
+The helper records one Git index tree, deterministically derives mechanical message structure from it, and later reports whether the resulting commit matches the recorded tree, parent, and message. Supply what a diff cannot establish: why the change exists, which outcome it enables, and which constraint or failure it addresses.
 
-## 2. Commit Message Composition
-1. **Strict Scope Enforcement**: Base the commit message's technical scope and file modifications EXCLUSIVELY on the commit scope determined in Section 1, step 4: the files that will actually be committed, which for a partial commit is the staged subset rather than every uncommitted change.
-   - DO NOT fabricate file changes or list features drawn from conversation history, memory of earlier edits, or past prompts.
-   - YOU MAY use conversation history solely to explain the rationale or context behind the changes (the "why"), provided it strictly aligns with the verified uncommitted changes.
-   - DO NOT list files, features, or fixes that are already committed in previous commits, even if they were part of the same task session.
-   - DO NOT mention fixes for intermediate regressions or syntax errors introduced during your own uncommitted edits.
-2. **Imperative Mood Throughout**: Use the imperative, present-tense mood for the subject line's `<description>` and all commit-message change descriptions and bullet points (e.g., "Fix", "Add", "Update", "Suppress"; NEVER "Fixed", "Added", "Updates", or "Suppressing"). **CRITICAL**: Before asking for review, you MUST isolate the first word of the subject line and the first word of every bullet point, and explicitly confirm that each is a base-form verb.
-3. **Body Line Wrapping**: Wrap body prose at 72 characters. Never hard-wrap file paths, URLs, command names, identifiers, or other indivisible tokens.
-4. **Structure**:
-   - Separate all sections with **exactly one blank line**.
-   1. **Subject Line (Header)**:
-      - Format: `<type>(<scope>): <description>` or `<type>: <description>`, where `<scope>` is optional (e.g., `fix(ui): Suppress long-press menu on UI controls`). `<type>` MUST be exactly one of `build`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, or `test`.
-      - Length: Target **~50 characters**, and **NEVER exceed 72 characters**.
-      - Formatting: Capitalize the first word after type/scope; do NOT end with a period (`.`).
-   2. **User Experience Changes Section**:
-      - Include this section only when the changes have an observable impact on the end user.
-      - Format:
+The helper enforces selected artifact shapes and cross-artifact invariants, literal path identity, structural rendering, inspection acknowledgements, and object comparisons. It does not create the commit, lock the index, establish semantic truth or authorization, or enforce verification and report gates inside the standalone publication command. The invoking agent must follow the ordered gates below. Hooks can produce a mismatch; preserve and report it instead of claiming the approved transaction succeeded.
 
-      ```
-      User Experience Changes:
-        - <first change>
-        - <second change>
-        - <Nth change>
-      ```
+Agent-reviewed requirements include scratch placement, repository-relative scope values, actually reading before acknowledgement, imperative phrasing, truthful rationale, coherent domains, authorization, and command order. Do not describe those judgments as mechanically validated.
 
-      - **Content Scope**: Strictly describe only changes that are observable by the end user.
-      - Describe each user-visible outcome as an imperative change statement beginning with a base-form verb (e.g., "Enable", "Improve", "Prevent", "Reduce", etc.).
-      - Avoid technical jargon, framework details (e.g. "Jest", "Node.js heap", "OOM"), or implementation specifics in this section. Frame it purely around what the end user perceives or experiences differently as a result of these changes (e.g. "Enable the visualisation of a new file type", "Improve rendering performance").
-   3. **File Changes Section**:
-      - Format:
+The workflow is deliberately opinionated. Git does not require Conventional Commit subjects, a `File Changes:` section, or numbered file entries. This skill uses those conventions as a stable review interface; do not present them as universal Git best practice.
 
-      ```
-      File Changes:
-        1. `<first changed file's file path>`
-           - <distinct logical change and brief rationale>
-           - <Nth distinct logical change and brief rationale>
-        2. `<Nth changed file's file path>`
-      ```
+Draft mode never changes the real index. Actual mode records and stages the intended tree before showing the message for approval, but it does not lock the index; later verification detects drift. Every commit created by this workflow uses `git commit -S`; changing signature-verification policy never authorizes an unsigned retry.
 
-      - Include every changed file exactly once.
-      - Ensure there are exactly two spaces before the file number (e.g., `  1. `).
-      - Order file paths **alphabetically** using relative workspace paths (e.g., `src/app/css/toolstyle.css`).
+## Supported transaction
 
-## 3. Deterministic Commit Message Validation
+This skill drafts from current staged changes, all current changes, or a task-bounded set of whole paths. It can create a new root or ordinary one-parent commit and optionally push that exact commit with separate authorization.
 
-1. **Scratch File**: Write the proposed commit message to `scratch/commit_msg.txt` in your conversation artifacts scratch directory outside the workspace repository. Never create the scratch file inside the repository working tree.
+Do not use this workflow for amend, fixup, squash, merge commits, merge/rebase/cherry-pick/revert continuation, empty commits, history rewriting, or automatic rollback. It also does not render arbitrary repository-specific subject types, trailers, or footer grammars. If applicable repository instructions conflict with the message contract below, stop before staging and explain the incompatibility; do not bypass either policy.
 
-2. **Mandatory Validator**: You MUST validate the proposed commit message using `scripts/validate-commit-message.mjs`. Resolve the script path relative to this skill's directory and execute: `node <skill-path>/scripts/validate-commit-message.mjs [--scope auto|staged|worktree] <path-to-scratch/commit_msg.txt>`
+## Authorization and state safety
 
-   The validator compares `File Changes` against the commit scope. The default `auto` scope uses the staged set whenever the index holds staged changes and the whole working tree otherwise, which matches what `git commit` would actually record. Pass `--scope` explicitly only to override that.
+- Drafting or revising a proposed message does not authorize staging or committing.
+- Creating a commit requires explicit user authorization and approval of the exact rendered message.
+- Pushing requires explicit authorization. One request may explicitly authorize both commit and push, but either action alone never implies the other.
+- A request to push an existing commit does not authorize staging or committing workspace changes.
+- Treat every existing staged, unstaged, and untracked change as valuable. Never silently include, unstage, discard, or call it user-owned without evidence.
+- If actual-mode staging occurred but approval is withheld, preserve that index and report it; do not undo it automatically.
+- Never amend, reset, delete, or replace a created commit after a hook, comparison, verification, check, or push failure.
 
-   **CRITICAL**: Check the returned `"scope"` object. If `"resolved"` does not match the commit scope classified in Section 1, step 4, stop and resolve the discrepancy before continuing: a mismatch means the message is being checked against a different set of files from the one that will be committed.
+## Attempt directory
 
-3. **Validator Authority**: Treat the validator as authoritative for all mechanically testable commit-message requirements, including:
-   - subject syntax, type, capitalization, trailing period, and character length;
-   - section ordering and blank-line delimiters;
-   - structural formatting of `User Experience Changes` and `File Changes`;
-   - File Changes numbering, uniqueness, and alphabetical ordering; and
-   - correspondence between File Changes paths and the current changed files relative to `HEAD`, including untracked files.
+Create every attempt at an absolute path outside the repository and outside any nested worktree, such as `<system-temp>/commit-workflow/attempt-001`. Never place the attempt under the working tree. Every regenerated snapshot uses a new numbered attempt; never overwrite a temporary or preparation index.
 
-4. **No Ad-Hoc Validation**: DO NOT manually count characters or create ad-hoc Python, JavaScript, PowerShell, shell, or other commands to reproduce checks performed by the validator.
+Keep the optional `scope.json`, manifest, inspection artifacts, semantic content, rendered message, checks, verification, optional publication result, and reports together until the transaction finishes. The helper never removes attempts. Retain them by default and remove them only when the user or an applicable retention policy authorizes cleanup.
 
-5. **Validation Errors**: If the validator exits with status 1 or returns `"valid": false`, correct every `"error"` issue and re-run the validator until it returns `"valid": true`.
+These files are mutable workflow records, not tamper-evident evidence. Do not hand-edit generated manifests, ledgers, verification, publication, or report artifacts. Hash, canonical-rendering, and Git-object comparisons detect defined inconsistencies; they do not authenticate the artifacts against deliberate replacement.
 
-6. **Manual Review Issues**: If `"manualReviewRequired": true`, review each `"review"` issue. An overlong body line is acceptable only when exceeding 72 characters is necessary to preserve an indivisible file path, URL, command name, identifier, or similar token. Otherwise wrap the line and re-run the validator.
+In commands below, `<skill>` is this installed skill directory and `<attempt>` is the current external attempt directory. Use the bundled executable directly. Do not recreate its behavior with ad hoc shell, PowerShell, Python, or JavaScript.
 
-7. **Execution Failure**: If the validator exits with status 2, stop and resolve the validator execution failure before proceeding.
+## 1. Establish intent, repository policy, and scope
 
-## 4. Commit Message Review
-1. **Ask For Review**: Present ONLY the exact validated contents of `scratch/commit_msg.txt` followed by a brief prompt asking the user to review and approve or request changes before proceeding. **CRITICAL**: Do NOT include conversational filler, boilerplate text (e.g., "I have completed the verification...", "Here is the proposed message..."), or the results of your programmatic checks. The user expects concise output.
-2. **Iterate**: Do not create the commit until the user explicitly approves the proposed commit message. If the user requests changes, revise the message in the scratch file, re-run the validator, and request approval again.
+Read the repository instructions that apply to the work, including any commit-message convention. Then inspect the complete state without changing it:
 
-## 5. Execution Commands
-* **Local Git CLI Execution**: To ensure local workspace files and `.git` refs remain cleanly synchronized, you MUST run the following local Git CLI commands in order. If any command fails or exits with a non-zero status, stop immediately and DO NOT execute any subsequent command:
-   1. Stage exactly the commit scope determined in Section 1, step 4:
-      - **Partial commit**: DO NOT run `git add -A`. The staged subset is already the intended commit; stage any further intended paths individually with `git add -- <path>...`. **CRITICAL**: `git add -A` would silently pull every unrelated working-tree change into the commit and discard the user's staging decisions.
-      - **Full commit**: `git add -A`.
-   2. `git diff --cached --name-only` to verify that the staged snapshot exactly matches the commit scope on which the approved commit message was based. **CRITICAL**: You MUST explicitly compare this output list against the files you intended to stage. If any unintended files are in this list, you MUST unstage them before committing. If the snapshot is fundamentally incorrect, DO NOT commit; re-run the Pre-Commit Verification Workflow, revise the commit message as necessary, and return to Section 4 for explicit user approval.
-   3. `git commit -S -F <path-to-scratch/commit_msg.txt>`
-   4. `git verify-commit HEAD`. This command MUST exit with status 0. If verification fails, stop immediately and DO NOT push.
-   5. If and only if the user explicitly requested pushing, execute `git push`.
+```text
+git status --porcelain=v2 --branch --untracked-files=all
+```
 
-## 6. Examples
+Classify both mode and scope:
 
-* **Input**:
-> Commit our changes
+| User intent | Mode | Scope |
+| --- | --- | --- |
+| Draft the current staged snapshot | `draft` | `staged` |
+| Draft every current change | `draft` | `full` |
+| Draft a task-bounded set of whole paths | `draft` | `paths` |
+| Commit the current staged snapshot | `actual` | `staged` |
+| Commit every current change | `actual` | `full` |
+| Commit a task-bounded set of whole paths | `actual` | `paths` |
 
-* **Output**:
-> ```text
-> feat(skills): Harden committing-to-git with strict programmatic guards
-> 
-> File Changes:
->   1. `skills/committing-to-git/SKILL.md`
->      - Enforce programmatic checks for subject and body line
->        length to prevent visual estimation errors
->      - Mandate explicit use of file-reading tools for
->        untracked files
->      - Require explicit staging verification using name-only
->        diffs
->      - Add a strict post-composition grammar check for
->        imperative mood
-> ```
-> 
-> Please review the proposed commit message. Do you approve, or would you like to request any changes before I proceed with creating the commit?
+Apply these rules:
+
+- Use `staged` for an existing staged subset or partial hunks. Describe only that patch, even when the same path has unstaged edits.
+- Use `full` only when the user clearly means every non-ignored change. A large scope is not a reason to reduce it.
+- Use `paths` only for task-bounded whole paths. For mixed intended and unrelated hunks in one path, require an intentional index and use `staged`.
+- Actual `paths` refuses any pre-existing staged change rather than combining scopes.
+- For an unstaged rename in `paths`, include the vanished source and current destination. For an already-staged rename, use `staged` without restaging its source.
+- `scope.json` uses repository-relative, slash-separated UTF-8 Git paths, never absolute paths. For a non-UTF-8 path, use an already prepared `staged` scope or an unambiguous `full` scope.
+- If existing staging makes scope ambiguous, ask before mutation.
+
+For `paths`, write:
+
+```json
+{
+  "paths": [
+    "path/to/first-file",
+    "path/to/deleted-or-current-file"
+  ]
+}
+```
+
+The helper sends each value to Git as a literal NUL-delimited path. Do not shell-quote paths or treat rename display labels as later pathspecs.
+
+## 2. Create the exact snapshot
+
+Run:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs snapshot create --mode <actual|draft> --scope <staged|full|paths> [--scope-file <attempt>/scope.json] --output <attempt>/snapshot.json
+```
+
+The helper rejects unresolved conflicts and active merge, rebase, cherry-pick, revert, or sequencer state before mutation. It also rejects an empty scope.
+
+Scope behavior is exact:
+
+- Actual `staged` and draft `staged` read the real index without restaging it.
+- Actual `full` and `paths` prepare and validate the target tree in a temporary index, write the snapshot, recheck `HEAD`, operation state, conflicts, and the original real-index tree, then install the completed tree into the real index in one final Git operation. A preparation or output failure before that installation leaves the real index unchanged.
+- Actual `paths` includes only the literal whole-path set and requires an initially empty real index.
+- Draft `full` and draft `paths` stage into a temporary index beside `snapshot.json`; the real index remains unchanged.
+
+The manifest records pre-snapshot `HEAD`, the index tree, source index, fixed diff policy, raw path identities, normalized change units, and binary-aware statistics.
+
+One change unit means one Git-level change: add, modify, delete, mode change, symlink change, type change, or submodule gitlink change counts once. A rename or copy is one unit with source and destination; a separately modified copy source is another unit. A binary unit uses unavailable line counts rather than fabricated zeroes. A submodule counts as one gitlink change, not as its internal files.
+
+## 3. Inspect every recorded change
+
+Prepare bounded review artifacts:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs inspection prepare --manifest <attempt>/snapshot.json --output-dir <attempt>/inspection
+```
+
+Read `inspection/inventory.md` first for scale and artifact counts. It is a bounded overview, not the exhaustive file list. Then read every pending artifact in `inspection/ledger.json`, in ledger order, with a native file-reading tool:
+
+- inventory pages contain the exhaustive change-unit inventory;
+- text-patch artifacts contain the complete staged patch in contiguous byte order; and
+- binary and submodule artifacts contain the metadata Git can establish.
+
+Every artifact is at most 200 lines and 16 KiB. The splitter prefers line and valid UTF-8 boundaries; an overlong logical line continues in adjacent byte-ordered artifacts. Metadata does not prove unseen binary or submodule contents, so inspect them separately when a rationale depends on them.
+
+After fully reading one artifact, acknowledge its exact ID and recorded hash:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs inspection acknowledge --ledger <attempt>/inspection/ledger.json --id <unit-id> --sha256 <recorded-sha256>
+```
+
+Check progress with:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs inspection status --ledger <attempt>/inspection/ledger.json
+```
+
+Never acknowledge an unread or truncated artifact. Rendering requires every ledger entry reviewed and binds the ledger to the manifest tree. Do not use one unbounded `git diff HEAD` response as the sole inspection evidence.
+
+## 4. Scaffold and author the message
+
+Run:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs message scaffold --manifest <attempt>/snapshot.json --output <attempt>/content.json --template <attempt>/commit-message.template.txt
+```
+
+The template is intentionally invalid while placeholders remain. Read [Commit message format](references/message-format.md), then edit only semantic fields in `content.json`. The renderer owns mechanical structure; the agent owns grounded, WHY-first meaning. Ask when a material reason is unknown, and never invent claims.
+
+## 5. Use detailed or bulk file changes
+
+Use the mode selected by the scaffold: detailed entries for `1-49` change units or counted semantic domains for `50` or more. The reference defines the WHY requirement, subject grammar, numbering, alignment, domain construction, and bulk-mode limits. Do not override those rules by editing rendered text.
+
+## 6. Render, validate, and present
+
+After the ledger is complete and semantic fields are filled, run:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs message render --manifest <attempt>/snapshot.json --content <attempt>/content.json --ledger <attempt>/inspection/ledger.json --output <attempt>/commit-message.txt
+```
+
+Then run the manifest-backed canonical validator:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs message validate --manifest <attempt>/snapshot.json --content <attempt>/content.json --ledger <attempt>/inspection/ledger.json <attempt>/commit-message.txt
+```
+
+Exit `0` means there are no blocking validation errors, not necessarily that review is complete. Always read the emitted JSON; when `manualReviewRequired` is `true`, inspect every `review` issue before presenting the message and shorten any divisible overlong text. Exit `1` is a structured negative result: correct the named canonical or inspection problem, rerender when semantic input changes, and validate again. Exit `2` means a command, input, Git, renderer, schema, or artifact failure. The validator route that rereads mutable scope without all three manifest arguments is outside this workflow and is not sufficient evidence.
+
+For a draft-only request, present the exact validated `commit-message.txt` and invite prose revisions; do not ask for commit approval. For actual mode, present that exact file and request approval to create the commit. If the user changes prose, edit `content.json`, rerender, revalidate, and present it again.
+
+A later request to commit a previously drafted message starts a new actual-mode attempt. Never treat a draft temporary index or old inspection ledger as commit authorization or current-state proof.
+
+## 7. Reverify and create the approved commit
+
+Only continue when the user authorized a commit and approved the exact rendered message. Immediately before committing, run:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs snapshot verify --manifest <attempt>/snapshot.json
+```
+
+Exit `0` proves that repository root, `HEAD`, index tree, and operation state still match the approved snapshot. Exit `1` means drift: stop and create a fresh attempt, including new inspection, rendering, validation, and approval. Reclassify scope first. If the intended content is now deliberately staged, use `actual` plus `staged`; do not blindly rerun `paths` against a now-populated index. Exit `2` means an execution or artifact failure.
+
+Create the commit without path arguments and without bypassing hooks:
+
+```text
+git commit --cleanup=verbatim -S -F <attempt>/commit-message.txt
+```
+
+If this command fails, stop. Do not retry unsigned, restage, verify, report success, or push. If it succeeds, immediately record the exact created object ID:
+
+```text
+git rev-parse --verify HEAD
+```
+
+Do not perform normal restaging between approval and commit. Hooks may still reject the commit or alter its final tree or message; the report compares the actual commit with the approved artifacts. Preserve any mismatch for the user instead of amending it automatically.
+
+## 8. Apply signature-verification policy
+
+For every actual commit, read [Signature verification](references/signature-verification.md) before this step. Commit signing, signature validity, and identity authorization are separate facts. Verification defaults to `required`, but the user may change it to `advisory` or `skipped` at any point. Accept the override once without insisting or silently changing policy.
+
+Run the exact created object ID:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs signature verify --commit <commit-oid> --initial-policy required --policy <required|advisory|skipped> --output <attempt>/verification.json
+```
+
+- `required` must produce the backend-appropriate `verified` result described in the reference before this workflow may push.
+- `advisory` attempts verification and reports its result, but that result alone does not block an authorized push.
+- `skipped` invokes no verifier and must never be described as verified.
+
+If verification fails or the SSH trust source is unavailable, follow the reference's narrow remediation and reporting rules. The generated artifact records the full verified commit OID, and report generation rejects an artifact for another commit. Never amend, reset, delete, or replace the created commit because of the result.
+
+If the user changes policy after an earlier verification run, rerun the command for the same `<commit-oid>` with `--initial-policy required` and the selected final `--policy`. Use the replacement `verification.json` for every later report and push gate. If the user chooses `advisory` or `skipped` instead of granting access to an unreadable trust source, stop requesting that access.
+
+## 9. Record checks and generate the report
+
+Record only checks actually run in `checks.json`. Use status `passed` or `failed` and exactly one truthful execution context: `approved staged snapshot`, `current working tree`, `isolated worktree/container`, or `external environment`.
+
+```json
+{
+  "schemaVersion": 1,
+  "checks": [
+    {
+      "label": "Focused Node tests",
+      "status": "passed",
+      "context": "current working tree"
+    }
+  ]
+}
+```
+
+Use an empty `checks` array when no check ran. Do not label a check `approved staged snapshot` unless it ran against an environment materialized from that exact tree.
+
+Before any full-workflow push, generate the local result report without a publication argument:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs report create --commit <commit-oid> --manifest <attempt>/snapshot.json --approved-message <attempt>/commit-message.txt --verification <attempt>/verification.json --checks <attempt>/checks.json --output-json <attempt>/report.json --output-text <attempt>/report.txt
+```
+
+Exit `0` means parent shape, tree, and stored message match the approved transaction. Exit `1` writes the report but identifies at least one mismatch; preserve the commit, present the anomaly, and do not push without new direction. Exit `2` means the report inputs or Git inspection failed.
+
+The report reads actual commit identity, signature presence, parent, tree, message, statistics, checks, publication, and remaining porcelain state. Present the exact `report.txt`; do not add an `Includes...` synopsis, duplicate the full file inventory, infer checks, or describe excluded files as user-owned without explicit evidence.
+
+## 10. Push the exact commit only when authorized
+
+For a full-workflow push, continue only when the user authorized it, the pre-push report returned `0`, the active verification policy permits it, and no unresolved command failure remains. A verification failure explicitly resolved by the user's advisory or skipped override is resolved for this gate.
+
+Resolve one configured remote name and one full destination branch ref. Use the existing unambiguous upstream when the user asked simply to push; ask when no upstream exists, the destination is ambiguous, or the user named a different target. Do not set an upstream or edit configuration as part of this workflow.
+
+Run the helper with the full created object ID and full destination ref:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs publication push --commit <commit-oid> --remote <remote-name> --destination <refs/heads/branch> --output <attempt>/publication.json
+```
+
+The helper executes a non-force `git push --porcelain` for exactly `<commit-oid>:<destination>` and writes `<publication.json>.pending` before invoking Git. Exactness refers to the destination tip; Git still transfers reachable objects as needed. Exit `0` records `pushed`; exit `1` records Git's failed result. Never retry automatically. For exit `2`, a remaining journal, or a later user-authorized retry after exit `1`, follow [Publication recovery](references/publication-recovery.md).
+
+Regenerate the report with the recorded result:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs report create --commit <commit-oid> --manifest <attempt>/snapshot.json --approved-message <attempt>/commit-message.txt --verification <attempt>/verification.json --checks <attempt>/checks.json --publication <attempt>/publication.json --output-json <attempt>/report.json --output-text <attempt>/report.txt
+```
+
+Present the exact final `report.txt`. For a later push request with incomplete original artifacts, read and follow [Publication recovery](references/publication-recovery.md) before any network mutation.

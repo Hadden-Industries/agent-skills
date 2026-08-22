@@ -3,6 +3,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+import { renderCommitMessage } from "./commitMessageRenderer.js";
+
 const ALLOWED_TYPES = [
   "build",
   "ci",
@@ -42,34 +44,16 @@ function runGit(args, cwd) {
 }
 
 function repositoryRoot() {
-  return runGit(
-    ["rev-parse", "--show-toplevel"],
-    process.cwd(),
-  ).trim();
+  return runGit(["rev-parse", "--show-toplevel"], process.cwd()).trim();
 }
 
 function worktreeChangedFiles(root) {
   const tracked = splitNul(
-    runGit([
-      "-C",
-      root,
-      "diff",
-      "--name-only",
-      "-z",
-      "HEAD",
-      "--",
-    ]),
+    runGit(["-C", root, "diff", "--name-only", "-z", "HEAD", "--"]),
   );
 
   const untracked = splitNul(
-    runGit([
-      "-C",
-      root,
-      "ls-files",
-      "--others",
-      "--exclude-standard",
-      "-z",
-    ]),
+    runGit(["-C", root, "ls-files", "--others", "--exclude-standard", "-z"]),
   );
 
   return [...new Set([...tracked, ...untracked])];
@@ -77,16 +61,7 @@ function worktreeChangedFiles(root) {
 
 function stagedChangedFiles(root) {
   return splitNul(
-    runGit([
-      "-C",
-      root,
-      "diff",
-      "--name-only",
-      "--cached",
-      "-z",
-      "HEAD",
-      "--",
-    ]),
+    runGit(["-C", root, "diff", "--name-only", "--cached", "-z", "HEAD", "--"]),
   );
 }
 
@@ -155,9 +130,7 @@ function issue(severity, code, message, extra = {}) {
 function normalizeMessage(text) {
   const normalized = text.replace(/\r\n?/g, "\n");
 
-  return normalized.endsWith("\n")
-    ? normalized.slice(0, -1)
-    : normalized;
+  return normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
 }
 
 function validateMessage(text, expectedFiles, fileScope) {
@@ -331,8 +304,7 @@ function validateMessage(text, expectedFiles, fileScope) {
       }
     }
 
-    const uxEnd =
-      fileIndex > uxIndex ? fileIndex - 1 : lines.length;
+    const uxEnd = fileIndex > uxIndex ? fileIndex - 1 : lines.length;
 
     const uxLines = lines.slice(uxIndex + 1, uxEnd);
     let sawBullet = false;
@@ -341,7 +313,7 @@ function validateMessage(text, expectedFiles, fileScope) {
       const line = uxLines[offset];
       const lineNumber = uxIndex + offset + 2;
 
-      if (/^  - \S/u.test(line)) {
+      if (/^ {2}- \S/u.test(line)) {
         sawBullet = true;
       } else if (/^ {4,}\S/u.test(line) && sawBullet) {
         // Wrapped continuation of the preceding bullet.
@@ -374,10 +346,7 @@ function validateMessage(text, expectedFiles, fileScope) {
   }
 
   for (let index = 1; index < lines.length; index += 1) {
-    if (
-      lines[index] === "" &&
-      !permittedBlankLines.has(index)
-    ) {
+    if (lines[index] === "" && !permittedBlankLines.has(index)) {
       issues.push(
         issue(
           "error",
@@ -398,10 +367,7 @@ function validateMessage(text, expectedFiles, fileScope) {
     let currentFileHasBullet = false;
 
     function finalizeCurrentFile() {
-      if (
-        currentFileIndex >= 0 &&
-        !currentFileHasBullet
-      ) {
+      if (currentFileIndex >= 0 && !currentFileHasBullet) {
         fileStructureValid = false;
 
         issues.push(
@@ -411,21 +377,16 @@ function validateMessage(text, expectedFiles, fileScope) {
             "Each File Changes entry must contain at least " +
               "one logical-change bullet.",
             {
-              line:
-                fileEntryLineNumbers[currentFileIndex],
+              line: fileEntryLineNumbers[currentFileIndex],
             },
           ),
         );
       }
     }
 
-    for (
-      let index = fileIndex + 1;
-      index < lines.length;
-      index += 1
-    ) {
+    for (let index = fileIndex + 1; index < lines.length; index += 1) {
       const line = lines[index];
-      const entryMatch = /^  (\d+)\. `([^`]+)`$/u.exec(line);
+      const entryMatch = /^ {2}(\d+)\. `([^`]+)`$/u.exec(line);
 
       if (entryMatch) {
         finalizeCurrentFile();
@@ -457,10 +418,7 @@ function validateMessage(text, expectedFiles, fileScope) {
         continue;
       }
 
-      if (
-        /^     - \S/u.test(line) &&
-        currentFileIndex >= 0
-      ) {
+      if (/^ {5}- \S/u.test(line) && currentFileIndex >= 0) {
         currentFileHasBullet = true;
         continue;
       }
@@ -476,7 +434,11 @@ function validateMessage(text, expectedFiles, fileScope) {
       fileStructureValid = false;
 
       // Provide specific feedback for under-indented wrapped lines
-      if (/^ {1,6}\S/u.test(line) && currentFileIndex >= 0 && currentFileHasBullet) {
+      if (
+        /^ {1,6}\S/u.test(line) &&
+        currentFileIndex >= 0 &&
+        currentFileHasBullet
+      ) {
         issues.push(
           issue(
             "error",
@@ -530,9 +492,7 @@ function validateMessage(text, expectedFiles, fileScope) {
 
   const uniqueListedFiles = [...new Set(listedFiles)];
 
-  const sortedFiles = [...uniqueListedFiles].sort(
-    compareBinary,
-  );
+  const sortedFiles = [...uniqueListedFiles].sort(compareBinary);
 
   const orderValid = uniqueListedFiles.every(
     (path, index) => path === sortedFiles[index],
@@ -543,8 +503,7 @@ function validateMessage(text, expectedFiles, fileScope) {
       issue(
         "error",
         "FILE_ORDER_INVALID",
-        "File paths are not in the validator's " +
-          "strict binary sort order.",
+        "File paths are not in the validator's " + "strict binary sort order.",
       ),
     );
   }
@@ -561,8 +520,7 @@ function validateMessage(text, expectedFiles, fileScope) {
           "error",
           "FILE_MISSING_FROM_MESSAGE",
           staged
-            ? "A file staged for this commit is missing from " +
-                "File Changes."
+            ? "A file staged for this commit is missing from " + "File Changes."
             : "A currently changed file is missing from File Changes.",
           { path },
         ),
@@ -612,13 +570,22 @@ function validateMessage(text, expectedFiles, fileScope) {
   ).length;
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     valid: errorCount === 0,
     manualReviewRequired: reviewCount > 0,
+    canonical: null,
+    mode: "legacy",
+    inspection: null,
 
     scope: {
       requested: fileScope.requested,
       resolved: fileScope.resolved,
+      indexTreeOid: null,
+    },
+
+    manifest: {
+      schemaVersion: null,
+      indexTreeOid: null,
     },
 
     subject: {
@@ -630,6 +597,10 @@ function validateMessage(text, expectedFiles, fileScope) {
     },
 
     sections: {
+      rationale: {
+        present: false,
+        structureValid: true,
+      },
       userExperience: {
         present: uxPresent,
         structureValid: uxStructureValid,
@@ -659,13 +630,136 @@ function validateMessage(text, expectedFiles, fileScope) {
   };
 }
 
+function validateManifestMessage(text, manifest, content, ledger) {
+  const message = normalizeMessage(text);
+  const expectedMessage = normalizeMessage(
+    renderCommitMessage(manifest, content),
+  );
+  const canonical = message === expectedMessage;
+  const issues = [];
+  const subjectText = message.split("\n")[0] ?? "";
+  const subjectLength = characterLength(subjectText);
+
+  if (!canonical) {
+    issues.push(
+      issue(
+        "error",
+        "MESSAGE_NOT_CANONICAL",
+        "Message differs from the deterministic rendering of its manifest and content.",
+      ),
+    );
+  }
+
+  const inspectionComplete = ledger.complete === true;
+  const inspectionTreeMatches = ledger.indexTreeOid === manifest.indexTreeOid;
+
+  if (!inspectionComplete || !inspectionTreeMatches) {
+    issues.push(
+      issue(
+        "error",
+        "INSPECTION_INCOMPLETE",
+        "Inspection ledger must be complete and match the approved index tree.",
+      ),
+    );
+  }
+
+  const lines = message.split("\n");
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const length = characterLength(lines[index]);
+
+    if (length > MAX_LINE_LENGTH) {
+      issues.push(
+        issue(
+          "review",
+          "BODY_LINE_OVER_LIMIT",
+          `Body line is ${length} characters; review whether ` +
+            "an indivisible token requires the excess length.",
+          { line: index + 1 },
+        ),
+      );
+    }
+  }
+
+  const errorCount = issues.filter(
+    ({ severity }) => severity === "error",
+  ).length;
+  const reviewCount = issues.filter(
+    ({ severity }) => severity === "review",
+  ).length;
+  const listedCount =
+    content.mode === "bulk"
+      ? (content.domains ?? []).reduce(
+          (total, domain) => total + (domain.changeUnitIds?.length ?? 0),
+          0,
+        )
+      : (content.changeEntries?.length ?? 0);
+
+  return {
+    schemaVersion: 2,
+    valid: errorCount === 0,
+    manualReviewRequired: reviewCount > 0,
+    canonical,
+    mode: content.mode,
+    inspection: {
+      complete: inspectionComplete,
+      treeMatches: inspectionTreeMatches,
+    },
+    scope: {
+      requested: "manifest",
+      resolved: "snapshot",
+      indexTreeOid: manifest.indexTreeOid,
+    },
+    manifest: {
+      schemaVersion: manifest.schemaVersion,
+      indexTreeOid: manifest.indexTreeOid,
+    },
+    subject: {
+      type: ALLOWED_TYPE_SET.has(content.subject?.type)
+        ? content.subject.type
+        : null,
+      scope: content.subject?.scope ?? null,
+      length: subjectLength,
+      target: SUBJECT_TARGET,
+      maximum: MAX_LINE_LENGTH,
+    },
+    sections: {
+      rationale: {
+        present: (content.rationale?.length ?? 0) > 0,
+        structureValid: canonical,
+      },
+      userExperience: {
+        present: (content.userExperienceChanges?.length ?? 0) > 0,
+        structureValid: canonical,
+      },
+      fileChanges: {
+        present: true,
+        structureValid: canonical,
+      },
+    },
+    files: {
+      expectedCount: manifest.changeUnitCount,
+      listedCount,
+      setMatches: listedCount === manifest.changeUnitCount,
+      orderValid: canonical,
+      unique: listedCount === manifest.changeUnitCount,
+    },
+    summary: {
+      errors: errorCount,
+      reviews: reviewCount,
+    },
+    issues,
+  };
+}
+
 const ALLOWED_SCOPES = ["auto", "staged", "worktree"];
 
 function usageError(message) {
   console.error(message);
   console.error(
-    "Usage: node scripts/validate-commit-message.mjs " +
-      "[--scope auto|staged|worktree] <commit-message-file>",
+    "Usage: node commitWorkflow.mjs message validate " +
+      "[--scope auto|staged|worktree] [--manifest <snapshot.json> " +
+      "--content <content.json> --ledger <ledger.json>] <commit-message-file>",
   );
 
   process.exit(2);
@@ -673,6 +767,9 @@ function usageError(message) {
 
 function parseArguments(argv) {
   let requestedScope = "auto";
+  let manifestPath = null;
+  let contentPath = null;
+  let ledgerPath = null;
   const positional = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -686,6 +783,24 @@ function parseArguments(argv) {
 
     if (argument.startsWith("--scope=")) {
       requestedScope = argument.slice("--scope=".length);
+      continue;
+    }
+
+    if (argument === "--manifest") {
+      manifestPath = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (argument === "--content") {
+      contentPath = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (argument === "--ledger") {
+      ledgerPath = argv[index + 1];
+      index += 1;
       continue;
     }
 
@@ -703,35 +818,59 @@ function parseArguments(argv) {
     );
   }
 
-  return { messagePath: positional[0], requestedScope };
+  const manifestInputs = [manifestPath, contentPath, ledgerPath];
+  const suppliedManifestInputs = manifestInputs.filter(
+    (value) => value !== null,
+  ).length;
+
+  if (
+    suppliedManifestInputs !== 0 &&
+    suppliedManifestInputs !== manifestInputs.length
+  ) {
+    usageError(
+      "--manifest, --content, and --ledger must be supplied together.",
+    );
+  }
+
+  return {
+    messagePath: positional[0],
+    requestedScope,
+    manifestPath,
+    contentPath,
+    ledgerPath,
+  };
 }
 
-const { messagePath, requestedScope } = parseArguments(
-  process.argv.slice(2),
-);
+const { messagePath, requestedScope, manifestPath, contentPath, ledgerPath } =
+  parseArguments(process.argv.slice(2));
 
 try {
   const root = repositoryRoot();
   const message = readFileSync(messagePath, "utf8");
-  const { resolved, files } = resolveScope(root, requestedScope);
+  let result;
 
-  const result = validateMessage(message, files, {
-    requested: requestedScope,
-    resolved,
-  });
+  if (manifestPath) {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const content = JSON.parse(readFileSync(contentPath, "utf8"));
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
 
-  process.stdout.write(
-    `${JSON.stringify(result, null, 2)}\n`,
-  );
+    result = validateManifestMessage(message, manifest, content, ledger);
+  } else {
+    const { resolved, files } = resolveScope(root, requestedScope);
+
+    result = validateMessage(message, files, {
+      requested: requestedScope,
+      resolved,
+    });
+  }
+
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 
   process.exit(result.valid ? 0 : 1);
 } catch (error) {
-  const detail =
-    error?.stderr?.toString?.().trim() || error.message;
+  const detail = error?.stderr?.toString?.().trim() || error.message;
 
-  console.error(
-    `Commit-message validation could not run: ${detail}`,
-  );
+  console.error(`Commit-message validation could not run: ${detail}`);
 
   process.exit(2);
 }
