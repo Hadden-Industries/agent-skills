@@ -26,16 +26,20 @@ The following operations are create-only:
 
 - snapshot creation;
 - inspection preparation;
+- each per-change deletion expansion directory;
 - message scaffolding; and
 - publication result creation.
 
 Snapshot creation also reserves one fixed helper-owned intermediate beside `snapshot.json`: `temporary-index` for draft `full` or `paths`, or `preparation-index` for actual `full` or `paths`. A failed Git command can leave that file behind before the manifest exists, and the helper will refuse to reuse it.
 
-If a create-only target or reserved intermediate is occupied, preserve the attempt unchanged and start a fresh UUID attempt. Reclassify current state first. Use actual `staged` for an index populated by a successful prior snapshot only when `snapshot verify` still exits `0` for that manifest. Otherwise scope provenance is ambiguous, so ask before mutation. Never delete an intermediate to reuse an attempt, undo the index, or blindly retry `paths`.
+If the snapshot, inspection, scaffold, publication, or reserved-intermediate target is occupied, preserve the attempt unchanged and start a fresh UUID attempt. Reclassify current state first. Use actual `staged` for an index populated by a successful prior snapshot only when `snapshot verify` still exits `0` for that manifest. Otherwise scope provenance is ambiguous, so ask before mutation. Never delete an intermediate to reuse an attempt, undo the index, or blindly retry `paths`.
+
+Deletion expansion has a narrower recovery boundary. If the ledger already records that change unit, resume its pending `deleted-content` units without rerunning expansion. If its directory exists but the ledger does not record it, expansion did not complete atomically: preserve the attempt, and create a fresh snapshot attempt only if that historical content is still required. Never delete or replace the occupied directory to force reuse.
 
 Within an established attempt:
 
 - `scope.json` may change only before snapshot creation;
+- `inspection/ledger.json` may receive hash-bound acknowledgements and one create-only exact-blob expansion for each summarized deletion;
 - `content.json` may receive semantic revisions;
 - `commit-message.txt` may be rerendered;
 - `checks.json` may record additional checks actually run;

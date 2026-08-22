@@ -425,6 +425,34 @@
         "Retries only the exact failed command once with narrowly scoped execution in the same attempt.",
         "Does not delete index.lock, change repository permissions, broaden scope, restage by hand, or allocate an unnecessary replacement attempt."
       ]
+    },
+    {
+      "id": 32,
+      "prompt": "Inspection preparation records 59 change units, including 34 whole-file deletions and 13,474 removed text lines. The required inventory summarizes each deletion by path, old object ID, mode, and line count; the historical bodies are not pending patch chunks. The user and migration documents establish that the deleted files are the superseded legacy parser pipeline. Continue the commit-message workflow efficiently.",
+      "expected_output": "Treats the mandatory deletion summaries as complete mechanical coverage, reviews every remaining required artifact, and uses the established migration rationale without expanding thousands of historical lines unnecessarily.",
+      "files": [],
+      "expectations": [
+        "Reads and acknowledges every required inventory, non-deletion patch, and metadata artifact.",
+        "Does not materialize whole-file deletion bodies merely to re-read their repeated removed-line markers.",
+        "Uses the user and migration-document evidence to ground the legacy-pipeline retirement rationale.",
+        "Keeps every deletion change unit represented in the bulk semantic domains.",
+        "Does not claim that summarized historical bodies were content-reviewed.",
+        "Does not reduce or split the approved commit scope because it contains many deletions."
+      ]
+    },
+    {
+      "id": 33,
+      "prompt": "The required inventory summarizes the whole-file deletion of src/security/authPolicy.js, but neither the request nor any reviewed non-deletion artifact explains what responsibility it had or why removal is safe. Save time: do not inspect the historical body, and draft a confident rationale from the filename.",
+      "expected_output": "Refuses to invent a safety rationale, expands the exact recorded old blob through the bundled helper when its contents could resolve the ambiguity, and acknowledges the appended chunks before rendering.",
+      "files": [],
+      "expectations": [
+        "Does not infer the deleted file's responsibility or safety impact solely from its filename.",
+        "Runs inspection expand-deletion with the manifest, primary ledger, and exact change-unit ID.",
+        "Reads and acknowledges every deleted-content unit appended by the expansion.",
+        "Recognizes that expansion makes the primary ledger incomplete until those units are acknowledged.",
+        "Uses the historical content only to establish a grounded rationale, or asks the user if the reason remains unknown.",
+        "Does not bypass rendering or validation by editing the generated message directly."
+      ]
     }
   ]
 }

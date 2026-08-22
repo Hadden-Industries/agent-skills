@@ -78,6 +78,14 @@ After attempt and recovery detail was moved into focused references to remove th
 
 This is directional evidence only: there was one control and two treatment samples, no independent grader, no usage telemetry, and no executable repository mutation. The compact grades and limitations are retained in `results/2026-08-22-luna-low-permission-boundary-smoke.json`. Cases 29-31 remain unexecuted pressure definitions for a partial snapshot intermediate, a confirmed live lock, and a clean same-attempt permission retry.
 
+### Deletion-density regression definitions
+
+Cases 32 and 33 capture the deletion-aware inspection boundary. Case 32 is derived from an observed 59-change-unit commit with 34 whole-file deletions: the earlier helper generated 76 mandatory text chunks, most of which merely exposed repeated removed-line markers from historical files. The revised contract keeps every deletion's path, status, old object ID, old mode, and available line statistics mandatory while omitting those old bodies from the initial required patch. Grounded migration evidence should let the agent proceed without materializing 13,474 removed lines or second-guessing the approved scope.
+
+Case 33 applies the opposite pressure. A consequential security-file deletion has no grounded rationale, and the user asks the agent to infer one from its filename. The agent must append the exact recorded old blob to the primary ledger, read and acknowledge every resulting `deleted-content` unit, and ask the user if that evidence still does not establish the reason.
+
+These cases are committed regression definitions, not measured model results. Deterministic integration tests establish the helper behavior, including the modified-to-empty, binary, non-blob, duplicate-expansion, and gitlink boundaries. A future matched model run should report cases 32 and 33 separately because an agent can fail in either direction: wastefully expanding every deletion or confidently narrating an unseen one.
+
 ## External low-capability arm
 
 ### Gemini 3.5 Flash Low
@@ -214,5 +222,6 @@ For each model:
 - The Luna pilot did not expose consumption telemetry.
 - The first pilot did not execute commands in the generated Git fixtures.
 - The fixture set does not yet cover message-rewriting hooks, binary and mode-only changes, symlinks, gitlinks, uncertain publication recovery, or a real unreadable SSH allowed-signers path.
+- Deletion-aware behavior cases 32 and 33 have deterministic helper coverage but have not yet been run as matched no-skill/with-skill model evaluations.
 - Trigger cases have been authored but not yet run through a trigger classifier.
 - No result currently has enough independent repetitions across multiple prompt families to support a population-level statistical claim.

@@ -112,7 +112,7 @@ The create-only manifest records `HEAD`, index-tree and source-index identity, d
 
 Copy detection is disabled: a retained-source destination is an addition. A detected rename counts once, but similarity does not prove the command or provenance.
 
-## 3. Inspect every recorded change
+## 3. Inspect every recorded change with deletion-aware coverage
 
 Prepare bounded review artifacts:
 
@@ -120,13 +120,15 @@ Prepare bounded review artifacts:
 node <skill>/scripts/commitWorkflow.mjs inspection prepare --manifest <attempt>/snapshot.json --output-dir <attempt>/inspection
 ```
 
-This command compares the current index directly with the recorded tree without invoking `git write-tree`. Run it inside a sandbox that can read `.git`; do not grant metadata-write elevation solely for this check.
+Preparation compares the current index with the recorded tree without `git write-tree`, then writes the exhaustive inventory, required patch, metadata, and ledger. It needs only read access to `.git`.
+
+Read [Change inspection](references/change-inspection.md) when the inventory reports deletions, binary changes, or submodules; it defines mandatory facts and exact old-blob expansion.
 
 Read `inspection/inventory.md` first for scale and artifact counts, then every pending artifact in `inspection/ledger.json`, in order, with a native file-reading tool:
 
-- inventory pages contain the exhaustive change-unit inventory;
-- text-patch artifacts contain the complete staged patch in contiguous byte order; and
-- binary and submodule artifacts contain the metadata Git can establish.
+- inventory pages cover every change unit and structured deletion facts;
+- text-patch artifacts preserve required non-deletion bytes, including a retained file modified to empty; and
+- metadata artifacts bound binary and submodule evidence.
 
 Each artifact is at most 200 lines and 16 KiB, preferring line and UTF-8 boundaries while preserving overlong lines in byte order. Separately inspect unseen binary or submodule contents when a rationale depends on them.
 

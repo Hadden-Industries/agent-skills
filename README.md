@@ -28,7 +28,7 @@ The skill is an opinionated review and transaction workflow, not a claim that Gi
 
 - drafting never changes staged entries: draft `full` and `paths` use a temporary index, while draft `staged` may lock the real index only to update cache metadata; `actual` mode records the exact intended staged tree before asking for message approval;
 - users receive one self-contained JavaScript CLI with no third-party runtime install, while maintainers work in reviewable domain modules under `src/`;
-- large diffs are split into bounded, hash-addressed artifacts so every recorded change can be read without relying on truncated terminal output;
+- large diffs are split into bounded, hash-addressed artifacts so every recorded change can be reviewed without relying on truncated terminal output; whole-file deletions retain mandatory object, mode, path, and statistics coverage while their historical bodies are summarized unless meaning or risk requires exact old-blob expansion;
 - [execution-permission planning](./skills/committing-to-git/references/execution-permissions.md) requests narrowly scoped metadata access before a known sandbox denial, keeps inspection and snapshot verification read-only, and distinguishes missing permission from a live Git lock collision;
 - the agent supplies grounded rationale that a diff cannot reveal, while the renderer owns paths, change kinds, sorting, numbering, indentation, wrapping, and section order;
 - under the [message contract](./skills/committing-to-git/references/message-format.md), messages use one numbered change-unit entry for 1-49 changes and counted semantic domains for 50 or more, preserving navigability without narrating hundreds of paths;
@@ -139,6 +139,7 @@ agent-skills/
 │   │   ├── evals/
 │   │   │   └── evals.json                # Workflow pressure scenarios
 │   │   ├── references/
+│   │   │   ├── change-inspection.md      # Deletion-aware inspection and expansion policy
 │   │   │   ├── execution-permissions.md  # Sandbox and Git-lock decision policy
 │   │   │   ├── message-format.md         # WHY-first detailed and bulk message policy
 │   │   │   ├── publication-recovery.md   # Exact-OID push recovery policy
@@ -179,7 +180,7 @@ agent-skills/
 │       ├── cli/                          # Published command boundary
 │       ├── command/                      # Snapshot, message, report, and publication adapters
 │       ├── git/                          # Git process and path semantics
-│       ├── inspection/                   # Bounded complete diff inspection
+│       ├── inspection/                   # Bounded deletion-aware change inspection
 │       ├── message/                      # Commit-message rendering and validation
 │       ├── report/                       # Post-commit fact collection and rendering
 │       ├── schema/                       # Versioned workflow contracts

@@ -1,24 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Commit Scope Inspection Ledger",
-  "description": "Evidence that every change unit in an approved snapshot was inspected.",
+  "description": "Evidence that required review artifacts covering every change unit in an approved snapshot were acknowledged.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
     "indexTreeOid",
-    "sourcePatchSha256",
-    "sourcePatchBytes",
+    "reviewPatchSha256",
+    "reviewPatchBytes",
+    "summarizedDeletionCount",
+    "summarizedTextDeletionLines",
+    "expandedDeletions",
     "unitCount",
     "reviewedCount",
     "complete",
     "units"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "indexTreeOid": { "type": "string", "minLength": 1 },
-    "sourcePatchSha256": { "type": "string", "minLength": 1 },
-    "sourcePatchBytes": { "type": "integer", "minimum": 0 },
+    "reviewPatchSha256": { "type": "string", "minLength": 1 },
+    "reviewPatchBytes": { "type": "integer", "minimum": 0 },
+    "summarizedDeletionCount": { "type": "integer", "minimum": 0 },
+    "summarizedTextDeletionLines": { "type": "integer", "minimum": 0 },
+    "expandedDeletions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changeUnitId",
+          "oldOid",
+          "byteCount",
+          "sha256",
+          "unitIds"
+        ],
+        "properties": {
+          "changeUnitId": { "type": "string", "minLength": 1 },
+          "oldOid": { "type": "string", "minLength": 1 },
+          "byteCount": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "minLength": 1 },
+          "unitIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
     "unitCount": { "type": "integer", "minimum": 0 },
     "reviewedCount": { "type": "integer", "minimum": 0 },
     "complete": { "type": "boolean" },
@@ -44,10 +73,12 @@
             "enum": [
               "inventory-page",
               "text-patch",
+              "deleted-content",
               "binary-metadata",
               "submodule-metadata"
             ]
           },
+          "changeUnitId": { "type": "string", "minLength": 1 },
           "artifact": { "type": "string", "minLength": 1 },
           "byteStart": { "type": "integer", "minimum": 0 },
           "byteEnd": { "type": "integer", "minimum": 0 },

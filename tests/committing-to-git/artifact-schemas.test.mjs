@@ -74,12 +74,23 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     ],
   };
   const ledger = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     indexTreeOid: "2".repeat(40),
-    sourcePatchSha256: "5".repeat(64),
-    sourcePatchBytes: 128,
-    unitCount: 1,
-    reviewedCount: 1,
+    reviewPatchSha256: "5".repeat(64),
+    reviewPatchBytes: 128,
+    summarizedDeletionCount: 1,
+    summarizedTextDeletionLines: 24,
+    expandedDeletions: [
+      {
+        changeUnitId: "F000002",
+        oldOid: "7".repeat(40),
+        byteCount: 96,
+        sha256: "8".repeat(64),
+        unitIds: ["F000002-D000001"],
+      },
+    ],
+    unitCount: 2,
+    reviewedCount: 2,
     complete: true,
     units: [
       {
@@ -91,6 +102,18 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
         byteCount: 128,
         lineCount: 8,
         sha256: "5".repeat(64),
+        status: "reviewed",
+      },
+      {
+        id: "F000002-D000001",
+        kind: "deleted-content",
+        changeUnitId: "F000002",
+        artifact: "deletions/F000002/D000001.deleted",
+        byteStart: 0,
+        byteEnd: 96,
+        byteCount: 96,
+        lineCount: 6,
+        sha256: "8".repeat(64),
         status: "reviewed",
       },
     ],

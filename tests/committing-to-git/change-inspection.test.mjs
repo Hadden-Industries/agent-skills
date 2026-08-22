@@ -1,5 +1,5 @@
 // Complete bounded inspection for text, draft-index, and binary changes.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -141,6 +141,342 @@ test("inspection chunks preserve the complete staged patch within line and byte 
   assert.equal(reconstructed.toString("utf8"), expected);
   assert.ok(ledger.units.every(({ status }) => status === "pending"));
   assert.equal(ledger.complete, false);
+});
+
+test("inspection summarizes whole-file deletions without requiring their historical bodies", (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "commit-inspection-delete-summary-",
+  );
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+  const deletedContents =
+    Array.from(
+      { length: 600 },
+      (_, index) => `obsolete implementation line ${index + 1}`,
+    ).join("\n") + "\n";
+
+  writeRepositoryFile(fixture.repo, "obsolete.txt", deletedContents);
+  writeRepositoryFile(fixture.repo, "retained.txt", "before\n");
+  commitAll(fixture.repo);
+  rmSync(join(fixture.repo, "obsolete.txt"));
+  writeRepositoryFile(fixture.repo, "retained.txt", "after\n");
+
+  const snapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+    fixture.repo,
+  );
+
+  assert.equal(snapshot.status, 0, snapshot.stderr);
+
+  const inspect = runCommitWorkflow(
+    "inspection prepare",
+    ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+    fixture.repo,
+  );
+
+  assert.equal(inspect.status, 0, inspect.stderr);
+
+  const manifest = readJson(snapshotPath);
+  const deletedUnit = manifest.changeUnits.find(
+    ({ destinationPath }) => destinationPath === "obsolete.txt",
+  );
+  const ledger = readJson(join(inspectionDir, "ledger.json"));
+  const requiredPatch = Buffer.concat(
+    ledger.units
+      .filter(({ kind }) => kind === "text-patch")
+      .map(({ artifact }) => readFileSync(join(inspectionDir, artifact))),
+  ).toString("utf8");
+  const inventory = Buffer.concat(
+    ledger.units
+      .filter(({ kind }) => kind === "inventory-page")
+      .map(({ artifact }) => readFileSync(join(inspectionDir, artifact))),
+  ).toString("utf8");
+  const expectedRequiredPatch = git(
+    [
+      "-c",
+      "diff.renameLimit=1000",
+      "diff",
+      "--cached",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--find-renames=50%",
+      "--diff-filter=d",
+      "HEAD",
+      "--",
+    ],
+    fixture.repo,
+  ).stdout;
+
+  assert.equal(ledger.schemaVersion, 2);
+  assert.equal(ledger.summarizedDeletionCount, 1);
+  assert.equal(ledger.summarizedTextDeletionLines, 600);
+  assert.deepEqual(ledger.expandedDeletions, []);
+  assert.equal(ledger.reviewPatchBytes, Buffer.byteLength(requiredPatch));
+  assert.equal(requiredPatch, expectedRequiredPatch);
+  assert.match(requiredPatch, /retained\.txt/u);
+  assert.doesNotMatch(requiredPatch, /obsolete implementation line/u);
+  assert.match(inventory, /obsolete\.txt/u);
+  assert.match(inventory, /historical body summarized/u);
+  assert.match(inventory, new RegExp(deletedUnit.oldOid, "u"));
+  assert.match(
+    readFileSync(join(inspectionDir, "inventory.md"), "utf8"),
+    /Summarized whole-file deletions: 1 \(600 text lines\)/u,
+  );
+});
+
+test("deletion expansion appends the exact old blob and reopens the required ledger", (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "commit-inspection-delete-expand-",
+  );
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+  const ledgerPath = join(inspectionDir, "ledger.json");
+  const deletedContents =
+    Array.from(
+      { length: 450 },
+      (_, index) => `deleted semantic line ${index + 1}`,
+    ).join("\n") + "\n";
+
+  writeRepositoryFile(fixture.repo, "obsolete.txt", deletedContents);
+  commitAll(fixture.repo);
+  rmSync(join(fixture.repo, "obsolete.txt"));
+
+  assert.equal(
+    runCommitWorkflow(
+      "snapshot create",
+      ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+      fixture.repo,
+    ).status,
+    0,
+  );
+  assert.equal(
+    runCommitWorkflow(
+      "inspection prepare",
+      ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+      fixture.repo,
+    ).status,
+    0,
+  );
+
+  for (const unit of readJson(ledgerPath).units) {
+    const acknowledge = runCommitWorkflow(
+      "inspection acknowledge",
+      ["--ledger", ledgerPath, "--id", unit.id, "--sha256", unit.sha256],
+      fixture.repo,
+    );
+
+    assert.equal(acknowledge.status, 0, acknowledge.stderr);
+  }
+
+  assert.equal(readJson(ledgerPath).complete, true);
+
+  const expand = runCommitWorkflow(
+    "inspection expand-deletion",
+    [
+      "--manifest",
+      snapshotPath,
+      "--ledger",
+      ledgerPath,
+      "--change-unit",
+      "F000001",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(expand.status, 0, expand.stderr);
+
+  const expandedLedger = readJson(ledgerPath);
+  const expansion = expandedLedger.expandedDeletions[0];
+  const contentUnits = expandedLedger.units.filter(
+    ({ kind }) => kind === "deleted-content",
+  );
+  const reconstructed = Buffer.concat(
+    contentUnits.map(({ artifact }) =>
+      readFileSync(join(inspectionDir, artifact)),
+    ),
+  );
+
+  assert.equal(expandedLedger.complete, false);
+  assert.equal(expansion.changeUnitId, "F000001");
+  assert.equal(expansion.byteCount, Buffer.byteLength(deletedContents));
+  assert.deepEqual(
+    expansion.unitIds,
+    contentUnits.map(({ id }) => id),
+  );
+  assert.ok(contentUnits.length > 1);
+  assert.ok(
+    contentUnits.every(({ changeUnitId }) => changeUnitId === "F000001"),
+  );
+  assert.equal(reconstructed.toString("utf8"), deletedContents);
+
+  for (const unit of contentUnits) {
+    const acknowledge = runCommitWorkflow(
+      "inspection acknowledge",
+      ["--ledger", ledgerPath, "--id", unit.id, "--sha256", unit.sha256],
+      fixture.repo,
+    );
+
+    assert.equal(acknowledge.status, 0, acknowledge.stderr);
+  }
+
+  assert.equal(readJson(ledgerPath).complete, true);
+
+  const completedLedger = readJson(ledgerPath);
+  const duplicate = runCommitWorkflow(
+    "inspection expand-deletion",
+    [
+      "--manifest",
+      snapshotPath,
+      "--ledger",
+      ledgerPath,
+      "--change-unit",
+      "F000001",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /already expanded/u);
+  assert.deepEqual(readJson(ledgerPath), completedLedger);
+});
+
+test("deletion expansion rejects retained paths and non-blob historical objects", (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "commit-inspection-delete-reject-",
+  );
+  const modifiedSnapshotPath = join(fixture.scratch, "modified-snapshot.json");
+  const modifiedInspectionDir = join(fixture.scratch, "modified-inspection");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  assert.equal(
+    runCommitWorkflow(
+      "snapshot create",
+      ["--mode", "actual", "--scope", "full", "--output", modifiedSnapshotPath],
+      fixture.repo,
+    ).status,
+    0,
+  );
+  assert.equal(
+    runCommitWorkflow(
+      "inspection prepare",
+      [
+        "--manifest",
+        modifiedSnapshotPath,
+        "--output-dir",
+        modifiedInspectionDir,
+      ],
+      fixture.repo,
+    ).status,
+    0,
+  );
+
+  const retained = runCommitWorkflow(
+    "inspection expand-deletion",
+    [
+      "--manifest",
+      modifiedSnapshotPath,
+      "--ledger",
+      join(modifiedInspectionDir, "ledger.json"),
+      "--change-unit",
+      "F000001",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(retained.status, 2);
+  assert.match(retained.stderr, /whole-file deletion/u);
+
+  const deletedAttempt = join(fixture.scratch, "deleted-attempt");
+  const deletedSnapshotPath = join(deletedAttempt, "snapshot.json");
+  const deletedInspectionDir = join(deletedAttempt, "inspection");
+
+  mkdirSync(deletedAttempt);
+
+  commitAll(fixture.repo, "modified");
+  rmSync(join(fixture.repo, "tracked.txt"));
+  const deletedSnapshot = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", deletedSnapshotPath],
+    fixture.repo,
+  );
+
+  assert.equal(deletedSnapshot.status, 0, deletedSnapshot.stderr);
+  assert.equal(
+    runCommitWorkflow(
+      "inspection prepare",
+      ["--manifest", deletedSnapshotPath, "--output-dir", deletedInspectionDir],
+      fixture.repo,
+    ).status,
+    0,
+  );
+
+  const deletedManifest = readJson(deletedSnapshotPath);
+  deletedManifest.changeUnits[0].oldOid = deletedManifest.headOid;
+  writeFileSync(
+    deletedSnapshotPath,
+    `${JSON.stringify(deletedManifest, null, 2)}\n`,
+  );
+
+  const wrongType = runCommitWorkflow(
+    "inspection expand-deletion",
+    [
+      "--manifest",
+      deletedSnapshotPath,
+      "--ledger",
+      join(deletedInspectionDir, "ledger.json"),
+      "--change-unit",
+      "F000001",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(wrongType.status, 2);
+  assert.match(wrongType.stderr, /must identify a blob object/u);
+});
+
+test("a retained file changed to empty content remains in the required patch", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-inspection-empty-file-");
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+
+  writeRepositoryFile(fixture.repo, "retained-empty.txt", "still tracked\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "retained-empty.txt", "");
+
+  assert.equal(
+    runCommitWorkflow(
+      "snapshot create",
+      ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+      fixture.repo,
+    ).status,
+    0,
+  );
+  assert.equal(
+    runCommitWorkflow(
+      "inspection prepare",
+      ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+      fixture.repo,
+    ).status,
+    0,
+  );
+
+  const ledger = readJson(join(inspectionDir, "ledger.json"));
+  const requiredPatch = Buffer.concat(
+    ledger.units
+      .filter(({ kind }) => kind === "text-patch")
+      .map(({ artifact }) => readFileSync(join(inspectionDir, artifact))),
+  ).toString("utf8");
+
+  assert.equal(ledger.summarizedDeletionCount, 0);
+  assert.match(requiredPatch, /retained-empty\.txt/u);
+  assert.match(requiredPatch, /^-still tracked$/mu);
 });
 
 test("inspection shows every line of a similar retained-source destination as newly added", (t) => {
@@ -346,6 +682,44 @@ test("binary changes produce explicit unavailable-line metadata review units", (
     ].join("\n"),
     /binary\/unavailable/u,
   );
+});
+
+test("summarized deletion line totals exclude submodule gitlinks", (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "commit-submodule-delete-summary-",
+  );
+  const outputDir = join(fixture.scratch, "inspection");
+  const manifest = {
+    schemaVersion: 2,
+    indexTreeOid: "a".repeat(40),
+    changeUnitCount: 1,
+    changeUnits: [
+      {
+        id: "F000001",
+        kind: "submodule-changed",
+        destinationPath: "vendor/library",
+        displayPath: "vendor/library",
+        oldMode: "160000",
+        newMode: "000000",
+        oldOid: "b".repeat(40),
+        newOid: "0".repeat(40),
+        additions: 0,
+        deletions: 1,
+        binary: false,
+      },
+    ],
+  };
+
+  const ledger = writeInspection({
+    outputDir,
+    manifest,
+    patch: Buffer.alloc(0),
+  });
+
+  assert.equal(ledger.summarizedDeletionCount, 1);
+  assert.equal(ledger.summarizedTextDeletionLines, 0);
+  assert.ok(ledger.units.some(({ kind }) => kind === "submodule-metadata"));
 });
 
 test("large inventories are emitted as bounded review pages", (t) => {

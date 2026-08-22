@@ -22,10 +22,27 @@ test("unified workflow help exposes the domain command groups", () => {
   assert.match(result.stdout, /snapshot create/u);
   assert.match(result.stdout, /snapshot verify/u);
   assert.match(result.stdout, /inspection prepare/u);
+  assert.match(result.stdout, /inspection expand-deletion/u);
   assert.match(result.stdout, /message validate/u);
   assert.match(result.stdout, /signature verify/u);
   assert.match(result.stdout, /report create/u);
   assert.match(result.stdout, /publication push/u);
+});
+
+test("deletion expansion help explains exact old-blob materialization", () => {
+  const result = runNodeScript(
+    COMMIT_WORKFLOW,
+    ["inspection", "expand-deletion", "--help"],
+    REPO_ROOT,
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--manifest <snapshot\.json>/u);
+  assert.match(result.stdout, /--ledger <ledger\.json>/u);
+  assert.match(result.stdout, /--change-unit <F[0-9]+>/u);
+  assert.match(result.stdout, /exact old blob/u);
+  assert.match(result.stdout, /ledger incomplete/u);
+  assert.match(result.stdout, /Exit status:/u);
 });
 
 test("unified workflow rejects an unknown command with concise help", () => {

@@ -9,6 +9,10 @@ const COMMANDS = new Map([
     [() => import("../command/inspectionCommand.js"), "prepare"],
   ],
   [
+    "inspection expand-deletion",
+    [() => import("../command/inspectionCommand.js"), "expand-deletion"],
+  ],
+  [
     "inspection acknowledge",
     [() => import("../command/inspectionCommand.js"), "ack"],
   ],
@@ -76,7 +80,7 @@ Output and exit status:
     "inspection prepare",
     `Usage: commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory>
 
-Writes bounded inventory, patch, metadata, and ledger artifacts after confirming the source index still matches the manifest.
+Writes bounded exhaustive inventory, required non-deletion patch, metadata, and ledger artifacts after confirming the source index still matches the manifest. Whole-file deletion bodies are summarized with exact old-object facts and can be expanded separately.
 
 Exit status:
   0  Artifacts written and ledger summary emitted as JSON.
@@ -92,6 +96,20 @@ Marks one ledger artifact reviewed only when its current SHA-256 matches the sup
 Side effect and exit status:
   0  Rewrites the ledger and emits it as JSON.
   2  Usage, ID, hash, artifact, or output failure; no successful acknowledgement.
+`,
+  ],
+  [
+    "inspection expand-deletion",
+    `Usage: commitWorkflow.mjs inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001>
+
+Materializes the exact old blob for one summarized whole-file text deletion and appends bounded deleted-content units to the primary inspection ledger.
+
+Side effect:
+  Creates one deletion artifact directory and makes the ledger incomplete until every appended unit is acknowledged.
+
+Exit status:
+  0  Exact old-blob chunks appended and the updated ledger summary emitted as JSON.
+  2  Usage, manifest, ledger, change-unit, object-type, Git, collision, or output failure.
 `,
   ],
   [
@@ -194,6 +212,7 @@ Usage:
   commitWorkflow.mjs snapshot create [options]
   commitWorkflow.mjs snapshot verify [options]
   commitWorkflow.mjs inspection prepare [options]
+  commitWorkflow.mjs inspection expand-deletion [options]
   commitWorkflow.mjs inspection acknowledge [options]
   commitWorkflow.mjs inspection status [options]
   commitWorkflow.mjs message scaffold [options]

@@ -73,14 +73,31 @@ export function splitPatch(buffer) {
   return chunks;
 }
 
+export function isWholeDeletion(unit) {
+  return unit?.oldMode !== "000000" && unit?.newMode === "000000";
+}
+
 export function writeInspection({ outputDir, manifest, patch }) {
   const chunksDir = join(outputDir, "chunks");
+  const deletionsDir = join(outputDir, "deletions");
   const inventoryDir = join(outputDir, "inventory");
   const metadataDir = join(outputDir, "metadata");
   const chunks = splitPatch(patch);
+  const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
+  const summarizedTextDeletionLines = summarizedDeletions.reduce(
+    (total, unit) =>
+      total +
+      (!unit.binary &&
+      unit.oldMode !== "160000" &&
+      Number.isInteger(unit.deletions)
+        ? unit.deletions
+        : 0),
+    0,
+  );
 
   mkdirSync(outputDir);
   mkdirSync(chunksDir);
+  mkdirSync(deletionsDir);
   mkdirSync(inventoryDir);
   mkdirSync(metadataDir);
 
@@ -93,7 +110,11 @@ export function writeInspection({ outputDir, manifest, patch }) {
           ? "binary/unavailable"
           : `+${unit.additions}/-${unit.deletions}`;
 
-        return `- \`${unit.id}\` ${unit.kind}: ${unit.displayPath} -- ${statistics}`;
+        const deletionSummary = isWholeDeletion(unit)
+          ? `; historical body summarized; old object ${unit.oldOid}; mode ${unit.oldMode}`
+          : "";
+
+        return `- \`${unit.id}\` ${unit.kind}: ${unit.displayPath} -- ${statistics}${deletionSummary}`;
       }),
       "",
     ].join("\n"),
@@ -177,10 +198,13 @@ export function writeInspection({ outputDir, manifest, patch }) {
   const units = [...inventoryUnits, ...textUnits, ...metadataUnits];
 
   const ledger = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     indexTreeOid: manifest.indexTreeOid,
-    sourcePatchSha256: sha256(patch),
-    sourcePatchBytes: patch.length,
+    reviewPatchSha256: sha256(patch),
+    reviewPatchBytes: patch.length,
+    summarizedDeletionCount: summarizedDeletions.length,
+    summarizedTextDeletionLines,
+    expandedDeletions: [],
     unitCount: units.length,
     reviewedCount: 0,
     complete: units.length === 0,
@@ -192,13 +216,16 @@ export function writeInspection({ outputDir, manifest, patch }) {
     "",
     `- Index tree: \`${manifest.indexTreeOid}\``,
     `- File change units: ${manifest.changeUnitCount}`,
-    `- Patch bytes: ${patch.length}`,
+    `- Required patch bytes: ${patch.length}`,
     `- Inventory pages: ${inventoryUnits.length}`,
-    `- Text chunks: ${textUnits.length}`,
+    `- Required text chunks: ${textUnits.length}`,
+    `- Summarized whole-file deletions: ${summarizedDeletions.length} (${summarizedTextDeletionLines} text lines)`,
     `- Metadata units: ${metadataUnits.length}`,
     "",
-    "Read and acknowledge every pending inventory, patch, and metadata artifact",
-    "listed in `ledger.json`.",
+    "Read and acknowledge every pending inventory, required patch, and metadata",
+    "artifact listed in `ledger.json`.",
+    "",
+    "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
     "",
   ].join("\n");
 
@@ -209,6 +236,69 @@ export function writeInspection({ outputDir, manifest, patch }) {
   );
 
   return ledger;
+}
+
+export function expandDeletionInspection({ ledgerPath, changeUnit, content }) {
+  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+
+  if (ledger.schemaVersion !== 2) {
+    throw new Error(
+      "Deletion expansion requires an inspection ledger version 2.",
+    );
+  }
+
+  if (
+    ledger.expandedDeletions.some(
+      ({ changeUnitId }) => changeUnitId === changeUnit.id,
+    )
+  ) {
+    throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
+  }
+
+  const inspectionDir = dirname(ledgerPath);
+  const deletionDir = join(inspectionDir, "deletions", changeUnit.id);
+  const chunks = splitPatch(content);
+
+  mkdirSync(deletionDir);
+
+  const units = chunks.map(({ payload, start, end, lineCount }, index) => {
+    const ordinal = `D${String(index + 1).padStart(6, "0")}`;
+    const id = `${changeUnit.id}-${ordinal}`;
+    const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
+
+    writeFileSync(join(inspectionDir, artifact), payload);
+
+    return {
+      id,
+      kind: "deleted-content",
+      changeUnitId: changeUnit.id,
+      artifact,
+      byteStart: start,
+      byteEnd: end,
+      byteCount: payload.length,
+      lineCount,
+      sha256: sha256(payload),
+      status: "pending",
+    };
+  });
+  const expansion = {
+    changeUnitId: changeUnit.id,
+    oldOid: changeUnit.oldOid,
+    byteCount: content.length,
+    sha256: sha256(content),
+    unitIds: units.map(({ id }) => id),
+  };
+
+  ledger.expandedDeletions.push(expansion);
+  ledger.units.push(...units);
+  ledger.unitCount = ledger.units.length;
+  ledger.reviewedCount = ledger.units.filter(
+    ({ status }) => status === "reviewed",
+  ).length;
+  ledger.complete = ledger.reviewedCount === ledger.unitCount;
+  writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+
+  return { ledger, expansion, units };
 }
 
 export function acknowledgeInspection({ ledgerPath, id, expectedSha256 }) {

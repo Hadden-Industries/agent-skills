@@ -29,13 +29,29 @@ This amendment supersedes every later provision in this historical plan that ena
 
 The snapshot schema is version 2, records `copyDetection: false`, and no longer exposes `copyScore` or accepts `copied`. Regression tests cover snapshot classification even when repository configuration requests copy detection, complete inspection, rendering, report counts, schema rejection, and the legacy message-only compatibility path.
 
+## Behavioral amendment: deletion-aware inspection
+
+On 2026-08-23, an observed 59-change-unit workflow showed that 34 whole-file deletions generated most of 76 mandatory text chunks merely to reproduce 13,474 historical lines with `-` prefixes. This imposed substantial reading cost even though the user and migration evidence already established a grounded reason for retiring the legacy files.
+
+This amendment supersedes every later provision in this historical plan that requires the initial inspection patch to contain every historical body of every whole-file deletion. The implemented policy is:
+
+- every normalized deletion remains mandatory in the exhaustive inventory, with its path, status, full old object ID, old mode, and available line statistics;
+- the initial required patch excludes only a tree change whose new mode is absent (`D`), while a retained file modified to empty remains ordinary required patch content;
+- an agent must not materialize deleted bodies mechanically, by file count, or merely to observe repeated removed-line markers;
+- when rationale, effect, risk, or an explicit audit depends on historical content, `inspection expand-deletion` reads the exact full old blob recorded in the manifest with replacement objects and lazy fetching disabled;
+- expansion appends bounded, hash-addressed `deleted-content` units to the same ledger and makes rendering incomplete until every appended unit is read and acknowledged;
+- filenames alone never establish why a consequential deletion is safe, so unresolved meaning is escalated to the user; and
+- binary objects and gitlinks remain separate evidence classes rather than being coerced into text expansion.
+
+Inspection ledger schema version 2 records the required-patch hash and size, summarized deletion and text-line counts, and each exact-blob expansion. Regression tests cover mixed retained changes and deletions, exact reconstruction, duplicate and invalid expansion, modified-to-empty files, binary objects, and deleted gitlinks. Behavioral cases 32-33 exercise both failure directions: unnecessary bulk expansion and unsupported filename inference.
+
 ## Implementation architecture amendment
 
 The workflow behavior below remains authoritative, but the initially proposed physical layout of five executables, seven `scripts/lib/` modules, and six published schemas was superseded during implementation. Shipping eighteen implementation files inside one skill would expose authoring structure to skill users and make the executable surface harder to understand.
 
 The approved implementation therefore uses repository-level authoring infrastructure:
 
-- root `package.json` and `package-lock.json` pin `esbuild` as a development-only dependency;
+- root `package.json` declares a compatible `esbuild` development range while `package-lock.json` records the reproducible installed graph;
 - `scripts/buildSkillBundles.js` is the shared repository ASCII validator, bundler, and drift checker;
 - maintainable source lives under semantic domains in `src/committing-to-git/`;
 - schemas live under `src/committing-to-git/schema/` as authoring-time contracts; and
