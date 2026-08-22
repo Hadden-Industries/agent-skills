@@ -1,6 +1,6 @@
 # Evaluating `committing-to-git`
 
-This directory contains three complementary evaluation layers. Passing one layer does not establish that the others pass.
+This maintainer-only directory contains three complementary evaluation layers for the deployable skill at `skills/committing-to-git/`. It is not part of the skill payload installed by `npx skills add Hadden-Industries/agent-skills`. Passing one layer does not establish that the others pass.
 
 | Artifact | Question it answers |
 |---|---|
@@ -135,7 +135,7 @@ The generator does not select, reuse, empty, or delete a destination. Tests crea
 Run it as:
 
 ```text
-node skills/committing-to-git/evals/create-fixture-repository.mjs --scenario staged-rename --destination C:\absolute\new\fixture-repo
+node evals/committing-to-git/create-fixture-repository.mjs --scenario staged-rename --destination C:\absolute\new\fixture-repo
 ```
 
 Supported scenarios:
@@ -173,7 +173,7 @@ A valid no-skill arm must:
 - Use the same substantive user request, model identifier, reasoning or effort setting, tool policy, and fixture state as the treatment.
 - Retain enough environment metadata to demonstrate that isolation after the run.
 
-Randomize arm order when the runner can do so safely, and blind the grader to arm labels. Keep final held-out paraphrases outside `evals.json`; prompts committed beside the skill are development tests, not an unbiased final test set.
+Randomize arm order when the runner can do so safely, and blind the grader to arm labels. Keep final held-out paraphrases outside `evals.json`; prompts committed in this maintainer suite are development tests, not an unbiased final test set.
 
 ## Expectation grading
 

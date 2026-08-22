@@ -47,7 +47,7 @@ Applied result:
 - The main file is a numbered transaction state machine.
 - Detailed message policy, signature semantics, and publication recovery are one-level, conditionally loaded references.
 - The canonical main file is 278 lines, 2,673 whitespace-delimited words, and 19,918 bytes. The repository skill linter does not emit its approximately-5,000-token warning.
-- Thirty-three scenario evaluations are present, exceeding the three-evaluation minimum.
+- Thirty-three scenario evaluations are present in the maintainer-only `evals/committing-to-git/` suite, exceeding the three-evaluation minimum without enlarging the deployable skill payload.
 - Every CLI subcommand now documents purpose, effects or read-only behavior, outputs, and exit semantics.
 
 ### 3.2 Git index and path behavior

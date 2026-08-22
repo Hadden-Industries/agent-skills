@@ -69,7 +69,6 @@ Both scripts live in this skill's directory. Resolve their paths relative to it 
 - `scripts/_styles.py`: reads the EPUB's own stylesheets and derives which of its CSS classes carry meaning; not run directly.
 - `scripts/_toc.py`: extracts the book's navigation and resolves each entry to an anchor in the converted Markdown; not run directly.
 - `scripts/_repair.py`: rewrites code listings Pandoc would otherwise flatten, for the books that contain them; not run directly.
-- `evals/measure_conversion.py`: reports how much less an agent reads through this workflow than by opening the spine documents itself. For evaluating the skill, not for answering questions about a book.
 - `scripts/clean_epub.lua`: removes the wrappers and anchors Pandoc derives from EPUB source filenames, converts the publisher's styling classes into real Markdown, and discards the rest. Keeps document content and any anchor the document links to.
 - `scripts/pandoc-check.schema.json`, `scripts/conversion-result.schema.json`: the two scripts' output contracts; consult when interpreting an unfamiliar field.
 - `references/pandoc-installation.md`: load only when the Pandoc check fails.

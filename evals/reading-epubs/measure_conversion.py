@@ -19,8 +19,8 @@ cleaning earns:
 
 Usage:
 
-    python measure_conversion.py <book.epub> [<book.epub> ...]
-    python measure_conversion.py --directory <folder-of-epubs>
+    python evals/reading-epubs/measure_conversion.py <book.epub> [<book.epub> ...]
+    python evals/reading-epubs/measure_conversion.py --directory <folder-of-epubs>
 
 Characters are reported exactly. The token column divides by four, the usual
 rough ratio for prose; treat it as an order-of-magnitude figure, not a count
@@ -39,7 +39,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = REPOSITORY_ROOT / "skills" / "reading-epubs" / "scripts"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -136,7 +137,11 @@ def main() -> int:
 
     pandoc = find_pandoc()
     if pandoc is None:
-        print("Pandoc is not installed; run scripts/check_pandoc.py", file=sys.stderr)
+        print(
+            "Pandoc is not installed; run "
+            "skills/reading-epubs/scripts/check_pandoc.py",
+            file=sys.stderr,
+        )
         return 10
 
     rows = []

@@ -1395,7 +1395,7 @@ focused reference if the final `SKILL.md` would become too long.
 - focused test files for snapshot/staging, inspection, rendering, validation,
   signature policy, and reporting
 - `tests/committing-to-git/fixtures/` repositories and signature fixtures
-- `skills/committing-to-git/evals/evals.json`
+- `evals/committing-to-git/evals.json`
 
 Do not edit installed skill copies under `.agents/` or `.claude/`. Use the
 repository's normal bootstrap/install workflow after the canonical tracked skill

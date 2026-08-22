@@ -9,10 +9,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
-const SOURCE_WORKTREE = realpathSync(resolve(SCRIPT_DIRECTORY, "..", "..", ".."));
+
+export function resolveSourceWorktree() {
+  return realpathSync(resolve(SCRIPT_DIRECTORY, "..", ".."));
+}
+
+const SOURCE_WORKTREE = resolveSourceWorktree();
 
 function fail(message) {
   throw new Error(message);
@@ -26,7 +31,9 @@ function parseArguments(argv) {
     const value = argv[index + 1];
 
     if (!flag?.startsWith("--") || value === undefined) {
-      fail("Usage: create-fixture-repository.mjs --scenario NAME --destination ABSOLUTE_PATH");
+      fail(
+        "Usage: create-fixture-repository.mjs --scenario NAME --destination ABSOLUTE_PATH",
+      );
     }
 
     options[flag.slice(2)] = value;
@@ -127,8 +134,12 @@ function createStagedRename(repository) {
     "FROM node:24\nCOPY vite.config.js /app/vite.config.js\n",
   );
   writeRepositoryFile(repository, "vite.config.js", "export default {};\n");
-  writeRepositoryFile(repository, "package-lock.json", "{\"lockfileVersion\": 3}\n");
-  writeRepositoryFile(repository, "skills-lock.json", "{\"skills\": []}\n");
+  writeRepositoryFile(
+    repository,
+    "package-lock.json",
+    '{"lockfileVersion": 3}\n',
+  );
+  writeRepositoryFile(repository, "skills-lock.json", '{"skills": []}\n');
   commitAll(repository, "seed staged rename fixture");
 
   renameSync(
@@ -145,12 +156,12 @@ function createStagedRename(repository) {
   writeRepositoryFile(
     repository,
     "package-lock.json",
-    "{\"lockfileVersion\": 3, \"packages\": {\"\": {}}}\n",
+    '{"lockfileVersion": 3, "packages": {"": {}}}\n',
   );
   writeRepositoryFile(
     repository,
     "skills-lock.json",
-    "{\"skills\": [\"local-only\"]}\n",
+    '{"skills": ["local-only"]}\n',
   );
 
   return {
@@ -232,7 +243,10 @@ function createStaleHead(repository) {
 
   const approvedHead = git(repository, ["rev-parse", "HEAD"]).stdout.trim();
   const approvedIndexTree = git(repository, ["write-tree"]).stdout.trim();
-  const currentHeadTree = git(repository, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
+  const currentHeadTree = git(repository, [
+    "rev-parse",
+    "HEAD^{tree}",
+  ]).stdout.trim();
   const currentHead = git(repository, [
     "commit-tree",
     currentHeadTree,
@@ -271,7 +285,9 @@ function createActiveCherryPick(repository) {
   });
 
   if (cherryPick.status === 0) {
-    fail("The active-cherry-pick fixture unexpectedly applied without conflict");
+    fail(
+      "The active-cherry-pick fixture unexpectedly applied without conflict",
+    );
   }
 
   return {
@@ -321,9 +337,16 @@ function main() {
   );
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }

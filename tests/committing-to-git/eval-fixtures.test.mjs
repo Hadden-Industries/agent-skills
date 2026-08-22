@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,14 +14,14 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { resolveSourceWorktree } from "../../evals/committing-to-git/create-fixture-repository.mjs";
 import { git } from "./harness.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FIXTURE_GENERATOR = join(
   REPO_ROOT,
-  "skills",
-  "committing-to-git",
   "evals",
+  "committing-to-git",
   "create-fixture-repository.mjs",
 );
 const EVAL_DIRECTORY = dirname(FIXTURE_GENERATOR);
@@ -71,6 +72,10 @@ function generate(t, scenario) {
 
   return { destination, metadata };
 }
+
+test("the moved fixture generator resolves this repository as its source worktree", () => {
+  assert.equal(resolveSourceWorktree(), realpathSync(REPO_ROOT));
+});
 
 test("behavior and trigger definitions use their evaluator contracts", () => {
   const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));

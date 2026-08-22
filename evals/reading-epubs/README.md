@@ -1,7 +1,9 @@
 # Evaluating `reading-epubs`
 
-Two eval sets, answering different questions. Passing one says nothing about the
-other.
+This maintainer-only suite evaluates the deployable skill at
+`skills/reading-epubs/`. It is not part of the skill payload installed by
+`npx skills add Hadden-Industries/agent-skills`. Its two eval sets answer
+different questions; passing one says nothing about the other.
 
 | File | Question it answers |
 |---|---|
@@ -80,7 +82,7 @@ representations: the spine documents an agent must open and read natively, the
 Markdown Pandoc alone produces, and what this skill produces after cleaning.
 
 ```bash
-python measure_conversion.py --directory "path/to/books"
+python evals/reading-epubs/measure_conversion.py --directory "path/to/books"
 ```
 
 Measured over 80 real books — 23 ISO standards and 57 trade titles — the
