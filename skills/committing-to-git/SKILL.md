@@ -124,15 +124,11 @@ Preparation compares the current index with the recorded tree without `git write
 
 Read [Change inspection](references/change-inspection.md) when the inventory reports deletions, binary changes, or submodules; it defines mandatory facts and exact old-blob expansion.
 
-Read `inspection/inventory.md` first for scale and artifact counts, then every pending artifact in `inspection/ledger.json`, in order, with a native file-reading tool:
+Read `inspection/inventory.md` for scale and counts, then `inspection/ledger.json`. Process pending artifacts strictly serially: in one dedicated native file-reading action, read exactly one artifact, confirm complete output, then acknowledge its ID and recorded hash before reading the next. Never batch or parallelize; combined output limits can truncate individually bounded artifacts.
 
-- inventory pages cover every change unit and structured deletion facts;
-- text-patch artifacts preserve required non-deletion bytes, including a retained file modified to empty; and
-- metadata artifacts bound binary and submodule evidence.
+Inventory pages cover change units; text patches preserve required non-deletion bytes, including retained files emptied; metadata binds binary or submodule evidence. Artifacts are at most 200 lines/16 KiB and prefer line/UTF-8 boundaries. Inspect unseen binary or submodule content separately when a rationale depends on it.
 
-Each artifact is at most 200 lines and 16 KiB, preferring line and UTF-8 boundaries while preserving overlong lines in byte order. Separately inspect unseen binary or submodule contents when a rationale depends on them.
-
-After fully reading one artifact, acknowledge its exact ID and recorded hash:
+For the acknowledgement step, run:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs inspection acknowledge --ledger <attempt>/inspection/ledger.json --id <unit-id> --sha256 <recorded-sha256>

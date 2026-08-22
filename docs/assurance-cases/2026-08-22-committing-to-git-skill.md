@@ -138,7 +138,7 @@ No authoritative Git source mandates or forbids numbering changed files in a cus
 | C2 | Actual scope is fixed before approval without partial staging on helper failure | Transactional actual-mode description | Temporary preparation index; output-failure regression; index-tree comparisons |
 | C3 | Paths are exact and hostile names cannot broaden scope | `scope.json` and literal NUL rules | Leading-dash/metacharacter sibling test |
 | C4 | Active operations and conflicts cannot enter ordinary-commit flow | Snapshot rejection and unsupported transaction text | Merge, rebase, cherry-pick, revert, sequencer, and conflict checks |
-| C5 | Large diffs are fully inspectable without one truncated response | Bounded deletion-aware ledger workflow | 200-line/16-KiB chunking, UTF-8 boundary, exact required-patch reconstruction, and 1,000-unit inventory tests |
+| C5 | Large diffs are fully inspectable without treating a truncated response as reviewed | Bounded deletion-aware ledger workflow with one artifact per dedicated tool action | 200-line/16-KiB chunking, UTF-8 boundary, exact required-patch reconstruction, generated atomic-loop output, and 1,000-unit inventory tests |
 | C6 | Every normalized tree change is counted consistently | Change-unit definition | Retained-source addition, rename, binary, mode, symlink, type, and submodule tests in snapshot and final report |
 | C7 | Message mechanics cannot drift through hand formatting | Scaffold/render/manifest-backed validation | Canonical renderer, schemas, duplicate/omission/order/placeholder tests |
 | C8 | Message meaning contributes information absent from the diff | Message-format reference | Explicit agent-review boundary; concrete warning-driven example; semantic eval assertions |
@@ -164,6 +164,7 @@ No authoritative Git source mandates or forbids numbering changed files in a cus
 | `-literal[1].txt` is an option or glob | Global literal pathspec mode plus NUL input; regression excludes the similar sibling |
 | A file with staged and unstaged hunks can be safely handled by whole-path scope | The skill requires an intentional index and `staged` scope |
 | A huge diff may be sampled or silently truncated | Exhaustive bounded inventory, required patch, metadata, and any requested deletion-expansion units must all be read and hash-acknowledged |
+| Several individually bounded artifacts can be read safely in one batch | Tool limits apply to the combined response; the skill requires one dedicated read and acknowledgement cycle per pending ledger artifact |
 | Every `-` line of every deleted file must be read to prove inspection completeness | The inventory makes path, status, old object, mode, and statistics mandatory; whole-file bodies are summarized unless meaning or risk requires exact expansion |
 | A deleted filename is enough to explain why removal is safe | Filename inference is forbidden; expand the recorded old blob when its content may resolve consequential ambiguity, then ask the user if the reason remains unknown |
 | A file changed to empty is equivalent to a whole-file deletion | Only a tree transition to an absent path is summarized; a retained empty file remains in the required patch |
@@ -205,7 +206,7 @@ The pre-audit main file contained 307 lines, approximately 2,081 whitespace-deli
 | `references/publication-recovery.md` | Standard exact publication plus unknown-outcome and missing-artifact recovery | Before any publication or later incomplete push |
 | `references/transaction-artifacts.md` | Attempt allocation, same-worktree serialization, artifact mutability, and retention | Before every snapshot attempt |
 
-The main file is now 278 lines, below both the 500-line recommendation and the repository linter's estimated 5,000-token warning threshold. It is larger in bytes than the early draft because it states authorization, side effects, failure states, and enforcement limits that were previously absent; deletion expansion, host-specific error classification, transaction-artifact lifecycle, and optional publication recovery are progressively disclosed instead of being paid on every activation.
+The main file is now 274 lines, below both the 500-line recommendation and the repository linter's estimated 5,000-token warning threshold. It is larger in bytes than the early draft because it states authorization, side effects, failure states, and enforcement limits that were previously absent; deletion expansion, host-specific error classification, transaction-artifact lifecycle, and optional publication recovery are progressively disclosed instead of being paid on every activation.
 
 Human readability is supported by outcome-led headings, one ordered state machine, a single mode/scope table, local-policy disclosure before operational detail, concrete command forms, direct references, and no hard wrapping of semantic prose lines. The cost is that this is a transactional skill rather than a short style guide; removing the remaining state transitions would reintroduce material ambiguity.
 
@@ -221,6 +222,8 @@ Five independent fresh-context reviews or behavior checks were used:
 
 One additional real-workflow incident supplied the deletion-density regression: a 59-change-unit snapshot with 34 whole-file deletions produced 76 text chunks, largely so an agent could observe repeated `-` markers across 13,474 removed lines. That observation motivated cases 32-33 and the deterministic deletion-aware tests. It demonstrates the prior usability failure, not yet a measured with-skill model result; both behavioral cases remain explicitly unexecuted.
 
+A later real-workflow incident supplied the aggregate-output regression: three valid patch artifacts totaling 46,389 bytes were requested in one batched read, and the runtime returned only a partial view. The agent safely withheld acknowledgement and reread each artifact separately. That observation motivated case 34, the artifact-atomic skill recipe, and the generated-inventory regression test; no matched behavior evaluation has yet been run.
+
 These reviews are qualitative evidence, not a substitute for deterministic tests. Their value is hypothesis generation: they exposed plausible interpretations that the original author and implementation tests had not considered.
 
 ## 9. Residual limitations
@@ -228,6 +231,7 @@ These reviews are qualitative evidence, not a substitute for deterministic tests
 The following limits are intentional and remain visible to installers:
 
 - No prompt can prove that an agent truly read an artifact; the helper proves only that the correct ID/hash was acknowledged.
+- One-artifact reads prevent batching from defeating the helper's bounds, but a host may impose a per-response allowance below 16 KiB; any individually truncated artifact must still remain unacknowledged.
 - Imperative mood, factual rationale, outcome-before-mechanism ordering, and semantic domain coherence remain agent-reviewed judgments.
 - Workflow records are mutable and are not signed or otherwise tamper-evident.
 - The index is not locked for the whole approval interval; immediate precommit verification detects drift instead.

@@ -143,6 +143,46 @@ test("inspection chunks preserve the complete staged patch within line and byte 
   assert.equal(ledger.complete, false);
 });
 
+test("inspection overview requires an artifact-atomic read and acknowledgement loop", (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "commit-inspection-atomic-review-",
+  );
+  const outputDir = join(fixture.scratch, "inspection");
+  const manifest = {
+    schemaVersion: 2,
+    indexTreeOid: "a".repeat(40),
+    changeUnitCount: 1,
+    changeUnits: [
+      {
+        id: "F000001",
+        kind: "modified",
+        destinationPath: "large.txt",
+        displayPath: "large.txt",
+        additions: 600,
+        deletions: 1,
+        binary: false,
+      },
+    ],
+  };
+
+  const ledger = writeInspection({
+    outputDir,
+    manifest,
+    patch: Buffer.from("+ replacement content\n".repeat(600)),
+  });
+  const overview = readFileSync(join(outputDir, "inventory.md"), "utf8");
+
+  assert.ok(
+    ledger.units.filter(({ kind }) => kind === "text-patch").length > 1,
+    "the fixture should expose the aggregate-output risk",
+  );
+  assert.match(overview, /one pending artifact at a time/u);
+  assert.match(overview, /dedicated tool action/u);
+  assert.match(overview, /acknowledge[^.]+before reading the next artifact/u);
+  assert.match(overview, /combined response/u);
+});
+
 test("inspection summarizes whole-file deletions without requiring their historical bodies", (t) => {
   const fixture = createRepositoryFixture(
     t,

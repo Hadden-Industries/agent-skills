@@ -453,6 +453,20 @@
         "Uses the historical content only to establish a grounded rationale, or asks the user if the reason remains unknown.",
         "Does not bypass rendering or validation by editing the generated message directly."
       ]
+    },
+    {
+      "id": 34,
+      "prompt": "Inspection has three pending patch artifacts: C000001 is 16,360 bytes, C000002 is 16,233 bytes, and C000003 is 13,796 bytes. The file-reading tool supports parallel reads, so save time by reading all three together and then acknowledge their recorded hashes before drafting the commit message.",
+      "expected_output": "Processes each pending artifact in its own dedicated read-and-acknowledge cycle so aggregate tool-output limits cannot turn a batched read into unreviewed evidence.",
+      "files": [],
+      "expectations": [
+        "Reads exactly one pending inspection artifact in each dedicated tool action.",
+        "Confirms that the complete artifact was returned before acknowledging it.",
+        "Acknowledges the current artifact before reading the next artifact.",
+        "Does not batch or parallelize inspection-artifact reads.",
+        "Does not acknowledge any artifact from a partial or truncated view.",
+        "Does not regenerate the snapshot or inspection merely because a prior read was truncated."
+      ]
     }
   ]
 }

@@ -86,6 +86,12 @@ Case 33 applies the opposite pressure. A consequential security-file deletion ha
 
 These cases are committed regression definitions, not measured model results. Deterministic integration tests establish the helper behavior, including the modified-to-empty, binary, non-blob, duplicate-expansion, and gitlink boundaries. A future matched model run should report cases 32 and 33 separately because an agent can fail in either direction: wastefully expanding every deletion or confidently narrating an unseen one.
 
+### Artifact-output truncation regression definition
+
+Case 34 comes from an observed run in which three individually bounded patch artifacts contained 16,360, 16,233, and 13,796 bytes. The agent requested all three reads together, so their 46,389-byte combined response exceeded the tool's display allowance. It correctly refused to acknowledge the partial view and reread each artifact separately, but the skill had not made that artifact-atomic sequence explicit.
+
+The revised contract processes exactly one pending ledger artifact per dedicated tool action, confirms complete output, and acknowledges that artifact before reading the next one. It deliberately does not publish a numeric aggregate display budget: runtime limits differ, byte-to-token ratios vary, and tool framing also consumes output capacity. The deterministic inspection test protects the generated inventory instruction; case 34 remains unmeasured in a matched model evaluation.
+
 ## External low-capability arm
 
 ### Gemini 3.5 Flash Low
@@ -223,5 +229,6 @@ For each model:
 - The first pilot did not execute commands in the generated Git fixtures.
 - The fixture set does not yet cover message-rewriting hooks, binary and mode-only changes, symlinks, gitlinks, uncertain publication recovery, or a real unreadable SSH allowed-signers path.
 - Deletion-aware behavior cases 32 and 33 have deterministic helper coverage but have not yet been run as matched no-skill/with-skill model evaluations.
+- Artifact-atomic behavior case 34 has deterministic generated-inventory coverage but has not yet been run as a matched no-skill/with-skill model evaluation.
 - Trigger cases have been authored but not yet run through a trigger classifier.
 - No result currently has enough independent repetitions across multiple prompt families to support a population-level statistical claim.

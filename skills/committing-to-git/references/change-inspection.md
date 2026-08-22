@@ -4,7 +4,7 @@ Read this reference whenever the prepared inventory reports summarized whole-fil
 
 ## Mandatory coverage
 
-Every normalized change unit remains mandatory. Read and acknowledge every inventory page, required patch chunk, and metadata artifact in the primary ledger.
+Every normalized change unit remains mandatory. Read and acknowledge every inventory page, required patch chunk, and metadata artifact in the primary ledger. Use the one-artifact-per-tool-action loop in `SKILL.md`; this same loop also governs any deletion content appended below.
 
 For a whole-file deletion, the inventory records the change-unit ID, deletion status, path, line statistics when available, exact old object ID, and old mode. Those facts establish that the approved tree removes that object. The required patch deliberately omits its repeated `-` lines because they reproduce an old blob rather than describe content being introduced into the approved tree.
 
@@ -34,7 +34,7 @@ node <skill>/scripts/commitWorkflow.mjs inspection expand-deletion --manifest <a
 
 The helper accepts only a summarized whole-file text deletion. It reads the exact full old blob ID recorded in the manifest with replacement objects and lazy fetching disabled; it does not resolve mutable `HEAD:<path>` content or silently fetch a missing promisor object. It creates `inspection/deletions/<change-unit>/`, appends bounded `deleted-content` units to the same primary ledger, and records the expanded blob's byte count and SHA-256.
 
-Expansion makes the ledger incomplete, even if it was complete beforehand. Read every appended unit in order and acknowledge its recorded hash with the standard `inspection acknowledge` command. Rendering remains blocked until every ledger unit is reviewed.
+Expansion makes the ledger incomplete, even if it was complete beforehand. Read each appended unit in its own dedicated tool action and acknowledge its recorded hash with the standard `inspection acknowledge` command before reading the next unit. Rendering remains blocked until every ledger unit is reviewed.
 
 Never use deletion expansion for a retained path, modified-to-empty file, edited rename, binary object, or gitlink. The helper rejects those cases. Inspect binary content or submodule history separately only when the rationale depends on it, and state the resulting evidence boundary accurately.
 

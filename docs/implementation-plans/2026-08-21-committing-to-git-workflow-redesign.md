@@ -729,6 +729,12 @@ Use both a line ceiling and byte ceiling. Initial defaults:
 Whichever limit is reached first closes the chunk. These constants should be
 named, tested, and adjusted only with evidence from actual tool-output limits.
 
+Treat each bounded artifact as one tool-response unit. Read exactly one pending
+artifact in a dedicated tool action, confirm that its complete contents were
+returned, and acknowledge it before requesting the next artifact. Do not infer
+an aggregate batch size: tool limits apply to the combined response, vary by
+runtime, and do not have a stable byte-to-token conversion.
+
 Preserve file and hunk boundaries whenever they fit. If one hunk exceeds a
 limit, split it with explicit continuation metadata:
 
@@ -748,9 +754,10 @@ chunk payloads and prove byte-for-byte equality with the captured text patch.
 `pending` state. The helper should expose `next`, `ack`, and `status` operations:
 
 1. `next` identifies one pending unit and its bounded artifact.
-2. The agent reads that artifact completely.
-3. `ack` records the unit ID and expected hash.
-4. `status` reports coverage and any changed artifact.
+2. The agent reads only that artifact in a dedicated tool action.
+3. The agent confirms that the response contains the complete artifact.
+4. `ack` records the unit ID and expected hash before another artifact is read.
+5. `status` reports coverage and any changed artifact.
 
 Rendering must require complete ledger coverage. The skill must explicitly say
 that acknowledgement is a record of completed inspection, not a mechanical

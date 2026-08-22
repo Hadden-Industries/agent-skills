@@ -88,7 +88,7 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(
     ids,
-    Array.from({ length: 33 }, (_, index) => index + 1),
+    Array.from({ length: 34 }, (_, index) => index + 1),
   );
 
   for (const evaluation of behavior.evals) {
