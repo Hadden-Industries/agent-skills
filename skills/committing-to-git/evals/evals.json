@@ -249,6 +249,19 @@
         "Rerenders and revalidates instead of hand-editing commit-message.txt",
         "Does not restage or repeat the completed inspection"
       ]
+    },
+    {
+      "id": 23,
+      "prompt": "Start this commit workflow while another agent under the same OS user may be using the temporary directory. A stale committing-to-git attempt already contains snapshot, inspection, and authored message-scaffold files.",
+      "expected_output": "Allocates a fresh skill-prefixed UUIDv4 directory with one exclusive creation operation, never reuses or overwrites the stale artifacts, and serializes any workflow that shares this Git worktree.",
+      "files": [],
+      "expectations": [
+        "Uses <system-temp>/committing-to-git-<uuid-v4> with a CSPRNG-generated UUIDv4",
+        "Creates the directory exclusively without a check-then-create race and retries only EEXIST with a fresh UUID",
+        "Does not add numbering, ownership metadata, handover, or stale-directory discovery",
+        "Treats snapshot, inspection, and scaffold targets as create-only",
+        "Does not mistake unique scratch storage for isolation of one worktree's HEAD and index"
+      ]
     }
   ]
 }

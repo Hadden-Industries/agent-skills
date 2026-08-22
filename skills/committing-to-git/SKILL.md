@@ -39,11 +39,13 @@ Do not use this workflow for amend, fixup, squash, merge commits, merge/rebase/c
 
 ## Attempt directory
 
-Create every attempt at an absolute path outside the repository and outside any nested worktree, such as `<system-temp>/commit-workflow/attempt-001`. Never place the attempt under the working tree. Every regenerated snapshot uses a new numbered attempt; never overwrite a temporary or preparation index.
+At the start of every snapshot attempt, obtain one genuine UUIDv4 from a cryptographically secure platform API; do not type, predict, or imitate a UUID. Form the absolute directory name `<system-temp>/committing-to-git-<uuid-v4>`, where `<system-temp>` is the operating system's temporary directory. Create that exact directory directly with one exclusive, non-recursive directory-creation operation. Do not check whether it exists first. If creation reports `EEXIST`, discard that UUID and retry with a newly generated UUIDv4. For every other failure, stop and report it. Once creation succeeds, use the path immediately; do not add an ownership file, allocation record, numbered handover, or discovery protocol.
+
+Never place an attempt under the working tree, share it between transactions, or reuse it for a regenerated snapshot. A fresh snapshot always receives a fresh `committing-to-git-<uuid-v4>` directory. The skill-prefixed name makes the directory recognizable; the CSPRNG UUID and exclusive creation make concurrent allocation collision-safe. Unique scratch directories do not isolate Git state. Do not deliberately overlap transactions in one worktree or run mutating helper commands concurrently within one attempt. The helper neither discovers other attempts nor holds a cross-command lock, so do not invent a persistent lock, registry, or handover. If overlap becomes known, stop further mutation in both transactions. The coordinating agent or user must designate exactly one survivor; resume only that transaction. After it finishes or stops, preserve the loser and restart it from current state in a fresh UUID attempt. Git's operation locks reject simultaneous low-level mutations; the later snapshot gate detects drift between commands and across approval pauses.
 
 Keep the optional `scope.json`, manifest, inspection artifacts, semantic content, rendered message, checks, verification, optional publication result, and reports together until the transaction finishes. The helper never removes attempts. Retain them by default and remove them only when the user or an applicable retention policy authorizes cleanup.
 
-These files are mutable workflow records, not tamper-evident evidence. Do not hand-edit generated manifests, ledgers, verification, publication, or report artifacts. Hash, canonical-rendering, and Git-object comparisons detect defined inconsistencies; they do not authenticate the artifacts against deliberate replacement.
+These files are mutable workflow records, not tamper-evident evidence. Do not hand-edit generated manifests, ledgers, verification, publication, or report artifacts. Hash, canonical-rendering, and Git-object comparisons detect defined inconsistencies; they do not authenticate the artifacts against deliberate replacement. Snapshot creation, inspection preparation, message scaffolding, and publication result creation are create-only: if one of their targets already exists, preserve the occupied attempt unchanged and start a fresh UUID attempt. Reclassify current state first. Use actual `staged` for an index populated by a successful prior snapshot only when `snapshot verify` still exits `0` for that manifest; otherwise scope provenance is ambiguous, so ask before mutation. Never undo the index or blindly retry `paths`. Within an established attempt, `scope.json` may change only before snapshot creation; `content.json` may receive semantic revisions; `commit-message.txt` may be rerendered; `checks.json` may record additional checks actually run; `verification.json` may be replaced after a policy change for the same commit; and reports may be regenerated. No other generated target is replaceable.
 
 In commands below, `<skill>` is this installed skill directory and `<attempt>` is the current external attempt directory. Use the bundled executable directly. Do not recreate its behavior with ad hoc shell, PowerShell, Python, or JavaScript.
 
@@ -106,7 +108,7 @@ Scope behavior is exact:
 - Actual `paths` includes only the literal whole-path set and requires an initially empty real index.
 - Draft `full` and draft `paths` stage into a temporary index beside `snapshot.json`; the real index remains unchanged.
 
-The manifest records pre-snapshot `HEAD`, the index tree, source index, fixed diff policy, raw path identities, normalized change units, and binary-aware statistics.
+The manifest records pre-snapshot `HEAD`, the index tree, source index, fixed diff policy, raw path identities, normalized change units, and binary-aware statistics. `snapshot.json` is create-only. If it already exists or appears during creation, the helper preserves it and fails; leave that attempt intact and restart from intent and scope classification in a fresh UUID attempt.
 
 Copy detection is disabled: a retained-source destination is an addition. A detected rename counts once, but similarity does not prove the command or provenance.
 
@@ -117,6 +119,8 @@ Prepare bounded review artifacts:
 ```text
 node <skill>/scripts/commitWorkflow.mjs inspection prepare --manifest <attempt>/snapshot.json --output-dir <attempt>/inspection
 ```
+
+The inspection output directory is create-only. The helper refuses an existing directory instead of merging or replacing its artifacts. On that failure, preserve the attempt and restart in a fresh UUID attempt.
 
 Read `inspection/inventory.md` first for scale and artifact counts. It is a bounded overview, not the exhaustive file list. Then read every pending artifact in `inspection/ledger.json`, in ledger order, with a native file-reading tool:
 
@@ -147,6 +151,8 @@ Run:
 ```text
 node <skill>/scripts/commitWorkflow.mjs message scaffold --manifest <attempt>/snapshot.json --output <attempt>/content.json --template <attempt>/commit-message.template.txt
 ```
+
+Both scaffold targets are create-only. The helper refuses the operation if either target already exists, so it cannot erase an authored worksheet. On that failure, preserve the attempt and restart in a fresh UUID attempt. Later semantic revisions edit the established `content.json` and use `message render`; never rerun `message scaffold` in that attempt.
 
 The template is intentionally invalid while placeholders remain. Read [Commit message format](references/message-format.md), then edit only semantic fields in `content.json`. The renderer owns mechanical structure; the agent owns grounded, WHY-first meaning. Known lineage such as "adapted from" belongs in a rationale only when the request or inspected evidence establishes it; never infer lineage from content similarity. Ask when a material reason is unknown, and never invent claims.
 

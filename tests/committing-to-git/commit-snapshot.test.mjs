@@ -1,5 +1,5 @@
 // Commit snapshot behavior across staged, full, path, rename, and unborn scopes.
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import assert from "node:assert/strict";
@@ -13,6 +13,29 @@ import {
   runCommitWorkflow,
   writeRepositoryFile,
 } from "./harness.mjs";
+
+test("snapshot creation refuses to replace an existing manifest", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-snapshot-collision-");
+  const output = join(fixture.scratch, "snapshot.json");
+  const existing = "foreign snapshot\n";
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+  writeFileSync(output, existing);
+
+  const treeBefore = git(["write-tree"], fixture.repo).stdout.trim();
+  const result = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "full", "--output", output],
+    fixture.repo,
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /already exists|EEXIST/u);
+  assert.equal(readFileSync(output, "utf8"), existing);
+  assert.equal(git(["write-tree"], fixture.repo).stdout.trim(), treeBefore);
+});
 
 test("staged scope preserves an already-staged rename without restaging its vanished source", (t) => {
   const fixture = createRepositoryFixture(t, "commit-stage-rename-");

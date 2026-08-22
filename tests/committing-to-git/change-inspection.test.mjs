@@ -1,5 +1,5 @@
 // Complete bounded inspection for text, draft-index, and binary changes.
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -19,6 +19,37 @@ import {
   runCommitWorkflow,
   writeRepositoryFile,
 } from "./harness.mjs";
+
+test("inspection preparation refuses to reuse an existing directory", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-inspection-collision-");
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+  const markerPath = join(inspectionDir, "foreign.txt");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+  assert.equal(
+    runCommitWorkflow(
+      "snapshot create",
+      ["--mode", "actual", "--scope", "full", "--output", snapshotPath],
+      fixture.repo,
+    ).status,
+    0,
+  );
+  mkdirSync(inspectionDir);
+  writeFileSync(markerPath, "foreign inspection\n");
+
+  const result = runCommitWorkflow(
+    "inspection prepare",
+    ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+    fixture.repo,
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /already exists|EEXIST/u);
+  assert.equal(readFileSync(markerPath, "utf8"), "foreign inspection\n");
+});
 
 test("patch chunks prefer line boundaries and preserve UTF-8 code points", () => {
   const firstLine = "a".repeat(10_000);

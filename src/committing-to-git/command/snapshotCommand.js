@@ -198,7 +198,9 @@ try {
   }
 
   mkdirSync(dirname(options.output), { recursive: true });
-  writeFileSync(options.output, `${JSON.stringify(snapshot, null, 2)}\n`);
+  writeFileSync(options.output, `${JSON.stringify(snapshot, null, 2)}\n`, {
+    flag: "wx",
+  });
 
   if (installPreparedTree) {
     const currentHeadOid = resolveHead(root);

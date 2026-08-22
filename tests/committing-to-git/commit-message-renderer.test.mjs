@@ -216,6 +216,41 @@ test("fifty-file scaffolding switches to a compact bulk-domain template", (t) =>
   assert.doesNotMatch(template, /src\/file-50\.js/u);
 });
 
+test("message scaffolding refuses to replace either existing output", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-message-collision-");
+  const manifestPath = join(fixture.scratch, "snapshot.json");
+  const contentPath = join(fixture.scratch, "content.json");
+  const templatePath = join(fixture.scratch, "commit-message.template.txt");
+  const existing = "authored content\n";
+  const unit = changeUnit("F000001", "src/file.js");
+
+  writeJson(manifestPath, {
+    schemaVersion: 1,
+    indexTreeOid: "c".repeat(40),
+    changeUnitCount: 1,
+    changeUnits: [unit],
+  });
+  writeFileSync(contentPath, existing);
+
+  const result = runCommitWorkflow(
+    "message scaffold",
+    [
+      "--manifest",
+      manifestPath,
+      "--output",
+      contentPath,
+      "--template",
+      templatePath,
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /already exists/u);
+  assert.equal(readFileSync(contentPath, "utf8"), existing);
+  assert.throws(() => readFileSync(templatePath, "utf8"), /ENOENT/u);
+});
+
 test("a detailed scaffold renders for review but cannot be committed unchanged", (t) => {
   const fixture = createRepositoryFixture(t, "commit-message-scaffold-");
   const manifestPath = join(fixture.scratch, "snapshot.json");

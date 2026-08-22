@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import {
@@ -53,6 +53,11 @@ function writeText(path, text) {
   writeFileSync(path, text);
 }
 
+function writeNewText(path, text) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, { flag: "wx" });
+}
+
 function containsScaffoldPlaceholder(value) {
   if (typeof value === "string") {
     return /<(?:explain|name|replace)\b[^<>]*>/iu.test(value);
@@ -86,8 +91,14 @@ try {
     const template = required(flags, "template");
     const content = scaffoldContent(manifest);
 
-    writeText(output, `${JSON.stringify(content, null, 2)}\n`);
-    writeText(template, renderScaffoldTemplate(manifest, content));
+    if (existsSync(output) || existsSync(template)) {
+      throw new Error(
+        "A scaffold output already exists; start a new attempt instead of replacing it.",
+      );
+    }
+
+    writeNewText(output, `${JSON.stringify(content, null, 2)}\n`);
+    writeNewText(template, renderScaffoldTemplate(manifest, content));
     process.stdout.write(
       `${JSON.stringify({ output, template, mode: content.mode }, null, 2)}\n`,
     );

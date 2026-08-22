@@ -464,7 +464,9 @@ var init_snapshotCommand = __esm({
       }
       mkdirSync(dirname(options.output), { recursive: true });
       writeFileSync(options.output, `${JSON.stringify(snapshot, null, 2)}
-`);
+`, {
+        flag: "wx"
+      });
       if (installPreparedTree) {
         const currentHeadOid = resolveHead(root);
         const currentOperations = activeGitOperations(root);
@@ -610,9 +612,10 @@ function writeInspection({ outputDir, manifest, patch }) {
   const inventoryDir = join2(outputDir, "inventory");
   const metadataDir = join2(outputDir, "metadata");
   const chunks = splitPatch(patch);
-  mkdirSync2(chunksDir, { recursive: true });
-  mkdirSync2(inventoryDir, { recursive: true });
-  mkdirSync2(metadataDir, { recursive: true });
+  mkdirSync2(outputDir);
+  mkdirSync2(chunksDir);
+  mkdirSync2(inventoryDir);
+  mkdirSync2(metadataDir);
   const inventoryPayload = Buffer.from(
     [
       "# Commit snapshot change inventory",
@@ -715,7 +718,6 @@ function writeInspection({ outputDir, manifest, patch }) {
     "listed in `ledger.json`.",
     ""
   ].join("\n");
-  mkdirSync2(outputDir, { recursive: true });
   writeFileSync2(join2(outputDir, "inventory.md"), inventory);
   writeFileSync2(
     join2(outputDir, "ledger.json"),
@@ -1150,7 +1152,7 @@ var init_commitMessageRenderer = __esm({
 
 // src/committing-to-git/command/messageCommand.js
 var messageCommand_exports = {};
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname3, resolve as resolve5 } from "node:path";
 function usageError4(message) {
   console.error(message);
@@ -1183,6 +1185,10 @@ function writeText(path, text) {
   mkdirSync3(dirname3(path), { recursive: true });
   writeFileSync3(path, text);
 }
+function writeNewText(path, text) {
+  mkdirSync3(dirname3(path), { recursive: true });
+  writeFileSync3(path, text, { flag: "wx" });
+}
 function containsScaffoldPlaceholder(value) {
   if (typeof value === "string") {
     return /<(?:explain|name|replace)\b[^<>]*>/iu.test(value);
@@ -1212,9 +1218,14 @@ var init_messageCommand = __esm({
         const output = required2(flags2, "output");
         const template = required2(flags2, "template");
         const content = scaffoldContent(manifest);
-        writeText(output, `${JSON.stringify(content, null, 2)}
+        if (existsSync3(output) || existsSync3(template)) {
+          throw new Error(
+            "A scaffold output already exists; start a new attempt instead of replacing it."
+          );
+        }
+        writeNewText(output, `${JSON.stringify(content, null, 2)}
 `);
-        writeText(template, renderScaffoldTemplate(manifest, content));
+        writeNewText(template, renderScaffoldTemplate(manifest, content));
         process.stdout.write(
           `${JSON.stringify({ output, template, mode: content.mode }, null, 2)}
 `
@@ -2556,7 +2567,7 @@ var init_postCommitCommand = __esm({
 
 // src/committing-to-git/command/publicationCommand.js
 var publicationCommand_exports = {};
-import { existsSync as existsSync3, mkdirSync as mkdirSync5, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync5, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname5, resolve as resolve7 } from "node:path";
 function usageError7(message) {
   console.error(message);
@@ -2624,7 +2635,7 @@ var init_publicationCommand = __esm({
       const commitOid = validateInputs(root, options2);
       const refspec = `${commitOid}:${options2.destination}`;
       pendingPath = `${options2.output}.pending`;
-      if (existsSync3(options2.output) || existsSync3(pendingPath)) {
+      if (existsSync4(options2.output) || existsSync4(pendingPath)) {
         throw new Error(
           "--output and its .pending journal path must not already exist."
         );
@@ -2678,7 +2689,7 @@ var init_publicationCommand = __esm({
       process.exit(push.status === 0 ? 0 : 1);
     } catch (error) {
       console.error(`Commit publication failed: ${error.message}`);
-      if (pendingPath && existsSync3(pendingPath)) {
+      if (pendingPath && existsSync4(pendingPath)) {
         console.error(
           `Remote outcome is unknown; preserve and inspect ${pendingPath}. Do not infer failure or retry automatically.`
         );

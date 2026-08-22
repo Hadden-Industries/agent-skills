@@ -79,9 +79,10 @@ export function writeInspection({ outputDir, manifest, patch }) {
   const metadataDir = join(outputDir, "metadata");
   const chunks = splitPatch(patch);
 
-  mkdirSync(chunksDir, { recursive: true });
-  mkdirSync(inventoryDir, { recursive: true });
-  mkdirSync(metadataDir, { recursive: true });
+  mkdirSync(outputDir);
+  mkdirSync(chunksDir);
+  mkdirSync(inventoryDir);
+  mkdirSync(metadataDir);
 
   const inventoryPayload = Buffer.from(
     [
@@ -201,7 +202,6 @@ export function writeInspection({ outputDir, manifest, patch }) {
     "",
   ].join("\n");
 
-  mkdirSync(outputDir, { recursive: true });
   writeFileSync(join(outputDir, "inventory.md"), inventory);
   writeFileSync(
     join(outputDir, "ledger.json"),
