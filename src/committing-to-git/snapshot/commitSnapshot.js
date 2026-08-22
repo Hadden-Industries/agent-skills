@@ -3,7 +3,8 @@ import { comparePathBytes, pathRecord, splitNul } from "../git/gitPath.js";
 
 const DIFF_POLICY = Object.freeze({
   renameScore: 50,
-  copyScore: 50,
+  // Similarity can aid rename navigation but cannot establish copy provenance.
+  copyDetection: false,
   renameLimit: 1000,
   externalDiff: false,
   textconv: false,
@@ -20,7 +21,7 @@ function kindForStatus(status) {
     case "R":
       return "renamed";
     case "C":
-      return "copied";
+      return "added";
     case "T":
       return "type-changed";
     default:
@@ -106,7 +107,7 @@ function parseNumstat(buffer) {
 function normalizedChangeUnit(record, index, statistics) {
   const source = pathRecord(record.sourceBytes);
   const destination = pathRecord(record.destinationBytes);
-  const renamedOrCopied = record.kind === "renamed" || record.kind === "copied";
+  const renamed = record.kind === "renamed";
   const lineStatistics = statistics.get(
     record.destinationBytes.toString("base64"),
   ) ?? {
@@ -128,19 +129,19 @@ function normalizedChangeUnit(record, index, statistics) {
   return {
     id: `F${String(index + 1).padStart(6, "0")}`,
     kind,
-    sourcePath: renamedOrCopied ? source.text : null,
+    sourcePath: renamed ? source.text : null,
     destinationPath: destination.text,
-    path: renamedOrCopied ? null : destination.text,
-    sourcePathBytesBase64: renamedOrCopied ? source.bytesBase64 : null,
+    path: renamed ? null : destination.text,
+    sourcePathBytesBase64: renamed ? source.bytesBase64 : null,
     destinationPathBytesBase64: destination.bytesBase64,
-    displayPath: renamedOrCopied
+    displayPath: renamed
       ? `${source.display} -> ${destination.display}`
       : destination.display,
     oldMode: record.oldMode,
     newMode: record.newMode,
     oldOid: record.oldOid,
     newOid: record.newOid,
-    similarity: record.similarity,
+    similarity: renamed ? record.similarity : null,
     binary: lineStatistics.binary,
     additions: lineStatistics.additions,
     deletions: lineStatistics.deletions,
@@ -166,8 +167,6 @@ export function buildSnapshot({
     "--no-ext-diff",
     "--no-textconv",
     `--find-renames=${DIFF_POLICY.renameScore}%`,
-    `--find-copies=${DIFF_POLICY.copyScore}%`,
-    "--find-copies-harder",
     ...(headOid ? [headOid] : ["--root"]),
     "--",
   ];
@@ -195,7 +194,7 @@ export function buildSnapshot({
   const textUnits = changeUnits.filter(({ binary }) => !binary);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workflowMode,
     scopeKind,
     sourceIndex,

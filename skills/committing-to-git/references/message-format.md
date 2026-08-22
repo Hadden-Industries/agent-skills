@@ -16,6 +16,24 @@ Supply information the inspected diff cannot establish. Every file or domain rat
 
 Ground every claim in the request, issue, warning, failing check, repository instruction, or inspected snapshot. Never invent business, security, performance, compatibility, or user-impact claims. Ask when a material reason is unknown; otherwise use the narrowest verified technical purpose.
 
+## Tree facts and provenance
+
+Generated headings describe normalized tree changes, not the commands or editing history that produced them. When an existing source remains and a new destination has similar or identical content, the destination is an addition and its heading contains only that destination path. Git content similarity cannot prove that the author copied, generated, templated, or adapted the file, so the workflow does not use copy detection for snapshot, inspection, or report facts.
+
+One change unit is one normalized tree change. A detected rename counts once; binary units use unavailable line counts rather than fabricated zeroes; and submodules count as gitlink changes rather than their internal files.
+
+When the request or inspected evidence establishes meaningful lineage, express it in the semantic rationale and connect it to an outcome or constraint:
+
+```text
+1. `src/parser/krss/lexer.js`
+   - Reuse the established bounded-tokenization contracts while keeping
+     KRSS dialect semantics independent from the DL parser
+```
+
+A detected rename may show source and destination because the source disappeared while the destination appeared. That comparison-time relationship does not assert that `git mv` or any particular filesystem command was used.
+
+For a message-only revision of a completed version 1 attempt, the current renderer treats a legacy `copied` unit as a destination-only addition. Edit the grounded reasons in `content.json`, then rerender and revalidate against the existing manifest and completed ledger. Do not restage, repeat inspection, or hand-edit the generated message.
+
 ## Subject
 
 Use `<type>: <description>` or `<type>(<scope>): <description>`.

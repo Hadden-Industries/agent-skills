@@ -59,12 +59,12 @@
     },
     {
       "id": 6,
-      "prompt": "Commit the staged snapshot containing a rename, a copied fixture, a binary asset, a mode-only script change, a symlink update, and a submodule gitlink update.",
-      "expected_output": "Counts and displays each normalized Git change correctly, uses unavailable binary line counts, and does not count files inside the submodule.",
+      "prompt": "Commit the staged snapshot containing a rename, a new fixture that substantially resembles an existing retained fixture, a binary asset, a mode-only script change, a symlink update, and a submodule gitlink update.",
+      "expected_output": "Counts and displays each normalized tree change correctly, treats the similar retained-source destination as an addition, uses unavailable binary line counts, and does not count files inside the submodule.",
       "files": [],
       "expectations": [
         "Counts a rename once",
-        "Counts only the copy destination unless the source is independently modified",
+        "Treats the similar retained-source destination as an addition without asserting copy provenance",
         "Does not report binary changes as zero-line changes",
         "Treats a submodule as one gitlink change"
       ]
@@ -236,6 +236,18 @@
         "Does not overwrite or reuse the existing output or pending journal",
         "Uses git ls-remote only as a current observation",
         "Requires a fresh numbered output for an authorized retry"
+      ]
+    },
+    {
+      "id": 22,
+      "prompt": "The generated detailed commit message labels four new KRSS2 files as source-to-destination copies because Git found 60-80% similarity with retained DL files. The user confirms that the new files were adapted from that infrastructure. Correct only those message entries and do not restage or repeat inspection.",
+      "expected_output": "Treats every retained-source destination as an addition, puts the user-established adaptation in semantic rationale, rerenders and revalidates from the existing snapshot and completed ledger, and does not hand-edit a noncanonical message or repeat staging and inspection.",
+      "files": [],
+      "expectations": [
+        "Renders only each new destination path without a source arrow or copied label",
+        "Uses adapted-from language only as grounded semantic rationale",
+        "Rerenders and revalidates instead of hand-editing commit-message.txt",
+        "Does not restage or repeat the completed inspection"
       ]
     }
   ]

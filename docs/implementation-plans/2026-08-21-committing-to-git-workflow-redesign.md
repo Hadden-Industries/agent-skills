@@ -14,6 +14,21 @@
   resolved. Implementation discoveries may refine internal module boundaries,
   but must not silently change the approved behavior in this plan.
 
+## Behavioral amendment: similarity is not copy provenance
+
+On 2026-08-22, an observed workflow run showed that Git's similarity-based copy detection could label a newly added file as `source -> destination (copied)` merely because an unchanged source file had similar content. That mechanical classification overstated what the staged tree proves, obscured the destination's full added-file patch during inspection, and forced an agent toward a noncanonical hand edit when the user supplied the actual lineage.
+
+This amendment supersedes every later provision in this historical plan that enables copy detection, defines `copied` as a current snapshot kind, renders a copy arrow or label, or reports a copy count. The implemented policy is:
+
+- authoritative snapshot, inspection, and report commands do not enable Git copy detection;
+- a new destination whose possible source remains in the tree is an `added` change unit, even when their contents are similar or identical;
+- the added destination is inspected as a complete new-file patch and rendered by destination path only;
+- known lineage such as "adapted from the KRSS parser" belongs in semantic rationale only when it is grounded in the diff, repository evidence, or user-provided context;
+- rename detection remains a navigation aid for a deleted source plus an added destination, but it does not prove that `git mv` or any other particular command was used; and
+- legacy manifests containing `kind: copied` may be rerendered destination-only for a message-only revision, without restaging or repeating an already completed inspection.
+
+The snapshot schema is version 2, records `copyDetection: false`, and no longer exposes `copyScore` or accepts `copied`. Regression tests cover snapshot classification even when repository configuration requests copy detection, complete inspection, rendering, report counts, schema rejection, and the legacy message-only compatibility path.
+
 ## Implementation architecture amendment
 
 The workflow behavior below remains authoritative, but the initially proposed physical layout of five executables, seven `scripts/lib/` modules, and six published schemas was superseded during implementation. Shipping eighteen implementation files inside one skill would expose authoring structure to skill users and make the executable surface harder to understand.

@@ -128,7 +128,7 @@ function kindForStatus(status) {
     case "R":
       return "renamed";
     case "C":
-      return "copied";
+      return "added";
     case "T":
       return "type-changed";
     default:
@@ -195,7 +195,7 @@ function parseNumstat(buffer) {
 function normalizedChangeUnit(record, index, statistics) {
   const source = pathRecord(record.sourceBytes);
   const destination = pathRecord(record.destinationBytes);
-  const renamedOrCopied = record.kind === "renamed" || record.kind === "copied";
+  const renamed = record.kind === "renamed";
   const lineStatistics = statistics.get(
     record.destinationBytes.toString("base64")
   ) ?? {
@@ -214,17 +214,17 @@ function normalizedChangeUnit(record, index, statistics) {
   return {
     id: `F${String(index + 1).padStart(6, "0")}`,
     kind,
-    sourcePath: renamedOrCopied ? source.text : null,
+    sourcePath: renamed ? source.text : null,
     destinationPath: destination.text,
-    path: renamedOrCopied ? null : destination.text,
-    sourcePathBytesBase64: renamedOrCopied ? source.bytesBase64 : null,
+    path: renamed ? null : destination.text,
+    sourcePathBytesBase64: renamed ? source.bytesBase64 : null,
     destinationPathBytesBase64: destination.bytesBase64,
-    displayPath: renamedOrCopied ? `${source.display} -> ${destination.display}` : destination.display,
+    displayPath: renamed ? `${source.display} -> ${destination.display}` : destination.display,
     oldMode: record.oldMode,
     newMode: record.newMode,
     oldOid: record.oldOid,
     newOid: record.newOid,
-    similarity: record.similarity,
+    similarity: renamed ? record.similarity : null,
     binary: lineStatistics.binary,
     additions: lineStatistics.additions,
     deletions: lineStatistics.deletions,
@@ -249,8 +249,6 @@ function buildSnapshot({
     "--no-ext-diff",
     "--no-textconv",
     `--find-renames=${DIFF_POLICY.renameScore}%`,
-    `--find-copies=${DIFF_POLICY.copyScore}%`,
-    "--find-copies-harder",
     ...headOid ? [headOid] : ["--root"],
     "--"
   ];
@@ -276,7 +274,7 @@ function buildSnapshot({
   );
   const textUnits = changeUnits.filter(({ binary }) => !binary);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workflowMode,
     scopeKind,
     sourceIndex,
@@ -302,7 +300,8 @@ var init_commitSnapshot = __esm({
     init_gitPath();
     DIFF_POLICY = Object.freeze({
       renameScore: 50,
-      copyScore: 50,
+      // Similarity can aid rename navigation but cannot establish copy provenance.
+      copyDetection: false,
       renameLimit: 1e3,
       externalDiff: false,
       textconv: false
@@ -799,8 +798,6 @@ function patchForManifest(manifest, root) {
       "--no-ext-diff",
       "--no-textconv",
       `--find-renames=${manifest.diffPolicy.renameScore}%`,
-      `--find-copies=${manifest.diffPolicy.copyScore}%`,
-      "--find-copies-harder",
       ...base,
       "--"
     ],
@@ -917,7 +914,7 @@ function compareChangeUnits(left, right) {
   return Buffer2.compare(leftSource, rightSource) || left.kind.localeCompare(right.kind, "en");
 }
 function entryLabel(unit) {
-  if (unit.kind === "renamed" || unit.kind === "copied") {
+  if (unit.kind === "renamed") {
     return `${safeCodeSpan(unit.sourcePath, unit.sourcePathBytesBase64)} \u2192 ${safeCodeSpan(unit.destinationPath, unit.destinationPathBytesBase64)} (${unit.kind})`;
   }
   const tags = {
@@ -2058,7 +2055,7 @@ function kindName(status) {
     case "R":
       return "renamed";
     case "C":
-      return "copied";
+      return "added";
     case "T":
       return "type-changed";
     default:
@@ -2085,9 +2082,7 @@ function commitStatistics(root, commitOid) {
     "--no-commit-id",
     "-r",
     "-z",
-    "--find-renames=50%",
-    "--find-copies=50%",
-    "--find-copies-harder"
+    "--find-renames=50%"
   ];
   const numstatFields = splitNul(
     runGit([...common, "--numstat", commitOid], { cwd: root }).stdout
@@ -2135,7 +2130,7 @@ function statusLabel(code) {
     M: "modified",
     D: "deleted",
     R: "renamed",
-    C: "copied",
+    C: "added",
     T: "type changed",
     U: "unmerged"
   };

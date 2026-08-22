@@ -97,7 +97,7 @@ function compareChangeUnits(left, right) {
 }
 
 function entryLabel(unit) {
-  if (unit.kind === "renamed" || unit.kind === "copied") {
+  if (unit.kind === "renamed") {
     return (
       `${safeCodeSpan(unit.sourcePath, unit.sourcePathBytesBase64)} → ` +
       `${safeCodeSpan(unit.destinationPath, unit.destinationPathBytesBase64)} ` +

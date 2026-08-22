@@ -20,7 +20,7 @@
     "warnings"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "workflowMode": { "enum": ["actual", "draft"] },
     "scopeKind": { "enum": ["staged", "full", "paths"] },
     "sourceIndex": { "enum": ["real", "temporary"] },
@@ -33,14 +33,14 @@
       "additionalProperties": false,
       "required": [
         "renameScore",
-        "copyScore",
+        "copyDetection",
         "renameLimit",
         "externalDiff",
         "textconv"
       ],
       "properties": {
         "renameScore": { "type": "integer", "minimum": 0 },
-        "copyScore": { "type": "integer", "minimum": 0 },
+        "copyDetection": { "const": false },
         "renameLimit": { "type": "integer", "minimum": 0 },
         "externalDiff": { "const": false },
         "textconv": { "const": false }
@@ -88,7 +88,6 @@
             "modified",
             "deleted",
             "renamed",
-            "copied",
             "mode-changed",
             "symlink-changed",
             "type-changed",

@@ -174,6 +174,66 @@ test("report preserves normalized Git change kinds", (t) => {
   });
 });
 
+test("report counts a similar destination with a retained source as added", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-report-adapted-");
+  const message = "feat(parser): Add adapted parser support\n";
+  const sharedLines = Array.from(
+    { length: 80 },
+    (_, index) => `shared line ${String(index + 1).padStart(3, "0")}`,
+  );
+  const source = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `source line ${index + 1}`),
+  ].join("\n");
+  const destination = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `adapted line ${index + 1}`),
+  ].join("\n");
+
+  writeRepositoryFile(fixture.repo, "src/source-parser.js", `${source}\n`);
+  commitAll(fixture.repo);
+
+  const parentOid = git(["rev-parse", "HEAD"], fixture.repo).stdout.trim();
+
+  writeRepositoryFile(
+    fixture.repo,
+    "src/adapted-parser.js",
+    `${destination}\n`,
+  );
+  git(["add", "--", "src/adapted-parser.js"], fixture.repo);
+
+  const approvedTree = git(["write-tree"], fixture.repo).stdout.trim();
+
+  git(["commit", "--quiet", "-m", message.trim()], fixture.repo);
+
+  const commitOid = git(["rev-parse", "HEAD"], fixture.repo).stdout.trim();
+  const report = collectCommitReport({
+    root: fixture.repo,
+    commitOid,
+    manifest: { headOid: parentOid, indexTreeOid: approvedTree },
+    approvedMessage: message,
+    verification: {
+      schemaVersion: 1,
+      commitOid,
+      initialPolicy: "skipped",
+      finalPolicy: "skipped",
+      overridden: false,
+      signature: {
+        status: "skipped",
+        reason: "user-policy",
+        signer: null,
+        fingerprint: null,
+      },
+      integrityOnly: { status: "not-run" },
+      signatureVerified: false,
+      blocksPush: false,
+    },
+    checks: { schemaVersion: 1, checks: [] },
+  });
+
+  assert.deepEqual(report.statistics.kinds, { added: 1 });
+});
+
 test("normal report uses actual commit facts and groups remaining workspace state", (t) => {
   const fixture = createRepositoryFixture(t, "commit-report-");
   const messagePath = join(fixture.scratch, "message.txt");

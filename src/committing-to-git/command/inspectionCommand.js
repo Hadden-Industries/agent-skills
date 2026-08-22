@@ -70,8 +70,6 @@ function patchForManifest(manifest, root) {
       "--no-ext-diff",
       "--no-textconv",
       `--find-renames=${manifest.diffPolicy.renameScore}%`,
-      `--find-copies=${manifest.diffPolicy.copyScore}%`,
-      "--find-copies-harder",
       ...base,
       "--",
     ],

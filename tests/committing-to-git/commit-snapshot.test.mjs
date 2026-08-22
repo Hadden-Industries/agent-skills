@@ -278,7 +278,63 @@ test("snapshot counts a rename once and preserves unavailable binary line statis
   });
 });
 
-test("snapshot counts copy, mode, type, symlink, and submodule changes once", (t) => {
+test("snapshot treats a similar destination with a retained source as an addition", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-stage-adapted-addition-");
+  const output = join(fixture.scratch, "snapshot.json");
+  const sharedLines = Array.from(
+    { length: 80 },
+    (_, index) => `shared line ${String(index + 1).padStart(3, "0")}`,
+  );
+  const source = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `source line ${index + 1}`),
+  ].join("\n");
+  const destination = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `adapted line ${index + 1}`),
+  ].join("\n");
+
+  writeRepositoryFile(fixture.repo, "src/source-parser.js", `${source}\n`);
+  commitAll(fixture.repo);
+  git(["config", "diff.renames", "copies"], fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "src/adapted-parser.js",
+    `${destination}\n`,
+  );
+  git(["add", "--", "src/adapted-parser.js"], fixture.repo);
+
+  const result = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "staged", "--output", output],
+    fixture.repo,
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const snapshot = readJson(output);
+
+  assert.equal(snapshot.changeUnitCount, 1);
+  assert.equal(snapshot.diffPolicy.copyDetection, false);
+  assert.deepEqual(
+    {
+      kind: snapshot.changeUnits[0].kind,
+      sourcePath: snapshot.changeUnits[0].sourcePath,
+      destinationPath: snapshot.changeUnits[0].destinationPath,
+      path: snapshot.changeUnits[0].path,
+      similarity: snapshot.changeUnits[0].similarity,
+    },
+    {
+      kind: "added",
+      sourcePath: null,
+      destinationPath: "src/adapted-parser.js",
+      path: "src/adapted-parser.js",
+      similarity: null,
+    },
+  );
+});
+
+test("snapshot counts retained-source additions and special Git changes once", (t) => {
   const fixture = createRepositoryFixture(t, "commit-stage-kinds-");
   const output = join(fixture.scratch, "snapshot.json");
 
@@ -342,7 +398,7 @@ test("snapshot counts copy, mode, type, symlink, and submodule changes once", (t
       ]),
     ),
     {
-      "copy.txt": "copied",
+      "copy.txt": "added",
       "link-entry": "symlink-changed",
       "script.sh": "mode-changed",
       "type-entry": "type-changed",
@@ -350,10 +406,13 @@ test("snapshot counts copy, mode, type, symlink, and submodule changes once", (t
     },
   );
 
-  const copy = snapshot.changeUnits.find(({ kind }) => kind === "copied");
+  const addition = snapshot.changeUnits.find(
+    ({ destinationPath }) => destinationPath === "copy.txt",
+  );
 
-  assert.equal(copy.sourcePath, "source.txt");
-  assert.equal(copy.destinationPath, "copy.txt");
+  assert.equal(addition.kind, "added");
+  assert.equal(addition.sourcePath, null);
+  assert.equal(addition.destinationPath, "copy.txt");
 });
 
 test("path scope rejects a pre-existing staged snapshot before adding more paths", (t) => {

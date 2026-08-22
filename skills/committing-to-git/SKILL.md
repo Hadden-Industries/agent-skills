@@ -108,7 +108,7 @@ Scope behavior is exact:
 
 The manifest records pre-snapshot `HEAD`, the index tree, source index, fixed diff policy, raw path identities, normalized change units, and binary-aware statistics.
 
-One change unit means one Git-level change: add, modify, delete, mode change, symlink change, type change, or submodule gitlink change counts once. A rename or copy is one unit with source and destination; a separately modified copy source is another unit. A binary unit uses unavailable line counts rather than fabricated zeroes. A submodule counts as one gitlink change, not as its internal files.
+Copy detection is disabled: a retained-source destination is an addition. A detected rename counts once, but similarity does not prove the command or provenance.
 
 ## 3. Inspect every recorded change
 
@@ -148,7 +148,7 @@ Run:
 node <skill>/scripts/commitWorkflow.mjs message scaffold --manifest <attempt>/snapshot.json --output <attempt>/content.json --template <attempt>/commit-message.template.txt
 ```
 
-The template is intentionally invalid while placeholders remain. Read [Commit message format](references/message-format.md), then edit only semantic fields in `content.json`. The renderer owns mechanical structure; the agent owns grounded, WHY-first meaning. Ask when a material reason is unknown, and never invent claims.
+The template is intentionally invalid while placeholders remain. Read [Commit message format](references/message-format.md), then edit only semantic fields in `content.json`. The renderer owns mechanical structure; the agent owns grounded, WHY-first meaning. Known lineage such as "adapted from" belongs in a rationale only when the request or inspected evidence establishes it; never infer lineage from content similarity. Ask when a material reason is unknown, and never invent claims.
 
 ## 5. Use detailed or bulk file changes
 
@@ -170,7 +170,9 @@ node <skill>/scripts/commitWorkflow.mjs message validate --manifest <attempt>/sn
 
 Exit `0` means there are no blocking validation errors, not necessarily that review is complete. Always read the emitted JSON; when `manualReviewRequired` is `true`, inspect every `review` issue before presenting the message and shorten any divisible overlong text. Exit `1` is a structured negative result: correct the named canonical or inspection problem, rerender when semantic input changes, and validate again. Exit `2` means a command, input, Git, renderer, schema, or artifact failure. The validator route that rereads mutable scope without all three manifest arguments is outside this workflow and is not sufficient evidence.
 
-For a draft-only request, present the exact validated `commit-message.txt` and invite prose revisions; do not ask for commit approval. For actual mode, present that exact file and request approval to create the commit. If the user changes prose, edit `content.json`, rerender, revalidate, and present it again.
+For a draft-only request, present the exact validated `commit-message.txt` and invite prose revisions; do not ask for commit approval. For actual mode, present that exact file and request approval to create the commit.
+
+For message-only revisions, edit `content.json`, rerender, and revalidate against the existing artifacts; never restage, reinspect, or hand-edit generated output. Apply the reference's rule for legacy copies, or stop if the renderer remains inaccurate.
 
 A later request to commit a previously drafted message starts a new actual-mode attempt. Never treat a draft temporary index or old inspection ledger as commit authorization or current-state proof.
 

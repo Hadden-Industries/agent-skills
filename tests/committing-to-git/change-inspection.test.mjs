@@ -94,8 +94,6 @@ test("inspection chunks preserve the complete staged patch within line and byte 
       "--no-ext-diff",
       "--no-textconv",
       "--find-renames=50%",
-      "--find-copies=50%",
-      "--find-copies-harder",
       "HEAD",
       "--",
     ],
@@ -111,6 +109,58 @@ test("inspection chunks preserve the complete staged patch within line and byte 
   assert.equal(reconstructed.toString("utf8"), expected);
   assert.ok(ledger.units.every(({ status }) => status === "pending"));
   assert.equal(ledger.complete, false);
+});
+
+test("inspection shows every line of a similar retained-source destination as newly added", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-inspection-adapted-");
+  const snapshotPath = join(fixture.scratch, "snapshot.json");
+  const inspectionDir = join(fixture.scratch, "inspection");
+  const sharedLines = Array.from(
+    { length: 80 },
+    (_, index) => `shared line ${String(index + 1).padStart(3, "0")}`,
+  );
+  const source = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `source line ${index + 1}`),
+  ].join("\n");
+  const destination = [
+    ...sharedLines,
+    ...Array.from({ length: 20 }, (_, index) => `adapted line ${index + 1}`),
+  ].join("\n");
+
+  writeRepositoryFile(fixture.repo, "source.txt", `${source}\n`);
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "adapted.txt", `${destination}\n`);
+  git(["add", "--", "adapted.txt"], fixture.repo);
+
+  assert.equal(
+    runCommitWorkflow(
+      "snapshot create",
+      ["--mode", "actual", "--scope", "staged", "--output", snapshotPath],
+      fixture.repo,
+    ).status,
+    0,
+  );
+  assert.equal(
+    runCommitWorkflow(
+      "inspection prepare",
+      ["--manifest", snapshotPath, "--output-dir", inspectionDir],
+      fixture.repo,
+    ).status,
+    0,
+  );
+
+  const ledger = readJson(join(inspectionDir, "ledger.json"));
+  const patch = Buffer.concat(
+    ledger.units
+      .filter(({ kind }) => kind === "text-patch")
+      .map(({ artifact }) => readFileSync(join(inspectionDir, artifact))),
+  ).toString("utf8");
+
+  assert.match(patch, /new file mode 100644/u);
+  assert.match(patch, /--- \/dev\/null/u);
+  assert.match(patch, /\+\+\+ b\/adapted\.txt/u);
+  assert.match(patch, /^\+shared line 001$/mu);
 });
 
 test("draft inspection reads the recorded temporary index and leaves the real index unchanged", (t) => {

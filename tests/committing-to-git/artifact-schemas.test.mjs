@@ -16,7 +16,7 @@ function schema(name) {
 
 test("workflow artifact schemas accept representative cross-script payloads", () => {
   const snapshot = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workflowMode: "actual",
     scopeKind: "staged",
     sourceIndex: "real",
@@ -26,7 +26,7 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     indexFile: null,
     diffPolicy: {
       renameScore: 50,
-      copyScore: 50,
+      copyDetection: false,
       renameLimit: 1000,
       externalDiff: false,
       textconv: false,
@@ -155,6 +155,28 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   assert.deepEqual(
     schemaErrors(snapshot, schema("commitSnapshot.schema.json")),
     [],
+  );
+
+  const copyDetectionSnapshot = structuredClone(snapshot);
+
+  copyDetectionSnapshot.diffPolicy.copyDetection = true;
+  assert.match(
+    schemaErrors(
+      copyDetectionSnapshot,
+      schema("commitSnapshot.schema.json"),
+    ).join("\n"),
+    /copyDetection/u,
+  );
+
+  const copyDetectedSnapshot = structuredClone(snapshot);
+
+  copyDetectedSnapshot.changeUnits[0].kind = "copied";
+  assert.match(
+    schemaErrors(
+      copyDetectedSnapshot,
+      schema("commitSnapshot.schema.json"),
+    ).join("\n"),
+    /kind/u,
   );
   assert.deepEqual(
     schemaErrors(content, schema("commitMessageContent.schema.json")),

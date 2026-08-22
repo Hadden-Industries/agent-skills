@@ -240,7 +240,7 @@ function kindName(status) {
     case "R":
       return "renamed";
     case "C":
-      return "copied";
+      return "added";
     case "T":
       return "type-changed";
     default:
@@ -274,8 +274,6 @@ function commitStatistics(root, commitOid) {
     "-r",
     "-z",
     "--find-renames=50%",
-    "--find-copies=50%",
-    "--find-copies-harder",
   ];
   const numstatFields = splitNul(
     runGit([...common, "--numstat", commitOid], { cwd: root }).stdout,
@@ -337,7 +335,7 @@ function statusLabel(code) {
     M: "modified",
     D: "deleted",
     R: "renamed",
-    C: "copied",
+    C: "added",
     T: "type changed",
     U: "unmerged",
   };

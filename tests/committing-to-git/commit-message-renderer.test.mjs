@@ -99,6 +99,80 @@ test("detailed rendering binary-sorts paths and right-aligns ordinals and nested
   assert.equal(message.endsWith("\n"), true);
 });
 
+test("legacy copy-detected manifests render only the added destination", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-message-legacy-copy-");
+  const manifestPath = join(fixture.scratch, "snapshot.json");
+  const contentPath = join(fixture.scratch, "content.json");
+  const ledgerPath = join(fixture.scratch, "ledger.json");
+  const outputPath = join(fixture.scratch, "commit-message.txt");
+  const sourcePath = "src/source-parser.js";
+  const destinationPath = "src/adapted-parser.js";
+
+  writeJson(manifestPath, {
+    schemaVersion: 1,
+    indexTreeOid: "8".repeat(40),
+    changeUnitCount: 1,
+    changeUnits: [
+      {
+        id: "F000001",
+        kind: "copied",
+        sourcePath,
+        destinationPath,
+        path: null,
+        sourcePathBytesBase64: Buffer.from(sourcePath).toString("base64"),
+        destinationPathBytesBase64:
+          Buffer.from(destinationPath).toString("base64"),
+        displayPath: `${sourcePath} -> ${destinationPath}`,
+      },
+    ],
+  });
+  writeJson(ledgerPath, {
+    schemaVersion: 1,
+    indexTreeOid: "8".repeat(40),
+    complete: true,
+  });
+  writeJson(contentPath, {
+    subject: {
+      type: "feat",
+      scope: "parser",
+      description: "Add adapted parser support",
+    },
+    rationale: [],
+    userExperienceChanges: [],
+    mode: "detailed",
+    changeEntries: [
+      {
+        changeUnitId: "F000001",
+        reasons: [
+          "Reuse established parser constraints for the new syntax boundary",
+        ],
+      },
+    ],
+  });
+
+  const result = runCommitWorkflow(
+    "message render",
+    [
+      "--manifest",
+      manifestPath,
+      "--content",
+      contentPath,
+      "--ledger",
+      ledgerPath,
+      "--output",
+      outputPath,
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const message = readFileSync(outputPath, "utf8");
+
+  assert.match(message, /^1\. `src\/adapted-parser\.js`$/mu);
+  assert.doesNotMatch(message, /source-parser|copied/u);
+});
+
 test("fifty-file scaffolding switches to a compact bulk-domain template", (t) => {
   const fixture = createRepositoryFixture(t, "commit-message-bulk-");
   const manifestPath = join(fixture.scratch, "snapshot.json");
