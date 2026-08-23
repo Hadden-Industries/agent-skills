@@ -217,6 +217,36 @@ test("snapshot creation rejects active ordinary-workflow operation states", asyn
   }
 });
 
+test("ordinary operation preflight resolves all Git markers in one process", (t) => {
+  const fixture = createRepositoryFixture(t, "commit-operation-preflight-");
+  const output = join(fixture.scratch, "snapshot.json");
+  const trace = join(fixture.scratch, "trace.json");
+
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "change.txt", "change\n");
+  git(["add", "change.txt"], fixture.repo);
+
+  const result = runCommitWorkflow(
+    "snapshot create",
+    ["--mode", "actual", "--scope", "staged", "--output", output],
+    fixture.repo,
+    { env: { GIT_TRACE2_EVENT: trace } },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const markerLookups = readGitTraceArguments(trace).filter(
+    (arguments_) =>
+      arguments_.includes("rev-parse") && arguments_.includes("MERGE_HEAD"),
+  );
+
+  assert.equal(markerLookups.length, 1);
+  assert.equal(
+    markerLookups[0].filter((argument) => argument === "--git-path").length,
+    6,
+  );
+});
+
 test("snapshot verification rejects a moved HEAD even when the index tree still matches", (t) => {
   const fixture = createRepositoryFixture(t, "commit-snapshot-verify-");
   const output = join(fixture.scratch, "snapshot.json");

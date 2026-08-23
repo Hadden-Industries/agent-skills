@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Scope",
+  "description": "Canonical literal repository-relative selectors for path-scoped preparation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "includePaths",
+    "includePathPrefixes",
+    "excludePaths",
+    "excludePathPrefixes",
+    "includePathBytesBase64",
+    "excludePathBytesBase64"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "includePaths": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/exactUtf8Path" }
+    },
+    "includePathPrefixes": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/utf8PathPrefix" }
+    },
+    "excludePaths": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/exactUtf8Path" }
+    },
+    "excludePathPrefixes": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/utf8PathPrefix" }
+    },
+    "includePathBytesBase64": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/base64ExactPath" }
+    },
+    "excludePathBytesBase64": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/base64ExactPath" }
+    }
+  },
+  "anyOf": [
+    {
+      "properties": {
+        "includePaths": { "type": "array", "minItems": 1 }
+      }
+    },
+    {
+      "properties": {
+        "includePathPrefixes": { "type": "array", "minItems": 1 }
+      }
+    },
+    {
+      "properties": {
+        "includePathBytesBase64": { "type": "array", "minItems": 1 }
+      }
+    }
+  ],
+  "$defs": {
+    "exactUtf8Path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32768,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)(?!.*\\/$)[^\\u0000]+$"
+    },
+    "utf8PathPrefix": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 32768,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)[^\\u0000]+/$"
+    },
+    "base64ExactPath": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 43692,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
+  }
+}

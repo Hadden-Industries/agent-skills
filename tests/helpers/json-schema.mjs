@@ -4,8 +4,9 @@
  * This supports only the keyword subset used by the schemas committed in this
  * repository: `type` (including union arrays and `integer`), `const`, `enum`,
  * `required`, `properties`, `additionalProperties: false`, `items`, `minimum`,
- * `minLength`, `pattern`, and local `$ref` pointers into `$defs`. The annotation keywords
- * `title` and `description` are accepted and carry no validation effect.
+ * `minItems`, `maxItems`, `uniqueItems`, `minLength`, `maxLength`, `pattern`,
+ * `anyOf`, `oneOf`, and local `$ref` pointers into `$defs`. The annotation
+ * keywords `title` and `description` are accepted and carry no validation effect.
  *
  * A full JSON Schema implementation is deliberately avoided so that validating
  * a committed schema needs no third-party dependency and no package manifest.
@@ -27,8 +28,14 @@ const SUPPORTED_KEYWORDS = new Set([
   "additionalProperties",
   "items",
   "minimum",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
   "minLength",
+  "maxLength",
   "pattern",
+  "anyOf",
+  "oneOf",
 ]);
 
 function resolveRef(root, ref) {
@@ -93,6 +100,32 @@ function check(value, schema, root, path, errors) {
 
   assertKeywordsSupported(schema, path);
 
+  if (schema.anyOf) {
+    const matchingBranches = schema.anyOf.filter((branch) => {
+      const branchErrors = [];
+      check(value, branch, root, path, branchErrors);
+      return branchErrors.length === 0;
+    });
+
+    if (matchingBranches.length === 0) {
+      errors.push(`${path}: value does not match any anyOf branch`);
+    }
+  }
+
+  if (schema.oneOf) {
+    const matchingBranches = schema.oneOf.filter((branch) => {
+      const branchErrors = [];
+      check(value, branch, root, path, branchErrors);
+      return branchErrors.length === 0;
+    });
+
+    if (matchingBranches.length !== 1) {
+      errors.push(
+        `${path}: value must match exactly one oneOf branch; matched ${matchingBranches.length}`,
+      );
+    }
+  }
+
   if ("const" in schema && value !== schema.const) {
     errors.push(
       `${path}: expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`,
@@ -129,9 +162,17 @@ function check(value, schema, root, path, errors) {
   if (
     typeof value === "string" &&
     typeof schema.minLength === "number" &&
-    value.length < schema.minLength
+    [...value].length < schema.minLength
   ) {
     errors.push(`${path}: string shorter than minLength ${schema.minLength}`);
+  }
+
+  if (
+    typeof value === "string" &&
+    typeof schema.maxLength === "number" &&
+    [...value].length > schema.maxLength
+  ) {
+    errors.push(`${path}: string longer than maxLength ${schema.maxLength}`);
   }
 
   if (
@@ -146,6 +187,30 @@ function check(value, schema, root, path, errors) {
     value.forEach((entry, index) => {
       check(entry, schema.items, root, `${path}[${index}]`, errors);
     });
+  }
+
+  if (
+    Array.isArray(value) &&
+    typeof schema.minItems === "number" &&
+    value.length < schema.minItems
+  ) {
+    errors.push(`${path}: array shorter than minItems ${schema.minItems}`);
+  }
+
+  if (
+    Array.isArray(value) &&
+    typeof schema.maxItems === "number" &&
+    value.length > schema.maxItems
+  ) {
+    errors.push(`${path}: array longer than maxItems ${schema.maxItems}`);
+  }
+
+  if (Array.isArray(value) && schema.uniqueItems === true) {
+    const uniqueEntries = new Set(value.map((entry) => JSON.stringify(entry)));
+
+    if (uniqueEntries.size !== value.length) {
+      errors.push(`${path}: array entries are not unique`);
+    }
   }
 
   if (typeOf(value) === "object") {

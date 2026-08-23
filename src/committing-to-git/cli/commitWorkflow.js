@@ -1,4 +1,20 @@
 const COMMANDS = new Map([
+  [
+    "workflow prepare",
+    [
+      () => import("../workflow/prepareWorkflow.js"),
+      null,
+      "runPrepareWorkflowCommand",
+    ],
+  ],
+  [
+    "workflow resume",
+    [
+      () => import("../workflow/resumePreparationWorkflow.js"),
+      null,
+      "runResumePreparationCommand",
+    ],
+  ],
   ["snapshot create", [() => import("../command/snapshotCommand.js"), null]],
   [
     "snapshot verify",
@@ -44,6 +60,35 @@ const COMMANDS = new Map([
 ]);
 
 const COMMAND_HELP = new Map([
+  [
+    "workflow prepare",
+    `Usage: commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> (--evidence <reuse|message|review> --basis <kind> | --evidence-plan <file>) [options]
+
+Creates one helper-owned transaction, validates literal scope and evidence policy,
+and records an exact snapshot. Path scope accepts repeatable --path,
+--path-prefix, --exclude-path, and --exclude-path-prefix selectors or one
+--scope-file. --allowed-type is repeatable. Verification defaults to required.
+
+Exit status:
+  0  Snapshot and applicable exact index installation completed.
+  1  Safe repository-state stop or resumable preparation interruption.
+  2  Usage, policy, artifact, selector, repository, or execution failure.
+`,
+  ],
+  [
+    "workflow resume",
+    `Usage: commitWorkflow.mjs workflow resume --transaction <transaction.json> [--format <json|text>]
+
+Continues only a reversible preparation from its persisted scope, evidence,
+policy, snapshot, head anchor, and index-installation journal. No override input
+is accepted, and commit or publication mutation is never replayed.
+
+Exit status:
+  0  Persisted preparation reached snapshot-created.
+  1  Resume is unsafe, ambiguous, or not permitted from the current phase.
+  2  Usage, transaction, artifact, or execution failure.
+`,
+  ],
   [
     "snapshot create",
     `Usage: commitWorkflow.mjs snapshot create --mode <actual|draft> --scope <staged|full|paths> [--scope-file <scope.json>] --output <snapshot.json>
@@ -209,6 +254,8 @@ Exit status:
 const HELP = `Commit workflow
 
 Usage:
+  commitWorkflow.mjs workflow prepare [options]
+  commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs snapshot create [options]
   commitWorkflow.mjs snapshot verify [options]
   commitWorkflow.mjs inspection prepare [options]
@@ -242,13 +289,19 @@ if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
   } else if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
     process.stdout.write(COMMAND_HELP.get(command));
   } else {
-    const [loadCommand, legacyAction] = route;
-    process.argv = [
-      process.argv[0],
-      process.argv[1],
-      ...(legacyAction ? [legacyAction] : []),
-      ...args.slice(2),
-    ];
-    await loadCommand();
+    const [loadCommand, legacyAction, handlerName] = route;
+
+    if (handlerName) {
+      const commandModule = await loadCommand();
+      process.exitCode = await commandModule[handlerName](args.slice(2));
+    } else {
+      process.argv = [
+        process.argv[0],
+        process.argv[1],
+        ...(legacyAction ? [legacyAction] : []),
+        ...args.slice(2),
+      ];
+      await loadCommand();
+    }
   }
 }

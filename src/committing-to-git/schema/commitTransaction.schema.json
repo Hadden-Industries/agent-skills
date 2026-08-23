@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Commit Transaction",
+  "description": "Durable state and bounded artifact references for one commit workflow attempt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "phase",
+    "repositoryRoot",
+    "attemptDirectory",
+    "mode",
+    "status",
+    "terminalDisposition",
+    "scope",
+    "headAnchor",
+    "repositoryTypePolicy",
+    "initialEvidencePlan",
+    "route",
+    "verificationPolicy",
+    "signaturePreflight",
+    "snapshot",
+    "inlineEvidence",
+    "review",
+    "message",
+    "commit",
+    "verification",
+    "report",
+    "publicationAttempts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "phase": {
+      "enum": [
+        "allocated",
+        "snapshot-created",
+        "evidence-ready",
+        "review-pending",
+        "message-ready",
+        "commit-pending",
+        "reported",
+        "publication-pending",
+        "published",
+        "stopped",
+        "abandoned",
+        "superseded"
+      ]
+    },
+    "repositoryRoot": { "type": "string", "minLength": 1 },
+    "attemptDirectory": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["actual", "draft", null] },
+    "status": {
+      "enum": [
+        "prepared",
+        "review-pending",
+        "message-ready",
+        "evidence-required",
+        "promoted",
+        "reported",
+        "published",
+        "commit-blocked",
+        "outcome-unknown",
+        "recovered",
+        "cleaned",
+        "stopped",
+        "invalid",
+        null
+      ]
+    },
+    "terminalDisposition": {
+      "enum": [
+        "no-commit-stopped",
+        "local-commit-recorded",
+        "published",
+        "abandoned",
+        "superseded",
+        null
+      ]
+    },
+    "scope": { "type": ["object", "null"] },
+    "headAnchor": { "$ref": "#/$defs/nullableHeadAnchor" },
+    "repositoryTypePolicy": { "$ref": "#/$defs/repositoryTypePolicy" },
+    "initialEvidencePlan": { "type": ["object", "null"] },
+    "route": { "enum": ["concise", "extended", null] },
+    "verificationPolicy": { "enum": ["required", "advisory", "skipped"] },
+    "signaturePreflight": { "type": ["object", "null"] },
+    "snapshot": { "type": ["object", "null"] },
+    "inlineEvidence": { "type": ["object", "null"] },
+    "review": { "type": ["object", "null"] },
+    "message": { "type": ["object", "null"] },
+    "commit": { "type": ["object", "null"] },
+    "verification": { "type": ["object", "null"] },
+    "report": { "type": ["object", "null"] },
+    "publicationAttempts": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/allocatedState" },
+    { "$ref": "#/$defs/snapshotCreatedState" },
+    { "$ref": "#/$defs/evidencePreparedState" },
+    { "$ref": "#/$defs/evidencePromotedState" },
+    { "$ref": "#/$defs/reviewPendingState" },
+    { "$ref": "#/$defs/evidenceRequiredState" },
+    { "$ref": "#/$defs/messageReadyState" },
+    { "$ref": "#/$defs/messagePromotedState" },
+    { "$ref": "#/$defs/commitPendingState" },
+    { "$ref": "#/$defs/reportedState" },
+    { "$ref": "#/$defs/commitBlockedState" },
+    { "$ref": "#/$defs/reportedRecoveredState" },
+    { "$ref": "#/$defs/publicationPendingState" },
+    { "$ref": "#/$defs/publishedState" },
+    { "$ref": "#/$defs/publishedRecoveredState" },
+    { "$ref": "#/$defs/stoppedState" },
+    { "$ref": "#/$defs/invalidState" },
+    { "$ref": "#/$defs/stoppedCleanedState" },
+    { "$ref": "#/$defs/stoppedRecoveredState" },
+    { "$ref": "#/$defs/abandonedState" },
+    { "$ref": "#/$defs/abandonedCleanedState" },
+    { "$ref": "#/$defs/supersededState" },
+    { "$ref": "#/$defs/supersededCleanedState" }
+  ],
+  "$defs": {
+    "nullableHeadAnchor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["headKind", "targetRef", "expectedParentOids"],
+      "properties": {
+        "headKind": { "enum": ["unborn", "attached", "detached"] },
+        "targetRef": { "type": ["string", "null"] },
+        "expectedParentOids": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          }
+        }
+      },
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "properties": {
+            "headKind": { "const": "unborn" },
+            "targetRef": {
+              "type": "string",
+              "pattern": "^refs/heads/[^\\u0000]+$"
+            },
+            "expectedParentOids": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "headKind": { "const": "attached" },
+            "targetRef": {
+              "type": "string",
+              "pattern": "^refs/heads/[^\\u0000]+$"
+            },
+            "expectedParentOids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "headKind": { "const": "detached" },
+            "targetRef": { "const": null },
+            "expectedParentOids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "repositoryTypePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedTypes"],
+      "properties": {
+        "allowedTypes": {
+          "type": ["array", "null"],
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+          }
+        }
+      }
+    },
+    "allocatedState": {
+      "properties": {
+        "phase": { "const": "allocated" },
+        "status": { "const": null },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "snapshotCreatedState": {
+      "properties": {
+        "phase": { "const": "snapshot-created" },
+        "status": { "const": null },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "evidencePreparedState": {
+      "properties": {
+        "phase": { "const": "evidence-ready" },
+        "status": { "const": "prepared" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "evidencePromotedState": {
+      "properties": {
+        "phase": { "const": "evidence-ready" },
+        "status": { "const": "promoted" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "reviewPendingState": {
+      "properties": {
+        "phase": { "const": "review-pending" },
+        "status": { "const": "review-pending" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "evidenceRequiredState": {
+      "properties": {
+        "phase": { "const": "review-pending" },
+        "status": { "const": "evidence-required" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "messageReadyState": {
+      "properties": {
+        "phase": { "const": "message-ready" },
+        "status": { "const": "message-ready" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "messagePromotedState": {
+      "properties": {
+        "phase": { "const": "message-ready" },
+        "status": { "const": "promoted" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "commitPendingState": {
+      "properties": {
+        "phase": { "const": "commit-pending" },
+        "status": { "const": "outcome-unknown" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "reportedState": {
+      "properties": {
+        "phase": { "const": "reported" },
+        "status": { "const": "reported" },
+        "terminalDisposition": { "const": "local-commit-recorded" }
+      }
+    },
+    "commitBlockedState": {
+      "properties": {
+        "phase": { "const": "reported" },
+        "status": { "const": "commit-blocked" },
+        "terminalDisposition": { "const": "local-commit-recorded" }
+      }
+    },
+    "reportedRecoveredState": {
+      "properties": {
+        "phase": { "const": "reported" },
+        "status": { "const": "recovered" },
+        "terminalDisposition": { "const": "local-commit-recorded" }
+      }
+    },
+    "publicationPendingState": {
+      "properties": {
+        "phase": { "const": "publication-pending" },
+        "status": { "const": "outcome-unknown" },
+        "terminalDisposition": { "const": null }
+      }
+    },
+    "publishedState": {
+      "properties": {
+        "phase": { "const": "published" },
+        "status": { "const": "published" },
+        "terminalDisposition": { "const": "published" }
+      }
+    },
+    "publishedRecoveredState": {
+      "properties": {
+        "phase": { "const": "published" },
+        "status": { "const": "recovered" },
+        "terminalDisposition": { "const": "published" }
+      }
+    },
+    "stoppedState": {
+      "properties": {
+        "phase": { "const": "stopped" },
+        "status": { "const": "stopped" },
+        "terminalDisposition": { "const": "no-commit-stopped" }
+      }
+    },
+    "invalidState": {
+      "properties": {
+        "phase": { "const": "stopped" },
+        "status": { "const": "invalid" },
+        "terminalDisposition": { "const": "no-commit-stopped" }
+      }
+    },
+    "stoppedCleanedState": {
+      "properties": {
+        "phase": { "const": "stopped" },
+        "status": { "const": "cleaned" },
+        "terminalDisposition": { "const": "no-commit-stopped" }
+      }
+    },
+    "stoppedRecoveredState": {
+      "properties": {
+        "phase": { "const": "stopped" },
+        "status": { "const": "recovered" },
+        "terminalDisposition": { "const": "no-commit-stopped" }
+      }
+    },
+    "abandonedState": {
+      "properties": {
+        "phase": { "const": "abandoned" },
+        "status": { "const": "stopped" },
+        "terminalDisposition": { "const": "abandoned" }
+      }
+    },
+    "abandonedCleanedState": {
+      "properties": {
+        "phase": { "const": "abandoned" },
+        "status": { "const": "cleaned" },
+        "terminalDisposition": { "const": "abandoned" }
+      }
+    },
+    "supersededState": {
+      "properties": {
+        "phase": { "const": "superseded" },
+        "status": { "const": "stopped" },
+        "terminalDisposition": { "const": "superseded" }
+      }
+    },
+    "supersededCleanedState": {
+      "properties": {
+        "phase": { "const": "superseded" },
+        "status": { "const": "cleaned" },
+        "terminalDisposition": { "const": "superseded" }
+      }
+    }
+  }
+}

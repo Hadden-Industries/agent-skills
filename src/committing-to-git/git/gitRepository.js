@@ -125,13 +125,19 @@ const OPERATION_MARKERS = [
 ];
 
 export function activeGitOperations(root) {
-  const operations = OPERATION_MARKERS.filter(([, marker]) => {
-    const markerPath = gitText(["rev-parse", "--git-path", marker], {
-      cwd: root,
-    }).trim();
-
-    return existsSync(resolve(root, markerPath));
-  }).map(([operation]) => operation);
+  const markerPaths = gitText(
+    [
+      "rev-parse",
+      "--path-format=absolute",
+      ...OPERATION_MARKERS.flatMap(([, marker]) => ["--git-path", marker]),
+    ],
+    { cwd: root },
+  )
+    .trim()
+    .split(/\r?\n/u);
+  const operations = OPERATION_MARKERS.filter((_, index) =>
+    existsSync(resolve(root, markerPaths[index])),
+  ).map(([operation]) => operation);
 
   return [...new Set(operations)];
 }

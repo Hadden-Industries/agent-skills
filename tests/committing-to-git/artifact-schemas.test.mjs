@@ -14,6 +14,96 @@ function schema(name) {
   return JSON.parse(readFileSync(join(SCHEMA_DIR, name), "utf8"));
 }
 
+test("transaction and scope schemas expose the strict preparation contracts", () => {
+  const transaction = {
+    schemaVersion: 1,
+    phase: "allocated",
+    repositoryRoot: "C:/repo",
+    attemptDirectory:
+      "C:/temp/committing-to-git-123e4567-e89b-42d3-a456-426614174000",
+    mode: null,
+    status: null,
+    terminalDisposition: null,
+    scope: null,
+    headAnchor: null,
+    repositoryTypePolicy: { allowedTypes: null },
+    initialEvidencePlan: null,
+    route: null,
+    verificationPolicy: "required",
+    signaturePreflight: null,
+    snapshot: null,
+    inlineEvidence: null,
+    review: null,
+    message: null,
+    commit: null,
+    verification: null,
+    report: null,
+    publicationAttempts: [],
+  };
+  const scope = {
+    schemaVersion: 2,
+    includePaths: ["Dockerfile"],
+    includePathPrefixes: ["src/parser/"],
+    excludePaths: ["src/parser/generated.lock"],
+    excludePathPrefixes: [],
+    includePathBytesBase64: [],
+    excludePathBytesBase64: [],
+  };
+
+  const transactionSchema = schema("commitTransaction.schema.json");
+  const scopeSchema = schema("commitScope.schema.json");
+
+  assert.deepEqual(schemaErrors(transaction, transactionSchema), []);
+  assert.deepEqual(schemaErrors(scope, scopeSchema), []);
+
+  const unknownPhase = structuredClone(transaction);
+  unknownPhase.phase = "invented";
+  assert.match(
+    schemaErrors(unknownPhase, transactionSchema).join("\n"),
+    /phase/u,
+  );
+
+  const impossibleState = structuredClone(transaction);
+  impossibleState.status = "published";
+  impossibleState.terminalDisposition = "published";
+  assert.match(
+    schemaErrors(impossibleState, transactionSchema).join("\n"),
+    /state|oneOf/u,
+  );
+
+  const invalidDetachedAnchor = structuredClone(transaction);
+  invalidDetachedAnchor.headAnchor = {
+    headKind: "detached",
+    targetRef: "refs/heads/main",
+    expectedParentOids: ["a".repeat(40)],
+  };
+  assert.match(
+    schemaErrors(invalidDetachedAnchor, transactionSchema).join("\n"),
+    /headAnchor|oneOf/u,
+  );
+
+  const unknownTransactionMember = structuredClone(transaction);
+  unknownTransactionMember.registry = "latest";
+  assert.match(
+    schemaErrors(unknownTransactionMember, transactionSchema).join("\n"),
+    /registry/u,
+  );
+
+  const invalidPrefix = structuredClone(scope);
+  invalidPrefix.includePathPrefixes = ["src/parser"];
+  assert.match(
+    schemaErrors(invalidPrefix, scopeSchema).join("\n"),
+    /Prefixes/u,
+  );
+
+  const unknownScopeMember = structuredClone(scope);
+  unknownScopeMember.glob = "src/**";
+  assert.match(
+    schemaErrors(unknownScopeMember, scopeSchema).join("\n"),
+    /glob/u,
+  );
+});
+
 test("workflow artifact schemas accept representative cross-script payloads", () => {
   const snapshot = {
     schemaVersion: 2,
