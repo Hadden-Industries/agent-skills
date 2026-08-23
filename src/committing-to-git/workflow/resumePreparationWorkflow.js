@@ -4,8 +4,8 @@ import { join, relative, resolve } from "node:path";
 
 import {
   activeGitOperations,
-  runGit,
-  writeIndexTree,
+  indexMatchesTree,
+  runReadOnlyGit,
 } from "../git/gitRepository.js";
 import {
   captureHeadAnchor,
@@ -123,10 +123,14 @@ function assertRepositoryResumePreconditions(transaction) {
     );
   }
 
-  const conflicts = runGit(["ls-files", "-u", "-z"], {
-    cwd: transaction.repositoryRoot,
-    env: { GIT_OPTIONAL_LOCKS: "0" },
-  }).stdout;
+  const conflicts = runReadOnlyGit(
+    transaction.repositoryRoot,
+    "ls-files",
+    ["-u", "-z"],
+    {
+      env: { GIT_OPTIONAL_LOCKS: "0" },
+    },
+  ).stdout;
 
   if (conflicts.length > 0) {
     fail(
@@ -259,9 +263,7 @@ export function resumePreparationWorkflow({ transactionPath }) {
       );
     }
   } else {
-    const currentTree = writeIndexTree(transaction.repositoryRoot);
-
-    if (currentTree !== snapshot.indexTreeOid) {
+    if (!indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
       fail("INDEX_DRIFT", "The real index changed after snapshot creation.", {
         exitCode: 1,
       });

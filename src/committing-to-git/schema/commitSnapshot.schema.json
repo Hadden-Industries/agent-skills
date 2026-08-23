@@ -13,6 +13,10 @@
     "headOid",
     "indexTreeOid",
     "indexFile",
+    "temporaryObjectDirectory",
+    "objectAlternates",
+    "sourceIndexIdentity",
+    "promotionBlocker",
     "diffPolicy",
     "changeUnitCount",
     "changeUnits",
@@ -28,6 +32,15 @@
     "headOid": { "type": ["string", "null"] },
     "indexTreeOid": { "type": "string", "minLength": 1 },
     "indexFile": { "type": ["string", "null"] },
+    "temporaryObjectDirectory": { "type": ["string", "null"] },
+    "objectAlternates": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "sourceIndexIdentity": { "$ref": "#/$defs/indexIdentity" },
+    "promotionBlocker": {
+      "oneOf": [{ "const": null }, { "$ref": "#/$defs/promotionBlocker" }]
+    },
     "diffPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -36,14 +49,18 @@
         "copyDetection",
         "renameLimit",
         "externalDiff",
-        "textconv"
+        "textconv",
+        "rename",
+        "lineStatistics"
       ],
       "properties": {
         "renameScore": { "type": "integer", "minimum": 0 },
         "copyDetection": { "const": false },
         "renameLimit": { "type": "integer", "minimum": 0 },
         "externalDiff": { "const": false },
-        "textconv": { "const": false }
+        "textconv": { "const": false },
+        "rename": { "$ref": "#/$defs/renamePolicy" },
+        "lineStatistics": { "$ref": "#/$defs/lineStatisticsPolicy" }
       }
     },
     "changeUnitCount": { "type": "integer", "minimum": 0 },
@@ -74,6 +91,8 @@
         "oldOid",
         "newOid",
         "similarity",
+        "renameClassification",
+        "lineStatistics",
         "binary",
         "additions",
         "deletions",
@@ -105,7 +124,11 @@
         "oldOid": { "type": "string" },
         "newOid": { "type": "string" },
         "similarity": { "$ref": "#/$defs/nullableInteger" },
-        "binary": { "type": "boolean" },
+        "renameClassification": {
+          "enum": ["exact-object", "similarity", "exact-rename-ambiguous", null]
+        },
+        "lineStatistics": { "enum": ["eager", "deferred"] },
+        "binary": { "type": ["boolean", "null"] },
         "additions": { "$ref": "#/$defs/nullableInteger" },
         "deletions": { "$ref": "#/$defs/nullableInteger" },
         "stageablePaths": { "type": "array", "items": { "type": "string" } },
@@ -118,9 +141,82 @@
       "required": ["files", "additions", "deletions", "binaryFiles"],
       "properties": {
         "files": { "type": "integer", "minimum": 0 },
-        "additions": { "type": "integer", "minimum": 0 },
-        "deletions": { "type": "integer", "minimum": 0 },
-        "binaryFiles": { "type": "integer", "minimum": 0 }
+        "additions": { "type": ["integer", "null"], "minimum": 0 },
+        "deletions": { "type": ["integer", "null"], "minimum": 0 },
+        "binaryFiles": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "quantity": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" }
+      ]
+    },
+    "renamePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "maximumCandidatePairs",
+        "addedCandidates",
+        "deletedCandidates",
+        "candidatePairs"
+      ],
+      "properties": {
+        "mode": { "enum": ["eager", "deferred"] },
+        "maximumCandidatePairs": { "$ref": "#/$defs/quantity" },
+        "addedCandidates": { "type": "integer", "minimum": 0 },
+        "deletedCandidates": { "type": "integer", "minimum": 0 },
+        "candidatePairs": { "$ref": "#/$defs/quantity" }
+      }
+    },
+    "lineStatisticsPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "maximumEagerBytes", "eligibleBlobBytes"],
+      "properties": {
+        "mode": { "enum": ["eager", "deferred"] },
+        "maximumEagerBytes": { "$ref": "#/$defs/quantity" },
+        "eligibleBlobBytes": { "$ref": "#/$defs/quantity" }
+      }
+    },
+    "indexIdentity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": { "const": "absent" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "byteCount", "sha256"],
+          "properties": {
+            "state": { "const": "file" },
+            "byteCount": { "type": "integer", "minimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      ]
+    },
+    "promotionBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "realIndexSha256",
+        "stagedChangeUnitCount",
+        "samples"
+      ],
+      "properties": {
+        "kind": { "const": "real-staged-changes" },
+        "realIndexSha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stagedChangeUnitCount": { "type": "integer", "minimum": 1 },
+        "samples": { "type": "array", "items": { "type": "string" } }
       }
     }
   }

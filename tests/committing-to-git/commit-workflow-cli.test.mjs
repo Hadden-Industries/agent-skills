@@ -458,10 +458,7 @@ test("draft path scope rejects overlap with staged work before allocation", (t) 
   );
 
   assert.equal(result.status, 1);
-  assert.equal(
-    JSON.parse(result.stdout).code,
-    "DRAFT_SCOPE_OVERLAPS_STAGED_STATE",
-  );
+  assert.equal(JSON.parse(result.stdout).code, "DRAFT_SCOPE_OVERLAPS_STAGED");
   assert.deepEqual(readdirSync(fixture.scratch), []);
 });
 

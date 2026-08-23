@@ -13,6 +13,7 @@ import {
   commitAll,
   createRepositoryFixture,
   git,
+  readGitTraceArguments,
   readJson,
   runCommitWorkflow,
   writeRepositoryFile,
@@ -54,6 +55,43 @@ test("report labels binary line statistics as unavailable", () => {
 
   assert.match(text, /1 binary file with unavailable line counts/u);
   assert.doesNotMatch(text, /0 insertions, 0 deletions$/mu);
+});
+
+test("report discloses line statistics deferred by the snapshot budget", () => {
+  const text = renderCommitReport({
+    commit: {
+      signed: false,
+      shortOid: "1".repeat(12),
+      branch: "main",
+      subject: "perf: Bound presentation work",
+      author: { name: "Test", email: "test@example.invalid" },
+      committer: { name: "Test", email: "test@example.invalid" },
+      treeMatches: true,
+      messageMatches: true,
+      parentMatches: true,
+    },
+    statistics: {
+      files: 1,
+      additions: null,
+      deletions: null,
+      binaryFiles: null,
+      kinds: { modified: 1 },
+    },
+    verification: {
+      finalPolicy: "skipped",
+      overridden: false,
+      signature: { status: "skipped" },
+    },
+    checks: { checks: [] },
+    publication: { status: "not-requested" },
+    workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
+  });
+
+  assert.match(
+    text,
+    /line statistics deferred by the approved snapshot budget/u,
+  );
+  assert.doesNotMatch(text, /null insertion|null deletion/u);
 });
 
 test("report does not overclaim OpenPGP identity authorization", () => {
@@ -242,6 +280,7 @@ test("normal report uses actual commit facts and groups remaining workspace stat
   const checksPath = join(fixture.scratch, "checks.json");
   const outputJson = join(fixture.scratch, "report.json");
   const outputText = join(fixture.scratch, "report.txt");
+  const tracePath = join(fixture.scratch, "report-git-trace.json");
   const message = [
     "feat(parser): Prevent malformed token acceptance",
     "",
@@ -269,11 +308,17 @@ test("normal report uses actual commit facts and groups remaining workspace stat
   const commitOid = git(["rev-parse", "HEAD"], fixture.repo).stdout.trim();
 
   writeJson(manifestPath, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     headOid: git(["rev-parse", "HEAD^"], fixture.repo).stdout.trim(),
     indexTreeOid: approvedTree,
     changeUnitCount: 1,
-    changeUnits: [],
+    changeUnits: [{ kind: "added" }],
+    statistics: {
+      files: 1,
+      additions: 1,
+      deletions: 0,
+      binaryFiles: 0,
+    },
   });
   writeJson(verificationPath, {
     schemaVersion: 1,
@@ -315,6 +360,7 @@ test("normal report uses actual commit facts and groups remaining workspace stat
       outputText,
     ],
     fixture.repo,
+    { env: { GIT_TRACE2_EVENT: tracePath } },
   );
 
   assert.equal(result.status, 0, result.stderr);
@@ -332,6 +378,10 @@ test("normal report uses actual commit facts and groups remaining workspace stat
     binaryFiles: 0,
     kinds: { added: 1 },
   });
+  assert.equal(
+    readGitTraceArguments(tracePath).some((args) => args.includes("diff-tree")),
+    false,
+  );
   assert.deepEqual(
     report.workspace.unstaged.map(({ path }) => path),
     ["seed.txt"],

@@ -120,13 +120,12 @@ test("inspection chunks preserve the complete staged patch within line and byte 
   const reconstructed = Buffer.concat(chunks);
   const expected = git(
     [
-      "-c",
-      "diff.renameLimit=1000",
       "diff",
       "--cached",
       "--no-ext-diff",
       "--no-textconv",
-      "--find-renames=50%",
+      "--no-color",
+      "--no-renames",
       "HEAD",
       "--",
     ],
@@ -236,13 +235,12 @@ test("inspection summarizes whole-file deletions without requiring their histori
   ).toString("utf8");
   const expectedRequiredPatch = git(
     [
-      "-c",
-      "diff.renameLimit=1000",
       "diff",
       "--cached",
       "--no-ext-diff",
       "--no-textconv",
-      "--find-renames=50%",
+      "--no-color",
+      "--no-renames",
       "--diff-filter=d",
       "HEAD",
       "--",

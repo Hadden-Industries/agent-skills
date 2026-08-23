@@ -18,6 +18,290 @@ var __export = (target, all) => {
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+function normalizeProbeResult(result) {
+  if (result?.error) {
+    throw new GitCapabilityError(
+      `Git cannot enforce the required no-lazy-fetch boundary: ${result.error.message}`
+    );
+  }
+  const stdout = Buffer.isBuffer(result?.stdout) ? result.stdout.toString("utf8") : String(result?.stdout ?? "");
+  const stderr = Buffer.isBuffer(result?.stderr) ? result.stderr.toString("utf8") : String(result?.stderr ?? "");
+  const observedVersion = stdout.trim().startsWith("git version ") ? stdout.trim() : null;
+  if (result?.status !== 0 || observedVersion === null) {
+    throw new GitCapabilityError(
+      "Git cannot enforce --no-lazy-fetch; preparation requires a compatible Git 2.45+ capability boundary.",
+      { gitVersion: observedVersion ?? (stderr.trim() || null) }
+    );
+  }
+  return { gitVersion: observedVersion, noLazyFetch: true };
+}
+function assertReadOnlyGitCapabilities({ probe } = {}) {
+  if (!probe && readOnlyCapability) {
+    return { ...readOnlyCapability };
+  }
+  const result = probe ? probe() : spawnSync("git", ["--no-lazy-fetch", "--version"], {
+    encoding: null,
+    env: { ...process.env, ...READ_ONLY_ENVIRONMENT },
+    windowsHide: true
+  });
+  const capability = normalizeProbeResult(result);
+  if (!probe) {
+    readOnlyCapability = capability;
+  }
+  return { ...capability };
+}
+function assertStringArguments(args2, operation) {
+  if (!Array.isArray(args2) || args2.some(
+    (argument) => typeof argument !== "string" || argument.length === 0 || argument.includes("\0")
+  )) {
+    throw new Error(
+      `Arguments for read-only Git operation ${operation} must be non-empty strings.`
+    );
+  }
+}
+function assertExactArguments(args2, expected, operation) {
+  if (JSON.stringify(args2) !== JSON.stringify(expected)) {
+    throw new Error(
+      `Arguments are not permitted for read-only Git operation ${operation}.`
+    );
+  }
+}
+function buildReadOnlyDiffArguments(args2) {
+  const forbidden = args2.find(
+    (argument) => argument === "--ext-diff" || argument === "--textconv" || argument === "--color" || argument.startsWith("--color=") || argument === "--paginate" || argument === "-p" || argument === "--no-pager" || argument.startsWith("--output")
+  );
+  if (forbidden) {
+    throw new Error(
+      `Argument ${forbidden} is not permitted for read-only Git operation diff.`
+    );
+  }
+  const renameArguments = args2.filter(
+    (argument) => argument === "--no-renames" || argument.startsWith("--find-renames=")
+  );
+  if (renameArguments.length !== 1) {
+    throw new Error(
+      "Read-only Git operation diff requires exactly one explicit rename policy."
+    );
+  }
+  const allowedArguments = /* @__PURE__ */ new Set([
+    "--cached",
+    "-z",
+    "--raw",
+    "--no-abbrev",
+    "--name-status",
+    "--name-only",
+    "--numstat",
+    "--quiet",
+    "--no-renames",
+    "--find-renames=50%",
+    "-l0",
+    "--diff-filter=d",
+    "--ignore-submodules=none",
+    "--root",
+    "--"
+  ]);
+  const invalid = args2.find(
+    (argument) => !allowedArguments.has(argument) && !FULL_OBJECT_ID.test(argument)
+  );
+  const outputModes = args2.filter(
+    (argument) => (/* @__PURE__ */ new Set([
+      "--raw",
+      "--name-status",
+      "--name-only",
+      "--numstat",
+      "--quiet"
+    ])).has(argument)
+  );
+  if (invalid || args2.at(-1) !== "--" || new Set(args2).size !== args2.length || outputModes.length > 1 || args2.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || args2.includes("--find-renames=50%") !== args2.includes("-l0") || args2.includes("--raw") !== args2.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !args2.includes("-z")) {
+    throw new Error(
+      `Arguments are not permitted for read-only Git operation diff${invalid ? `: ${invalid}` : ""}.`
+    );
+  }
+  return ["diff", "--no-ext-diff", "--no-textconv", "--no-color", ...args2];
+}
+function buildReadOnlyCatFileArguments(args2) {
+  if (args2.length === 2 && (/* @__PURE__ */ new Set(["-t", "blob", "commit"])).has(args2[0]) && FULL_OBJECT_ID.test(args2[1])) {
+    return ["cat-file", ...args2];
+  }
+  if (args2.length === 1 && args2[0] === "--batch-check=%(objectname) %(objecttype) %(objectsize)") {
+    return ["cat-file", args2[0]];
+  }
+  throw new Error(
+    "Arguments are not permitted for read-only Git operation cat-file."
+  );
+}
+function buildReadOnlyDiffTreeArguments(args2) {
+  const format = args2.at(-2);
+  const commitOid = args2.at(-1);
+  const expectedPrefix = [
+    "--root",
+    "--no-commit-id",
+    "-r",
+    "-z",
+    "--no-renames"
+  ];
+  if (args2.length !== expectedPrefix.length + 2 || JSON.stringify(args2.slice(0, expectedPrefix.length)) !== JSON.stringify(expectedPrefix) || !(/* @__PURE__ */ new Set(["--numstat", "--raw"])).has(format) || !FULL_OBJECT_ID.test(commitOid)) {
+    throw new Error(
+      "Arguments are not permitted for read-only Git operation diff-tree."
+    );
+  }
+  return [
+    "diff-tree",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    ...expectedPrefix,
+    format,
+    ...format === "--raw" ? ["--no-abbrev"] : [],
+    commitOid
+  ];
+}
+function buildReadOnlyArguments(operation, args2) {
+  assertStringArguments(args2, operation);
+  switch (operation) {
+    case "repository-root":
+      assertExactArguments(args2, [], operation);
+      return ["rev-parse", "--show-toplevel"];
+    case "resolve-head":
+      assertExactArguments(args2, [], operation);
+      return ["rev-parse", "--verify", "HEAD"];
+    case "symbolic-head":
+      assertExactArguments(args2, [], operation);
+      return ["symbolic-ref", "--quiet", "HEAD"];
+    case "short-symbolic-head":
+      assertExactArguments(args2, [], operation);
+      return ["symbolic-ref", "--short", "-q", "HEAD"];
+    case "operation-markers":
+      if (args2.length === 0 || args2.some((argument) => !OPERATION_MARKER_NAMES.has(argument))) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation operation-markers."
+        );
+      }
+      return [
+        "rev-parse",
+        "--path-format=absolute",
+        ...args2.flatMap((marker) => ["--git-path", marker])
+      ];
+    case "git-path":
+      if (args2.length !== 1 || !(/* @__PURE__ */ new Set(["index", "objects"])).has(args2[0])) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation git-path."
+        );
+      }
+      return ["rev-parse", "--path-format=absolute", "--git-path", args2[0]];
+    case "status":
+      if (!args2.includes("--porcelain=v2") || !args2.includes("-z") || args2.filter(
+        (argument) => argument === "--renames" || argument === "--no-renames"
+      ).length !== 1 || args2.some(
+        (argument) => !(/* @__PURE__ */ new Set([
+          "--porcelain=v2",
+          "-z",
+          "--untracked-files=all",
+          "--renames",
+          "--no-renames"
+        ])).has(argument)
+      ) || new Set(args2).size !== args2.length) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation status."
+        );
+      }
+      return ["status", ...args2];
+    case "ls-files":
+      if (![
+        ["-u", "-z"],
+        ["--stage", "-z", "--"],
+        ["--others", "--exclude-standard", "-z", "--"]
+      ].some((allowed) => JSON.stringify(args2) === JSON.stringify(allowed))) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation ls-files."
+        );
+      }
+      return ["ls-files", ...args2];
+    case "diff":
+      return buildReadOnlyDiffArguments(args2);
+    case "diff-tree":
+      return buildReadOnlyDiffTreeArguments(args2);
+    case "cat-file":
+      return buildReadOnlyCatFileArguments(args2);
+    case "hash-object":
+      if (args2.length !== 3 || args2[0] !== "--no-filters" || args2[1] !== "--") {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation hash-object."
+        );
+      }
+      return ["hash-object", ...args2];
+    case "show-message":
+      if (args2.length !== 1 || !FULL_OBJECT_ID.test(args2[0])) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation show-message."
+        );
+      }
+      return ["show", "-s", "--format=%B", args2[0]];
+    case "show-commit-fields":
+      if (args2.length !== 2 || !args2[0].startsWith("--format=") || !FULL_OBJECT_ID.test(args2[1])) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation show-commit-fields."
+        );
+      }
+      return ["show", "-s", args2[0], args2[1]];
+    case "short-object-id":
+      if (args2.length !== 1 || !FULL_OBJECT_ID.test(args2[0])) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation short-object-id."
+        );
+      }
+      return ["rev-parse", "--short=12", args2[0]];
+    case "check-ref-format":
+      if (args2.length !== 1 || !args2[0].startsWith("refs/")) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation check-ref-format."
+        );
+      }
+      return ["check-ref-format", args2[0]];
+    default:
+      throw new Error(
+        `Unsupported read-only Git operation ${JSON.stringify(operation)}.`
+      );
+  }
+}
+function buildIndexMutationArguments(operation, args2) {
+  assertStringArguments(args2, operation);
+  switch (operation) {
+    case "write-index-tree":
+      assertExactArguments(args2, [], operation);
+      return ["write-tree"];
+    case "read-index-tree":
+      if (args2.length !== 1 || args2[0] !== "--empty" && !FULL_OBJECT_ID.test(args2[0])) {
+        throw new Error(
+          "Arguments are not permitted for index mutation read-index-tree."
+        );
+      }
+      return ["read-tree", args2[0]];
+    case "add-all":
+      assertExactArguments(args2, [], operation);
+      return ["add", "-A"];
+    case "add-paths":
+      assertExactArguments(args2, [], operation);
+      return [
+        "--literal-pathspecs",
+        "add",
+        "-A",
+        "--pathspec-from-file=-",
+        "--pathspec-file-nul"
+      ];
+    case "install-index-tree":
+      if (args2.length !== 1 || !FULL_OBJECT_ID.test(args2[0])) {
+        throw new Error(
+          "Arguments are not permitted for index mutation install-index-tree."
+        );
+      }
+      return ["read-tree", args2[0]];
+    default:
+      throw new Error(
+        `Unsupported index mutation operation ${JSON.stringify(operation)}.`
+      );
+  }
+}
 function runGit(args2, { cwd = process.cwd(), env, input, allowFailure = false } = {}) {
   const result = spawnSync("git", args2, {
     cwd,
@@ -35,22 +319,62 @@ function runGit(args2, { cwd = process.cwd(), env, input, allowFailure = false }
   }
   return result;
 }
+function runReadOnlyGit(root, operation, args2 = [], { env, input, allowFailure = false, launcher = spawnSync } = {}) {
+  const operationArguments = buildReadOnlyArguments(operation, args2);
+  assertReadOnlyGitCapabilities();
+  const gitArguments = [...READ_ONLY_GLOBAL_ARGUMENTS, ...operationArguments];
+  const result = launcher("git", gitArguments, {
+    cwd: root,
+    encoding: null,
+    env: {
+      ...process.env,
+      ...env,
+      ...READ_ONLY_ENVIRONMENT
+    },
+    input,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024 * 1024
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (!allowFailure && result.status !== 0) {
+    throw new GitCommandError(gitArguments, result);
+  }
+  return result;
+}
+function runIndexMutationGit(root, operation, args2 = [], { env, input, allowFailure = false } = {}) {
+  const operationArguments = buildIndexMutationArguments(operation, args2);
+  return runGit([...INDEX_MUTATION_GLOBAL_ARGUMENTS, ...operationArguments], {
+    cwd: root,
+    env: {
+      ...env,
+      GIT_PAGER: "cat",
+      PAGER: "cat",
+      NO_COLOR: "1"
+    },
+    input,
+    allowFailure
+  });
+}
+function readOnlyGitText(root, operation, args2 = [], options2) {
+  return runReadOnlyGit(root, operation, args2, options2).stdout.toString("utf8");
+}
 function gitText(args2, options2) {
   return runGit(args2, options2).stdout.toString("utf8");
 }
 function repositoryRoot(cwd = process.cwd()) {
-  return gitText(["rev-parse", "--show-toplevel"], { cwd }).trim();
+  return readOnlyGitText(cwd, "repository-root").trim();
 }
 function resolveHead(root, env) {
-  const result = runGit(["rev-parse", "--verify", "HEAD"], {
-    cwd: root,
+  const result = runReadOnlyGit(root, "resolve-head", [], {
     env,
     allowFailure: true
   });
   return result.status === 0 ? result.stdout.toString("utf8").trim() : null;
 }
 function writeIndexTree(root, env) {
-  return gitText(["write-tree"], { cwd: root, env }).trim();
+  return runIndexMutationGit(root, "write-index-tree", [], { env }).stdout.toString("utf8").trim();
 }
 function indexMatchesTree(root, treeOid, env) {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(treeOid)) {
@@ -61,8 +385,7 @@ function indexMatchesTree(root, treeOid, env) {
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_OPTIONAL_LOCKS: "0"
   };
-  const objectType = gitText(["cat-file", "-t", treeOid], {
-    cwd: root,
+  const objectType = readOnlyGitText(root, "cat-file", ["-t", treeOid], {
     env: readOnlyEnv
   }).trim();
   if (objectType !== "tree") {
@@ -74,15 +397,12 @@ function indexMatchesTree(root, treeOid, env) {
     "diff",
     "--cached",
     "--quiet",
-    "--no-ext-diff",
-    "--no-textconv",
     "--no-renames",
     "--ignore-submodules=none",
     treeOid,
     "--"
   ];
-  const result = runGit(args2, {
-    cwd: root,
+  const result = runReadOnlyGit(root, "diff", args2.slice(1), {
     env: readOnlyEnv,
     allowFailure: true
   });
@@ -95,22 +415,59 @@ function indexMatchesTree(root, treeOid, env) {
   throw new GitCommandError(args2, result);
 }
 function activeGitOperations(root) {
-  const markerPaths = gitText(
-    [
-      "rev-parse",
-      "--path-format=absolute",
-      ...OPERATION_MARKERS.flatMap(([, marker]) => ["--git-path", marker])
-    ],
-    { cwd: root }
+  const markerPaths = readOnlyGitText(
+    root,
+    "operation-markers",
+    OPERATION_MARKERS.map(([, marker]) => marker)
   ).trim().split(/\r?\n/u);
   const operations = OPERATION_MARKERS.filter(
     (_, index) => existsSync(resolve(root, markerPaths[index]))
   ).map(([operation]) => operation);
   return [...new Set(operations)];
 }
-var GitCommandError, OPERATION_MARKERS;
+var READ_ONLY_ENVIRONMENT, READ_ONLY_GLOBAL_ARGUMENTS, INDEX_MUTATION_GLOBAL_ARGUMENTS, OPERATION_MARKER_NAMES, FULL_OBJECT_ID, readOnlyCapability, GitCapabilityError, GitCommandError, OPERATION_MARKERS;
 var init_gitRepository = __esm({
   "src/committing-to-git/git/gitRepository.js"() {
+    READ_ONLY_ENVIRONMENT = Object.freeze({
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_PAGER: "cat",
+      PAGER: "cat",
+      NO_COLOR: "1"
+    });
+    READ_ONLY_GLOBAL_ARGUMENTS = Object.freeze([
+      "--no-lazy-fetch",
+      "--no-pager",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "color.ui=false"
+    ]);
+    INDEX_MUTATION_GLOBAL_ARGUMENTS = Object.freeze([
+      "--no-pager",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "color.ui=false"
+    ]);
+    OPERATION_MARKER_NAMES = /* @__PURE__ */ new Set([
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "rebase-merge",
+      "rebase-apply",
+      "sequencer"
+    ]);
+    FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    GitCapabilityError = class extends Error {
+      constructor(message, { gitVersion = null } = {}) {
+        super(message);
+        this.name = "GitCapabilityError";
+        this.code = "UNSUPPORTED_GIT_VERSION";
+        this.gitVersion = gitVersion;
+      }
+    };
     GitCommandError = class extends Error {
       constructor(args2, result) {
         const stderr = result.stderr?.toString("utf8").trim();
@@ -165,6 +522,501 @@ function pathRecord(raw) {
 }
 var init_gitPath = __esm({
   "src/committing-to-git/git/gitPath.js"() {
+  }
+});
+
+// src/committing-to-git/snapshot/commitSnapshot.js
+function parseNonNegativeInteger(value, label) {
+  if (typeof value === "bigint") {
+    if (value < 0n) {
+      throw new Error(`${label} must be a non-negative integer.`);
+    }
+    return value;
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value);
+  }
+  if (typeof value === "string" && /^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    return BigInt(value);
+  }
+  throw new Error(`${label} must be a non-negative integer.`);
+}
+function serializedInteger(value) {
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString(10);
+}
+function selectRenamePolicy({
+  addedCandidates,
+  deletedCandidates,
+  maximumCandidatePairs = MAXIMUM_SIMILARITY_CANDIDATE_PAIRS
+}) {
+  const added = parseNonNegativeInteger(
+    addedCandidates,
+    "Added rename candidates"
+  );
+  const deleted = parseNonNegativeInteger(
+    deletedCandidates,
+    "Deleted rename candidates"
+  );
+  const maximum = parseNonNegativeInteger(
+    maximumCandidatePairs,
+    "Maximum rename candidate pairs"
+  );
+  const candidatePairs = added * deleted;
+  return {
+    mode: candidatePairs <= maximum ? "eager" : "deferred",
+    candidatePairs: serializedInteger(candidatePairs)
+  };
+}
+function selectLineStatisticsPolicy({
+  eligibleBlobBytes,
+  maximumEagerBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
+}) {
+  const eligible = parseNonNegativeInteger(
+    eligibleBlobBytes,
+    "Eligible blob bytes"
+  );
+  const maximum = parseNonNegativeInteger(
+    maximumEagerBytes,
+    "Maximum eager line-stat bytes"
+  );
+  return {
+    mode: eligible <= maximum ? "eager" : "deferred",
+    eligibleBlobBytes: serializedInteger(eligible)
+  };
+}
+function kindForStatus(status) {
+  switch (status[0]) {
+    case "A":
+      return "added";
+    case "M":
+      return "modified";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "added";
+    case "T":
+      return "type-changed";
+    default:
+      return "modified";
+  }
+}
+function parseRawDiff(buffer) {
+  const fields = splitNul(buffer);
+  const records = [];
+  for (let index = 0; index < fields.length; ) {
+    const header = fields[index].toString("ascii");
+    if (!header.startsWith(":")) {
+      throw new Error(`Unexpected raw diff field: ${JSON.stringify(header)}`);
+    }
+    const parts = header.slice(1).split(" ");
+    const [oldMode, newMode, oldOid, newOid, status] = parts;
+    const renamedOrCopied = status.startsWith("R") || status.startsWith("C");
+    const sourceBytes = fields[index + 1];
+    const destinationBytes = renamedOrCopied ? fields[index + 2] : sourceBytes;
+    if (!sourceBytes || !destinationBytes) {
+      throw new Error(`Incomplete raw diff record for ${status}`);
+    }
+    records.push({
+      oldMode,
+      newMode,
+      oldOid,
+      newOid,
+      status,
+      kind: kindForStatus(status),
+      similarity: renamedOrCopied ? Number(status.slice(1)) : null,
+      sourceBytes,
+      destinationBytes
+    });
+    index += renamedOrCopied ? 3 : 2;
+  }
+  return records;
+}
+function parseNumstat(buffer) {
+  const fields = splitNul(buffer);
+  const statistics = /* @__PURE__ */ new Map();
+  for (let index = 0; index < fields.length; ) {
+    const header = fields[index];
+    const firstTab = header.indexOf(9);
+    const secondTab = firstTab < 0 ? -1 : header.indexOf(9, firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) {
+      throw new Error("Unexpected numstat record.");
+    }
+    const addedText = header.subarray(0, firstTab).toString("ascii");
+    const deletedText = header.subarray(firstTab + 1, secondTab).toString("ascii");
+    const inlinePath = header.subarray(secondTab + 1);
+    const destinationBytes = inlinePath.length > 0 ? inlinePath : fields[index + 2];
+    if (!destinationBytes) {
+      throw new Error("Incomplete numstat path record.");
+    }
+    statistics.set(destinationBytes.toString("base64"), {
+      additions: addedText === "-" ? null : Number(addedText),
+      deletions: deletedText === "-" ? null : Number(deletedText),
+      binary: addedText === "-" || deletedText === "-"
+    });
+    index += inlinePath.length > 0 ? 1 : 3;
+  }
+  return statistics;
+}
+function normalizedChangeUnit(record) {
+  const source = pathRecord(record.sourceBytes);
+  const destination = pathRecord(record.destinationBytes);
+  const renamed = record.kind === "renamed";
+  let kind = record.kind;
+  if (record.oldMode === "160000" || record.newMode === "160000") {
+    kind = "submodule-changed";
+  } else if (record.oldMode === "120000" || record.newMode === "120000") {
+    kind = record.oldMode === record.newMode ? "symlink-changed" : "type-changed";
+  } else if (record.oldMode !== record.newMode && record.kind === "modified") {
+    kind = "mode-changed";
+  }
+  return {
+    id: null,
+    kind,
+    sourcePath: renamed ? source.text : null,
+    destinationPath: destination.text,
+    path: renamed ? null : destination.text,
+    sourcePathBytesBase64: renamed ? source.bytesBase64 : null,
+    destinationPathBytesBase64: destination.bytesBase64,
+    displayPath: renamed ? `${source.display} -> ${destination.display}` : destination.display,
+    oldMode: record.oldMode,
+    newMode: record.newMode,
+    oldOid: record.oldOid,
+    newOid: record.newOid,
+    similarity: renamed ? record.similarity : null,
+    renameClassification: renamed ? "similarity" : null,
+    lineStatistics: "deferred",
+    binary: null,
+    additions: null,
+    deletions: null,
+    stageablePaths: [],
+    inspectionUnitIds: []
+  };
+}
+function renameCandidateSide(unit) {
+  if (unit.newMode === "000000" && !ZERO_OBJECT_ID.test(unit.oldOid)) {
+    return "deletion";
+  }
+  if (unit.oldMode === "000000" && !ZERO_OBJECT_ID.test(unit.newOid)) {
+    return "addition";
+  }
+  return null;
+}
+function exactObjectBucket(unit) {
+  const side = renameCandidateSide(unit);
+  if (side === "deletion") {
+    return `${unit.oldMode}:${unit.oldOid}`;
+  }
+  if (side === "addition") {
+    return `${unit.newMode}:${unit.newOid}`;
+  }
+  return null;
+}
+function sortChangeUnits(units) {
+  return [...units].sort(
+    (left, right) => comparePathBytes(
+      Buffer.from(left.destinationPathBytesBase64, "base64"),
+      Buffer.from(right.destinationPathBytesBase64, "base64")
+    )
+  );
+}
+function pairExactObjectRenames(changeUnits) {
+  const buckets = /* @__PURE__ */ new Map();
+  for (const unit of changeUnits) {
+    const bucket = exactObjectBucket(unit);
+    if (bucket === null) {
+      continue;
+    }
+    const entry = buckets.get(bucket) ?? { additions: [], deletions: [] };
+    entry[renameCandidateSide(unit) === "addition" ? "additions" : "deletions"].push(unit);
+    buckets.set(bucket, entry);
+  }
+  const consumed = /* @__PURE__ */ new Set();
+  const replacements = [];
+  const classifications = /* @__PURE__ */ new Map();
+  for (const { additions, deletions } of buckets.values()) {
+    if (additions.length === 1 && deletions.length === 1) {
+      const [addition] = additions;
+      const [deletion] = deletions;
+      consumed.add(addition);
+      consumed.add(deletion);
+      replacements.push({
+        ...addition,
+        kind: "renamed",
+        sourcePath: deletion.destinationPath,
+        path: null,
+        sourcePathBytesBase64: deletion.destinationPathBytesBase64,
+        displayPath: `${deletion.displayPath} -> ${addition.displayPath}`,
+        oldMode: deletion.oldMode,
+        oldOid: deletion.oldOid,
+        similarity: 100,
+        renameClassification: "exact-object"
+      });
+    } else if (additions.length > 0 && deletions.length > 0) {
+      for (const unit of [...additions, ...deletions]) {
+        classifications.set(unit, "exact-rename-ambiguous");
+      }
+    }
+  }
+  return sortChangeUnits([
+    ...changeUnits.filter((unit) => !consumed.has(unit)).map((unit) => ({
+      ...unit,
+      renameClassification: classifications.get(unit) ?? unit.renameClassification ?? null
+    })),
+    ...replacements
+  ]);
+}
+function applySimilarityRenames(changeUnits, similarityRecords) {
+  let units = [...changeUnits];
+  for (const record of similarityRecords.filter(
+    ({ kind }) => kind === "renamed"
+  )) {
+    const similarity = normalizedChangeUnit(record);
+    const sourceIndex = units.findIndex(
+      (unit) => renameCandidateSide(unit) === "deletion" && unit.destinationPathBytesBase64 === similarity.sourcePathBytesBase64 && unit.renameClassification === null
+    );
+    const destinationIndex = units.findIndex(
+      (unit) => renameCandidateSide(unit) === "addition" && unit.destinationPathBytesBase64 === similarity.destinationPathBytesBase64 && unit.renameClassification === null
+    );
+    if (sourceIndex < 0 || destinationIndex < 0) {
+      continue;
+    }
+    const kept = units.filter(
+      (_, index) => index !== sourceIndex && index !== destinationIndex
+    );
+    units = [...kept, similarity];
+  }
+  return sortChangeUnits(units);
+}
+function objectIdsForUnits(changeUnits) {
+  return [
+    ...new Set(
+      changeUnits.flatMap(({ oldOid, newOid }) => [oldOid, newOid]).filter((oid) => !ZERO_OBJECT_ID.test(oid))
+    )
+  ];
+}
+function inspectObjectSizes(root, env, changeUnits) {
+  const objectIds = objectIdsForUnits(changeUnits);
+  if (objectIds.length === 0) {
+    return {
+      eligibleBlobBytes: 0n,
+      unavailableObjectIds: []
+    };
+  }
+  const result = runReadOnlyGit(
+    root,
+    "cat-file",
+    ["--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+    {
+      env,
+      input: Buffer.from(`${objectIds.join("\n")}
+`, "ascii")
+    }
+  );
+  const lines = result.stdout.toString("utf8").trim().split(/\r?\n/u);
+  const objects = /* @__PURE__ */ new Map();
+  const unavailableObjectIds = [];
+  if (lines.length !== objectIds.length) {
+    throw new Error("Git returned an incomplete cat-file batch response.");
+  }
+  for (let index = 0; index < objectIds.length; index += 1) {
+    const requestedOid = objectIds[index];
+    const fields = lines[index].split(" ");
+    if (fields.length === 2 && fields[1] === "missing") {
+      unavailableObjectIds.push(requestedOid);
+      continue;
+    }
+    if (fields.length !== 3 || fields[0] !== requestedOid || !(/* @__PURE__ */ new Set(["blob", "tree", "commit", "tag"])).has(fields[1])) {
+      throw new Error(
+        `Git returned malformed object metadata for ${requestedOid}.`
+      );
+    }
+    objects.set(requestedOid, {
+      type: fields[1],
+      size: parseNonNegativeInteger(fields[2], "Git object size")
+    });
+  }
+  let eligibleBlobBytes = 0n;
+  for (const unit of changeUnits) {
+    for (const oid of [unit.oldOid, unit.newOid]) {
+      const object = objects.get(oid);
+      if (object?.type === "blob") {
+        eligibleBlobBytes += object.size;
+      }
+    }
+  }
+  return { eligibleBlobBytes, unavailableObjectIds };
+}
+function statisticsForUnit(unit, statistics) {
+  if (unit.kind === "renamed" && unit.renameClassification === "exact-object" && unit.oldOid === unit.newOid && unit.oldMode === unit.newMode) {
+    return { additions: 0, deletions: 0, binary: false };
+  }
+  const paths = [
+    ...unit.sourcePathBytesBase64 ? [unit.sourcePathBytesBase64] : [],
+    unit.destinationPathBytesBase64
+  ];
+  const entries = paths.map((path) => statistics.get(path)).filter((entry) => entry !== void 0);
+  if (entries.length === 0) {
+    return { additions: 0, deletions: 0, binary: false };
+  }
+  if (entries.some(({ binary }) => binary)) {
+    return { additions: null, deletions: null, binary: true };
+  }
+  return {
+    additions: entries.reduce((total, entry) => total + entry.additions, 0),
+    deletions: entries.reduce((total, entry) => total + entry.deletions, 0),
+    binary: false
+  };
+}
+function assignIdentifiers(changeUnits) {
+  return sortChangeUnits(changeUnits).map((unit, index) => ({
+    ...unit,
+    id: `F${String(index + 1).padStart(6, "0")}`
+  }));
+}
+function buildSnapshot({
+  root,
+  env,
+  workflowMode,
+  scopeKind,
+  sourceIndex,
+  headOid,
+  indexTreeOid = null,
+  maximumSimilarityCandidatePairs = MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
+  maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
+}) {
+  const comparison = headOid ? [headOid] : ["--root"];
+  const rawArguments = [
+    "--cached",
+    "-z",
+    "--raw",
+    "--no-abbrev",
+    "--no-renames",
+    ...comparison,
+    "--"
+  ];
+  const initialRecords = parseRawDiff(
+    runReadOnlyGit(root, "diff", rawArguments, { env }).stdout
+  );
+  const initialUnits = initialRecords.map(normalizedChangeUnit);
+  let changeUnits = pairExactObjectRenames(initialUnits);
+  const addedCandidates = initialUnits.filter(
+    (unit) => renameCandidateSide(unit) === "addition"
+  ).length;
+  const deletedCandidates = initialUnits.filter(
+    (unit) => renameCandidateSide(unit) === "deletion"
+  ).length;
+  const renameSelection = selectRenamePolicy({
+    addedCandidates,
+    deletedCandidates,
+    maximumCandidatePairs: maximumSimilarityCandidatePairs
+  });
+  const warnings = [];
+  if (renameSelection.mode === "eager" && addedCandidates > 0 && deletedCandidates > 0) {
+    const similarityArguments = [
+      "--cached",
+      "-z",
+      "--raw",
+      "--no-abbrev",
+      `--find-renames=${RENAME_SCORE}%`,
+      "-l0",
+      ...comparison,
+      "--"
+    ];
+    const similarityRecords = parseRawDiff(
+      runReadOnlyGit(root, "diff", similarityArguments, { env }).stdout
+    );
+    changeUnits = applySimilarityRenames(changeUnits, similarityRecords);
+  } else if (renameSelection.mode === "deferred") {
+    warnings.push(
+      `Similarity rename detection deferred: ${renameSelection.candidatePairs} candidate pairs exceed the ${maximumSimilarityCandidatePairs} pair budget.`
+    );
+  }
+  const { eligibleBlobBytes, unavailableObjectIds } = inspectObjectSizes(
+    root,
+    env,
+    changeUnits
+  );
+  const selectedLineStatistics = selectLineStatisticsPolicy({
+    eligibleBlobBytes,
+    maximumEagerBytes: maximumEagerLineStatInputBytes
+  });
+  const lineStatistics = {
+    ...selectedLineStatistics,
+    mode: unavailableObjectIds.length > 0 ? "deferred" : selectedLineStatistics.mode
+  };
+  for (const oid of unavailableObjectIds) {
+    warnings.push(`required-object-unavailable:${oid}`);
+  }
+  if (lineStatistics.mode === "eager" && changeUnits.length > 0) {
+    const numstatArguments = [
+      "--cached",
+      "-z",
+      "--numstat",
+      "--no-renames",
+      ...comparison,
+      "--"
+    ];
+    const statistics = parseNumstat(
+      runReadOnlyGit(root, "diff", numstatArguments, { env }).stdout
+    );
+    changeUnits = changeUnits.map((unit) => ({
+      ...unit,
+      ...statisticsForUnit(unit, statistics),
+      lineStatistics: "eager"
+    }));
+  }
+  changeUnits = assignIdentifiers(changeUnits);
+  const textUnits = changeUnits.filter(({ binary }) => binary === false);
+  const deferredStatistics = lineStatistics.mode === "deferred";
+  return {
+    schemaVersion: 2,
+    workflowMode,
+    scopeKind,
+    sourceIndex,
+    repositoryRoot: root,
+    headOid,
+    indexTreeOid: indexTreeOid ?? writeIndexTree(root, env),
+    diffPolicy: {
+      renameScore: RENAME_SCORE,
+      copyDetection: false,
+      renameLimit: 0,
+      externalDiff: false,
+      textconv: false,
+      rename: {
+        mode: renameSelection.mode,
+        maximumCandidatePairs: maximumSimilarityCandidatePairs,
+        addedCandidates,
+        deletedCandidates,
+        candidatePairs: renameSelection.candidatePairs
+      },
+      lineStatistics: {
+        mode: lineStatistics.mode,
+        maximumEagerBytes: maximumEagerLineStatInputBytes,
+        eligibleBlobBytes: lineStatistics.eligibleBlobBytes
+      }
+    },
+    changeUnitCount: changeUnits.length,
+    changeUnits,
+    statistics: {
+      files: changeUnits.length,
+      additions: deferredStatistics ? null : textUnits.reduce((total, unit) => total + unit.additions, 0),
+      deletions: deferredStatistics ? null : textUnits.reduce((total, unit) => total + unit.deletions, 0),
+      binaryFiles: deferredStatistics ? null : changeUnits.length - textUnits.length
+    },
+    warnings
+  };
+}
+var MAXIMUM_SIMILARITY_CANDIDATE_PAIRS, MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES, RENAME_SCORE, ZERO_OBJECT_ID;
+var init_commitSnapshot = __esm({
+  "src/committing-to-git/snapshot/commitSnapshot.js"() {
+    init_gitRepository();
+    init_gitPath();
+    MAXIMUM_SIMILARITY_CANDIDATE_PAIRS = 4e4;
+    MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES = 64 * 1024 * 1024;
+    RENAME_SCORE = 50;
+    ZERO_OBJECT_ID = /^(?:0{40}|0{64})$/u;
   }
 });
 
@@ -963,14 +1815,11 @@ function validateJournal(journal) {
   }
 }
 function resolveRealIndexPath(root) {
-  const gitPath = gitText(["rev-parse", "--git-path", "index"], {
-    cwd: root
-  }).trim();
+  const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
   return resolve3(isAbsolute2(gitPath) ? gitPath : join2(root, gitPath));
 }
 function captureHeadAnchor(root) {
-  const symbolic = runGit(["symbolic-ref", "--quiet", "HEAD"], {
-    cwd: root,
+  const symbolic = runReadOnlyGit(root, "symbolic-head", [], {
     allowFailure: true
   });
   const headOid = resolveHead(root);
@@ -1255,199 +2104,6 @@ var init_indexInstallation = __esm({
   }
 });
 
-// src/committing-to-git/snapshot/commitSnapshot.js
-function kindForStatus(status) {
-  switch (status[0]) {
-    case "A":
-      return "added";
-    case "M":
-      return "modified";
-    case "D":
-      return "deleted";
-    case "R":
-      return "renamed";
-    case "C":
-      return "added";
-    case "T":
-      return "type-changed";
-    default:
-      return "modified";
-  }
-}
-function parseRawDiff(buffer) {
-  const fields = splitNul(buffer);
-  const records = [];
-  for (let index = 0; index < fields.length; ) {
-    const header = fields[index].toString("ascii");
-    if (!header.startsWith(":")) {
-      throw new Error(`Unexpected raw diff field: ${JSON.stringify(header)}`);
-    }
-    const parts = header.slice(1).split(" ");
-    const [oldMode, newMode, oldOid, newOid, status] = parts;
-    const renamedOrCopied = status.startsWith("R") || status.startsWith("C");
-    const sourceBytes = fields[index + 1];
-    const destinationBytes = renamedOrCopied ? fields[index + 2] : sourceBytes;
-    if (!sourceBytes || !destinationBytes) {
-      throw new Error(`Incomplete raw diff record for ${status}`);
-    }
-    records.push({
-      oldMode,
-      newMode,
-      oldOid,
-      newOid,
-      status,
-      kind: kindForStatus(status),
-      similarity: renamedOrCopied ? Number(status.slice(1)) : null,
-      sourceBytes,
-      destinationBytes
-    });
-    index += renamedOrCopied ? 3 : 2;
-  }
-  return records;
-}
-function parseNumstat(buffer) {
-  const fields = splitNul(buffer);
-  const statistics = /* @__PURE__ */ new Map();
-  for (let index = 0; index < fields.length; ) {
-    const header = fields[index];
-    const firstTab = header.indexOf(9);
-    const secondTab = firstTab < 0 ? -1 : header.indexOf(9, firstTab + 1);
-    if (firstTab < 0 || secondTab < 0) {
-      throw new Error("Unexpected numstat record.");
-    }
-    const addedText = header.subarray(0, firstTab).toString("ascii");
-    const deletedText = header.subarray(firstTab + 1, secondTab).toString("ascii");
-    const inlinePath = header.subarray(secondTab + 1);
-    const destinationBytes = inlinePath.length > 0 ? inlinePath : fields[index + 2];
-    if (!destinationBytes) {
-      throw new Error("Incomplete numstat path record.");
-    }
-    statistics.set(destinationBytes.toString("base64"), {
-      additions: addedText === "-" ? null : Number(addedText),
-      deletions: deletedText === "-" ? null : Number(deletedText),
-      binary: addedText === "-" || deletedText === "-"
-    });
-    index += inlinePath.length > 0 ? 1 : 3;
-  }
-  return statistics;
-}
-function normalizedChangeUnit(record, index, statistics) {
-  const source = pathRecord(record.sourceBytes);
-  const destination = pathRecord(record.destinationBytes);
-  const renamed = record.kind === "renamed";
-  const lineStatistics = statistics.get(
-    record.destinationBytes.toString("base64")
-  ) ?? {
-    additions: 0,
-    deletions: 0,
-    binary: false
-  };
-  let kind = record.kind;
-  if (record.oldMode === "160000" || record.newMode === "160000") {
-    kind = "submodule-changed";
-  } else if (record.oldMode === "120000" || record.newMode === "120000") {
-    kind = record.oldMode === record.newMode ? "symlink-changed" : "type-changed";
-  } else if (record.oldMode !== record.newMode && record.kind === "modified") {
-    kind = "mode-changed";
-  }
-  return {
-    id: `F${String(index + 1).padStart(6, "0")}`,
-    kind,
-    sourcePath: renamed ? source.text : null,
-    destinationPath: destination.text,
-    path: renamed ? null : destination.text,
-    sourcePathBytesBase64: renamed ? source.bytesBase64 : null,
-    destinationPathBytesBase64: destination.bytesBase64,
-    displayPath: renamed ? `${source.display} -> ${destination.display}` : destination.display,
-    oldMode: record.oldMode,
-    newMode: record.newMode,
-    oldOid: record.oldOid,
-    newOid: record.newOid,
-    similarity: renamed ? record.similarity : null,
-    binary: lineStatistics.binary,
-    additions: lineStatistics.additions,
-    deletions: lineStatistics.deletions,
-    stageablePaths: [],
-    inspectionUnitIds: []
-  };
-}
-function buildSnapshot({
-  root,
-  env,
-  workflowMode,
-  scopeKind,
-  sourceIndex,
-  headOid
-}) {
-  const sharedArguments = [
-    "-c",
-    `diff.renameLimit=${DIFF_POLICY.renameLimit}`,
-    "diff",
-    "--cached",
-    "-z",
-    "--no-ext-diff",
-    "--no-textconv",
-    `--find-renames=${DIFF_POLICY.renameScore}%`,
-    ...headOid ? [headOid] : ["--root"],
-    "--"
-  ];
-  const rawResult = runGit(
-    [
-      ...sharedArguments.slice(0, 4),
-      "--raw",
-      "--no-abbrev",
-      ...sharedArguments.slice(4)
-    ],
-    { cwd: root, env }
-  );
-  const numstatResult = runGit(
-    [...sharedArguments.slice(0, 4), "--numstat", ...sharedArguments.slice(4)],
-    { cwd: root, env }
-  );
-  const parsed = parseRawDiff(rawResult.stdout).sort(
-    (left, right) => comparePathBytes(left.destinationBytes, right.destinationBytes)
-  );
-  const lineStatistics = parseNumstat(numstatResult.stdout);
-  const changeUnits = parsed.map(
-    (record, index) => normalizedChangeUnit(record, index, lineStatistics)
-  );
-  const textUnits = changeUnits.filter(({ binary }) => !binary);
-  return {
-    schemaVersion: 2,
-    workflowMode,
-    scopeKind,
-    sourceIndex,
-    repositoryRoot: root,
-    headOid,
-    indexTreeOid: writeIndexTree(root, env),
-    diffPolicy: DIFF_POLICY,
-    changeUnitCount: changeUnits.length,
-    changeUnits,
-    statistics: {
-      files: changeUnits.length,
-      additions: textUnits.reduce((total, unit) => total + unit.additions, 0),
-      deletions: textUnits.reduce((total, unit) => total + unit.deletions, 0),
-      binaryFiles: changeUnits.length - textUnits.length
-    },
-    warnings: []
-  };
-}
-var DIFF_POLICY;
-var init_commitSnapshot = __esm({
-  "src/committing-to-git/snapshot/commitSnapshot.js"() {
-    init_gitRepository();
-    init_gitPath();
-    DIFF_POLICY = Object.freeze({
-      renameScore: 50,
-      // Similarity can aid rename navigation but cannot establish copy provenance.
-      copyDetection: false,
-      renameLimit: 1e3,
-      externalDiff: false,
-      textconv: false
-    });
-  }
-});
-
 // src/committing-to-git/snapshot/createSnapshot.js
 import {
   chmodSync,
@@ -1467,10 +2123,7 @@ function nulPathInput(paths) {
   );
 }
 function resolveGitPath(root, name) {
-  const path = gitText(
-    ["rev-parse", "--path-format=absolute", "--git-path", name],
-    { cwd: root }
-  ).trim();
+  const path = readOnlyGitText(root, "git-path", [name]).trim();
   return resolve4(isAbsolute3(path) ? path : join3(root, path));
 }
 function copySharedIndexFiles(realIndexPath, preparedIndexPath) {
@@ -1489,8 +2142,124 @@ function copySharedIndexFiles(realIndexPath, preparedIndexPath) {
     }
   }
 }
+function parseGitAlternatePaths(value) {
+  if (!value) {
+    return [];
+  }
+  const separator = process.platform === "win32" ? ";" : ":";
+  const entries = [];
+  let entry = "";
+  let quoted = false;
+  const escapes = /* @__PURE__ */ new Map([
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["f", "\f"],
+    ["n", "\n"],
+    ["r", "\r"],
+    ["t", "	"],
+    ["v", "\v"],
+    ["\\", "\\"],
+    ['"', '"']
+  ]);
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quoted && character === "\\") {
+      const escaped = value[index + 1];
+      if (escaped === void 0) {
+        throw new Error(
+          "Git alternate object paths contain invalid C-style quoting."
+        );
+      }
+      if (/[0-7]/u.test(escaped)) {
+        const octal = value.slice(index + 1).match(/^[0-7]{1,3}/u)[0];
+        entry += String.fromCharCode(Number.parseInt(octal, 8));
+        index += octal.length;
+      } else if (escapes.has(escaped)) {
+        entry += escapes.get(escaped);
+        index += 1;
+      } else {
+        throw new Error(
+          "Git alternate object paths contain an invalid C-style escape."
+        );
+      }
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (!quoted && character === separator) {
+      if (entry.length > 0) {
+        entries.push(entry);
+      }
+      entry = "";
+    } else {
+      entry += character;
+    }
+  }
+  if (quoted) {
+    throw new Error(
+      "Git alternate object paths contain invalid C-style quoting."
+    );
+  }
+  if (entry.length > 0) {
+    entries.push(entry);
+  }
+  return entries;
+}
+function quoteGitAlternatePath(path, separator) {
+  const requiresQuoting = [...path].some((character) => {
+    const code = character.codePointAt(0);
+    return character === '"' || code < 32 || code === 127;
+  });
+  if (!path.includes(separator) && !requiresQuoting) {
+    return path;
+  }
+  const namedEscapes = /* @__PURE__ */ new Map([
+    ["\x07", "\\a"],
+    ["\b", "\\b"],
+    ["\f", "\\f"],
+    ["\n", "\\n"],
+    ["\r", "\\r"],
+    ["	", "\\t"],
+    ["\v", "\\v"],
+    ["\\", "\\\\"],
+    ['"', '\\"']
+  ]);
+  const escaped = [...path].map((character) => {
+    if (namedEscapes.has(character)) {
+      return namedEscapes.get(character);
+    }
+    const code = character.codePointAt(0);
+    return code < 32 || code === 127 ? `\\${code.toString(8).padStart(3, "0")}` : character;
+  }).join("");
+  return `"${escaped}"`;
+}
+function formatGitAlternatePaths(paths) {
+  const separator = process.platform === "win32" ? ";" : ":";
+  return paths.map((path) => quoteGitAlternatePath(path, separator)).join(separator);
+}
+function createDraftObjectEnvironment({ root, attemptDirectory }) {
+  const indexPath = join3(attemptDirectory, "draft-index");
+  const objectDirectory = join3(attemptDirectory, "draft-objects");
+  if (existsSync4(indexPath) || existsSync4(objectDirectory)) {
+    throw new Error("Draft storage already exists in the transaction attempt.");
+  }
+  mkdirSync2(objectDirectory, { mode: 448 });
+  const primaryObjectDirectory = resolveGitPath(root, "objects");
+  const inheritedAlternates = parseGitAlternatePaths(
+    process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+  ).map((path) => resolve4(isAbsolute3(path) ? path : join3(root, path)));
+  const alternates = [
+    .../* @__PURE__ */ new Set([primaryObjectDirectory, ...inheritedAlternates])
+  ];
+  const env = {
+    GIT_INDEX_FILE: indexPath,
+    GIT_OBJECT_DIRECTORY: objectDirectory,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(alternates),
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1"
+  };
+  return { env, indexPath, objectDirectory, alternates };
+}
 function assertRepositoryPreconditions(root) {
-  const conflicts = runGit(["ls-files", "-u", "-z"], { cwd: root }).stdout;
+  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"]).stdout;
   if (conflicts.length > 0) {
     throw new Error(
       "Cannot prepare a commit snapshot while conflicts remain unresolved."
@@ -1504,9 +2273,37 @@ function assertRepositoryPreconditions(root) {
   }
 }
 function stagedChangePaths(root) {
-  return runGit(["diff", "--cached", "--name-only", "-z", "--"], {
-    cwd: root
-  }).stdout;
+  return runReadOnlyGit(root, "diff", [
+    "--cached",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    "--"
+  ]).stdout;
+}
+function portableIndexIdentity(identity) {
+  return identity.state === "absent" ? { state: "absent" } : {
+    state: "file",
+    byteCount: identity.byteCount,
+    sha256: identity.sha256
+  };
+}
+function copyStableIndex(realIndexPath, preparedIndexPath, originalIdentity) {
+  if (originalIdentity.state === "absent") {
+    return;
+  }
+  copyFileSync(realIndexPath, preparedIndexPath);
+  copySharedIndexFiles(realIndexPath, preparedIndexPath);
+  if (process.platform !== "win32") {
+    chmodSync(preparedIndexPath, 384);
+  }
+  const currentIdentity = readIndexIdentity(realIndexPath);
+  const copiedIdentity = readIndexIdentity(preparedIndexPath);
+  if (!indexIdentitiesMatch(currentIdentity, originalIdentity) || !indexIdentitiesMatch(copiedIdentity, originalIdentity)) {
+    throw new Error(
+      "The real index changed while its stable draft copy was made."
+    );
+  }
 }
 function createSnapshot({
   root,
@@ -1515,7 +2312,10 @@ function createSnapshot({
   scopePaths = [],
   outputPath,
   preparedIndexPath = null,
-  deferIndexInstallation = false
+  deferIndexInstallation = false,
+  stagedPromotionSummary = null,
+  maximumSimilarityCandidatePairs,
+  maximumEagerLineStatInputBytes
 }) {
   if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
     throw new Error("Snapshot mode must be actual or draft.");
@@ -1526,17 +2326,25 @@ function createSnapshot({
   if (scope === "paths" && scopePaths.length === 0) {
     throw new Error("Path scope requires at least one literal path.");
   }
+  if (existsSync4(outputPath)) {
+    throw new Error(`Snapshot output already exists: ${outputPath}`);
+  }
   assertRepositoryPreconditions(root);
   const headOid = resolveHead(root);
   const headAnchor = captureHeadAnchor(root);
   const realIndexPath = resolveGitPath(root, "index");
-  let env = scope === "staged" ? { GIT_OPTIONAL_LOCKS: "0" } : void 0;
+  let originalIndexIdentity;
+  let env;
   let sourceIndex = "real";
   let actualPreparedIndexPath = null;
-  if (scope === "staged") {
-    writeIndexTree(root, env);
+  let draftStorage = null;
+  let indexTreeOid = null;
+  if (mode === "actual" && scope === "staged") {
+    indexTreeOid = writeIndexTree(root);
+    originalIndexIdentity = readIndexIdentity(realIndexPath);
+  } else {
+    originalIndexIdentity = readIndexIdentity(realIndexPath);
   }
-  const originalIndexIdentity = readIndexIdentity(realIndexPath);
   if (mode === "actual" && scope === "paths") {
     const stagedPaths = stagedChangePaths(root);
     if (stagedPaths.length > 0) {
@@ -1545,11 +2353,27 @@ function createSnapshot({
       );
     }
   }
-  if (scope !== "staged") {
-    actualPreparedIndexPath = preparedIndexPath ?? join3(
-      dirname3(outputPath),
-      mode === "draft" ? "temporary-index" : "preparation-index"
-    );
+  if (mode === "draft") {
+    draftStorage = createDraftObjectEnvironment({
+      root,
+      attemptDirectory: dirname3(outputPath)
+    });
+    actualPreparedIndexPath = draftStorage.indexPath;
+    env = draftStorage.env;
+    sourceIndex = "temporary";
+    if (scope === "staged" && originalIndexIdentity.state === "file") {
+      copyStableIndex(
+        realIndexPath,
+        actualPreparedIndexPath,
+        originalIndexIdentity
+      );
+    } else {
+      runIndexMutationGit(root, "read-index-tree", [headOid ?? "--empty"], {
+        env
+      });
+    }
+  } else if (scope !== "staged") {
+    actualPreparedIndexPath = preparedIndexPath ?? join3(dirname3(outputPath), "preparation-index");
     if (existsSync4(actualPreparedIndexPath)) {
       throw new Error(
         `Temporary index already exists: ${actualPreparedIndexPath}`
@@ -1560,52 +2384,55 @@ function createSnapshot({
       GIT_INDEX_FILE: actualPreparedIndexPath,
       GIT_OPTIONAL_LOCKS: "0"
     };
-    if (mode === "draft") {
-      sourceIndex = "temporary";
-      runGit(headOid ? ["read-tree", headOid] : ["read-tree", "--empty"], {
-        cwd: root,
-        env
-      });
-    } else if (originalIndexIdentity.state === "file") {
-      copyFileSync(realIndexPath, actualPreparedIndexPath);
-      copySharedIndexFiles(realIndexPath, actualPreparedIndexPath);
+    if (originalIndexIdentity.state === "file") {
+      copyStableIndex(
+        realIndexPath,
+        actualPreparedIndexPath,
+        originalIndexIdentity
+      );
     } else {
-      runGit(headOid ? ["read-tree", headOid] : ["read-tree", "--empty"], {
-        cwd: root,
+      runIndexMutationGit(root, "read-index-tree", [headOid ?? "--empty"], {
         env
       });
     }
   }
   if (scope === "full") {
-    runGit(["add", "-A"], { cwd: root, env });
+    runIndexMutationGit(root, "add-all", [], { env });
   } else if (scope === "paths") {
-    runGit(
-      [
-        "--literal-pathspecs",
-        "add",
-        "-A",
-        "--pathspec-from-file=-",
-        "--pathspec-file-nul"
-      ],
-      {
-        cwd: root,
-        env,
-        input: nulPathInput(scopePaths)
-      }
-    );
+    runIndexMutationGit(root, "add-paths", [], {
+      env,
+      input: nulPathInput(scopePaths)
+    });
   }
+  indexTreeOid ??= writeIndexTree(root, env);
   const snapshot = buildSnapshot({
     root,
     env,
     workflowMode: mode,
     scopeKind: scope,
     sourceIndex,
-    headOid
+    headOid,
+    indexTreeOid,
+    ...maximumSimilarityCandidatePairs === void 0 ? {} : { maximumSimilarityCandidatePairs },
+    ...maximumEagerLineStatInputBytes === void 0 ? {} : { maximumEagerLineStatInputBytes }
   });
   if (actualPreparedIndexPath && process.platform !== "win32") {
     chmodSync(actualPreparedIndexPath, 384);
   }
-  snapshot.indexFile = sourceIndex === "temporary" ? actualPreparedIndexPath : null;
+  const preparedIndexIdentity = actualPreparedIndexPath ? readIndexIdentity(actualPreparedIndexPath) : readIndexIdentity(realIndexPath);
+  const promotionBlocker = mode === "draft" && scope === "paths" && stagedPromotionSummary?.stagedChangeUnitCount > 0 ? {
+    kind: "real-staged-changes",
+    realIndexSha256: originalIndexIdentity.state === "file" ? originalIndexIdentity.sha256 : null,
+    stagedChangeUnitCount: stagedPromotionSummary.stagedChangeUnitCount,
+    samples: [...stagedPromotionSummary.samples]
+  } : null;
+  Object.assign(snapshot, {
+    indexFile: sourceIndex === "temporary" ? actualPreparedIndexPath : null,
+    temporaryObjectDirectory: draftStorage?.objectDirectory ?? null,
+    objectAlternates: draftStorage?.alternates ?? [],
+    sourceIndexIdentity: portableIndexIdentity(originalIndexIdentity),
+    promotionBlocker
+  });
   if (snapshot.changeUnitCount === 0) {
     throw new Error("The staged scope is empty.");
   }
@@ -1615,8 +2442,15 @@ function createSnapshot({
     flag: "wx",
     mode: 384
   });
-  const preparedIndexIdentity = actualPreparedIndexPath ? readIndexIdentity(actualPreparedIndexPath) : readIndexIdentity(realIndexPath);
-  if (scope === "staged" && (!indexIdentitiesMatch(preparedIndexIdentity, originalIndexIdentity) || JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))) {
+  if (mode === "draft" && (!indexIdentitiesMatch(
+    readIndexIdentity(realIndexPath),
+    originalIndexIdentity
+  ) || JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))) {
+    throw new Error(
+      "Repository state changed while the isolated draft snapshot was prepared."
+    );
+  }
+  if (mode === "actual" && scope === "staged" && (!indexIdentitiesMatch(preparedIndexIdentity, originalIndexIdentity) || JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))) {
     throw new Error(
       "Repository state changed while the staged snapshot was being read."
     );
@@ -1624,16 +2458,17 @@ function createSnapshot({
   if (mode === "actual" && scope !== "staged" && !deferIndexInstallation) {
     const currentHeadAnchor = captureHeadAnchor(root);
     const currentOperations = activeGitOperations(root);
-    const currentConflicts = runGit(["ls-files", "-u", "-z"], {
-      cwd: root
-    }).stdout;
+    const currentConflicts = runReadOnlyGit(root, "ls-files", [
+      "-u",
+      "-z"
+    ]).stdout;
     const currentIndexIdentity = readIndexIdentity(realIndexPath);
     if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(headAnchor) || currentOperations.length > 0 || currentConflicts.length > 0 || !indexIdentitiesMatch(currentIndexIdentity, originalIndexIdentity)) {
       throw new Error(
         "Repository state changed while the staged snapshot was being prepared; the real index was not replaced."
       );
     }
-    runGit(["read-tree", snapshot.indexTreeOid], { cwd: root });
+    runIndexMutationGit(root, "install-index-tree", [snapshot.indexTreeOid]);
   }
   return {
     snapshot,
@@ -1642,6 +2477,8 @@ function createSnapshot({
     originalIndexIdentity,
     preparedIndexPath: actualPreparedIndexPath,
     preparedIndexIdentity,
+    temporaryObjectDirectory: draftStorage?.objectDirectory ?? null,
+    promotionBlocker,
     indexInstallationRequired: mode === "actual" && scope !== "staged" && deferIndexInstallation
   };
 }
@@ -2245,8 +3082,7 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
     return [];
   }
   const indexBlobOids = parseIndexBlobOids(
-    runGit(["ls-files", "--stage", "-z", "--"], {
-      cwd: root,
+    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"], {
       env: environment
     }).stdout
   );
@@ -2269,57 +3105,75 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
     if (!Buffer.from(text, "utf8").equals(path)) {
       continue;
     }
-    const oid = runGit(["hash-object", "--no-filters", "--", text], {
-      cwd: root,
-      env: environment
-    }).stdout.toString("ascii").trim();
+    const oid = runReadOnlyGit(
+      root,
+      "hash-object",
+      ["--no-filters", "--", text],
+      {
+        env: environment
+      }
+    ).stdout.toString("ascii").trim();
     for (const source of deletedByOid.get(oid) ?? []) {
       pairs.push([source, path]);
     }
   }
   return pairs;
 }
+function renamePolicyForRecords(records) {
+  return selectRenamePolicy({
+    addedCandidates: records.filter(({ status }) => status === "A").length,
+    deletedCandidates: records.filter(({ status }) => status === "D").length,
+    maximumCandidatePairs: MAXIMUM_SIMILARITY_CANDIDATE_PAIRS
+  });
+}
+function discoverTrackedChanges(root, source, prefix, environment) {
+  const initial = parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--no-renames", "--"],
+      { env: environment }
+    ).stdout,
+    source
+  );
+  const policy = renamePolicyForRecords(initial);
+  if (policy.mode !== "eager" || policy.candidatePairs === 0) {
+    return initial;
+  }
+  return parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--find-renames=50%", "-l0", "--"],
+      { env: environment }
+    ).stdout,
+    source
+  );
+}
 function discoverCandidates(root) {
   const readOnlyEnvironment = {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_NO_REPLACE_OBJECTS: "1"
   };
-  const staged = parseNameStatus(
-    runGit(
-      [
-        "diff",
-        "--cached",
-        "--name-status",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--find-renames=50%",
-        "--"
-      ],
-      { cwd: root, env: readOnlyEnvironment }
-    ).stdout,
-    "staged"
+  const staged = discoverTrackedChanges(
+    root,
+    "staged",
+    ["--cached"],
+    readOnlyEnvironment
   );
-  const unstaged = parseNameStatus(
-    runGit(
-      [
-        "diff",
-        "--name-status",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--find-renames=50%",
-        "--"
-      ],
-      { cwd: root, env: readOnlyEnvironment }
-    ).stdout,
-    "unstaged"
+  const unstaged = discoverTrackedChanges(
+    root,
+    "unstaged",
+    [],
+    readOnlyEnvironment
   );
   const untracked = splitNul(
-    runGit(["ls-files", "--others", "--exclude-standard", "-z", "--"], {
-      cwd: root,
-      env: readOnlyEnvironment
-    }).stdout
+    runReadOnlyGit(
+      root,
+      "ls-files",
+      ["--others", "--exclude-standard", "-z", "--"],
+      { env: readOnlyEnvironment }
+    ).stdout
   ).map((path) => ({
     source: "untracked",
     status: "A",
@@ -2327,12 +3181,15 @@ function discoverCandidates(root) {
     rename: null
   }));
   const records = [...staged, ...unstaged, ...untracked];
-  const statusRenamePairs = parseStatusRenamePairs(
-    runGit(
-      ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
-      { cwd: root, env: readOnlyEnvironment }
+  const statusRenamePolicy = renamePolicyForRecords(records);
+  const statusRenamePairs = statusRenamePolicy.mode === "eager" && statusRenamePolicy.candidatePairs > 0 ? parseStatusRenamePairs(
+    runReadOnlyGit(
+      root,
+      "status",
+      ["--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
+      { env: readOnlyEnvironment }
     ).stdout
-  );
+  ) : [];
   const exactRenamePairs = exactUnstagedRenamePairs(
     root,
     unstaged,
@@ -2472,8 +3329,7 @@ function writeOwnedInput(path, bytes) {
   }
 }
 function assertPreallocationRepositoryState(root) {
-  const conflicts = runGit(["ls-files", "-u", "-z"], {
-    cwd: root,
+  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"], {
     env: { GIT_OPTIONAL_LOCKS: "0" }
   }).stdout;
   if (conflicts.length > 0) {
@@ -2678,7 +3534,7 @@ function prepareWorkflow({
       );
       if (overlap.length > 0) {
         fail(
-          "DRAFT_SCOPE_OVERLAPS_STAGED_STATE",
+          "DRAFT_SCOPE_OVERLAPS_STAGED",
           "Draft path scope overlaps existing staged work.",
           {
             exitCode: 1,
@@ -2736,7 +3592,11 @@ function prepareWorkflow({
         workspace.attemptDirectory,
         parsed.mode === "draft" ? "temporary-index" : "preparation-index"
       ),
-      deferIndexInstallation: parsed.mode === "actual" && parsed.scope !== "staged"
+      deferIndexInstallation: parsed.mode === "actual" && parsed.scope !== "staged",
+      stagedPromotionSummary: parsed.mode === "draft" && parsed.scope === "paths" && candidates.staged.length > 0 ? {
+        stagedChangeUnitCount: candidates.staged.length,
+        samples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
+      } : null
     });
     verifySnapshotScope(
       snapshotResult.snapshot,
@@ -2746,6 +3606,10 @@ function prepareWorkflow({
     const snapshotBytes = readFileSync3(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {
       ...allocated,
+      scope: {
+        ...allocated.scope,
+        promotionBlocker: snapshotResult.promotionBlocker
+      },
       headAnchor: snapshotResult.headAnchor,
       snapshot: {
         path: snapshotPath,
@@ -2755,6 +3619,8 @@ function prepareWorkflow({
         preparedIndexPath: snapshotResult.preparedIndexPath,
         originalIndexIdentity: snapshotResult.originalIndexIdentity,
         preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
+        temporaryObjectDirectory: snapshotResult.temporaryObjectDirectory,
+        promotionBlocker: snapshotResult.promotionBlocker,
         indexInstallationRequired: snapshotResult.indexInstallationRequired
       }
     });
@@ -2863,6 +3729,7 @@ var init_prepareWorkflow = __esm({
   "src/committing-to-git/workflow/prepareWorkflow.js"() {
     init_gitRepository();
     init_gitPath();
+    init_commitSnapshot();
     init_createSnapshot();
     init_indexInstallation();
     init_transactionWorkspace();
@@ -3024,10 +3891,14 @@ function assertRepositoryResumePreconditions(transaction) {
       { exitCode: 1 }
     );
   }
-  const conflicts = runGit(["ls-files", "-u", "-z"], {
-    cwd: transaction.repositoryRoot,
-    env: { GIT_OPTIONAL_LOCKS: "0" }
-  }).stdout;
+  const conflicts = runReadOnlyGit(
+    transaction.repositoryRoot,
+    "ls-files",
+    ["-u", "-z"],
+    {
+      env: { GIT_OPTIONAL_LOCKS: "0" }
+    }
+  ).stdout;
   if (conflicts.length > 0) {
     fail2(
       "UNRESOLVED_CONFLICTS",
@@ -3135,8 +4006,7 @@ function resumePreparationWorkflow({ transactionPath }) {
       );
     }
   } else {
-    const currentTree = writeIndexTree(transaction.repositoryRoot);
-    if (currentTree !== snapshot.indexTreeOid) {
+    if (!indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
       fail2("INDEX_DRIFT", "The real index changed after snapshot creation.", {
         exitCode: 1
       });
@@ -3341,15 +4211,30 @@ function samePath2(left, right) {
   const normalizedRight = resolve8(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
+function manifestEnvironment(manifest) {
+  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
+}
 var init_snapshotVerificationCommand = __esm({
   "src/committing-to-git/command/snapshotVerificationCommand.js"() {
     init_gitRepository();
+    init_createSnapshot();
     try {
       const manifestPath2 = parseArguments2(process.argv.slice(2));
       const manifest = JSON.parse(readFileSync6(manifestPath2, "utf8"));
       const root = repositoryRoot();
       const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath2(root, manifest.repositoryRoot);
-      const env = manifest.sourceIndex === "temporary" && manifest.indexFile ? { GIT_INDEX_FILE: manifest.indexFile } : void 0;
+      const env = manifestEnvironment(manifest);
       const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
       const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
       const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
@@ -3677,34 +4562,40 @@ function required(values, name) {
   return value;
 }
 function patchForManifest(manifest, root) {
-  const env = manifest.indexFile ? { GIT_INDEX_FILE: manifest.indexFile } : void 0;
+  const env = manifestEnvironment2(manifest);
   if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
     throw new Error(
       `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`
     );
   }
   const base = manifest.headOid ? [manifest.headOid] : [];
-  return runGit(
-    [
-      "-c",
-      `diff.renameLimit=${manifest.diffPolicy.renameLimit}`,
-      "diff",
-      "--cached",
-      "--no-ext-diff",
-      "--no-textconv",
-      `--find-renames=${manifest.diffPolicy.renameScore}%`,
-      "--diff-filter=d",
-      ...base,
-      "--"
-    ],
-    { cwd: root, env }
+  return runReadOnlyGit(
+    root,
+    "diff",
+    ["--cached", "--no-renames", "--diff-filter=d", ...base, "--"],
+    { env }
   ).stdout;
+}
+function manifestEnvironment2(manifest) {
+  if (!manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
 }
 var command, flagArguments, flags;
 var init_inspectionCommand = __esm({
   "src/committing-to-git/command/inspectionCommand.js"() {
     init_changeInspection();
     init_gitRepository();
+    init_createSnapshot();
     [command, ...flagArguments] = process.argv.slice(2);
     flags = parseFlags(flagArguments);
     try {
@@ -3771,24 +4662,26 @@ var init_inspectionCommand = __esm({
             `Change unit ${changeUnitId} has an invalid full old object ID.`
           );
         }
-        const readOnlyEnv = {
-          GIT_NO_LAZY_FETCH: "1",
-          GIT_NO_REPLACE_OBJECTS: "1",
-          GIT_OPTIONAL_LOCKS: "0"
-        };
-        const objectType = gitText(["cat-file", "-t", changeUnit.oldOid], {
-          cwd: root,
-          env: readOnlyEnv
-        }).trim();
+        const readOnlyEnv = manifestEnvironment2(manifest);
+        const objectType = readOnlyGitText(
+          root,
+          "cat-file",
+          ["-t", changeUnit.oldOid],
+          { env: readOnlyEnv }
+        ).trim();
         if (objectType !== "blob") {
           throw new Error(
             `Old object ${changeUnit.oldOid} must identify a blob object, not ${objectType}.`
           );
         }
-        const content = runGit(["cat-file", "blob", changeUnit.oldOid], {
-          cwd: root,
-          env: readOnlyEnv
-        }).stdout;
+        const content = runReadOnlyGit(
+          root,
+          "cat-file",
+          ["blob", changeUnit.oldOid],
+          {
+            env: readOnlyEnv
+          }
+        ).stdout;
         const expansion = expandDeletionInspection({
           ledgerPath: ledgerPath2,
           changeUnit,
@@ -4993,21 +5886,13 @@ function normalizeMessage2(text) {
 `;
 }
 function commitFacts(root, commitOid) {
-  const fields = gitText(
-    [
-      "show",
-      "-s",
-      "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
-      commitOid
-    ],
-    { cwd: root }
-  ).replace(/\r?\n$/u, "").split("\0");
-  const message = gitText(["show", "-s", "--format=%B", commitOid], {
-    cwd: root
-  });
-  const raw = runGit(["cat-file", "commit", commitOid], { cwd: root }).stdout;
-  const branchResult = runGit(["symbolic-ref", "--short", "-q", "HEAD"], {
-    cwd: root,
+  const fields = readOnlyGitText(root, "show-commit-fields", [
+    "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
+    commitOid
+  ]).replace(/\r?\n$/u, "").split("\0");
+  const message = readOnlyGitText(root, "show-message", [commitOid]);
+  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
+  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
     allowFailure: true
   });
   return {
@@ -5020,9 +5905,7 @@ function commitFacts(root, commitOid) {
     message: normalizeMessage2(message),
     signed: raw.includes(Buffer.from("\ngpgsig ")),
     branch: branchResult.status === 0 ? branchResult.stdout.toString("utf8").trim() : null,
-    shortOid: gitText(["rev-parse", "--short=12", commitOid], {
-      cwd: root
-    }).trim()
+    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim()
   };
 }
 function kindName(status) {
@@ -5057,16 +5940,9 @@ function normalizedKind({ oldMode, newMode, status }) {
   return kind;
 }
 function commitStatistics(root, commitOid) {
-  const common = [
-    "diff-tree",
-    "--root",
-    "--no-commit-id",
-    "-r",
-    "-z",
-    "--find-renames=50%"
-  ];
+  const common = ["--root", "--no-commit-id", "-r", "-z", "--no-renames"];
   const numstatFields = splitNul(
-    runGit([...common, "--numstat", commitOid], { cwd: root }).stdout
+    runReadOnlyGit(root, "diff-tree", [...common, "--numstat", commitOid]).stdout
   );
   let additions = 0;
   let deletions = 0;
@@ -5085,7 +5961,7 @@ function commitStatistics(root, commitOid) {
     index += path === "" ? 3 : 1;
   }
   const rawFields = splitNul(
-    runGit([...common, "--raw", "--no-abbrev", commitOid], { cwd: root }).stdout
+    runReadOnlyGit(root, "diff-tree", [...common, "--raw", commitOid]).stdout
   );
   const kinds = {};
   for (let index = 0; index < rawFields.length; ) {
@@ -5105,6 +5981,37 @@ function commitStatistics(root, commitOid) {
   }
   return { files, additions, deletions, binaryFiles, kinds };
 }
+function manifestStatistics(manifest) {
+  if (manifest?.schemaVersion !== 2) {
+    return null;
+  }
+  const values = [
+    manifest?.statistics?.files,
+    manifest?.statistics?.additions,
+    manifest?.statistics?.deletions,
+    manifest?.statistics?.binaryFiles
+  ];
+  if (!Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.statistics?.files !== manifest.changeUnits.length || !Number.isSafeInteger(values[0]) || values[0] < 0 || values.slice(1).some(
+    (value) => value !== null && (!Number.isSafeInteger(value) || value < 0)
+  ) || manifest.changeUnits.some(
+    (unit) => unit === null || typeof unit !== "object" || typeof unit.kind !== "string" || unit.kind.length === 0
+  )) {
+    throw new Error(
+      "Matching snapshot manifest has invalid reusable statistics."
+    );
+  }
+  const kinds = {};
+  for (const unit of manifest.changeUnits) {
+    kinds[unit.kind] = (kinds[unit.kind] ?? 0) + 1;
+  }
+  return {
+    files: manifest.statistics.files,
+    additions: manifest.statistics.additions,
+    deletions: manifest.statistics.deletions,
+    binaryFiles: manifest.statistics.binaryFiles,
+    kinds
+  };
+}
 function statusLabel(code) {
   const labels = {
     A: "added",
@@ -5119,9 +6026,12 @@ function statusLabel(code) {
 }
 function workspaceState(root) {
   const fields = splitNul(
-    runGit(["status", "--porcelain=v2", "-z", "--untracked-files=all"], {
-      cwd: root
-    }).stdout
+    runReadOnlyGit(root, "status", [
+      "--porcelain=v2",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames"
+    ]).stdout
   );
   const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
   for (let index = 0; index < fields.length; index += 1) {
@@ -5182,10 +6092,11 @@ function collectCommitReport({
   } else {
     commit.parentMatches = commit.parents.length === 0;
   }
+  const approvedStatistics = commit.treeMatches ? manifestStatistics(manifest) : null;
   return {
     schemaVersion: 1,
     commit,
-    statistics: commitStatistics(root, commitOid),
+    statistics: approvedStatistics ?? commitStatistics(root, commitOid),
     verification,
     checks,
     publication,
@@ -5251,7 +6162,7 @@ function renderCommitReport(report) {
     `- Snapshot: ${commit.treeMatches ? "Matches the approved staged tree" : "DIFFERS from the approved staged tree"}`,
     `- Message: ${commit.messageMatches ? "Matches the approved message" : "DIFFERS from the approved message"}`,
     `- Parent: ${commit.parentMatches ? "Matches the approved one-parent contract" : "DIFFERS from the approved one-parent contract"}`,
-    `- Changes: ${plural(statistics.files, "file")}, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : ""),
+    `- Changes: ${plural(statistics.files, "file")}` + (statistics.additions === null || statistics.deletions === null ? "; line statistics deferred by the approved snapshot budget" : `, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : "")),
     `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
     "",
     "Signature:",

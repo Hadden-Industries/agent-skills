@@ -1,4 +1,4 @@
-import { gitText, runGit } from "../git/gitRepository.js";
+import { readOnlyGitText, runReadOnlyGit } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
 
 const CHECK_STATUSES = new Set(["passed", "failed"]);
@@ -190,23 +190,15 @@ function normalizeMessage(text) {
 }
 
 function commitFacts(root, commitOid) {
-  const fields = gitText(
-    [
-      "show",
-      "-s",
-      "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
-      commitOid,
-    ],
-    { cwd: root },
-  )
+  const fields = readOnlyGitText(root, "show-commit-fields", [
+    "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
+    commitOid,
+  ])
     .replace(/\r?\n$/u, "")
     .split("\0");
-  const message = gitText(["show", "-s", "--format=%B", commitOid], {
-    cwd: root,
-  });
-  const raw = runGit(["cat-file", "commit", commitOid], { cwd: root }).stdout;
-  const branchResult = runGit(["symbolic-ref", "--short", "-q", "HEAD"], {
-    cwd: root,
+  const message = readOnlyGitText(root, "show-message", [commitOid]);
+  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
+  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
     allowFailure: true,
   });
 
@@ -223,9 +215,7 @@ function commitFacts(root, commitOid) {
       branchResult.status === 0
         ? branchResult.stdout.toString("utf8").trim()
         : null,
-    shortOid: gitText(["rev-parse", "--short=12", commitOid], {
-      cwd: root,
-    }).trim(),
+    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim(),
   };
 }
 
@@ -267,16 +257,10 @@ function normalizedKind({ oldMode, newMode, status }) {
 }
 
 function commitStatistics(root, commitOid) {
-  const common = [
-    "diff-tree",
-    "--root",
-    "--no-commit-id",
-    "-r",
-    "-z",
-    "--find-renames=50%",
-  ];
+  const common = ["--root", "--no-commit-id", "-r", "-z", "--no-renames"];
   const numstatFields = splitNul(
-    runGit([...common, "--numstat", commitOid], { cwd: root }).stdout,
+    runReadOnlyGit(root, "diff-tree", [...common, "--numstat", commitOid])
+      .stdout,
   );
   let additions = 0;
   let deletions = 0;
@@ -300,8 +284,7 @@ function commitStatistics(root, commitOid) {
   }
 
   const rawFields = splitNul(
-    runGit([...common, "--raw", "--no-abbrev", commitOid], { cwd: root })
-      .stdout,
+    runReadOnlyGit(root, "diff-tree", [...common, "--raw", commitOid]).stdout,
   );
   const kinds = {};
 
@@ -329,6 +312,58 @@ function commitStatistics(root, commitOid) {
   return { files, additions, deletions, binaryFiles, kinds };
 }
 
+function manifestStatistics(manifest) {
+  if (manifest?.schemaVersion !== 2) {
+    return null;
+  }
+
+  const values = [
+    manifest?.statistics?.files,
+    manifest?.statistics?.additions,
+    manifest?.statistics?.deletions,
+    manifest?.statistics?.binaryFiles,
+  ];
+
+  if (
+    !Array.isArray(manifest.changeUnits) ||
+    manifest.changeUnitCount !== manifest.changeUnits.length ||
+    manifest.statistics?.files !== manifest.changeUnits.length ||
+    !Number.isSafeInteger(values[0]) ||
+    values[0] < 0 ||
+    values
+      .slice(1)
+      .some(
+        (value) =>
+          value !== null && (!Number.isSafeInteger(value) || value < 0),
+      ) ||
+    manifest.changeUnits.some(
+      (unit) =>
+        unit === null ||
+        typeof unit !== "object" ||
+        typeof unit.kind !== "string" ||
+        unit.kind.length === 0,
+    )
+  ) {
+    throw new Error(
+      "Matching snapshot manifest has invalid reusable statistics.",
+    );
+  }
+
+  const kinds = {};
+
+  for (const unit of manifest.changeUnits) {
+    kinds[unit.kind] = (kinds[unit.kind] ?? 0) + 1;
+  }
+
+  return {
+    files: manifest.statistics.files,
+    additions: manifest.statistics.additions,
+    deletions: manifest.statistics.deletions,
+    binaryFiles: manifest.statistics.binaryFiles,
+    kinds,
+  };
+}
+
 function statusLabel(code) {
   const labels = {
     A: "added",
@@ -345,9 +380,12 @@ function statusLabel(code) {
 
 function workspaceState(root) {
   const fields = splitNul(
-    runGit(["status", "--porcelain=v2", "-z", "--untracked-files=all"], {
-      cwd: root,
-    }).stdout,
+    runReadOnlyGit(root, "status", [
+      "--porcelain=v2",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames",
+    ]).stdout,
   );
   const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
 
@@ -430,10 +468,14 @@ export function collectCommitReport({
     commit.parentMatches = commit.parents.length === 0;
   }
 
+  const approvedStatistics = commit.treeMatches
+    ? manifestStatistics(manifest)
+    : null;
+
   return {
     schemaVersion: 1,
     commit,
-    statistics: commitStatistics(root, commitOid),
+    statistics: approvedStatistics ?? commitStatistics(root, commitOid),
     verification,
     checks,
     publication,
@@ -548,12 +590,14 @@ export function renderCommitReport(report) {
         ? "Matches the approved one-parent contract"
         : "DIFFERS from the approved one-parent contract"
     }`,
-    `- Changes: ${plural(statistics.files, "file")}, ` +
-      `${plural(statistics.additions, "insertion")}, ` +
-      plural(statistics.deletions, "deletion") +
-      (statistics.binaryFiles > 0
-        ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts`
-        : ""),
+    `- Changes: ${plural(statistics.files, "file")}` +
+      (statistics.additions === null || statistics.deletions === null
+        ? "; line statistics deferred by the approved snapshot budget"
+        : `, ${plural(statistics.additions, "insertion")}, ` +
+          plural(statistics.deletions, "deletion") +
+          (statistics.binaryFiles > 0
+            ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts`
+            : "")),
     `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
     "",
     "Signature:",

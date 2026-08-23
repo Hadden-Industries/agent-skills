@@ -10,9 +10,10 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
   activeGitOperations,
-  gitText,
+  readOnlyGitText,
   resolveHead,
-  runGit,
+  runIndexMutationGit,
+  runReadOnlyGit,
   writeIndexTree,
 } from "../git/gitRepository.js";
 import {
@@ -32,10 +33,7 @@ function nulPathInput(paths) {
 }
 
 function resolveGitPath(root, name) {
-  const path = gitText(
-    ["rev-parse", "--path-format=absolute", "--git-path", name],
-    { cwd: root },
-  ).trim();
+  const path = readOnlyGitText(root, "git-path", [name]).trim();
 
   return resolve(isAbsolute(path) ? path : join(root, path));
 }
@@ -61,8 +59,153 @@ function copySharedIndexFiles(realIndexPath, preparedIndexPath) {
   }
 }
 
+export function parseGitAlternatePaths(value) {
+  if (!value) {
+    return [];
+  }
+
+  const separator = process.platform === "win32" ? ";" : ":";
+  const entries = [];
+  let entry = "";
+  let quoted = false;
+  const escapes = new Map([
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["f", "\f"],
+    ["n", "\n"],
+    ["r", "\r"],
+    ["t", "\t"],
+    ["v", "\v"],
+    ["\\", "\\"],
+    ['"', '"'],
+  ]);
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (quoted && character === "\\") {
+      const escaped = value[index + 1];
+
+      if (escaped === undefined) {
+        throw new Error(
+          "Git alternate object paths contain invalid C-style quoting.",
+        );
+      }
+
+      if (/[0-7]/u.test(escaped)) {
+        const octal = value.slice(index + 1).match(/^[0-7]{1,3}/u)[0];
+        entry += String.fromCharCode(Number.parseInt(octal, 8));
+        index += octal.length;
+      } else if (escapes.has(escaped)) {
+        entry += escapes.get(escaped);
+        index += 1;
+      } else {
+        throw new Error(
+          "Git alternate object paths contain an invalid C-style escape.",
+        );
+      }
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (!quoted && character === separator) {
+      if (entry.length > 0) {
+        entries.push(entry);
+      }
+      entry = "";
+    } else {
+      entry += character;
+    }
+  }
+
+  if (quoted) {
+    throw new Error(
+      "Git alternate object paths contain invalid C-style quoting.",
+    );
+  }
+
+  if (entry.length > 0) {
+    entries.push(entry);
+  }
+
+  return entries;
+}
+
+function quoteGitAlternatePath(path, separator) {
+  const requiresQuoting = [...path].some((character) => {
+    const code = character.codePointAt(0);
+
+    return character === '"' || code < 0x20 || code === 0x7f;
+  });
+
+  if (!path.includes(separator) && !requiresQuoting) {
+    return path;
+  }
+
+  const namedEscapes = new Map([
+    ["\x07", "\\a"],
+    ["\b", "\\b"],
+    ["\f", "\\f"],
+    ["\n", "\\n"],
+    ["\r", "\\r"],
+    ["\t", "\\t"],
+    ["\v", "\\v"],
+    ["\\", "\\\\"],
+    ['"', '\\"'],
+  ]);
+  const escaped = [...path]
+    .map((character) => {
+      if (namedEscapes.has(character)) {
+        return namedEscapes.get(character);
+      }
+
+      const code = character.codePointAt(0);
+
+      return code < 0x20 || code === 0x7f
+        ? `\\${code.toString(8).padStart(3, "0")}`
+        : character;
+    })
+    .join("");
+
+  return `"${escaped}"`;
+}
+
+export function formatGitAlternatePaths(paths) {
+  const separator = process.platform === "win32" ? ";" : ":";
+
+  return paths
+    .map((path) => quoteGitAlternatePath(path, separator))
+    .join(separator);
+}
+
+export function createDraftObjectEnvironment({ root, attemptDirectory }) {
+  const indexPath = join(attemptDirectory, "draft-index");
+  const objectDirectory = join(attemptDirectory, "draft-objects");
+
+  if (existsSync(indexPath) || existsSync(objectDirectory)) {
+    throw new Error("Draft storage already exists in the transaction attempt.");
+  }
+
+  mkdirSync(objectDirectory, { mode: 0o700 });
+
+  const primaryObjectDirectory = resolveGitPath(root, "objects");
+  const inheritedAlternates = parseGitAlternatePaths(
+    process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES,
+  ).map((path) => resolve(isAbsolute(path) ? path : join(root, path)));
+  const alternates = [
+    ...new Set([primaryObjectDirectory, ...inheritedAlternates]),
+  ];
+  const env = {
+    GIT_INDEX_FILE: indexPath,
+    GIT_OBJECT_DIRECTORY: objectDirectory,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(alternates),
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
+  };
+
+  return { env, indexPath, objectDirectory, alternates };
+}
+
 function assertRepositoryPreconditions(root) {
-  const conflicts = runGit(["ls-files", "-u", "-z"], { cwd: root }).stdout;
+  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"]).stdout;
 
   if (conflicts.length > 0) {
     throw new Error(
@@ -81,9 +224,48 @@ function assertRepositoryPreconditions(root) {
 }
 
 function stagedChangePaths(root) {
-  return runGit(["diff", "--cached", "--name-only", "-z", "--"], {
-    cwd: root,
-  }).stdout;
+  return runReadOnlyGit(root, "diff", [
+    "--cached",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    "--",
+  ]).stdout;
+}
+
+function portableIndexIdentity(identity) {
+  return identity.state === "absent"
+    ? { state: "absent" }
+    : {
+        state: "file",
+        byteCount: identity.byteCount,
+        sha256: identity.sha256,
+      };
+}
+
+function copyStableIndex(realIndexPath, preparedIndexPath, originalIdentity) {
+  if (originalIdentity.state === "absent") {
+    return;
+  }
+
+  copyFileSync(realIndexPath, preparedIndexPath);
+  copySharedIndexFiles(realIndexPath, preparedIndexPath);
+
+  if (process.platform !== "win32") {
+    chmodSync(preparedIndexPath, 0o600);
+  }
+
+  const currentIdentity = readIndexIdentity(realIndexPath);
+  const copiedIdentity = readIndexIdentity(preparedIndexPath);
+
+  if (
+    !indexIdentitiesMatch(currentIdentity, originalIdentity) ||
+    !indexIdentitiesMatch(copiedIdentity, originalIdentity)
+  ) {
+    throw new Error(
+      "The real index changed while its stable draft copy was made.",
+    );
+  }
 }
 
 export function createSnapshot({
@@ -94,6 +276,9 @@ export function createSnapshot({
   outputPath,
   preparedIndexPath = null,
   deferIndexInstallation = false,
+  stagedPromotionSummary = null,
+  maximumSimilarityCandidatePairs,
+  maximumEagerLineStatInputBytes,
 }) {
   if (!new Set(["actual", "draft"]).has(mode)) {
     throw new Error("Snapshot mode must be actual or draft.");
@@ -107,20 +292,28 @@ export function createSnapshot({
     throw new Error("Path scope requires at least one literal path.");
   }
 
+  if (existsSync(outputPath)) {
+    throw new Error(`Snapshot output already exists: ${outputPath}`);
+  }
+
   assertRepositoryPreconditions(root);
 
   const headOid = resolveHead(root);
   const headAnchor = captureHeadAnchor(root);
   const realIndexPath = resolveGitPath(root, "index");
-  let env = scope === "staged" ? { GIT_OPTIONAL_LOCKS: "0" } : undefined;
+  let originalIndexIdentity;
+  let env;
   let sourceIndex = "real";
   let actualPreparedIndexPath = null;
+  let draftStorage = null;
+  let indexTreeOid = null;
 
-  if (scope === "staged") {
-    writeIndexTree(root, env);
+  if (mode === "actual" && scope === "staged") {
+    indexTreeOid = writeIndexTree(root);
+    originalIndexIdentity = readIndexIdentity(realIndexPath);
+  } else {
+    originalIndexIdentity = readIndexIdentity(realIndexPath);
   }
-
-  const originalIndexIdentity = readIndexIdentity(realIndexPath);
 
   if (mode === "actual" && scope === "paths") {
     const stagedPaths = stagedChangePaths(root);
@@ -133,13 +326,29 @@ export function createSnapshot({
     }
   }
 
-  if (scope !== "staged") {
-    actualPreparedIndexPath =
-      preparedIndexPath ??
-      join(
-        dirname(outputPath),
-        mode === "draft" ? "temporary-index" : "preparation-index",
+  if (mode === "draft") {
+    draftStorage = createDraftObjectEnvironment({
+      root,
+      attemptDirectory: dirname(outputPath),
+    });
+    actualPreparedIndexPath = draftStorage.indexPath;
+    env = draftStorage.env;
+    sourceIndex = "temporary";
+
+    if (scope === "staged" && originalIndexIdentity.state === "file") {
+      copyStableIndex(
+        realIndexPath,
+        actualPreparedIndexPath,
+        originalIndexIdentity,
       );
+    } else {
+      runIndexMutationGit(root, "read-index-tree", [headOid ?? "--empty"], {
+        env,
+      });
+    }
+  } else if (scope !== "staged") {
+    actualPreparedIndexPath =
+      preparedIndexPath ?? join(dirname(outputPath), "preparation-index");
 
     if (existsSync(actualPreparedIndexPath)) {
       throw new Error(
@@ -153,41 +362,29 @@ export function createSnapshot({
       GIT_OPTIONAL_LOCKS: "0",
     };
 
-    if (mode === "draft") {
-      sourceIndex = "temporary";
-      runGit(headOid ? ["read-tree", headOid] : ["read-tree", "--empty"], {
-        cwd: root,
-        env,
-      });
-    } else if (originalIndexIdentity.state === "file") {
-      copyFileSync(realIndexPath, actualPreparedIndexPath);
-      copySharedIndexFiles(realIndexPath, actualPreparedIndexPath);
+    if (originalIndexIdentity.state === "file") {
+      copyStableIndex(
+        realIndexPath,
+        actualPreparedIndexPath,
+        originalIndexIdentity,
+      );
     } else {
-      runGit(headOid ? ["read-tree", headOid] : ["read-tree", "--empty"], {
-        cwd: root,
+      runIndexMutationGit(root, "read-index-tree", [headOid ?? "--empty"], {
         env,
       });
     }
   }
 
   if (scope === "full") {
-    runGit(["add", "-A"], { cwd: root, env });
+    runIndexMutationGit(root, "add-all", [], { env });
   } else if (scope === "paths") {
-    runGit(
-      [
-        "--literal-pathspecs",
-        "add",
-        "-A",
-        "--pathspec-from-file=-",
-        "--pathspec-file-nul",
-      ],
-      {
-        cwd: root,
-        env,
-        input: nulPathInput(scopePaths),
-      },
-    );
+    runIndexMutationGit(root, "add-paths", [], {
+      env,
+      input: nulPathInput(scopePaths),
+    });
   }
+
+  indexTreeOid ??= writeIndexTree(root, env);
 
   const snapshot = buildSnapshot({
     root,
@@ -196,14 +393,44 @@ export function createSnapshot({
     scopeKind: scope,
     sourceIndex,
     headOid,
+    indexTreeOid,
+    ...(maximumSimilarityCandidatePairs === undefined
+      ? {}
+      : { maximumSimilarityCandidatePairs }),
+    ...(maximumEagerLineStatInputBytes === undefined
+      ? {}
+      : { maximumEagerLineStatInputBytes }),
   });
 
   if (actualPreparedIndexPath && process.platform !== "win32") {
     chmodSync(actualPreparedIndexPath, 0o600);
   }
 
-  snapshot.indexFile =
-    sourceIndex === "temporary" ? actualPreparedIndexPath : null;
+  const preparedIndexIdentity = actualPreparedIndexPath
+    ? readIndexIdentity(actualPreparedIndexPath)
+    : readIndexIdentity(realIndexPath);
+  const promotionBlocker =
+    mode === "draft" &&
+    scope === "paths" &&
+    stagedPromotionSummary?.stagedChangeUnitCount > 0
+      ? {
+          kind: "real-staged-changes",
+          realIndexSha256:
+            originalIndexIdentity.state === "file"
+              ? originalIndexIdentity.sha256
+              : null,
+          stagedChangeUnitCount: stagedPromotionSummary.stagedChangeUnitCount,
+          samples: [...stagedPromotionSummary.samples],
+        }
+      : null;
+
+  Object.assign(snapshot, {
+    indexFile: sourceIndex === "temporary" ? actualPreparedIndexPath : null,
+    temporaryObjectDirectory: draftStorage?.objectDirectory ?? null,
+    objectAlternates: draftStorage?.alternates ?? [],
+    sourceIndexIdentity: portableIndexIdentity(originalIndexIdentity),
+    promotionBlocker,
+  });
 
   if (snapshot.changeUnitCount === 0) {
     throw new Error("The staged scope is empty.");
@@ -215,11 +442,21 @@ export function createSnapshot({
     mode: 0o600,
   });
 
-  const preparedIndexIdentity = actualPreparedIndexPath
-    ? readIndexIdentity(actualPreparedIndexPath)
-    : readIndexIdentity(realIndexPath);
+  if (
+    mode === "draft" &&
+    (!indexIdentitiesMatch(
+      readIndexIdentity(realIndexPath),
+      originalIndexIdentity,
+    ) ||
+      JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))
+  ) {
+    throw new Error(
+      "Repository state changed while the isolated draft snapshot was prepared.",
+    );
+  }
 
   if (
+    mode === "actual" &&
     scope === "staged" &&
     (!indexIdentitiesMatch(preparedIndexIdentity, originalIndexIdentity) ||
       JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))
@@ -232,9 +469,10 @@ export function createSnapshot({
   if (mode === "actual" && scope !== "staged" && !deferIndexInstallation) {
     const currentHeadAnchor = captureHeadAnchor(root);
     const currentOperations = activeGitOperations(root);
-    const currentConflicts = runGit(["ls-files", "-u", "-z"], {
-      cwd: root,
-    }).stdout;
+    const currentConflicts = runReadOnlyGit(root, "ls-files", [
+      "-u",
+      "-z",
+    ]).stdout;
     const currentIndexIdentity = readIndexIdentity(realIndexPath);
 
     if (
@@ -249,7 +487,7 @@ export function createSnapshot({
       );
     }
 
-    runGit(["read-tree", snapshot.indexTreeOid], { cwd: root });
+    runIndexMutationGit(root, "install-index-tree", [snapshot.indexTreeOid]);
   }
 
   return {
@@ -259,6 +497,8 @@ export function createSnapshot({
     originalIndexIdentity,
     preparedIndexPath: actualPreparedIndexPath,
     preparedIndexIdentity,
+    temporaryObjectDirectory: draftStorage?.objectDirectory ?? null,
+    promotionBlocker,
     indexInstallationRequired:
       mode === "actual" && scope !== "staged" && deferIndexInstallation,
   };

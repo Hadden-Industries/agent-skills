@@ -10,11 +10,12 @@ import {
   writeInspection,
 } from "../inspection/changeInspection.js";
 import {
-  gitText,
   indexMatchesTree,
+  readOnlyGitText,
   repositoryRoot,
-  runGit,
+  runReadOnlyGit,
 } from "../git/gitRepository.js";
+import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
 
 function usageError(message) {
   console.error(message);
@@ -53,9 +54,7 @@ function required(values, name) {
 }
 
 function patchForManifest(manifest, root) {
-  const env = manifest.indexFile
-    ? { GIT_INDEX_FILE: manifest.indexFile }
-    : undefined;
+  const env = manifestEnvironment(manifest);
 
   if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
     throw new Error(
@@ -65,21 +64,33 @@ function patchForManifest(manifest, root) {
 
   const base = manifest.headOid ? [manifest.headOid] : [];
 
-  return runGit(
-    [
-      "-c",
-      `diff.renameLimit=${manifest.diffPolicy.renameLimit}`,
-      "diff",
-      "--cached",
-      "--no-ext-diff",
-      "--no-textconv",
-      `--find-renames=${manifest.diffPolicy.renameScore}%`,
-      "--diff-filter=d",
-      ...base,
-      "--",
-    ],
-    { cwd: root, env },
+  return runReadOnlyGit(
+    root,
+    "diff",
+    ["--cached", "--no-renames", "--diff-filter=d", ...base, "--"],
+    { env },
   ).stdout;
+}
+
+function manifestEnvironment(manifest) {
+  if (!manifest.indexFile) {
+    return undefined;
+  }
+
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...(manifest.temporaryObjectDirectory
+      ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory }
+      : {}),
+    ...(Array.isArray(manifest.objectAlternates) &&
+    manifest.objectAlternates.length > 0
+      ? {
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+            manifest.objectAlternates,
+          ),
+        }
+      : {}),
+  };
 }
 
 const [command, ...flagArguments] = process.argv.slice(2);
@@ -159,15 +170,13 @@ try {
       );
     }
 
-    const readOnlyEnv = {
-      GIT_NO_LAZY_FETCH: "1",
-      GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-    };
-    const objectType = gitText(["cat-file", "-t", changeUnit.oldOid], {
-      cwd: root,
-      env: readOnlyEnv,
-    }).trim();
+    const readOnlyEnv = manifestEnvironment(manifest);
+    const objectType = readOnlyGitText(
+      root,
+      "cat-file",
+      ["-t", changeUnit.oldOid],
+      { env: readOnlyEnv },
+    ).trim();
 
     if (objectType !== "blob") {
       throw new Error(
@@ -175,10 +184,14 @@ try {
       );
     }
 
-    const content = runGit(["cat-file", "blob", changeUnit.oldOid], {
-      cwd: root,
-      env: readOnlyEnv,
-    }).stdout;
+    const content = runReadOnlyGit(
+      root,
+      "cat-file",
+      ["blob", changeUnit.oldOid],
+      {
+        env: readOnlyEnv,
+      },
+    ).stdout;
     const expansion = expandDeletionInspection({
       ledgerPath,
       changeUnit,

@@ -15,9 +15,13 @@ import { TextDecoder } from "node:util";
 import {
   activeGitOperations,
   repositoryRoot,
-  runGit,
+  runReadOnlyGit,
 } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
+import {
+  MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
+  selectRenamePolicy,
+} from "../snapshot/commitSnapshot.js";
 import { createSnapshot } from "../snapshot/createSnapshot.js";
 import {
   installPreparedIndex,
@@ -879,8 +883,7 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
   }
 
   const indexBlobOids = parseIndexBlobOids(
-    runGit(["ls-files", "--stage", "-z", "--"], {
-      cwd: root,
+    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"], {
       env: environment,
     }).stdout,
   );
@@ -910,10 +913,14 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
       continue;
     }
 
-    const oid = runGit(["hash-object", "--no-filters", "--", text], {
-      cwd: root,
-      env: environment,
-    })
+    const oid = runReadOnlyGit(
+      root,
+      "hash-object",
+      ["--no-filters", "--", text],
+      {
+        env: environment,
+      },
+    )
       .stdout.toString("ascii")
       .trim();
 
@@ -925,47 +932,65 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
   return pairs;
 }
 
+function renamePolicyForRecords(records) {
+  return selectRenamePolicy({
+    addedCandidates: records.filter(({ status }) => status === "A").length,
+    deletedCandidates: records.filter(({ status }) => status === "D").length,
+    maximumCandidatePairs: MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
+  });
+}
+
+function discoverTrackedChanges(root, source, prefix, environment) {
+  const initial = parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--no-renames", "--"],
+      { env: environment },
+    ).stdout,
+    source,
+  );
+  const policy = renamePolicyForRecords(initial);
+
+  if (policy.mode !== "eager" || policy.candidatePairs === 0) {
+    return initial;
+  }
+
+  return parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--find-renames=50%", "-l0", "--"],
+      { env: environment },
+    ).stdout,
+    source,
+  );
+}
+
 function discoverCandidates(root) {
   const readOnlyEnvironment = {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_NO_REPLACE_OBJECTS: "1",
   };
-  const staged = parseNameStatus(
-    runGit(
-      [
-        "diff",
-        "--cached",
-        "--name-status",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--find-renames=50%",
-        "--",
-      ],
-      { cwd: root, env: readOnlyEnvironment },
-    ).stdout,
+  const staged = discoverTrackedChanges(
+    root,
     "staged",
+    ["--cached"],
+    readOnlyEnvironment,
   );
-  const unstaged = parseNameStatus(
-    runGit(
-      [
-        "diff",
-        "--name-status",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--find-renames=50%",
-        "--",
-      ],
-      { cwd: root, env: readOnlyEnvironment },
-    ).stdout,
+  const unstaged = discoverTrackedChanges(
+    root,
     "unstaged",
+    [],
+    readOnlyEnvironment,
   );
   const untracked = splitNul(
-    runGit(["ls-files", "--others", "--exclude-standard", "-z", "--"], {
-      cwd: root,
-      env: readOnlyEnvironment,
-    }).stdout,
+    runReadOnlyGit(
+      root,
+      "ls-files",
+      ["--others", "--exclude-standard", "-z", "--"],
+      { env: readOnlyEnvironment },
+    ).stdout,
   ).map((path) => ({
     source: "untracked",
     status: "A",
@@ -973,12 +998,18 @@ function discoverCandidates(root) {
     rename: null,
   }));
   const records = [...staged, ...unstaged, ...untracked];
-  const statusRenamePairs = parseStatusRenamePairs(
-    runGit(
-      ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
-      { cwd: root, env: readOnlyEnvironment },
-    ).stdout,
-  );
+  const statusRenamePolicy = renamePolicyForRecords(records);
+  const statusRenamePairs =
+    statusRenamePolicy.mode === "eager" && statusRenamePolicy.candidatePairs > 0
+      ? parseStatusRenamePairs(
+          runReadOnlyGit(
+            root,
+            "status",
+            ["--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
+            { env: readOnlyEnvironment },
+          ).stdout,
+        )
+      : [];
   const exactRenamePairs = exactUnstagedRenamePairs(
     root,
     unstaged,
@@ -1150,8 +1181,7 @@ function writeOwnedInput(path, bytes) {
 }
 
 function assertPreallocationRepositoryState(root) {
-  const conflicts = runGit(["ls-files", "-u", "-z"], {
-    cwd: root,
+  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"], {
     env: { GIT_OPTIONAL_LOCKS: "0" },
   }).stdout;
 
@@ -1389,7 +1419,7 @@ export function prepareWorkflow({
 
       if (overlap.length > 0) {
         fail(
-          "DRAFT_SCOPE_OVERLAPS_STAGED_STATE",
+          "DRAFT_SCOPE_OVERLAPS_STAGED",
           "Draft path scope overlaps existing staged work.",
           {
             exitCode: 1,
@@ -1459,6 +1489,19 @@ export function prepareWorkflow({
             ),
       deferIndexInstallation:
         parsed.mode === "actual" && parsed.scope !== "staged",
+      stagedPromotionSummary:
+        parsed.mode === "draft" &&
+        parsed.scope === "paths" &&
+        candidates.staged.length > 0
+          ? {
+              stagedChangeUnitCount: candidates.staged.length,
+              samples: candidates.staged
+                .flatMap(({ paths }) => paths)
+                .sort(compareBuffers)
+                .slice(0, 5)
+                .map(safePathDisplay),
+            }
+          : null,
     });
 
     verifySnapshotScope(
@@ -1470,6 +1513,10 @@ export function prepareWorkflow({
     const snapshotBytes = readFileSync(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {
       ...allocated,
+      scope: {
+        ...allocated.scope,
+        promotionBlocker: snapshotResult.promotionBlocker,
+      },
       headAnchor: snapshotResult.headAnchor,
       snapshot: {
         path: snapshotPath,
@@ -1479,6 +1526,8 @@ export function prepareWorkflow({
         preparedIndexPath: snapshotResult.preparedIndexPath,
         originalIndexIdentity: snapshotResult.originalIndexIdentity,
         preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
+        temporaryObjectDirectory: snapshotResult.temporaryObjectDirectory,
+        promotionBlocker: snapshotResult.promotionBlocker,
         indexInstallationRequired: snapshotResult.indexInstallationRequired,
       },
     });

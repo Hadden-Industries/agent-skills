@@ -9,6 +9,7 @@ import {
   repositoryRoot,
   resolveHead,
 } from "../git/gitRepository.js";
+import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
 
 function usageError(message) {
   console.error(message);
@@ -35,6 +36,27 @@ function samePath(left, right) {
     : normalizedLeft === normalizedRight;
 }
 
+function manifestEnvironment(manifest) {
+  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
+    return undefined;
+  }
+
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...(manifest.temporaryObjectDirectory
+      ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory }
+      : {}),
+    ...(Array.isArray(manifest.objectAlternates) &&
+    manifest.objectAlternates.length > 0
+      ? {
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+            manifest.objectAlternates,
+          ),
+        }
+      : {}),
+  };
+}
+
 try {
   const manifestPath = parseArguments(process.argv.slice(2));
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -42,10 +64,7 @@ try {
   const repositoryMatches =
     typeof manifest.repositoryRoot === "string" &&
     samePath(root, manifest.repositoryRoot);
-  const env =
-    manifest.sourceIndex === "temporary" && manifest.indexFile
-      ? { GIT_INDEX_FILE: manifest.indexFile }
-      : undefined;
+  const env = manifestEnvironment(manifest);
   const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
   const treeMatches = repositoryMatches
     ? indexMatchesTree(root, manifest.indexTreeOid, env)

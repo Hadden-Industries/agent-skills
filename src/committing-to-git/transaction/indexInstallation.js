@@ -16,9 +16,9 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import {
-  gitText,
+  readOnlyGitText,
   resolveHead,
-  runGit,
+  runReadOnlyGit,
   writeIndexTree,
 } from "../git/gitRepository.js";
 import { readTransaction } from "./transactionWorkspace.js";
@@ -300,16 +300,13 @@ function validateJournal(journal) {
 }
 
 function resolveRealIndexPath(root) {
-  const gitPath = gitText(["rev-parse", "--git-path", "index"], {
-    cwd: root,
-  }).trim();
+  const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
 
   return resolve(isAbsolute(gitPath) ? gitPath : join(root, gitPath));
 }
 
 export function captureHeadAnchor(root) {
-  const symbolic = runGit(["symbolic-ref", "--quiet", "HEAD"], {
-    cwd: root,
+  const symbolic = runReadOnlyGit(root, "symbolic-head", [], {
     allowFailure: true,
   });
   const headOid = resolveHead(root);

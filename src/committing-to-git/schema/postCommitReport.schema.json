@@ -55,9 +55,9 @@
       "required": ["files", "additions", "deletions", "binaryFiles", "kinds"],
       "properties": {
         "files": { "type": "integer", "minimum": 0 },
-        "additions": { "type": "integer", "minimum": 0 },
-        "deletions": { "type": "integer", "minimum": 0 },
-        "binaryFiles": { "type": "integer", "minimum": 0 },
+        "additions": { "type": ["integer", "null"], "minimum": 0 },
+        "deletions": { "type": ["integer", "null"], "minimum": 0 },
+        "binaryFiles": { "type": ["integer", "null"], "minimum": 0 },
         "kinds": { "type": "object" }
       }
     },
