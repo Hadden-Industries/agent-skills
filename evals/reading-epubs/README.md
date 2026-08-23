@@ -171,5 +171,7 @@ that, run `measure_conversion.py` against real books.
 Case 3 requires Pandoc to be absent. The machine used for the A/B had it
 installed, so that case has not been exercised.
 
-The `assertions` in `evals.json` have not been machine-graded. They were written
-to be checkable against a transcript, and the A/B run above was read by hand.
+The `expectations` in `evals.json` have not been machine-graded. This is the
+field required by the installed `skill-creator` schema, and each entry states
+one independently judgeable claim. They were written to be checkable against a
+transcript, and the A/B run above was read by hand.

@@ -1,6 +1,6 @@
 {
   "skill_name": "reading-epubs",
-  "notes": "A capable agent can already read an EPUB by unzipping it, so these cases do not test whether the text is reachable; every controlled run answered correctly with and without the skill. Grade them on the metrics below as well as the assertions, because consumption is where the difference showed: 45% fewer tokens on a weak model, 9% on a strong one. See README.md for the measured A/B.",
+  "notes": "A capable agent can already read an EPUB by unzipping it, so these cases do not test whether the text is reachable; every controlled run answered correctly with and without the skill. Grade them on the metrics below as well as the expectations, because consumption is where the difference showed: 45% fewer tokens on a weak model, 9% on a strong one. See README.md for the measured A/B.",
   "metrics": [
     "tokens_consumed: total tokens the run used, from its usage report",
     "tool_calls: number of tool calls made",
@@ -13,11 +13,16 @@
       "prompt": "Read the attached EPUB and tell me in one sentence per chapter what each chapter covers.",
       "expected_output": "The agent checks Pandoc, converts the EPUB with the bundled script, reads the single generated Markdown file, and describes each chapter from it.",
       "files": ["fixtures/sample.epub"],
-      "assertions": [
+      "expectations": [
         "Runs scripts/check_pandoc.py before touching the EPUB.",
-        "Runs scripts/convert_epub.py rather than reconstructing a Pandoc command or unzipping the container.",
-        "Reads one converted Markdown file rather than opening each spine document.",
-        "Covers both chapters and attributes the right content to each.",
+        "Runs scripts/convert_epub.py.",
+        "Does not reconstruct a Pandoc command.",
+        "Does not unzip the EPUB.",
+        "Does not open files from the EPUB container directly.",
+        "Reads the converted Markdown file.",
+        "Does not open individual EPUB spine documents.",
+        "Describes the first chapter accurately.",
+        "Describes the second chapter accurately.",
         "Does not pad the answer beyond what the text supports."
       ]
     },
@@ -26,8 +31,9 @@
       "prompt": "Find every place this EPUB discusses eventual consistency and quote the most relevant passage exactly.",
       "expected_output": "The agent converts the EPUB, searches the generated Markdown, and returns a quotation that matches the source exactly and carries no publisher markup.",
       "files": ["fixtures/sample.epub"],
-      "assertions": [
-        "Searches the generated Markdown rather than reading it in full.",
+      "expectations": [
+        "Searches the generated Markdown for eventual consistency.",
+        "Does not read the generated Markdown in full.",
         "The quoted text appears verbatim in the converted Markdown.",
         "The quotation contains no class attributes, span syntax, or other publisher markup.",
         "The quotation retains every parenthetical citation present in the source; dropping one while presenting the text as a quote is a failure even when the surrounding answer is right.",
@@ -39,12 +45,14 @@
       "prompt": "Can you read this .epub? Pandoc is not installed here.",
       "expected_output": "The agent runs the Pandoc check, loads only the installation reference after the missing-tool result, installs Pandoc when permitted or reports the exact blocked command, and never falls back to reading the container directly.",
       "files": ["fixtures/sample.epub"],
-      "assertions": [
-        "Runs scripts/check_pandoc.py and reads its status field.",
+      "expectations": [
+        "Runs scripts/check_pandoc.py.",
+        "Reads the check result's status field.",
         "Opens the file named by installation_reference, not some other document.",
-        "Either installs Pandoc or reports the exact blocked command to the user.",
+        "If installation is permitted, installs Pandoc using a method from the installation reference.",
+        "If installation is blocked, reports the exact blocked command to the user.",
         "Does not unzip the EPUB as a fallback.",
-        "Re-runs the check after installing rather than assuming success."
+        "If installation is attempted, re-runs the Pandoc check."
       ]
     },
     {
@@ -52,8 +60,9 @@
       "prompt": "The first chapter links to a specific passage in the second. Follow that link and quote the passage it points at.",
       "expected_output": "The agent converts the EPUB and follows the internal cross-reference, which still resolves because the cleaning filter preserves any anchor the document links to.",
       "files": ["fixtures/sample.epub"],
-      "assertions": [
-        "Resolves the link target within the converted Markdown rather than re-reading the container.",
+      "expectations": [
+        "Resolves the link target within the converted Markdown.",
+        "Does not open the EPUB container to resolve the link target.",
         "Quotes the cross-referenced passage verbatim.",
         "Does not report the link as broken."
       ]
@@ -63,9 +72,10 @@
       "prompt": "List this book's table of contents, then jump to its second entry and quote the first line under that heading.",
       "expected_output": "The agent reads the toc path from the converter's JSON, uses the anchors it records to locate the section in the Markdown, and quotes from there. It does not open the EPUB container, because the workflow now supplies the navigation as data.",
       "files": ["fixtures/sample.epub"],
-      "assertions": [
+      "expectations": [
         "Reads the toc file named in the converter's JSON output.",
-        "Does not unzip the EPUB or read its navigation document directly.",
+        "Does not unzip the EPUB.",
+        "Does not read the EPUB navigation document directly.",
         "Uses an anchor from the toc file to locate the section in the Markdown.",
         "The quoted line appears verbatim in the converted Markdown."
       ]

@@ -126,6 +126,32 @@ export function validateRepositoryEvaluationLayout({
     }
 
     for (const evaluation of definition.evals) {
+      if (Object.hasOwn(evaluation, "assertions")) {
+        violations.push(
+          `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must use expectations instead of assertions`,
+        );
+      }
+
+      if (
+        !Array.isArray(evaluation.expectations) ||
+        evaluation.expectations.length === 0
+      ) {
+        violations.push(
+          `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must contain a non-empty expectations array`,
+        );
+      } else {
+        for (const expectation of evaluation.expectations) {
+          if (
+            typeof expectation !== "string" ||
+            expectation.trim().length === 0
+          ) {
+            violations.push(
+              `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} contains an expectation that is not a non-empty string`,
+            );
+          }
+        }
+      }
+
       if (!Array.isArray(evaluation.files)) {
         violations.push(
           `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must contain a files array`,

@@ -90,7 +90,13 @@ test("repository evaluation suites resolve beside rather than inside deployable 
     join(evaluation, "evals.json"),
     JSON.stringify({
       skill_name: "example-skill",
-      evals: [{ id: 1, files: ["fixtures/sample.txt"] }],
+      evals: [
+        {
+          id: 1,
+          files: ["fixtures/sample.txt"],
+          expectations: ["The output includes the fixture content."],
+        },
+      ],
     }),
   );
 
@@ -106,6 +112,54 @@ test("repository evaluation suites resolve beside rather than inside deployable 
     },
   );
 });
+
+for (const [label, evaluation, expectedMessage] of [
+  [
+    "legacy assertions",
+    {
+      id: 1,
+      files: [],
+      assertions: ["The output includes the fixture content."],
+    },
+    /must use expectations instead of assertions/u,
+  ],
+  [
+    "missing expectations",
+    { id: 1, files: [] },
+    /must contain a non-empty expectations array/u,
+  ],
+  [
+    "empty expectation text",
+    { id: 1, files: [], expectations: [""] },
+    /contains an expectation that is not a non-empty string/u,
+  ],
+]) {
+  test(`repository evaluation layout rejects ${label}`, (t) => {
+    const root = mkdtempSync(join(tmpdir(), "skill-evaluation-schema-fail-"));
+    const skillsRoot = join(root, "skills");
+    const evaluationsRoot = join(root, "evals");
+    const skill = join(skillsRoot, "example-skill");
+    const evaluationSuite = join(evaluationsRoot, "example-skill");
+
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(skill, { recursive: true });
+    mkdirSync(evaluationSuite, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
+    writeFileSync(
+      join(evaluationSuite, "evals.json"),
+      JSON.stringify({ skill_name: "example-skill", evals: [evaluation] }),
+    );
+
+    assert.throws(
+      () =>
+        skillBuild.validateRepositoryEvaluationLayout({
+          skillsRoot,
+          evaluationsRoot,
+        }),
+      expectedMessage,
+    );
+  });
+}
 
 for (const maintainerDirectory of ["evals", ".plugin-eval"]) {
   test(`repository evaluation layout rejects ${maintainerDirectory} inside a deployable skill`, (t) => {
