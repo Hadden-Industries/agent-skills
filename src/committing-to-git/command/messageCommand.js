@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import {
-  renderCommitMessage,
-  renderScaffoldTemplate,
-  scaffoldContent,
+  renderLegacyCommitMessage,
+  renderLegacyScaffoldTemplate,
+  scaffoldLegacyContent,
 } from "../message/commitMessageRenderer.js";
 
 function usageError(message) {
@@ -89,7 +89,7 @@ try {
   if (command === "scaffold") {
     const output = required(flags, "output");
     const template = required(flags, "template");
-    const content = scaffoldContent(manifest);
+    const content = scaffoldLegacyContent(manifest);
 
     if (existsSync(output) || existsSync(template)) {
       throw new Error(
@@ -98,7 +98,7 @@ try {
     }
 
     writeNewText(output, `${JSON.stringify(content, null, 2)}\n`);
-    writeNewText(template, renderScaffoldTemplate(manifest, content));
+    writeNewText(template, renderLegacyScaffoldTemplate(manifest, content));
     process.stdout.write(
       `${JSON.stringify({ output, template, mode: content.mode }, null, 2)}\n`,
     );
@@ -114,7 +114,7 @@ try {
     }
 
     rejectPlaceholders(content);
-    writeText(output, renderCommitMessage(manifest, content));
+    writeText(output, renderLegacyCommitMessage(manifest, content));
     process.stdout.write(
       `${JSON.stringify({ output, mode: content.mode }, null, 2)}\n`,
     );

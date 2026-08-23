@@ -171,6 +171,28 @@ test("accepted message: exit 0 and output conforms to the schema", (t) => {
   assert.equal(result.json.summary.errors, 0);
 });
 
+test("a conventional lowercase token outside the recommended eight is accepted", (t) => {
+  const fixture = createFixture(t);
+
+  changeFile(fixture.repo, "src/alpha.js", "export const alpha = 1;\n");
+
+  const result = runValidator(
+    fixture,
+    [
+      "chore(alpha): Maintain the alpha module",
+      "",
+      "File Changes:",
+      "  1. `src/alpha.js`",
+      "     - Keep the alpha fixture synchronized",
+      "",
+    ].join("\n"),
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assertConformsToSchema(result.json);
+  assert.equal(result.json.subject.type, "chore");
+});
+
 test("rejected message: exit 1 and output still conforms to the schema", (t) => {
   const fixture = createFixture(t);
 

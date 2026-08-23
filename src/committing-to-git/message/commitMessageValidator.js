@@ -3,9 +3,9 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-import { renderCommitMessage } from "./commitMessageRenderer.js";
+import { renderLegacyCommitMessage } from "./commitMessageRenderer.js";
 
-const ALLOWED_TYPES = [
+export const RECOMMENDED_COMMIT_TYPES = Object.freeze([
   "build",
   "ci",
   "docs",
@@ -14,9 +14,9 @@ const ALLOWED_TYPES = [
   "perf",
   "refactor",
   "test",
-];
+]);
 
-const ALLOWED_TYPE_SET = new Set(ALLOWED_TYPES);
+const TYPE_PATTERN = /^[a-z][a-z0-9-]*$/u;
 const SUBJECT_TARGET = 50;
 const MAX_LINE_LENGTH = 72;
 
@@ -141,7 +141,7 @@ function validateMessage(text, expectedFiles, fileScope) {
   const subjectLength = characterLength(subject);
 
   const subjectMatch =
-    /^(?<type>[a-z]+)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u.exec(
+    /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u.exec(
       subject,
     );
 
@@ -162,17 +162,8 @@ function validateMessage(text, expectedFiles, fileScope) {
     const { type, description } = subjectMatch.groups;
     scope = subjectMatch.groups.scope ?? null;
 
-    if (ALLOWED_TYPE_SET.has(type)) {
+    if (TYPE_PATTERN.test(type)) {
       normalizedType = type;
-    } else {
-      issues.push(
-        issue(
-          "error",
-          "SUBJECT_TYPE_NOT_ALLOWED",
-          `Subject type ${JSON.stringify(type)} is not allowed.`,
-          { line: 1 },
-        ),
-      );
     }
 
     if (!isCapitalizedDescription(description)) {
@@ -633,7 +624,7 @@ function validateMessage(text, expectedFiles, fileScope) {
 function validateManifestMessage(text, manifest, content, ledger) {
   const message = normalizeMessage(text);
   const expectedMessage = normalizeMessage(
-    renderCommitMessage(manifest, content),
+    renderLegacyCommitMessage(manifest, content),
   );
   const canonical = message === expectedMessage;
   const issues = [];
@@ -715,7 +706,7 @@ function validateManifestMessage(text, manifest, content, ledger) {
       indexTreeOid: manifest.indexTreeOid,
     },
     subject: {
-      type: ALLOWED_TYPE_SET.has(content.subject?.type)
+      type: TYPE_PATTERN.test(content.subject?.type ?? "")
         ? content.subject.type
         : null,
       scope: content.subject?.scope ?? null,

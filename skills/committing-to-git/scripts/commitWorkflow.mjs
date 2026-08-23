@@ -7656,6 +7656,37 @@ var init_inspectionCommand = __esm({
   }
 });
 
+// src/committing-to-git/message/changeSelection.js
+var MAXIMUM_CANONICAL_MESSAGE_BYTES, ARRAY_SELECTOR_FIELDS2, SELECTOR_FIELDS2;
+var init_changeSelection = __esm({
+  "src/committing-to-git/message/changeSelection.js"() {
+    MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
+    ARRAY_SELECTOR_FIELDS2 = Object.freeze([
+      "ids",
+      "destinationPaths",
+      "destinationPathPrefixes",
+      "sourcePaths",
+      "sourcePathPrefixes",
+      "kinds"
+    ]);
+    SELECTOR_FIELDS2 = /* @__PURE__ */ new Set(["all", "remaining", ...ARRAY_SELECTOR_FIELDS2]);
+  }
+});
+
+// src/committing-to-git/message/approvedMessage.js
+var SECTION_ORDER;
+var init_approvedMessage = __esm({
+  "src/committing-to-git/message/approvedMessage.js"() {
+    init_changeSelection();
+    init_changeSelection();
+    SECTION_ORDER = Object.freeze([
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:"
+    ]);
+  }
+});
+
 // src/committing-to-git/message/commitMessageRenderer.js
 import { Buffer as Buffer2 } from "node:buffer";
 function characterLength(text) {
@@ -7755,8 +7786,10 @@ function renderSimpleSection(heading, entries) {
   ].join("\n");
 }
 function validateSubject(subject) {
-  if (!subject || !ALLOWED_TYPES.has(subject.type)) {
-    throw new Error("Subject type is missing or not allowed.");
+  if (!subject || typeof subject.type !== "string" || !/^[a-z][a-z0-9-]*$/u.test(subject.type)) {
+    throw new Error(
+      "Subject type must be a lowercase Conventional Commit token."
+    );
   }
   if (typeof subject.description !== "string" || subject.description.trim() === "") {
     throw new Error("Subject description is required.");
@@ -7858,7 +7891,7 @@ function renderBulk(manifest, content) {
   });
   return lines.join("\n");
 }
-function renderCommitMessage(manifest, content) {
+function renderLegacyCommitMessage(manifest, content) {
   if (manifest.changeUnitCount !== manifest.changeUnits.length) {
     throw new Error("Snapshot change-unit count does not match its inventory.");
   }
@@ -7880,7 +7913,7 @@ function renderCommitMessage(manifest, content) {
   return `${sections.join("\n\n")}
 `;
 }
-function scaffoldContent(manifest) {
+function scaffoldLegacyContent(manifest) {
   const common = {
     subject: {
       type: "feat",
@@ -7912,9 +7945,9 @@ function scaffoldContent(manifest) {
     ]
   };
 }
-function renderScaffoldTemplate(manifest, content) {
+function renderLegacyScaffoldTemplate(manifest, content) {
   if (content.mode === "detailed") {
-    return renderCommitMessage(manifest, content);
+    return renderLegacyCommitMessage(manifest, content);
   }
   return [
     "feat: <explain the outcome>",
@@ -7925,12 +7958,14 @@ function renderScaffoldTemplate(manifest, content) {
     ""
   ].join("\n");
 }
-var BULK_FILE_THRESHOLD, MAX_LINE_LENGTH, ALLOWED_TYPES;
+var BULK_FILE_THRESHOLD, MAX_LINE_LENGTH, RECOMMENDED_COMMIT_TYPES;
 var init_commitMessageRenderer = __esm({
   "src/committing-to-git/message/commitMessageRenderer.js"() {
+    init_approvedMessage();
+    init_changeSelection();
     BULK_FILE_THRESHOLD = 50;
     MAX_LINE_LENGTH = 72;
-    ALLOWED_TYPES = /* @__PURE__ */ new Set([
+    RECOMMENDED_COMMIT_TYPES = Object.freeze([
       "build",
       "ci",
       "docs",
@@ -8010,7 +8045,7 @@ var init_messageCommand = __esm({
       if (command2 === "scaffold") {
         const output = required2(flags2, "output");
         const template = required2(flags2, "template");
-        const content = scaffoldContent(manifest);
+        const content = scaffoldLegacyContent(manifest);
         if (existsSync10(output) || existsSync10(template)) {
           throw new Error(
             "A scaffold output already exists; start a new attempt instead of replacing it."
@@ -8018,7 +8053,7 @@ var init_messageCommand = __esm({
         }
         writeNewText(output, `${JSON.stringify(content, null, 2)}
 `);
-        writeNewText(template, renderScaffoldTemplate(manifest, content));
+        writeNewText(template, renderLegacyScaffoldTemplate(manifest, content));
         process.stdout.write(
           `${JSON.stringify({ output, template, mode: content.mode }, null, 2)}
 `
@@ -8033,7 +8068,7 @@ var init_messageCommand = __esm({
           );
         }
         rejectPlaceholders(content);
-        writeText(output, renderCommitMessage(manifest, content));
+        writeText(output, renderLegacyCommitMessage(manifest, content));
         process.stdout.write(
           `${JSON.stringify({ output, mode: content.mode }, null, 2)}
 `
@@ -8050,6 +8085,9 @@ var init_messageCommand = __esm({
 
 // src/committing-to-git/message/commitMessageValidator.js
 var commitMessageValidator_exports = {};
+__export(commitMessageValidator_exports, {
+  RECOMMENDED_COMMIT_TYPES: () => RECOMMENDED_COMMIT_TYPES2
+});
 import { execFileSync } from "node:child_process";
 import { readFileSync as readFileSync12 } from "node:fs";
 function characterLength2(text) {
@@ -8133,7 +8171,7 @@ function validateMessage(text, expectedFiles, fileScope) {
   const lines = message.split("\n");
   const subject = lines[0] ?? "";
   const subjectLength = characterLength2(subject);
-  const subjectMatch = /^(?<type>[a-z]+)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u.exec(
+  const subjectMatch = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u.exec(
     subject
   );
   let normalizedType = null;
@@ -8150,17 +8188,8 @@ function validateMessage(text, expectedFiles, fileScope) {
   } else {
     const { type, description } = subjectMatch.groups;
     scope = subjectMatch.groups.scope ?? null;
-    if (ALLOWED_TYPE_SET.has(type)) {
+    if (TYPE_PATTERN.test(type)) {
       normalizedType = type;
-    } else {
-      issues.push(
-        issue(
-          "error",
-          "SUBJECT_TYPE_NOT_ALLOWED",
-          `Subject type ${JSON.stringify(type)} is not allowed.`,
-          { line: 1 }
-        )
-      );
     }
     if (!isCapitalizedDescription2(description)) {
       issues.push(
@@ -8513,7 +8542,7 @@ function validateMessage(text, expectedFiles, fileScope) {
 function validateManifestMessage(text, manifest, content, ledger) {
   const message = normalizeMessage(text);
   const expectedMessage = normalizeMessage(
-    renderCommitMessage(manifest, content)
+    renderLegacyCommitMessage(manifest, content)
   );
   const canonical = message === expectedMessage;
   const issues = [];
@@ -8583,7 +8612,7 @@ function validateManifestMessage(text, manifest, content, ledger) {
       indexTreeOid: manifest.indexTreeOid
     },
     subject: {
-      type: ALLOWED_TYPE_SET.has(content.subject?.type) ? content.subject.type : null,
+      type: TYPE_PATTERN.test(content.subject?.type ?? "") ? content.subject.type : null,
       scope: content.subject?.scope ?? null,
       length: subjectLength,
       target: SUBJECT_TARGET,
@@ -8683,11 +8712,11 @@ function parseArguments3(argv) {
     ledgerPath: ledgerPath2
   };
 }
-var ALLOWED_TYPES2, ALLOWED_TYPE_SET, SUBJECT_TARGET, MAX_LINE_LENGTH2, ALLOWED_SCOPES, messagePath, requestedScope, manifestPath, contentPath, ledgerPath;
+var RECOMMENDED_COMMIT_TYPES2, TYPE_PATTERN, SUBJECT_TARGET, MAX_LINE_LENGTH2, ALLOWED_SCOPES, messagePath, requestedScope, manifestPath, contentPath, ledgerPath;
 var init_commitMessageValidator = __esm({
   "src/committing-to-git/message/commitMessageValidator.js"() {
     init_commitMessageRenderer();
-    ALLOWED_TYPES2 = [
+    RECOMMENDED_COMMIT_TYPES2 = Object.freeze([
       "build",
       "ci",
       "docs",
@@ -8696,8 +8725,8 @@ var init_commitMessageValidator = __esm({
       "perf",
       "refactor",
       "test"
-    ];
-    ALLOWED_TYPE_SET = new Set(ALLOWED_TYPES2);
+    ]);
+    TYPE_PATTERN = /^[a-z][a-z0-9-]*$/u;
     SUBJECT_TARGET = 50;
     MAX_LINE_LENGTH2 = 72;
     ALLOWED_SCOPES = ["auto", "staged", "worktree"];

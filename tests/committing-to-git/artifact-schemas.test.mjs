@@ -190,20 +190,31 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     warnings: [],
   };
   const content = {
+    schemaVersion: 2,
+    authoringState: "complete",
+    review: {
+      schemaVersion: 1,
+      catalogSha256: "a".repeat(64),
+      evidencePlanSha256: "b".repeat(64),
+      requiredPacketsReviewed: true,
+      additionalPacketIds: [],
+    },
+    evidenceGroups: [
+      {
+        selection: { all: true },
+        policy: "reuse",
+        basis: { kind: "authored-current-task", note: null },
+      },
+    ],
     subject: {
       type: "fix",
       scope: "parser",
       description: "Prevent invalid input",
     },
-    rationale: [],
+    sharedRationales: [],
     userExperienceChanges: [],
     mode: "detailed",
-    changeEntries: [
-      {
-        changeUnitId: "F000001",
-        reasons: ["Reject invalid input before parsing"],
-      },
-    ],
+    fileNotes: [],
   };
   const ledger = {
     schemaVersion: 2,
@@ -336,6 +347,52 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   assert.deepEqual(
     schemaErrors(content, schema("commitMessageContent.schema.json")),
     [],
+  );
+
+  const draftContent = {
+    ...structuredClone(content),
+    authoringState: "draft",
+    subject: null,
+    recommendedMode: "detailed",
+  };
+  draftContent.review.requiredPacketsReviewed = false;
+  assert.deepEqual(
+    schemaErrors(draftContent, schema("commitMessageContent.schema.json")),
+    [],
+  );
+
+  const incompleteCompleteContent = structuredClone(content);
+  incompleteCompleteContent.subject = null;
+  assert.match(
+    schemaErrors(
+      incompleteCompleteContent,
+      schema("commitMessageContent.schema.json"),
+    ).join("\n"),
+    /subject|oneOf/u,
+  );
+
+  const unreviewedCompleteContent = structuredClone(content);
+  unreviewedCompleteContent.review.requiredPacketsReviewed = false;
+  assert.match(
+    schemaErrors(
+      unreviewedCompleteContent,
+      schema("commitMessageContent.schema.json"),
+    ).join("\n"),
+    /requiredPacketsReviewed|oneOf/u,
+  );
+
+  const oldContent = {
+    subject: content.subject,
+    rationale: [],
+    userExperienceChanges: [],
+    mode: "detailed",
+    changeEntries: [],
+  };
+  assert.match(
+    schemaErrors(oldContent, schema("commitMessageContent.schema.json")).join(
+      "\n",
+    ),
+    /oneOf|schemaVersion/u,
   );
   assert.deepEqual(
     schemaErrors(ledger, schema("inspectionLedger.schema.json")),

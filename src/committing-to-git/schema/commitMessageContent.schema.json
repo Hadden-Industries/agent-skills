@@ -1,73 +1,316 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Commit Message Semantic Content",
-  "description": "Author-supplied intent used to render the canonical commit message.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["subject", "rationale", "userExperienceChanges", "mode"],
-  "properties": {
+  "title": "Extended Commit Message Semantic Content",
+  "description": "Schema-version-2 worksheet for one immutable extended review catalog and evidence plan.",
+  "oneOf": [
+    { "$ref": "#/$defs/draftDetailed" },
+    { "$ref": "#/$defs/draftBulk" },
+    { "$ref": "#/$defs/completeDetailed" },
+    { "$ref": "#/$defs/completeBulk" }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "subject": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "scope", "description"],
       "properties": {
         "type": {
-          "enum": [
-            "build",
-            "ci",
-            "docs",
-            "feat",
-            "fix",
-            "perf",
-            "refactor",
-            "test"
-          ]
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-z][a-z0-9-]*$"
         },
         "scope": { "type": ["string", "null"] },
         "description": { "type": "string", "minLength": 1 }
       }
     },
-    "rationale": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+    "nullableSubject": {
+      "oneOf": [{ "$ref": "#/$defs/subject" }, { "type": "null" }]
     },
-    "userExperienceChanges": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "mode": { "enum": ["detailed", "bulk"] },
-    "changeEntries": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["changeUnitId", "reasons"],
-        "properties": {
-          "changeUnitId": { "type": "string", "minLength": 1 },
-          "reasons": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+    "reviewDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "catalogSha256",
+        "evidencePlanSha256",
+        "requiredPacketsReviewed",
+        "additionalPacketIds"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "catalogSha256": { "$ref": "#/$defs/sha256" },
+        "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
+        "requiredPacketsReviewed": { "type": "boolean" },
+        "additionalPacketIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[SIPD][0-9]{6}$"
           }
         }
       }
     },
-    "domains": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["title", "changeUnitIds", "reasons"],
-        "properties": {
-          "title": { "type": "string", "minLength": 1 },
-          "changeUnitIds": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "reasons": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+    "reviewComplete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "catalogSha256",
+        "evidencePlanSha256",
+        "requiredPacketsReviewed",
+        "additionalPacketIds"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "catalogSha256": { "$ref": "#/$defs/sha256" },
+        "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
+        "requiredPacketsReviewed": { "const": true },
+        "additionalPacketIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[SIPD][0-9]{6}$"
           }
         }
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": { "all": { "const": true } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["remaining"],
+          "properties": { "remaining": { "const": true } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "ids": { "$ref": "#/$defs/stringArray" },
+            "destinationPaths": { "$ref": "#/$defs/stringArray" },
+            "destinationPathPrefixes": { "$ref": "#/$defs/stringArray" },
+            "sourcePaths": { "$ref": "#/$defs/stringArray" },
+            "sourcePathPrefixes": { "$ref": "#/$defs/stringArray" },
+            "kinds": { "$ref": "#/$defs/stringArray" }
+          }
+        }
+      ]
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "note"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "authored-current-task",
+            "read-current-task",
+            "task-lineage",
+            "user-grounded",
+            "generated-derived",
+            "unknown-preexisting"
+          ]
+        },
+        "note": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    },
+    "evidenceGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection", "policy", "basis"],
+      "properties": {
+        "selection": { "$ref": "#/$defs/selection" },
+        "policy": { "enum": ["reuse", "message", "review"] },
+        "basis": { "$ref": "#/$defs/basis" }
+      }
+    },
+    "evidenceGroups": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/evidenceGroup" }
+    },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "rationaleGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection", "reasons"],
+      "properties": {
+        "selection": { "$ref": "#/$defs/selection" },
+        "reasons": { "$ref": "#/$defs/reasons" }
+      }
+    },
+    "rationaleGroups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rationaleGroup" }
+    },
+    "userExperienceChanges": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "fileNotes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rationaleGroup" }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "selection", "reasons"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "selection": { "$ref": "#/$defs/selection" },
+        "reasons": { "$ref": "#/$defs/reasons" }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/domain" }
+    },
+    "completeDomains": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/domain" }
+    },
+    "draftDetailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authoringState",
+        "review",
+        "evidenceGroups",
+        "subject",
+        "sharedRationales",
+        "userExperienceChanges",
+        "mode",
+        "recommendedMode",
+        "fileNotes"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "authoringState": { "const": "draft" },
+        "review": { "$ref": "#/$defs/reviewDraft" },
+        "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
+        "subject": { "$ref": "#/$defs/nullableSubject" },
+        "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
+        "userExperienceChanges": {
+          "$ref": "#/$defs/userExperienceChanges"
+        },
+        "mode": { "const": "detailed" },
+        "recommendedMode": { "const": "detailed" },
+        "fileNotes": { "$ref": "#/$defs/fileNotes" }
+      }
+    },
+    "draftBulk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authoringState",
+        "review",
+        "evidenceGroups",
+        "subject",
+        "sharedRationales",
+        "userExperienceChanges",
+        "mode",
+        "recommendedMode",
+        "domains"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "authoringState": { "const": "draft" },
+        "review": { "$ref": "#/$defs/reviewDraft" },
+        "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
+        "subject": { "$ref": "#/$defs/nullableSubject" },
+        "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
+        "userExperienceChanges": {
+          "$ref": "#/$defs/userExperienceChanges"
+        },
+        "mode": { "const": "bulk" },
+        "recommendedMode": { "const": "bulk" },
+        "domains": { "$ref": "#/$defs/domains" }
+      }
+    },
+    "completeDetailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authoringState",
+        "review",
+        "evidenceGroups",
+        "subject",
+        "sharedRationales",
+        "userExperienceChanges",
+        "mode",
+        "fileNotes"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "authoringState": { "const": "complete" },
+        "review": { "$ref": "#/$defs/reviewComplete" },
+        "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
+        "userExperienceChanges": {
+          "$ref": "#/$defs/userExperienceChanges"
+        },
+        "mode": { "const": "detailed" },
+        "fileNotes": { "$ref": "#/$defs/fileNotes" }
+      }
+    },
+    "completeBulk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authoringState",
+        "review",
+        "evidenceGroups",
+        "subject",
+        "sharedRationales",
+        "userExperienceChanges",
+        "mode",
+        "domains"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "authoringState": { "const": "complete" },
+        "review": { "$ref": "#/$defs/reviewComplete" },
+        "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
+        "userExperienceChanges": {
+          "$ref": "#/$defs/userExperienceChanges"
+        },
+        "mode": { "const": "bulk" },
+        "domains": { "$ref": "#/$defs/completeDomains" }
       }
     }
   }

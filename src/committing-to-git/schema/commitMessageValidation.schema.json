@@ -83,17 +83,8 @@
       "required": ["type", "scope", "length", "target", "maximum"],
       "properties": {
         "type": {
-          "enum": [
-            null,
-            "build",
-            "ci",
-            "docs",
-            "feat",
-            "fix",
-            "perf",
-            "refactor",
-            "test"
-          ]
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9-]*$"
         },
         "scope": {
           "type": ["string", "null"]
@@ -203,7 +194,6 @@
         "code": {
           "enum": [
             "SUBJECT_FORMAT_INVALID",
-            "SUBJECT_TYPE_NOT_ALLOWED",
             "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
             "SUBJECT_TRAILING_PERIOD",
             "SUBJECT_TOO_LONG",
