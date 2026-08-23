@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "sourceCommitOid": "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
+  "scenario": "known-context-skill-inventory-hint",
+  "orderedPhases": [
+    "snapshot create",
+    "inspection prepare",
+    "inspection acknowledge",
+    "inspection acknowledge",
+    "message scaffold",
+    "message render",
+    "message validate",
+    "signature verify",
+    "report create"
+  ],
+  "cost": {
+    "helperCalls": 9,
+    "gitProcesses": 42,
+    "stdoutBytes": 4428,
+    "stderrBytes": 0,
+    "agentArtifactReads": 10,
+    "agentArtifactWrites": 3,
+    "approvalTurns": 1
+  },
+  "safety": {
+    "treeMatches": true,
+    "messageMatches": true,
+    "signedCreationRequired": true,
+    "pushAttempted": false
+  }
+}

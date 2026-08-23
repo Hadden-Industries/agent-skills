@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -8,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import assert from "node:assert/strict";
@@ -68,6 +70,10 @@ export function writeRepositoryFile(repo, relativePath, contents) {
   writeFileSync(target, contents);
 }
 
+export function writeJson(path, value) {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 export function commitAll(repo, message = "seed") {
   git(["add", "-A"], repo);
   git(["commit", "--quiet", "-m", message], repo);
@@ -88,6 +94,63 @@ export function runCommitWorkflow(command, args, cwd, options = {}) {
     [...command.split(" "), ...args],
     cwd,
     options,
+  );
+}
+
+function countTrace2Processes(trace2File) {
+  if (!trace2File || !existsSync(trace2File)) {
+    return 0;
+  }
+
+  const trace = readFileSync(trace2File, "utf8").trim();
+
+  if (!trace) {
+    return 0;
+  }
+
+  // Each Git process writes one `start` event. Counting those records avoids
+  // treating regions, data events, hooks, and other traced children as Git
+  // processes while still counting nested Git invocations exactly once.
+  return trace
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line))
+    .filter((event) => event.event === "start").length;
+}
+
+export function runRecordedWorkflow(command, args, cwd, options = {}) {
+  const startedAt = performance.now();
+  const result = runCommitWorkflow(command, args, cwd, options);
+
+  return {
+    result,
+    invocation: {
+      command,
+      args: [...args],
+      status: result.status,
+      gitProcesses: countTrace2Processes(options.trace2File),
+      stdoutBytes: Buffer.byteLength(result.stdout ?? ""),
+      stderrBytes: Buffer.byteLength(result.stderr ?? ""),
+      durationMs: performance.now() - startedAt,
+    },
+  };
+}
+
+export function summarizeWorkflowCost(invocations) {
+  return invocations.reduce(
+    (summary, invocation) => ({
+      helperCalls: summary.helperCalls + 1,
+      gitProcesses: summary.gitProcesses + invocation.gitProcesses,
+      stdoutBytes: summary.stdoutBytes + invocation.stdoutBytes,
+      stderrBytes: summary.stderrBytes + invocation.stderrBytes,
+      durationMs: summary.durationMs + invocation.durationMs,
+    }),
+    {
+      helperCalls: 0,
+      gitProcesses: 0,
+      stdoutBytes: 0,
+      stderrBytes: 0,
+      durationMs: 0,
+    },
   );
 }
 

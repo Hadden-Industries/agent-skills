@@ -18,6 +18,7 @@ import {
   readGitTraceArguments,
   readJson,
   runCommitWorkflow,
+  writeJson,
   writeRepositoryFile,
 } from "./harness.mjs";
 
@@ -459,10 +460,7 @@ test("deletion expansion rejects retained paths and non-blob historical objects"
 
   const deletedManifest = readJson(deletedSnapshotPath);
   deletedManifest.changeUnits[0].oldOid = deletedManifest.headOid;
-  writeFileSync(
-    deletedSnapshotPath,
-    `${JSON.stringify(deletedManifest, null, 2)}\n`,
-  );
+  writeJson(deletedSnapshotPath, deletedManifest);
 
   const wrongType = runCommitWorkflow(
     "inspection expand-deletion",
@@ -657,7 +655,7 @@ test("inspection rejects a commit object where the manifest requires a tree", (t
 
   const manifest = readJson(snapshotPath);
   manifest.indexTreeOid = manifest.headOid;
-  writeFileSync(snapshotPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeJson(snapshotPath, manifest);
 
   const inspect = runCommitWorkflow(
     "inspection prepare",

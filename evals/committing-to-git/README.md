@@ -25,6 +25,14 @@ Report both scores below because they answer different questions:
 
 Do not treat multiple expectations from one response as independent experimental samples. They share one model output and are usually correlated.
 
+## Deterministic pre-cutover cost baseline
+
+`tests/committing-to-git/fixtures/pre-cutover-workflow-cost.json` is executable characterization data, not a model-run result. It records one real known-context `skills-lock.json` transaction from source commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`: two unrelated working-tree paths remained outside the selected scope, the approved tree and message matched the created commit, signing remained a required production invariant, and no push was attempted.
+
+The measured old route required nine helper calls, 42 Git processes inside those helpers, 4,428 stdout bytes, ten agent-managed artifact reads, three agent-managed artifact writes, and one approval turn. Duration is deliberately absent from deterministic assertions because it is host-dependent. A separate in-memory characterization fixes the old 1,000-unit whole-ledger acknowledgement response at 316,216 bytes without executing the legacy route.
+
+Task 11 performs the single approved behavior-case configuration migration. Its old-skill arm runs from the fixture's exact source commit OID; the deployable skill and permanent tests do not retain removed command routes or old schema readers merely to reproduce the baseline. Versioned files under `results/` continue to represent actual model runs and must never be synthesized from this deterministic fixture.
+
 ## The first controlled A/B
 
 The first pilot used `gpt-5.6-luna` at low reasoning, selected as the weakest internal model arm available to the session. Each control and treatment used a fresh context and the same substantive prompt. Controls were explicitly forbidden from reading or invoking any skill and had no tools. Treatments were required to read the complete canonical skill and applicable references. A separate grader applied the same predefined expectations to both arms.

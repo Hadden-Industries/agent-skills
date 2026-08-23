@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -10,12 +10,9 @@ import {
   git,
   readJson,
   runCommitWorkflow,
+  writeJson,
   writeRepositoryFile,
 } from "./harness.mjs";
-
-function writeJson(path, value) {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-}
 
 test("actual workflow carries one approved tree through commit and report", (t) => {
   const fixture = createRepositoryFixture(t, "commit-workflow-e2e-");
