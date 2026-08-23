@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Receipt",
+  "description": "One declaration binding reviewed packet identity to the current catalog and evidence plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "catalogSha256",
+    "evidencePlanSha256",
+    "requiredPacketsReviewed",
+    "additionalPacketIds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "catalogSha256": { "$ref": "#/$defs/sha256" },
+    "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
+    "requiredPacketsReviewed": { "const": true },
+    "additionalPacketIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[SIPD][0-9]{6}$"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

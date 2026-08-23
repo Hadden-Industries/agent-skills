@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Packet Queue",
+  "description": "Bounded first-page summary for one immutable initial or delta packet queue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "catalogSha256",
+    "evidencePlanSha256",
+    "requiredPacketCount",
+    "pageCount",
+    "firstPage"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "enum": ["initial", "delta"] },
+    "catalogSha256": { "$ref": "#/$defs/sha256" },
+    "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
+    "requiredPacketCount": { "type": "integer", "minimum": 1 },
+    "pageCount": { "type": "integer", "minimum": 1 },
+    "firstPage": { "$ref": "#/$defs/page" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "sha256", "byteCount", "packetCount"],
+      "properties": {
+        "artifact": {
+          "type": "string",
+          "pattern": "^queues/(?:initial|delta)-[0-9a-f]{12}-Q[0-9]{6}\\.json$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "packetCount": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

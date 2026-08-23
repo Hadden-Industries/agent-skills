@@ -8,6 +8,14 @@ const COMMANDS = new Map([
     ],
   ],
   [
+    "workflow extend",
+    [
+      () => import("../workflow/extendReviewWorkflow.js"),
+      null,
+      "runExtendReviewCommand",
+    ],
+  ],
+  [
     "workflow resume",
     [
       () => import("../workflow/resumePreparationWorkflow.js"),
@@ -61,6 +69,21 @@ const COMMANDS = new Map([
 
 const COMMAND_HELP = new Map([
   [
+    "workflow extend",
+    `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
+
+Moves one unchanged concise snapshot into the extended review route. Evidence
+uncertainty consumes only the fixed transaction-local evidence-plan input after
+durable success. Semantic structure forbids that input and carries the existing
+capsule forward without a packet queue.
+
+Exit status:
+  0  The unchanged snapshot reached review-pending.
+  1  Transaction state or repository anchors no longer permit extension.
+  2  Usage, plan, artifact, or execution failure.
+`,
+  ],
+  [
     "workflow prepare",
     `Usage: commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> (--evidence <reuse|message|review> --basis <kind> | --evidence-plan <file>) [options]
 
@@ -84,7 +107,7 @@ policy, snapshot, head anchor, and index-installation journal. No override input
 is accepted, and commit or publication mutation is never replayed.
 
 Exit status:
-  0  Persisted preparation reached snapshot-created.
+  0  Persisted preparation reached evidence-ready or review-pending.
   1  Resume is unsafe, ambiguous, or not permitted from the current phase.
   2  Usage, transaction, artifact, or execution failure.
 `,
@@ -256,6 +279,7 @@ const HELP = `Commit workflow
 Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
+  commitWorkflow.mjs workflow extend [options]
   commitWorkflow.mjs snapshot create [options]
   commitWorkflow.mjs snapshot verify [options]
   commitWorkflow.mjs inspection prepare [options]
@@ -272,28 +296,33 @@ Usage:
 Run a command with --help to inspect its options.
 `;
 
-const args = process.argv.slice(2);
+export async function dispatchCommitWorkflow(
+  args,
+  { stdout = process.stdout, stderr = process.stderr } = {},
+) {
+  if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
+    stdout.write(HELP);
+    return 0;
+  }
 
-if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
-  process.stdout.write(HELP);
-} else {
   const command = args.slice(0, 2).join(" ");
   const route = COMMANDS.get(command);
 
   if (!route) {
     const label = command || "(none)";
-    console.error(
+    stderr.write(
       `Unknown command: ${label}\nRun commitWorkflow.mjs --help for usage.`,
     );
-    process.exitCode = 2;
+    return 2;
   } else if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
-    process.stdout.write(COMMAND_HELP.get(command));
+    stdout.write(COMMAND_HELP.get(command));
+    return 0;
   } else {
     const [loadCommand, legacyAction, handlerName] = route;
 
     if (handlerName) {
       const commandModule = await loadCommand();
-      process.exitCode = await commandModule[handlerName](args.slice(2));
+      return commandModule[handlerName](args.slice(2), { stdout, stderr });
     } else {
       process.argv = [
         process.argv[0],
@@ -302,6 +331,46 @@ if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
         ...args.slice(2),
       ];
       await loadCommand();
+      return process.exitCode ?? 0;
     }
   }
 }
+
+function requestedOutputFormat(args) {
+  const index = args.lastIndexOf("--format");
+  return index >= 0 && args[index + 1] === "text" ? "text" : "json";
+}
+
+export async function runCommitWorkflowCli(
+  args,
+  { stdout = process.stdout, stderr = process.stderr } = {},
+) {
+  try {
+    return await dispatchCommitWorkflow(args, { stdout, stderr });
+  } catch (error) {
+    const result = {
+      schemaVersion: 1,
+      status: "invalid",
+      phase: null,
+      terminalDisposition: null,
+      transaction: null,
+      route: null,
+      commitState: "absent",
+      publicationState: "not-requested",
+      publicationAllowed: false,
+      recoveryRequired: false,
+      code: "COMMAND_DISPATCH_FAILED",
+      message: error.message,
+    };
+
+    stderr.write(`COMMAND_DISPATCH_FAILED: ${error.message}\n`);
+    stdout.write(
+      requestedOutputFormat(args) === "text"
+        ? `Status: invalid\nCode: ${result.code}\nMessage: ${result.message}\n`
+        : `${JSON.stringify(result)}\n`,
+    );
+    return 2;
+  }
+}
+
+process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));

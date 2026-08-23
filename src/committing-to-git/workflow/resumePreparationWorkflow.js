@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import {
@@ -17,9 +17,14 @@ import {
 import {
   MAXIMUM_TRANSACTION_PATH_BYTES,
   advanceTransaction,
+  getEvidencePlanInputPath,
   readTransaction,
 } from "../transaction/transactionWorkspace.js";
-import { PreparationError } from "./prepareWorkflow.js";
+import {
+  PreparationError,
+  manifestEnvironment,
+  routePreparedEvidence,
+} from "./prepareWorkflow.js";
 
 function fail(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
@@ -153,7 +158,8 @@ function assertRepositoryResumePreconditions(transaction) {
 
 function resultEnvelope(transaction) {
   return {
-    status: "prepared",
+    schemaVersion: 1,
+    status: transaction.status ?? "prepared",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transaction.attemptDirectory, "transaction.json"),
@@ -168,10 +174,85 @@ function resultEnvelope(transaction) {
     headAnchor: transaction.headAnchor,
     indexTreeOid: transaction.snapshot.indexTreeOid,
     changeUnitCount: transaction.snapshot.changeUnitCount,
+    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    ...(transaction.route === "concise"
+      ? { capsule: transaction.inlineEvidence.capsule }
+      : transaction.route === "extended"
+        ? {
+            extendedReason: transaction.review.extendedReason,
+            reviewQueue: transaction.review.queue,
+          }
+        : {}),
   };
 }
 
-export function resumePreparationWorkflow({ transactionPath }) {
+function assertSnapshotIndexState(transaction, manifest) {
+  const snapshot = transaction.snapshot;
+
+  if (snapshot.preparedIndexPath) {
+    const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
+
+    if (
+      !indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)
+    ) {
+      fail(
+        "PREPARED_INDEX_DRIFT",
+        "The transaction-local prepared index changed before resume.",
+        { exitCode: 1 },
+      );
+    }
+
+    if (
+      !indexMatchesTree(
+        transaction.repositoryRoot,
+        snapshot.indexTreeOid,
+        manifestEnvironment(manifest),
+      )
+    ) {
+      fail(
+        "PREPARED_INDEX_DRIFT",
+        "The transaction-local prepared index no longer matches the snapshot tree.",
+        { exitCode: 1 },
+      );
+    }
+  }
+
+  if (
+    (snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) &&
+    !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)
+  ) {
+    fail("INDEX_DRIFT", "The real index changed after snapshot creation.", {
+      exitCode: 1,
+    });
+  }
+}
+
+function removeConsumedEvidencePlanInput(transactionPath) {
+  const evidencePlanInputPath = getEvidencePlanInputPath(transactionPath);
+
+  if (existsSync(evidencePlanInputPath)) {
+    unlinkSync(evidencePlanInputPath);
+  }
+}
+
+async function finishEvidenceRouting({
+  transactionPath,
+  transaction,
+  manifest,
+}) {
+  const completed = await routePreparedEvidence({
+    transactionPath,
+    transaction,
+    manifest,
+    root: transaction.repositoryRoot,
+  });
+
+  removeConsumedEvidencePlanInput(transactionPath);
+
+  return resultEnvelope(completed);
+}
+
+export async function resumePreparationWorkflow({ transactionPath }) {
   if (
     typeof transactionPath !== "string" ||
     transactionPath.length === 0 ||
@@ -185,9 +266,17 @@ export function resumePreparationWorkflow({ transactionPath }) {
 
   let transaction = readTransaction(transactionPath);
 
-  if (transaction.phase === "snapshot-created") {
+  if (new Set(["evidence-ready", "review-pending"]).has(transaction.phase)) {
     validatePersistedSnapshot(transaction);
+    removeConsumedEvidencePlanInput(transactionPath);
     return resultEnvelope(transaction);
+  }
+
+  if (transaction.phase === "snapshot-created") {
+    const manifest = validatePersistedSnapshot(transaction);
+    assertRepositoryResumePreconditions(transaction);
+    assertSnapshotIndexState(transaction, manifest);
+    return finishEvidenceRouting({ transactionPath, transaction, manifest });
   }
 
   if (transaction.phase !== "allocated") {
@@ -198,7 +287,7 @@ export function resumePreparationWorkflow({ transactionPath }) {
     );
   }
 
-  validatePersistedSnapshot(transaction);
+  const manifest = validatePersistedSnapshot(transaction);
   assertRepositoryResumePreconditions(transaction);
   const snapshot = transaction.snapshot;
 
@@ -250,32 +339,16 @@ export function resumePreparationWorkflow({ transactionPath }) {
         { exitCode: 1 },
       );
     }
-  } else if (snapshot.preparedIndexPath) {
-    const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
-
-    if (
-      !indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)
-    ) {
-      fail(
-        "PREPARED_INDEX_DRIFT",
-        "The transaction-local prepared index changed before resume.",
-        { exitCode: 1 },
-      );
-    }
-  } else {
-    if (!indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
-      fail("INDEX_DRIFT", "The real index changed after snapshot creation.", {
-        exitCode: 1,
-      });
-    }
   }
+
+  assertSnapshotIndexState(transaction, manifest);
 
   transaction = advanceTransaction(transactionPath, "allocated", {
     ...transaction,
     phase: "snapshot-created",
   });
 
-  return resultEnvelope(transaction);
+  return finishEvidenceRouting({ transactionPath, transaction, manifest });
 }
 
 export function parseResumeArguments(argv) {
@@ -340,7 +413,7 @@ function textResult(result) {
   ].join("\n");
 }
 
-export function runResumePreparationCommand(
+export async function runResumePreparationCommand(
   argv,
   { stdout = process.stdout, stderr = process.stderr } = {},
 ) {
@@ -349,7 +422,7 @@ export function runResumePreparationCommand(
   try {
     const options = parseResumeArguments(argv);
     format = options.format;
-    const result = resumePreparationWorkflow(options);
+    const result = await resumePreparationWorkflow(options);
     stdout.write(
       format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
     );

@@ -4,8 +4,9 @@
  * This supports only the keyword subset used by the schemas committed in this
  * repository: `type` (including union arrays and `integer`), `const`, `enum`,
  * `required`, `properties`, `additionalProperties: false`, `items`, `minimum`,
- * `minItems`, `maxItems`, `uniqueItems`, `minLength`, `maxLength`, `pattern`,
- * `anyOf`, `oneOf`, and local `$ref` pointers into `$defs`. The annotation
+ * `maximum`, `minProperties`, `minItems`, `maxItems`, `uniqueItems`,
+ * `minLength`, `maxLength`, `pattern`, `anyOf`, `oneOf`, and local `$ref`
+ * pointers into `$defs`. The annotation
  * keywords `title` and `description` are accepted and carry no validation effect.
  *
  * A full JSON Schema implementation is deliberately avoided so that validating
@@ -28,6 +29,8 @@ const SUPPORTED_KEYWORDS = new Set([
   "additionalProperties",
   "items",
   "minimum",
+  "maximum",
+  "minProperties",
   "minItems",
   "maxItems",
   "uniqueItems",
@@ -160,6 +163,14 @@ function check(value, schema, root, path, errors) {
   }
 
   if (
+    typeof value === "number" &&
+    typeof schema.maximum === "number" &&
+    value > schema.maximum
+  ) {
+    errors.push(`${path}: ${value} is above maximum ${schema.maximum}`);
+  }
+
+  if (
     typeof value === "string" &&
     typeof schema.minLength === "number" &&
     [...value].length < schema.minLength
@@ -214,6 +225,15 @@ function check(value, schema, root, path, errors) {
   }
 
   if (typeOf(value) === "object") {
+    if (
+      typeof schema.minProperties === "number" &&
+      Object.keys(value).length < schema.minProperties
+    ) {
+      errors.push(
+        `${path}: object has fewer than minProperties ${schema.minProperties}`,
+      );
+    }
+
     for (const key of schema.required || []) {
       if (!(key in value)) {
         errors.push(`${path}: missing required property "${key}"`);

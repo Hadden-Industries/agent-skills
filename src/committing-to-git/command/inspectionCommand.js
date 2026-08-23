@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Transitional command-only adapter for the pre-cutover mutable ledger. New
+// high-level workflows use immutable review catalogs directly and must never
+// import or invoke this acknowledgement route. Task 10 removes this adapter.
+
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

@@ -375,12 +375,40 @@ test("transaction validation accepts canonical state families and rejects imposs
   ];
 
   for (const [phase, status, terminalDisposition] of validStates) {
+    const evidenceState =
+      phase === "evidence-ready"
+        ? {
+            route: "concise",
+            inlineEvidence: {
+              capsuleSha256: "b".repeat(64),
+              manifestSha256: "c".repeat(64),
+              evidencePlanSha256: "d".repeat(64),
+              capsule: { schemaVersion: 1 },
+            },
+          }
+        : phase === "review-pending"
+          ? {
+              route: "extended",
+              review: {
+                catalogPath: "catalog.json",
+                catalogSha256: "b".repeat(64),
+                evidencePlanPath: "evidence-plan.json",
+                evidencePlanSha256: "c".repeat(64),
+                extendedReason: "review-policy",
+                queue: null,
+                receipt: null,
+                semanticStructureRequired: false,
+              },
+            }
+          : {};
+
     assert.doesNotThrow(() =>
       validateTransaction({
         ...structuredClone(template),
         phase,
         status,
         terminalDisposition,
+        ...evidenceState,
       }),
     );
   }

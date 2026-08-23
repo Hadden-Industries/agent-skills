@@ -85,8 +85,8 @@
     "verificationPolicy": { "enum": ["required", "advisory", "skipped"] },
     "signaturePreflight": { "type": ["object", "null"] },
     "snapshot": { "type": ["object", "null"] },
-    "inlineEvidence": { "type": ["object", "null"] },
-    "review": { "type": ["object", "null"] },
+    "inlineEvidence": { "$ref": "#/$defs/inlineEvidenceState" },
+    "review": { "$ref": "#/$defs/reviewState" },
     "message": { "type": ["object", "null"] },
     "commit": { "type": ["object", "null"] },
     "verification": { "type": ["object", "null"] },
@@ -202,6 +202,76 @@
         }
       }
     },
+    "inlineEvidenceState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "capsuleSha256",
+        "manifestSha256",
+        "evidencePlanSha256",
+        "capsule"
+      ],
+      "properties": {
+        "capsuleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidencePlanSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "capsule": { "type": "object" }
+      }
+    },
+    "reviewState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "catalogPath",
+        "catalogSha256",
+        "evidencePlanPath",
+        "evidencePlanSha256",
+        "extendedReason",
+        "queue",
+        "receipt",
+        "semanticStructureRequired"
+      ],
+      "properties": {
+        "catalogPath": { "type": "string", "minLength": 1 },
+        "catalogSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidencePlanPath": { "type": "string", "minLength": 1 },
+        "evidencePlanSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "coveredCapsuleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "extendedReason": {
+          "enum": [
+            "review-policy",
+            "required-evidence-over-budget",
+            "scope-synopsis-over-budget",
+            "invalid-evidence-encoding",
+            "required-object-unavailable",
+            "unresolved-anomaly",
+            "evidence-uncertainty",
+            "semantic-structure-required"
+          ]
+        },
+        "queue": { "type": ["object", "null"] },
+        "receipt": { "type": ["object", "null"] },
+        "semanticStructureRequired": { "type": "boolean" }
+      }
+    },
     "allocatedState": {
       "properties": {
         "phase": { "const": "allocated" },
@@ -220,28 +290,40 @@
       "properties": {
         "phase": { "const": "evidence-ready" },
         "status": { "const": "prepared" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "route": { "const": "concise" },
+        "inlineEvidence": { "type": "object" },
+        "review": { "const": null }
       }
     },
     "evidencePromotedState": {
       "properties": {
         "phase": { "const": "evidence-ready" },
         "status": { "const": "promoted" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "route": { "const": "concise" },
+        "inlineEvidence": { "type": "object" },
+        "review": { "const": null }
       }
     },
     "reviewPendingState": {
       "properties": {
         "phase": { "const": "review-pending" },
         "status": { "const": "review-pending" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "route": { "const": "extended" },
+        "inlineEvidence": { "const": null },
+        "review": { "type": "object" }
       }
     },
     "evidenceRequiredState": {
       "properties": {
         "phase": { "const": "review-pending" },
         "status": { "const": "evidence-required" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "route": { "const": "extended" },
+        "inlineEvidence": { "const": null },
+        "review": { "type": "object" }
       }
     },
     "messageReadyState": {

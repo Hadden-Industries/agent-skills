@@ -1,4 +1,5 @@
 import {
+  existsSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -21,6 +22,7 @@ import {
   commitAll,
   createRepositoryFixture,
   git,
+  readGitTraceArguments,
   runCommitWorkflow,
   runNodeScript,
   writeRepositoryFile,
@@ -104,12 +106,13 @@ test("workflow preparation owns one transaction and returns its bounded snapshot
       mode: output.mode,
       scopeKind: output.scope.kind,
       changeUnitCount: output.changeUnitCount,
+      capsuleChangeUnitCount: output.capsule?.changeUnitCount,
     },
     {
       status: "prepared",
-      phase: "snapshot-created",
+      phase: "evidence-ready",
       terminalDisposition: null,
-      route: null,
+      route: "concise",
       commitState: "absent",
       publicationState: "not-requested",
       publicationAllowed: false,
@@ -117,6 +120,7 @@ test("workflow preparation owns one transaction and returns its bounded snapshot
       mode: "actual",
       scopeKind: "full",
       changeUnitCount: 2,
+      capsuleChangeUnitCount: 2,
     },
   );
   assert.equal(output.headAnchor.headKind, "attached");
@@ -126,7 +130,9 @@ test("workflow preparation owns one transaction and returns its bounded snapshot
   assert.equal(typeof output.transaction, "string");
 
   const transaction = JSON.parse(readFileSync(output.transaction, "utf8"));
-  assert.equal(transaction.phase, "snapshot-created");
+  assert.equal(transaction.phase, "evidence-ready");
+  assert.equal(transaction.route, "concise");
+  assert.equal(transaction.review, null);
   assert.deepEqual(transaction.repositoryTypePolicy.allowedTypes, ["fix"]);
   assert.equal(transaction.scope.kind, "full");
   assert.equal(transaction.snapshot.changeUnitCount, 2);
@@ -142,7 +148,7 @@ test("workflow preparation owns one transaction and returns its bounded snapshot
   );
 });
 
-test("workflow resume is idempotent at snapshot-created and rejects overrides", (t) => {
+test("workflow resume is idempotent after evidence routing and rejects overrides", (t) => {
   const fixture = createRepositoryFixture(t, "workflow-resume-cli-");
   writeRepositoryFile(fixture.repo, "change.txt", "change\n");
   git(["add", "change.txt"], fixture.repo);
@@ -171,7 +177,7 @@ test("workflow resume is idempotent at snapshot-created and rejects overrides", 
   );
 
   assert.equal(resumed.status, 0, resumed.stderr);
-  assert.equal(JSON.parse(resumed.stdout).phase, "snapshot-created");
+  assert.equal(JSON.parse(resumed.stdout).phase, "evidence-ready");
 
   const override = runCommitWorkflow(
     "workflow resume",
@@ -523,7 +529,287 @@ test("workflow preparation validates one-time scope and evidence inputs", (t) =>
   assert.equal(typeof output.initialEvidencePlanSha256, "string");
   assert.equal(readFileSync(scopePath, "utf8").length > 0, true);
   assert.equal(readFileSync(evidencePath, "utf8").length > 0, true);
-  assert.equal(readFileSync(persistedPlan, "utf8").length > 0, true);
+  assert.equal(existsSync(persistedPlan), false);
+});
+
+test("one-file explicit review returns a bounded initial queue without mutable acknowledgement artifacts", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-prepare-review-");
+
+  writeRepositoryFile(fixture.repo, "unknown.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "unknown.txt", "after\n");
+
+  const result = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "review",
+      "--basis",
+      "unknown-preexisting",
+    ],
+    fixture.repo,
+    { env: temporaryEnvironment(fixture.scratch) },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(Buffer.byteLength(result.stdout) < 8 * 1024);
+  const output = JSON.parse(result.stdout);
+  const attemptDirectory = dirname(output.transaction);
+
+  assert.equal(output.phase, "review-pending");
+  assert.equal(output.route, "extended");
+  assert.equal(output.extendedReason, "review-policy");
+  assert.ok(output.reviewQueue.requiredPacketCount > 0);
+  assert.equal(existsSync(join(attemptDirectory, "inspection")), false);
+  assert.equal(
+    existsSync(join(attemptDirectory, "review", "ledger.json")),
+    false,
+  );
+  assert.equal(
+    existsSync(join(attemptDirectory, "review", "inventory.md")),
+    false,
+  );
+});
+
+test("an over-budget message patch selects extended without returning a partial capsule", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-prepare-over-budget-");
+
+  writeRepositoryFile(fixture.repo, "large.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "large.txt",
+    "changed line\n".repeat(8_000),
+  );
+
+  const result = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "message",
+      "--basis",
+      "user-grounded",
+    ],
+    fixture.repo,
+    { env: temporaryEnvironment(fixture.scratch) },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+
+  assert.equal(output.route, "extended");
+  assert.equal(output.extendedReason, "required-evidence-over-budget");
+  assert.equal("capsule" in output, false);
+  assert.ok(output.reviewQueue.requiredPacketCount > 1);
+});
+
+test("invalid UTF-8 message evidence routes to lossless extended packets", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-prepare-invalid-utf8-");
+
+  writeRepositoryFile(fixture.repo, "bytes.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "bytes.txt",
+    Buffer.from([0x61, 0xff, 0x62, 0x0a]),
+  );
+
+  const result = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "message",
+      "--basis",
+      "user-grounded",
+    ],
+    fixture.repo,
+    { env: temporaryEnvironment(fixture.scratch) },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  const transaction = JSON.parse(readFileSync(output.transaction, "utf8"));
+  const catalog = JSON.parse(
+    readFileSync(transaction.review.catalogPath, "utf8"),
+  );
+  const packet = catalog.packets.find(({ kind }) => kind === "text-patch");
+
+  assert.equal(output.route, "extended");
+  assert.equal(output.extendedReason, "invalid-evidence-encoding");
+  assert.equal(packet.encoding, "escaped-hex");
+  assert.doesNotMatch(
+    readFileSync(
+      join(dirname(transaction.review.catalogPath), packet.artifact),
+      "utf8",
+    ),
+    /�/u,
+  );
+});
+
+test("evidence uncertainty extends the exact snapshot without staging it again", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-extend-evidence-");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    uniformPrepareArguments(),
+    fixture.repo,
+    { env: temporaryEnvironment(fixture.scratch) },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparedOutput = JSON.parse(prepared.stdout);
+  const transactionBefore = JSON.parse(
+    readFileSync(preparedOutput.transaction, "utf8"),
+  );
+  const attemptDirectory = dirname(preparedOutput.transaction);
+  const snapshotPath = join(attemptDirectory, "snapshot.json");
+  const snapshotBytes = readFileSync(snapshotPath);
+  const planInputPath = join(attemptDirectory, "evidence-plan-input.json");
+  const tracePath = join(fixture.scratch, "extend-trace.json");
+
+  writeFileSync(
+    planInputPath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      groups: [
+        {
+          selection: { all: true },
+          policy: "review",
+          basis: { kind: "unknown-preexisting", note: "Ownership uncertain" },
+        },
+      ],
+    })}\n`,
+  );
+
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      preparedOutput.transaction,
+      "--reason",
+      "evidence-uncertainty",
+    ],
+    fixture.repo,
+    { env: { GIT_TRACE2_EVENT: tracePath } },
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  const output = JSON.parse(extended.stdout);
+
+  assert.equal(output.phase, "review-pending");
+  assert.equal(output.route, "extended");
+  assert.equal(output.extendedReason, "evidence-uncertainty");
+  assert.equal(output.indexTreeOid, preparedOutput.indexTreeOid);
+  assert.equal(
+    output.capsuleSha256,
+    transactionBefore.inlineEvidence.capsuleSha256,
+  );
+  assert.ok(output.reviewQueue.requiredPacketCount > 0);
+  assert.equal(readFileSync(snapshotPath).equals(snapshotBytes), true);
+  assert.equal(existsSync(planInputPath), false);
+  assert.equal(
+    readGitTraceArguments(tracePath).some((args) =>
+      args.some((argument) =>
+        new Set(["write-tree", "read-tree", "add"]).has(argument),
+      ),
+    ),
+    false,
+  );
+});
+
+test("semantic structure extension rejects stray plan input and carries concise evidence without a queue", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-extend-structure-");
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    uniformPrepareArguments(),
+    fixture.repo,
+    { env: temporaryEnvironment(fixture.scratch) },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparedOutput = JSON.parse(prepared.stdout);
+  const transactionBefore = JSON.parse(
+    readFileSync(preparedOutput.transaction, "utf8"),
+  );
+  const planInputPath = join(
+    dirname(preparedOutput.transaction),
+    "evidence-plan-input.json",
+  );
+  writeFileSync(planInputPath, '{"schemaVersion":1,"groups":[]}\n');
+
+  const rejected = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      preparedOutput.transaction,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(rejected.status, 2);
+  assert.equal(rejected.stdout.trim().split(/\r?\n/u).length, 1);
+  assert.equal(
+    JSON.parse(rejected.stdout).code,
+    "UNEXPECTED_EVIDENCE_PLAN_INPUT",
+  );
+  assert.equal(existsSync(planInputPath), true);
+  assert.deepEqual(
+    JSON.parse(readFileSync(preparedOutput.transaction, "utf8")),
+    transactionBefore,
+  );
+  unlinkSync(planInputPath);
+
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      preparedOutput.transaction,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  const output = JSON.parse(extended.stdout);
+  const transaction = JSON.parse(
+    readFileSync(preparedOutput.transaction, "utf8"),
+  );
+
+  assert.equal(output.phase, "review-pending");
+  assert.equal(output.route, "extended");
+  assert.equal(output.extendedReason, "semantic-structure-required");
+  assert.equal(output.reviewQueue, null);
+  assert.equal(
+    transaction.review.coveredCapsuleSha256,
+    transactionBefore.inlineEvidence.capsuleSha256,
+  );
+  assert.equal(
+    transaction.review.evidencePlanSha256,
+    transactionBefore.initialEvidencePlan.sha256,
+  );
+  assert.equal(transaction.review.semanticStructureRequired, true);
 });
 
 test("workflow preparation parser rejects every ambiguous argument combination", () => {
@@ -627,7 +913,7 @@ test("workflow preparation parser rejects every ambiguous argument combination",
   }
 });
 
-test("workflow preparation normalizes selectors before repository discovery", (t) => {
+test("workflow preparation normalizes selectors before repository discovery", async (t) => {
   const fixture = createRepositoryFixture(t, "workflow-selector-validation-");
   const invalidScopes = [
     ["INVALID_SCOPE_SELECTOR", ["--path-prefix", "src/parser"]],
@@ -654,7 +940,7 @@ test("workflow preparation normalizes selectors before repository discovery", (t
       ...selectors,
     ]);
 
-    assert.throws(
+    await assert.rejects(
       () =>
         prepareWorkflow({
           options,
@@ -693,7 +979,7 @@ test("every inherited Git storage override is rejected without exposing its valu
   }
 });
 
-test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes before allocation", (t) => {
+test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes before allocation", async (t) => {
   const fixture = createRepositoryFixture(t, "workflow-json-input-boundary-");
   const evidencePath = join(fixture.base, "evidence.json");
   const options = () =>
@@ -707,7 +993,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
     ]);
 
   writeFileSync(evidencePath, Buffer.from([0xff]));
-  assert.throws(
+  await assert.rejects(
     () =>
       prepareWorkflow({
         options: options(),
@@ -732,7 +1018,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
       ],
     }),
   );
-  assert.throws(
+  await assert.rejects(
     () =>
       prepareWorkflow({
         options: options(),
@@ -748,7 +1034,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
     evidencePath,
     Buffer.alloc(MAXIMUM_INITIAL_JSON_INPUT_BYTES + 1, 0x20),
   );
-  assert.throws(
+  await assert.rejects(
     () =>
       prepareWorkflow({
         options: options(),

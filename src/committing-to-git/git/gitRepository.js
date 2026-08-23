@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 // Git process boundary for the commit workflow.
 
@@ -120,8 +121,13 @@ function assertExactArguments(args, expected, operation) {
   }
 }
 
-function buildReadOnlyDiffArguments(args) {
-  const forbidden = args.find(
+function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
+  const separatorIndex = args.indexOf("--");
+  const optionArguments = literalPaths
+    ? args.slice(0, separatorIndex + 1)
+    : args;
+  const pathArguments = literalPaths ? args.slice(separatorIndex + 1) : [];
+  const forbidden = optionArguments.find(
     (argument) =>
       argument === "--ext-diff" ||
       argument === "--textconv" ||
@@ -139,7 +145,7 @@ function buildReadOnlyDiffArguments(args) {
     );
   }
 
-  const renameArguments = args.filter(
+  const renameArguments = optionArguments.filter(
     (argument) =>
       argument === "--no-renames" || argument.startsWith("--find-renames="),
   );
@@ -167,11 +173,11 @@ function buildReadOnlyDiffArguments(args) {
     "--root",
     "--",
   ]);
-  const invalid = args.find(
+  const invalid = optionArguments.find(
     (argument) =>
       !allowedArguments.has(argument) && !FULL_OBJECT_ID.test(argument),
   );
-  const outputModes = args.filter((argument) =>
+  const outputModes = optionArguments.filter((argument) =>
     new Set([
       "--raw",
       "--name-status",
@@ -183,13 +189,26 @@ function buildReadOnlyDiffArguments(args) {
 
   if (
     invalid ||
-    args.at(-1) !== "--" ||
-    new Set(args).size !== args.length ||
+    separatorIndex < 0 ||
+    (!literalPaths && args.at(-1) !== "--") ||
+    (literalPaths && pathArguments.length === 0) ||
+    new Set(optionArguments).size !== optionArguments.length ||
     outputModes.length > 1 ||
-    args.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 ||
-    args.includes("--find-renames=50%") !== args.includes("-l0") ||
-    args.includes("--raw") !== args.includes("--no-abbrev") ||
-    (outputModes.some((mode) => mode !== "--quiet") && !args.includes("-z"))
+    optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length >
+      1 ||
+    optionArguments.includes("--find-renames=50%") !==
+      optionArguments.includes("-l0") ||
+    optionArguments.includes("--raw") !==
+      optionArguments.includes("--no-abbrev") ||
+    (outputModes.some((mode) => mode !== "--quiet") &&
+      !optionArguments.includes("-z")) ||
+    (literalPaths &&
+      pathArguments.some(
+        (path) =>
+          isAbsolute(path) ||
+          path.includes("\0") ||
+          path.split(/[\\/]/u).some((component) => component === ".."),
+      ))
   ) {
     throw new Error(
       `Arguments are not permitted for read-only Git operation diff${
@@ -198,7 +217,15 @@ function buildReadOnlyDiffArguments(args) {
     );
   }
 
-  return ["diff", "--no-ext-diff", "--no-textconv", "--no-color", ...args];
+  return [
+    ...(literalPaths ? ["--literal-pathspecs"] : []),
+    "diff",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    ...optionArguments,
+    ...pathArguments,
+  ];
 }
 
 function buildReadOnlyCatFileArguments(args) {
@@ -333,6 +360,8 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
+    case "diff-paths":
+      return buildReadOnlyDiffArguments(args, { literalPaths: true });
     case "diff-tree":
       return buildReadOnlyDiffTreeArguments(args);
     case "cat-file":
@@ -381,6 +410,13 @@ function buildReadOnlyArguments(operation, args) {
         `Unsupported read-only Git operation ${JSON.stringify(operation)}.`,
       );
   }
+}
+
+export function buildReadOnlyGitArguments(operation, args = []) {
+  return [
+    ...READ_ONLY_GLOBAL_ARGUMENTS,
+    ...buildReadOnlyArguments(operation, args),
+  ];
 }
 
 function buildIndexMutationArguments(operation, args) {
@@ -496,6 +532,257 @@ export function runReadOnlyGit(
 
   if (!allowFailure && result.status !== 0) {
     throw new GitCommandError(gitArguments, result);
+  }
+
+  return result;
+}
+
+function boundedDiagnosticAppend(state, chunk, maximumBytes) {
+  if (maximumBytes === 0 || chunk.length === 0) {
+    return;
+  }
+
+  const headBudget = Math.ceil(maximumBytes / 2);
+  const tailBudget = maximumBytes - headBudget;
+
+  if (state.full !== null) {
+    const complete = Buffer.concat([state.full, chunk]);
+    state.full = complete.length <= maximumBytes ? complete : null;
+  }
+
+  if (state.head.length < headBudget) {
+    const needed = headBudget - state.head.length;
+    state.head = Buffer.concat([state.head, chunk.subarray(0, needed)]);
+  }
+
+  if (tailBudget > 0) {
+    state.tail = Buffer.concat([state.tail, chunk]);
+
+    if (state.tail.length > tailBudget) {
+      state.tail = state.tail.subarray(state.tail.length - tailBudget);
+    }
+  }
+}
+
+function boundedDiagnosticResult(state, totalBytes, maximumBytes) {
+  if (totalBytes <= maximumBytes) {
+    return state.full ?? Buffer.alloc(0);
+  }
+
+  return Buffer.concat([
+    state.head,
+    Buffer.from(
+      `\n...[${totalBytes - state.head.length - state.tail.length} bytes omitted]...\n`,
+    ),
+    state.tail,
+  ]);
+}
+
+async function consumeStream(
+  readable,
+  { callback, hash, maximumCallbackBytes, diagnostic, maximumDiagnosticBytes },
+) {
+  let byteCount = 0;
+
+  for await (const value of readable) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+
+    hash.update(chunk);
+    byteCount += chunk.length;
+    boundedDiagnosticAppend(diagnostic, chunk, maximumDiagnosticBytes);
+
+    if (callback) {
+      for (let start = 0; start < chunk.length; start += maximumCallbackBytes) {
+        await callback(
+          Buffer.from(
+            chunk.subarray(
+              start,
+              Math.min(start + maximumCallbackBytes, chunk.length),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  return byteCount;
+}
+
+function emptyStreamResult({ aborted, timedOut }) {
+  const emptyDigest = createHash("sha256")
+    .update(Buffer.alloc(0))
+    .digest("hex");
+
+  return {
+    status: null,
+    signal: aborted || timedOut ? "SIGTERM" : null,
+    aborted,
+    timedOut,
+    stdoutByteCount: 0,
+    stderrByteCount: 0,
+    stdoutSha256: emptyDigest,
+    stderrSha256: emptyDigest,
+    stderrDiagnostic: "",
+  };
+}
+
+export async function streamGit(
+  operation,
+  args = [],
+  {
+    cwd = process.cwd(),
+    env,
+    input,
+    allowFailure = false,
+    onStdout,
+    onStderr,
+    signal,
+    timeoutMs,
+    maximumCallbackBytes = 16 * 1024,
+    maximumDiagnosticBytes = 32 * 1024,
+    launcher = spawn,
+  } = {},
+) {
+  const gitArguments = buildReadOnlyGitArguments(operation, args);
+
+  assertReadOnlyGitCapabilities();
+
+  if (
+    !Number.isSafeInteger(maximumCallbackBytes) ||
+    maximumCallbackBytes < 1 ||
+    !Number.isSafeInteger(maximumDiagnosticBytes) ||
+    maximumDiagnosticBytes < 0 ||
+    (timeoutMs !== undefined &&
+      (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1))
+  ) {
+    throw new Error("Streaming Git limits must be positive safe integers.");
+  }
+
+  if (signal?.aborted) {
+    return emptyStreamResult({ aborted: true, timedOut: false });
+  }
+
+  const child = launcher("git", gitArguments, {
+    cwd,
+    env: { ...process.env, ...env, ...READ_ONLY_ENVIRONMENT },
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let aborted = false;
+  let timedOut = false;
+  let callbackError = null;
+  const abort = () => {
+    aborted = true;
+    child.kill("SIGTERM");
+  };
+  const timeout =
+    timeoutMs === undefined
+      ? null
+      : setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGTERM");
+        }, timeoutMs);
+
+  signal?.addEventListener("abort", abort, { once: true });
+
+  const stdoutHash = createHash("sha256");
+  const stderrHash = createHash("sha256");
+  const stdoutDiagnostic = {
+    full: Buffer.alloc(0),
+    head: Buffer.alloc(0),
+    tail: Buffer.alloc(0),
+  };
+  const stderrDiagnostic = {
+    full: Buffer.alloc(0),
+    head: Buffer.alloc(0),
+    tail: Buffer.alloc(0),
+  };
+  const completion = new Promise((resolveCompletion, rejectCompletion) => {
+    child.once("error", rejectCompletion);
+    child.once("close", (status, childSignal) =>
+      resolveCompletion({ status, signal: childSignal }),
+    );
+  });
+
+  if (input === undefined) {
+    child.stdin.end();
+  } else {
+    child.stdin.end(input);
+  }
+
+  let stdoutByteCount;
+  let stderrByteCount;
+  let completionResult;
+
+  try {
+    const safelyConsume = async (readable, options) => {
+      try {
+        return await consumeStream(readable, options);
+      } catch (error) {
+        callbackError ??= error;
+        child.kill("SIGTERM");
+        return 0;
+      }
+    };
+    const streams = await Promise.all([
+      safelyConsume(child.stdout, {
+        callback: onStdout,
+        hash: stdoutHash,
+        maximumCallbackBytes,
+        diagnostic: stdoutDiagnostic,
+        maximumDiagnosticBytes,
+      }),
+      safelyConsume(child.stderr, {
+        callback: onStderr,
+        hash: stderrHash,
+        maximumCallbackBytes,
+        diagnostic: stderrDiagnostic,
+        maximumDiagnosticBytes,
+      }),
+    ]);
+
+    [stdoutByteCount, stderrByteCount] = streams;
+    completionResult = await completion;
+  } finally {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+    signal?.removeEventListener("abort", abort);
+  }
+
+  if (callbackError) {
+    throw callbackError;
+  }
+
+  const stdoutSha256 = stdoutHash.digest("hex");
+  const stderrSha256 = stderrHash.digest("hex");
+  const stderrBytes = boundedDiagnosticResult(
+    stderrDiagnostic,
+    stderrByteCount,
+    maximumDiagnosticBytes,
+  );
+  const result = {
+    status: completionResult.status,
+    signal: completionResult.signal,
+    aborted,
+    timedOut,
+    stdoutByteCount,
+    stderrByteCount,
+    stdoutSha256,
+    stderrSha256,
+    stderrDiagnostic: stderrBytes.toString("utf8"),
+  };
+
+  if (!allowFailure && !aborted && !timedOut && completionResult.status !== 0) {
+    throw new GitCommandError(gitArguments, {
+      status: completionResult.status,
+      stdout: boundedDiagnosticResult(
+        stdoutDiagnostic,
+        stdoutByteCount,
+        maximumDiagnosticBytes,
+      ),
+      stderr: stderrBytes,
+    });
   }
 
   return result;

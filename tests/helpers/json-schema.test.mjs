@@ -101,6 +101,19 @@ test("annotation keywords are accepted and do not affect validation", () => {
   assert.ok(schemaErrors({ value: "one" }, annotated).length > 0);
 });
 
+test("maximum and minProperties enforce upper and object-size bounds", () => {
+  const bounded = {
+    type: "object",
+    minProperties: 1,
+    additionalProperties: false,
+    properties: { count: { type: "integer", maximum: 4 } },
+  };
+
+  assert.deepEqual(schemaErrors({ count: 4 }, bounded), []);
+  assert.match(schemaErrors({ count: 5 }, bounded).join("\n"), /maximum/u);
+  assert.match(schemaErrors({}, bounded).join("\n"), /minProperties/u);
+});
+
 test("unsupported keywords fail loudly rather than being ignored", () => {
   assert.throws(
     () =>

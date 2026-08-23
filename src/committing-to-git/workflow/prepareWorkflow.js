@@ -1,12 +1,16 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   constants as fsConstants,
+  createReadStream,
   fstatSync,
   fsyncSync,
+  existsSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -16,13 +20,27 @@ import {
   activeGitOperations,
   repositoryRoot,
   runReadOnlyGit,
+  streamGit,
 } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
+import {
+  MAXIMUM_CONCISE_RESULT_BYTES,
+  createInlineEvidenceCapsule,
+  sha256Bytes,
+  stableJsonBytes,
+} from "../inspection/inlineEvidenceCapsule.js";
+import {
+  canonicalizeEvidencePlan,
+  createReviewCatalog,
+  writeReviewPacketQueue,
+} from "../inspection/reviewCatalog.js";
+import { writePacketStream } from "../inspection/streamingPacketWriter.js";
 import {
   MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
   selectRenamePolicy,
 } from "../snapshot/commitSnapshot.js";
 import { createSnapshot } from "../snapshot/createSnapshot.js";
+import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
 import {
   installPreparedIndex,
   recoverIndexInstallation,
@@ -1238,8 +1256,403 @@ function verifySnapshotScope(snapshot, scope, selectedPaths) {
   }
 }
 
+export function manifestEnvironment(manifest) {
+  if (!manifest.indexFile) {
+    return undefined;
+  }
+
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...(manifest.temporaryObjectDirectory
+      ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory }
+      : {}),
+    ...(Array.isArray(manifest.objectAlternates) &&
+    manifest.objectAlternates.length > 0
+      ? {
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+            manifest.objectAlternates,
+          ),
+        }
+      : {}),
+  };
+}
+
+function patchUnitsForGroup(manifest, group) {
+  const selectedIds = new Set(group.changeUnitIds);
+
+  return manifest.changeUnits.filter(
+    (unit) =>
+      selectedIds.has(unit.id) &&
+      unit.newMode !== "000000" &&
+      unit.oldMode !== "160000" &&
+      unit.newMode !== "160000" &&
+      unit.binary !== true,
+  );
+}
+
+function patchArguments(manifest, units) {
+  const paths = units.map(({ destinationPath }) => destinationPath);
+
+  if (paths.some((path) => typeof path !== "string" || path.length === 0)) {
+    throw new Error(
+      "Selected patch evidence contains a path that cannot be represented as strict UTF-8.",
+    );
+  }
+
+  return [
+    "--cached",
+    "--no-renames",
+    "--diff-filter=d",
+    ...(manifest.headOid ? [manifest.headOid] : ["--root"]),
+    "--",
+    ...paths,
+  ];
+}
+
+async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
+  const units = patchUnitsForGroup(manifest, group);
+  const path = resolve(
+    attemptDirectory,
+    `.evidence-${group.id}-${randomUUID()}.tmp`,
+  );
+
+  if (units.length === 0) {
+    return { group, units, path: null, byteCount: 0, empty: true };
+  }
+
+  try {
+    const descriptor = openSync(
+      path,
+      fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL,
+      0o600,
+    );
+    let result;
+
+    try {
+      result = await streamGit("diff-paths", patchArguments(manifest, units), {
+        cwd: root,
+        env: manifestEnvironment(manifest),
+        onStdout(chunk) {
+          writeFileSync(descriptor, chunk);
+        },
+      });
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+
+    if (result.aborted || result.timedOut || result.status !== 0) {
+      throw new Error(
+        `Patch evidence stream for ${group.id} did not complete.`,
+      );
+    }
+
+    return {
+      group,
+      units,
+      path,
+      byteCount: result.stdoutByteCount,
+      empty: false,
+    };
+  } catch (error) {
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+
+    throw error;
+  }
+}
+
+export async function acquireEvidence({
+  root,
+  manifest,
+  evidencePlan,
+  attemptDirectory,
+}) {
+  const records = [];
+
+  for (const group of evidencePlan.groups) {
+    if (!new Set(["message", "review"]).has(group.policy)) {
+      continue;
+    }
+
+    records.push(
+      await spoolEvidenceGroup({
+        root,
+        manifest,
+        group,
+        attemptDirectory,
+      }),
+    );
+  }
+
+  return records;
+}
+
+function inlineEvidenceManifest(manifest, records, evidencePlan) {
+  const totalBytes = records.reduce(
+    (total, record) => total + record.byteCount,
+    0,
+  );
+
+  if (totalBytes > MAXIMUM_CONCISE_RESULT_BYTES) {
+    return null;
+  }
+
+  return {
+    ...manifest,
+    manifestSha256: evidencePlan.manifestSha256,
+    evidenceByGroupId: Object.fromEntries(
+      records.map((record) => [
+        record.group.id,
+        record.empty ? Buffer.alloc(0) : readFileSync(record.path),
+      ]),
+    ),
+  };
+}
+
+export async function preMaterializePatchPackets({ reviewDirectory, records }) {
+  const packetsByGroupId = {};
+  let nextOrdinal = 1;
+
+  for (const record of records) {
+    if (record.empty) {
+      continue;
+    }
+
+    const written = await writePacketStream({
+      outputDirectory: reviewDirectory,
+      source: createReadStream(record.path, { highWaterMark: 16 * 1024 }),
+      idPrefix: "P",
+      startingOrdinal: nextOrdinal,
+      kind: "text-patch",
+      changeUnitRanges: record.group.changeUnitRanges,
+      changeUnitCount: record.units.length,
+      pathIdentity: record.group.id,
+      context: `evidence-group=${record.group.id}`,
+    });
+
+    packetsByGroupId[record.group.id] = written.packets;
+    nextOrdinal += written.packets.length;
+  }
+
+  return packetsByGroupId;
+}
+
+export function cleanupEvidenceSpools(records) {
+  for (const { path } of records) {
+    if (path && existsSync(path)) {
+      unlinkSync(path);
+    }
+  }
+}
+
+function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
+  const path = resolve(attemptDirectory, "evidence-plan.json");
+  const bytes = stableJsonBytes(evidencePlan);
+
+  if (existsSync(path)) {
+    if (!readFileSync(path).equals(bytes)) {
+      throw new Error(
+        "Canonical evidence-plan artifact has conflicting bytes.",
+      );
+    }
+  } else {
+    writeOwnedInput(path, bytes);
+  }
+  return path;
+}
+
+export async function routePreparedEvidence({
+  transactionPath,
+  transaction,
+  manifest,
+  root,
+}) {
+  const anchoredManifest = {
+    ...manifest,
+    manifestSha256: transaction.snapshot.sha256,
+  };
+  const evidencePlan = canonicalizeEvidencePlan({
+    manifest: anchoredManifest,
+    groups: transaction.initialEvidencePlan.groups,
+  });
+  const evidencePlanPath = writeCanonicalEvidencePlan(
+    transaction.attemptDirectory,
+    evidencePlan,
+  );
+  const records = await acquireEvidence({
+    root,
+    manifest: anchoredManifest,
+    evidencePlan,
+    attemptDirectory: transaction.attemptDirectory,
+  });
+  let routing;
+
+  try {
+    const inlineManifest = inlineEvidenceManifest(
+      anchoredManifest,
+      records,
+      evidencePlan,
+    );
+
+    routing = evidencePlan.groups.some(({ policy }) => policy === "review")
+      ? { route: "extended", capsule: null, extendedReason: "review-policy" }
+      : inlineManifest === null
+        ? {
+            route: "extended",
+            capsule: null,
+            extendedReason: "required-evidence-over-budget",
+          }
+        : createInlineEvidenceCapsule({
+            manifest: inlineManifest,
+            evidencePlan,
+          });
+
+    const common = {
+      ...transaction,
+      initialEvidencePlan: {
+        ...transaction.initialEvidencePlan,
+        inputSha256: transaction.initialEvidencePlan.sha256,
+        sha256: evidencePlan.evidencePlanSha256,
+        manifestSha256: evidencePlan.manifestSha256,
+        groups: evidencePlan.groups,
+        path: evidencePlanPath,
+      },
+    };
+
+    if (routing.route === "concise") {
+      let measuredByteCount = routing.capsule.byteCount;
+      let preview;
+
+      for (;;) {
+        routing.capsule.byteCount = measuredByteCount;
+        preview = {
+          ...common,
+          phase: "evidence-ready",
+          status: "prepared",
+          route: "concise",
+          inlineEvidence: {
+            capsuleSha256: "0".repeat(64),
+            manifestSha256: evidencePlan.manifestSha256,
+            evidencePlanSha256: evidencePlan.evidencePlanSha256,
+            capsule: routing.capsule,
+          },
+          review: null,
+        };
+        const nextByteCount = Buffer.byteLength(
+          JSON.stringify(successEnvelope(preview, transaction.scope.summary)),
+          "utf8",
+        );
+
+        if (nextByteCount === measuredByteCount) {
+          break;
+        }
+
+        measuredByteCount = nextByteCount;
+      }
+
+      if (measuredByteCount > MAXIMUM_CONCISE_RESULT_BYTES) {
+        routing = {
+          route: "extended",
+          capsule: null,
+          extendedReason: routing.capsule.evidence.some(
+            ({ patchText }) => patchText !== null,
+          )
+            ? "required-evidence-over-budget"
+            : "scope-synopsis-over-budget",
+        };
+      }
+    }
+
+    if (routing.route === "concise") {
+      const capsuleSha256 = sha256Bytes(stableJsonBytes(routing.capsule));
+      const completed = advanceTransaction(
+        transactionPath,
+        "snapshot-created",
+        {
+          ...common,
+          phase: "evidence-ready",
+          status: "prepared",
+          route: "concise",
+          inlineEvidence: {
+            capsuleSha256,
+            manifestSha256: evidencePlan.manifestSha256,
+            evidencePlanSha256: evidencePlan.evidencePlanSha256,
+            capsule: routing.capsule,
+          },
+          review: null,
+        },
+      );
+
+      return completed;
+    }
+
+    const reviewDirectory = resolve(transaction.attemptDirectory, "review");
+
+    if (records.some(({ empty }) => !empty) && !existsSync(reviewDirectory)) {
+      mkdirSync(reviewDirectory);
+    }
+
+    const packetsByGroupId = await preMaterializePatchPackets({
+      reviewDirectory,
+      records,
+    });
+    const extendedManifest = {
+      ...anchoredManifest,
+      manifestSha256: evidencePlan.manifestSha256,
+      preMaterializedPacketsByGroupId: packetsByGroupId,
+      evidenceByGroupId: Object.fromEntries(
+        records
+          .filter(({ empty }) => empty)
+          .map(({ group }) => [group.id, Buffer.alloc(0)]),
+      ),
+    };
+    const catalog = createReviewCatalog({
+      manifest: extendedManifest,
+      outputDirectory: reviewDirectory,
+      evidencePlan,
+    });
+    const packetIds = [
+      ...new Set([
+        ...catalog.requiredSynopsisPacketIds,
+        ...catalog.exactInventoryPacketIds,
+        ...catalog.fullPatchPacketIds,
+      ]),
+    ];
+    const reviewQueue = writeReviewPacketQueue({
+      catalog,
+      packetIds,
+      queueKind: "initial",
+      outputDirectory: reviewDirectory,
+    });
+    const completed = advanceTransaction(transactionPath, "snapshot-created", {
+      ...common,
+      phase: "review-pending",
+      status: "review-pending",
+      route: "extended",
+      inlineEvidence: null,
+      review: {
+        catalogPath: catalog.catalogPath,
+        catalogSha256: catalog.catalogSha256,
+        evidencePlanPath,
+        evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        extendedReason: routing.extendedReason,
+        queue: reviewQueue,
+        receipt: null,
+        semanticStructureRequired: false,
+      },
+    });
+
+    return completed;
+  } finally {
+    cleanupEvidenceSpools(records);
+  }
+}
+
 function successEnvelope(transaction, summary) {
   return {
+    schemaVersion: 1,
     status: "prepared",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
@@ -1255,6 +1668,13 @@ function successEnvelope(transaction, summary) {
     headAnchor: transaction.headAnchor,
     indexTreeOid: transaction.snapshot.indexTreeOid,
     changeUnitCount: transaction.snapshot.changeUnitCount,
+    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    ...(transaction.route === "concise"
+      ? { capsule: transaction.inlineEvidence.capsule }
+      : {
+          extendedReason: transaction.review.extendedReason,
+          reviewQueue: transaction.review.queue,
+        }),
   };
 }
 
@@ -1333,7 +1753,7 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
   }
 }
 
-export function prepareWorkflow({
+export async function prepareWorkflow({
   options,
   cwd = process.cwd(),
   environment = process.env,
@@ -1575,6 +1995,21 @@ export function prepareWorkflow({
     throw interruptionError(error, workspace.transactionPath, summary);
   }
 
+  completed = await routePreparedEvidence({
+    transactionPath: workspace.transactionPath,
+    transaction: completed,
+    manifest: snapshotResult.snapshot,
+    root,
+  });
+
+  const evidencePlanInputPath = getEvidencePlanInputPath(
+    workspace.transactionPath,
+  );
+
+  if (existsSync(evidencePlanInputPath)) {
+    unlinkSync(evidencePlanInputPath);
+  }
+
   return successEnvelope(completed, summary);
 }
 
@@ -1623,7 +2058,7 @@ function textResult(result) {
   return `${lines.join("\n")}\n`;
 }
 
-export function runPrepareWorkflowCommand(
+export async function runPrepareWorkflowCommand(
   argv,
   {
     cwd = process.cwd(),
@@ -1637,7 +2072,7 @@ export function runPrepareWorkflowCommand(
   try {
     const options = parsePrepareArguments(argv);
     format = options.format;
-    const result = prepareWorkflow({ options, cwd, environment });
+    const result = await prepareWorkflow({ options, cwd, environment });
     stdout.write(
       format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
     );

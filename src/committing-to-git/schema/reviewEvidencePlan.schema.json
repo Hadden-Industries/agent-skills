@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Evidence Plan",
+  "description": "Canonical selector partition and evidence provenance for one exact manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestSha256",
+    "groups",
+    "evidencePlanSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "manifestSha256": { "$ref": "#/$defs/sha256" },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "evidencePlanSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "changeUnitId": {
+      "type": "string",
+      "pattern": "^F[0-9]{6}$"
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first", "last"],
+      "properties": {
+        "first": { "$ref": "#/$defs/changeUnitId" },
+        "last": { "$ref": "#/$defs/changeUnitId" }
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": { "all": { "const": true } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["remaining"],
+          "properties": { "remaining": { "const": true } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "ids": { "$ref": "#/$defs/stringArray" },
+            "destinationPaths": { "$ref": "#/$defs/stringArray" },
+            "destinationPathPrefixes": { "$ref": "#/$defs/stringArray" },
+            "sourcePaths": { "$ref": "#/$defs/stringArray" },
+            "sourcePathPrefixes": { "$ref": "#/$defs/stringArray" },
+            "kinds": { "$ref": "#/$defs/stringArray" }
+          }
+        }
+      ]
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "note"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "authored-current-task",
+            "read-current-task",
+            "task-lineage",
+            "user-grounded",
+            "generated-derived",
+            "unknown-preexisting"
+          ]
+        },
+        "note": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "selection",
+        "policy",
+        "basis",
+        "changeUnitRanges",
+        "changeUnitCount"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^E[0-9]{6}$" },
+        "selection": { "$ref": "#/$defs/selection" },
+        "policy": { "enum": ["reuse", "message", "review"] },
+        "basis": { "$ref": "#/$defs/basis" },
+        "changeUnitRanges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/range" }
+        },
+        "changeUnitCount": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

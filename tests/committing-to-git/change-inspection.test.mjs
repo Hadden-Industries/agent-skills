@@ -5,12 +5,15 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createHash } from "node:crypto";
+
 import {
   MAX_CHUNK_BYTES,
   MAX_CHUNK_LINES,
   splitPatch,
   writeInspection,
 } from "../../src/committing-to-git/inspection/changeInspection.js";
+import { streamGit } from "../../src/committing-to-git/git/gitRepository.js";
 import {
   commitAll,
   createRepositoryFixture,
@@ -811,4 +814,66 @@ test("large inventories are emitted as bounded review pages", (t) => {
   for (const { id } of changeUnits) {
     assert.match(completeInventory, new RegExp(`\\b${id}\\b`, "u"));
   }
+});
+
+test("streaming Git bounds callbacks while preserving the complete byte identity", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-streaming-git-");
+  const contents = `${"streamed evidence line\n".repeat(20_000)}`;
+
+  writeRepositoryFile(fixture.repo, "large.txt", contents);
+  git(["add", "large.txt"], fixture.repo);
+  const expected = git(
+    [
+      "--no-pager",
+      "diff",
+      "--cached",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--no-renames",
+      "--root",
+      "--",
+    ],
+    fixture.repo,
+  ).stdout;
+  const observed = [];
+  const result = await streamGit(
+    "diff",
+    ["--cached", "--no-renames", "--root", "--"],
+    {
+      cwd: fixture.repo,
+      onStdout: (chunk) => observed.push(chunk),
+    },
+  );
+  const bytes = Buffer.concat(observed);
+
+  assert.equal(result.status, 0);
+  assert.equal(result.aborted, false);
+  assert.equal(result.stdoutByteCount, bytes.length);
+  assert.equal(
+    result.stdoutSha256,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  assert.ok(observed.every((chunk) => chunk.length <= 16 * 1024));
+  assert.equal(bytes.toString("utf8"), expected);
+});
+
+test("an already-aborted read-only Git stream returns one uniform cancelled result", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-streaming-abort-");
+  const controller = new AbortController();
+  controller.abort();
+
+  const result = await streamGit(
+    "diff",
+    ["--cached", "--no-renames", "--root", "--"],
+    {
+      cwd: fixture.repo,
+      signal: controller.signal,
+    },
+  );
+
+  assert.equal(result.aborted, true);
+  assert.equal(result.status, null);
+  assert.match(result.stdoutSha256, /^[0-9a-f]{64}$/u);
+  assert.match(result.stderrSha256, /^[0-9a-f]{64}$/u);
 });

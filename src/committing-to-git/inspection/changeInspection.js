@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
-// Durable inspection artifacts and acknowledgements.
+// Legacy command-only inspection artifacts and acknowledgements. High-level
+// workflows use the immutable review catalog and packet queue instead.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 

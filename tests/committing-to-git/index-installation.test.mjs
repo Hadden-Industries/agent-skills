@@ -340,7 +340,7 @@ test("explicit resume completes original and already-replaced pending journals",
   }
 });
 
-test("preparation resume consumes only the persisted snapshot and policy", (t) => {
+test("preparation resume consumes only the persisted snapshot and policy", async (t) => {
   const fixture = createRepositoryFixture(t, "preparation-resume-");
   writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
   commitAll(fixture.repo);
@@ -349,7 +349,7 @@ test("preparation resume consumes only the persisted snapshot and policy", (t) =
   let interruption;
 
   try {
-    prepareWorkflow({
+    await prepareWorkflow({
       options: parsePrepareArguments([
         "--mode",
         "actual",
@@ -376,21 +376,23 @@ test("preparation resume consumes only the persisted snapshot and policy", (t) =
   assert.equal(interruption?.code, "INDEX_INSTALLATION_INTERRUPTED");
   assert.equal(interruption.details.recoveryStatus, "matching-index-observed");
 
-  const result = resumePreparationWorkflow({
+  const result = await resumePreparationWorkflow({
     transactionPath: interruption.details.transaction,
   });
 
   assert.equal(result.status, "prepared");
-  assert.equal(result.phase, "snapshot-created");
+  assert.equal(result.phase, "evidence-ready");
+  assert.equal(result.route, "concise");
+  assert.ok(result.capsule);
   assert.equal(result.recoveryRequired, false);
   assert.equal(result.changeUnitCount, 1);
   assert.equal(
     readJson(interruption.details.transaction).phase,
-    "snapshot-created",
+    "evidence-ready",
   );
 });
 
-test("actual full preparation preserves split-index linkage and entry flags", (t) => {
+test("actual full preparation preserves split-index linkage and entry flags", async (t) => {
   const fixture = createRepositoryFixture(t, "preparation-split-index-");
   writeRepositoryFile(fixture.repo, "flagged.txt", "flagged\n");
   writeRepositoryFile(fixture.repo, "changed.txt", "before\n");
@@ -399,7 +401,7 @@ test("actual full preparation preserves split-index linkage and entry flags", (t
   git(["update-index", "--split-index"], fixture.repo);
   writeRepositoryFile(fixture.repo, "changed.txt", "after\n");
 
-  const result = prepareWorkflow({
+  const result = await prepareWorkflow({
     options: parsePrepareArguments([
       "--mode",
       "actual",
@@ -428,7 +430,7 @@ test("actual full preparation preserves split-index linkage and entry flags", (t
   );
 });
 
-test("actual full preparation preserves a sparse index when Git supports it", (t) => {
+test("actual full preparation preserves a sparse index when Git supports it", async (t) => {
   const fixture = createRepositoryFixture(t, "preparation-sparse-index-");
   writeRepositoryFile(fixture.repo, "src/changed.txt", "before\n");
   writeRepositoryFile(fixture.repo, "outside/kept.txt", "kept\n");
@@ -441,7 +443,7 @@ test("actual full preparation preserves a sparse index when Git supports it", (t
   );
   writeRepositoryFile(fixture.repo, "src/changed.txt", "after\n");
 
-  const result = prepareWorkflow({
+  const result = await prepareWorkflow({
     options: parsePrepareArguments([
       "--mode",
       "actual",

@@ -36,6 +36,17 @@ const UUID_V4_PATTERN =
 const FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const EXTENDED_REASONS = new Set([
+  "review-policy",
+  "required-evidence-over-budget",
+  "scope-synopsis-over-budget",
+  "invalid-evidence-encoding",
+  "required-object-unavailable",
+  "unresolved-anomaly",
+  "evidence-uncertainty",
+  "semantic-structure-required",
+]);
 
 const PHASES = new Set([
   "allocated",
@@ -276,6 +287,83 @@ function validateRepositoryTypePolicy(policy) {
   }
 }
 
+function validateInlineEvidence(inlineEvidence) {
+  if (inlineEvidence === null) {
+    return;
+  }
+
+  assertExactKeys(
+    inlineEvidence,
+    ["capsuleSha256", "manifestSha256", "evidencePlanSha256", "capsule"],
+    "Inline evidence",
+  );
+
+  for (const field of [
+    "capsuleSha256",
+    "manifestSha256",
+    "evidencePlanSha256",
+  ]) {
+    if (!SHA256_PATTERN.test(inlineEvidence[field])) {
+      throw new Error(`Inline evidence ${field} must be a SHA-256 digest.`);
+    }
+  }
+
+  if (
+    inlineEvidence.capsule === null ||
+    typeof inlineEvidence.capsule !== "object" ||
+    Array.isArray(inlineEvidence.capsule)
+  ) {
+    throw new Error("Inline evidence capsule must be an object.");
+  }
+}
+
+function validateReviewState(review) {
+  if (review === null) {
+    return;
+  }
+
+  const required = [
+    "catalogPath",
+    "catalogSha256",
+    "evidencePlanPath",
+    "evidencePlanSha256",
+    "extendedReason",
+    "queue",
+    "receipt",
+    "semanticStructureRequired",
+  ];
+  const optional =
+    review.coveredCapsuleSha256 === undefined ? [] : ["coveredCapsuleSha256"];
+
+  assertExactKeys(review, [...required, ...optional], "Review state");
+
+  if (
+    typeof review.catalogPath !== "string" ||
+    review.catalogPath.length === 0 ||
+    typeof review.evidencePlanPath !== "string" ||
+    review.evidencePlanPath.length === 0 ||
+    !SHA256_PATTERN.test(review.catalogSha256) ||
+    !SHA256_PATTERN.test(review.evidencePlanSha256) ||
+    (review.coveredCapsuleSha256 !== undefined &&
+      !SHA256_PATTERN.test(review.coveredCapsuleSha256)) ||
+    !EXTENDED_REASONS.has(review.extendedReason) ||
+    typeof review.semanticStructureRequired !== "boolean"
+  ) {
+    throw new Error(
+      "Review state contains invalid identities or routing facts.",
+    );
+  }
+
+  for (const field of ["queue", "receipt"]) {
+    if (
+      review[field] !== null &&
+      (typeof review[field] !== "object" || Array.isArray(review[field]))
+    ) {
+      throw new Error(`Review state ${field} must be an object or null.`);
+    }
+  }
+}
+
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
@@ -340,6 +428,30 @@ export function validateTransaction(transaction) {
 
   validateRepositoryTypePolicy(transaction.repositoryTypePolicy);
   validateHeadAnchor(transaction.headAnchor);
+  validateInlineEvidence(transaction.inlineEvidence);
+  validateReviewState(transaction.review);
+
+  if (
+    transaction.phase === "evidence-ready" &&
+    (transaction.route !== "concise" ||
+      transaction.inlineEvidence === null ||
+      transaction.review !== null)
+  ) {
+    throw new Error(
+      "An evidence-ready transaction requires concise inline evidence only.",
+    );
+  }
+
+  if (
+    transaction.phase === "review-pending" &&
+    (transaction.route !== "extended" ||
+      transaction.inlineEvidence !== null ||
+      transaction.review === null)
+  ) {
+    throw new Error(
+      "A review-pending transaction requires extended review state only.",
+    );
+  }
 
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");

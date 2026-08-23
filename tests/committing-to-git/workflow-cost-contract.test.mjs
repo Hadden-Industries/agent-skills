@@ -4,6 +4,9 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createInlineEvidenceCapsule } from "../../src/committing-to-git/inspection/inlineEvidenceCapsule.js";
+import { canonicalizeEvidencePlan } from "../../src/committing-to-git/inspection/reviewCatalog.js";
+
 import {
   createRepositoryFixture,
   runCommitWorkflow,
@@ -252,4 +255,59 @@ test("pre-cutover acknowledgement response scales with the complete old ledger",
 
   assert.equal(ledger.units.length, REPRESENTATIVE_OLD_LEDGER_UNITS);
   assert.equal(responseBytes, PRE_CUTOVER_THOUSAND_UNIT_ACK_RESPONSE_BYTES);
+});
+
+test("the proportional route contract never uses change-unit count as an evidence proxy", () => {
+  const routeForCount = (changeUnitCount) => {
+    const changeUnits = Array.from({ length: changeUnitCount }, (_, index) => {
+      const id = `F${String(index + 1).padStart(6, "0")}`;
+      const path = `generated/domain/file-${index + 1}.json`;
+
+      return {
+        id,
+        kind: "modified",
+        destinationPath: path,
+        destinationPathBytesBase64: Buffer.from(path).toString("base64"),
+        sourcePath: null,
+        sourcePathBytesBase64: null,
+        oldMode: "100644",
+        newMode: "100644",
+        oldOid: "a".repeat(40),
+        newOid: "b".repeat(40),
+        binary: false,
+        additions: 1,
+        deletions: 1,
+        lineStatistics: "eager",
+        renameClassification: null,
+      };
+    });
+    const manifest = {
+      schemaVersion: 2,
+      indexTreeOid: "c".repeat(40),
+      changeUnitCount,
+      changeUnits,
+      statistics: {
+        files: changeUnitCount,
+        additions: changeUnitCount,
+        deletions: changeUnitCount,
+        binaryFiles: 0,
+      },
+      warnings: [],
+    };
+    const evidencePlan = canonicalizeEvidencePlan({
+      manifest,
+      groups: [
+        {
+          selection: { all: true },
+          policy: "reuse",
+          basis: { kind: "generated-derived", note: null },
+        },
+      ],
+    });
+
+    return createInlineEvidenceCapsule({ manifest, evidencePlan });
+  };
+
+  assert.equal(routeForCount(1).route, "concise");
+  assert.equal(routeForCount(1_000).route, "concise");
 });

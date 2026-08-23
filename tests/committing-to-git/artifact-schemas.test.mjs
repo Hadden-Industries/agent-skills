@@ -82,6 +82,26 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
     /headAnchor|oneOf/u,
   );
 
+  const incompleteEvidenceState = {
+    ...structuredClone(transaction),
+    phase: "evidence-ready",
+    status: "prepared",
+  };
+  assert.match(
+    schemaErrors(incompleteEvidenceState, transactionSchema).join("\n"),
+    /route|inlineEvidence|oneOf/u,
+  );
+
+  const incompleteReviewState = {
+    ...structuredClone(transaction),
+    phase: "review-pending",
+    status: "review-pending",
+  };
+  assert.match(
+    schemaErrors(incompleteReviewState, transactionSchema).join("\n"),
+    /route|review|oneOf/u,
+  );
+
   const unknownTransactionMember = structuredClone(transaction);
   unknownTransactionMember.registry = "latest";
   assert.match(
@@ -332,5 +352,170 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   assert.deepEqual(
     schemaErrors(publication, schema("publicationResult.schema.json")),
     [],
+  );
+});
+
+test("proportional review schemas bind concise evidence, immutable packets, and one receipt", () => {
+  const range = { first: "F000001", last: "F000012" };
+  const evidencePlan = {
+    schemaVersion: 1,
+    manifestSha256: "a".repeat(64),
+    groups: [
+      {
+        id: "E000001",
+        selection: { all: true },
+        policy: "message",
+        basis: { kind: "user-grounded", note: "Reported warning" },
+        changeUnitRanges: [range],
+        changeUnitCount: 12,
+      },
+    ],
+    evidencePlanSha256: "d".repeat(64),
+  };
+  const capsule = {
+    schemaVersion: 1,
+    manifestSha256: "a".repeat(64),
+    evidencePlanSha256: "d".repeat(64),
+    changeUnitCount: 12,
+    scopeSynopsis: "12 parser changes with no unexplained anomalies",
+    evidence: [
+      {
+        policy: "message",
+        selectionSummary: "all 12 change units",
+        basisKind: "user-grounded",
+        basisNote: "Reported warning",
+        patchText: "diff --git a/parser.js b/parser.js\n",
+        patchComplete: true,
+      },
+    ],
+    unresolved: [],
+    byteCount: 1024,
+  };
+  const packet = {
+    id: "S000001",
+    kind: "scope-synopsis",
+    artifact: `packets/${"b".repeat(64)}.packet`,
+    byteCount: 512,
+    lineCount: 12,
+    sha256: "b".repeat(64),
+    rawArtifact: `raw/${"c".repeat(64)}.bin`,
+    rawByteStart: 0,
+    rawByteEnd: 128,
+    rawByteCount: 128,
+    rawSha256: "c".repeat(64),
+    encoding: "utf-8",
+    changeUnitRanges: [range],
+    changeUnitCount: 12,
+  };
+  const catalog = {
+    schemaVersion: 1,
+    indexTreeOid: "1".repeat(40),
+    manifestSha256: "a".repeat(64),
+    evidencePlanSha256: "d".repeat(64),
+    evidenceGroups: [
+      {
+        id: "E000001",
+        policy: "message",
+        changeUnitRanges: [range],
+        changeUnitCount: 12,
+        requiredTextPatchRanges: [range],
+        requiredTextPatchCount: 12,
+      },
+    ],
+    inlineCoverage: { scopeSynopsis: false, evidenceGroupIds: [] },
+    packets: [packet],
+    requiredSynopsisPacketIds: ["S000001"],
+    exactInventoryPacketIds: [],
+    fullPatchPacketIds: [],
+    deletions: [],
+    storage: {
+      kind: "base-plus-revisions",
+      baseIndexArtifact: "base-packet-index.json",
+      baseIndexSha256: "e".repeat(64),
+      revisionCount: 0,
+      currentRevisionArtifact: null,
+    },
+    catalogSha256: "f".repeat(64),
+  };
+  const queue = {
+    schemaVersion: 1,
+    kind: "initial",
+    catalogSha256: "f".repeat(64),
+    evidencePlanSha256: "d".repeat(64),
+    requiredPacketCount: 1,
+    pageCount: 1,
+    firstPage: {
+      artifact: "queues/initial-ffffffffffff-Q000001.json",
+      sha256: "9".repeat(64),
+      byteCount: 512,
+      packetCount: 1,
+    },
+  };
+  const receipt = {
+    schemaVersion: 1,
+    catalogSha256: "f".repeat(64),
+    evidencePlanSha256: "d".repeat(64),
+    requiredPacketsReviewed: true,
+    additionalPacketIds: [],
+  };
+
+  assert.deepEqual(
+    schemaErrors(capsule, schema("inlineEvidenceCapsule.schema.json")),
+    [],
+  );
+  assert.deepEqual(
+    schemaErrors(evidencePlan, schema("reviewEvidencePlan.schema.json")),
+    [],
+  );
+  assert.deepEqual(
+    schemaErrors(catalog, schema("reviewCatalog.schema.json")),
+    [],
+  );
+  assert.deepEqual(
+    schemaErrors(queue, schema("reviewPacketQueue.schema.json")),
+    [],
+  );
+  assert.deepEqual(
+    schemaErrors(receipt, schema("reviewReceipt.schema.json")),
+    [],
+  );
+
+  const incomplete = structuredClone(capsule);
+  incomplete.evidence[0].patchComplete = false;
+  assert.match(
+    schemaErrors(incomplete, schema("inlineEvidenceCapsule.schema.json")).join(
+      "\n",
+    ),
+    /patchComplete/u,
+  );
+
+  const missingMessagePatch = structuredClone(capsule);
+  missingMessagePatch.evidence[0].patchText = null;
+  assert.match(
+    schemaErrors(
+      missingMessagePatch,
+      schema("inlineEvidenceCapsule.schema.json"),
+    ).join("\n"),
+    /patchText|oneOf/u,
+  );
+
+  const emptySelectionPlan = structuredClone(evidencePlan);
+  emptySelectionPlan.groups[0].selection = {};
+  assert.match(
+    schemaErrors(
+      emptySelectionPlan,
+      schema("reviewEvidencePlan.schema.json"),
+    ).join("\n"),
+    /selection|minProperties|oneOf/u,
+  );
+
+  const oversizedQueuePage = structuredClone(queue);
+  oversizedQueuePage.firstPage.byteCount = 16 * 1024 + 1;
+  assert.match(
+    schemaErrors(
+      oversizedQueuePage,
+      schema("reviewPacketQueue.schema.json"),
+    ).join("\n"),
+    /byteCount|maximum/u,
   );
 });

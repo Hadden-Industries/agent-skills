@@ -291,7 +291,14 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
   );
   assert.equal(verification.status, 0, verification.stderr);
 
-  writeJson(transactionPath, { ...transaction, phase: "allocated" });
+  writeJson(transactionPath, {
+    ...transaction,
+    phase: "allocated",
+    status: null,
+    route: null,
+    inlineEvidence: null,
+    review: null,
+  });
   const recovery = runCommitWorkflow(
     "workflow resume",
     ["--transaction", transactionPath],
