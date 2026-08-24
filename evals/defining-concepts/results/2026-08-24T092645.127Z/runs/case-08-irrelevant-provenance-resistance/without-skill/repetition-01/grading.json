@@ -1,0 +1,129 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "The response presents a definition, a five-value list, and a source-verification paragraph, but none of the five required numbered top-level sections or a section 3 definition."
+    },
+    {
+      "text": "The agent opens the supplied W3C Data Catalog Vocabulary URL and checks its content instead of accepting the colleague's attribution.",
+      "passed": true,
+      "evidence": "Before the final answer, transcript.jsonl records a completed web_search action whose query is the exact supplied W3C URL, followed by a separate exact-compound action. The final rejects the attribution."
+    },
+    {
+      "text": "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
+      "passed": true,
+      "evidence": "The final explicitly says DCAT 3 does not define the exact term, evidence retention, or the value set and must not be cited as the authoritative source."
+    },
+    {
+      "text": "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
+      "passed": false,
+      "evidence": "The only raw web actions target the supplied W3C URL and the exact compound. No broader justice, records-management, archival, or metadata-vocabulary search is recorded."
+    },
+    {
+      "text": "Path C is selected unless a fetched authoritative source actually supplies an extensionally and intensionally matching definition; any different path is justified with direct evidence.",
+      "passed": true,
+      "evidence": "Although it does not use the label 'Path C', the answer substantively chooses that path: it calls the output a proposed justice-registry definition after finding that the supplied source does not define the term, and it neither reuses nor adapts DCAT wording."
+    },
+    {
+      "text": "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
+      "passed": true,
+      "evidence": "The definition begins with the abstract genus 'The current state', not an evidence item or review activity."
+    },
+    {
+      "text": "The differentia concern authorization for continued retention and do not enumerate Unknown, Pending review, Authorized, Refused, or Expired in the final definition.",
+      "passed": true,
+      "evidence": "The definition sentence concerns whether an evidence item may continue to be retained under applicable authority and contains none of the five labels. The labels are enumerated only after the definition."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
+      "passed": false,
+      "evidence": "The definition describes the concept as 'the current state of the decision', making it a state of an authorization decision rather than directly modeling the recorded authorization status. This is the decision/status conflation the assertion prohibits."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried, Source Provenance, and URL-verification claims report only actions and semantic support evidenced by the transcript.",
+      "passed": false,
+      "evidence": "The required Repositories Queried and Source Provenance fields are absent, so there is no substantive repository/provenance report to verify. The narrower W3C URL-verification claim is supported by the URL-specific web action, but that alone does not establish the full assertion."
+    },
+    {
+      "text": "[CRITICAL] Every URL retained in Verified Sources resolves and supports the exact compound or constituent meaning for which it is cited.",
+      "passed": true,
+      "evidence": "The answer retains only the supplied W3C URL. The transcript records a completed URL-specific action for it, and the cited purpose is a negative verification: DCAT's data-catalog scope does not supply the claimed exact justice-registry term."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 4,
+    "total": 10,
+    "pass_rate": 0.6
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "web_search": 2
+    },
+    "total_tool_calls": 2,
+    "total_steps": 4,
+    "files_created": [
+      "final.md"
+    ],
+    "errors_encountered": 0,
+    "output_chars": 1016,
+    "transcript_chars": 2290
+  },
+  "timing": {
+    "executor_duration_seconds": 24.02,
+    "total_duration_seconds": 24.02
+  },
+  "claims": [
+    {
+      "claim": "The supplied W3C DCAT page does not define Evidence Retention Authorization Status, evidence retention, or the supplied value set.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The transcript records URL-specific access to DCAT plus a separate exact-compound action, and the final uses the source only to reject the proposed attribution."
+    },
+    {
+      "claim": "DCAT is a general vocabulary for describing data catalogs and is not authoritative for this proposed justice-registry term.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The cited destination is accessed directly and the final correctly limits its scope rather than treating it as the source of the new term."
+    },
+    {
+      "claim": "The definition cleanly models an authorization status rather than an authorization decision.",
+      "type": "quality",
+      "verified": false,
+      "evidence": "Its genus is 'the current state of the decision', which makes the concept dependent on and potentially conflated with the decision's state."
+    },
+    {
+      "claim": "The definition is newly proposed rather than reused from DCAT.",
+      "type": "process",
+      "verified": true,
+      "evidence": "The final calls it a proposed justice-registry definition and expressly denies that DCAT is its authoritative source."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Path C is selected unless a fetched authoritative source actually supplies an extensionally and intensionally matching definition; any different path is justified with direct evidence.",
+        "reason": "Clarify whether a response must literally name 'Path C' or whether creating and labeling a definition as newly proposed is sufficient substantive evidence of that selection."
+      },
+      {
+        "assertion": "The differentia concern authorization for continued retention and do not enumerate Unknown, Pending review, Authorized, Refused, or Expired in the final definition.",
+        "reason": "This permits a response to enumerate and elaborate the entire value domain immediately outside the definition, as this baseline does. If the intended behavior is to keep values out of the semantic artifact or move them only to refinement notes, state that scope explicitly."
+      },
+      {
+        "assertion": "[CRITICAL] Repositories Queried, Source Provenance, and URL-verification claims report only actions and semantic support evidenced by the transcript.",
+        "reason": "Make presence of Repositories Queried and Source Provenance explicit; otherwise the assertion is ambiguous between a required provenance report and a conditional truthfulness check on whichever claims happen to be present."
+      },
+      {
+        "assertion": "[CRITICAL] Every URL retained in Verified Sources resolves and supports the exact compound or constituent meaning for which it is cited.",
+        "reason": "Clarify whether a source linked under another heading can pass on substance, and define how a source retained solely to disprove an attribution satisfies the semantic-support clause."
+      }
+    ],
+    "overall": "The semantic checks expose a real decision/status conflation in the baseline, while the source-attribution check is independently achievable. Several workflow assertions should specify whether literal template fields are mandatory or substantive equivalents count."
+  }
+}

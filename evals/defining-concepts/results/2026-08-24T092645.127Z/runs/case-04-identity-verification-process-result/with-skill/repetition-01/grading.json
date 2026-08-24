@@ -1,0 +1,113 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": true,
+      "evidence": "final.md contains exactly the five ordered headings from '### 1. Semantic Analysis' through '### 5. Verified Sources'; section 3 contains the formulated definition."
+    },
+    {
+      "text": "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+      "passed": true,
+      "evidence": "Before the final answer, transcript web-search queries target NIST identity verification and outcome/result entries at ISO and FIBO. The final analysis then distinguishes NIST's process semantics from the result-category genus 'Determination'."
+    },
+    {
+      "text": "The reuse decision states whether a source definition is reused, adapted, or insufficient and ties that decision to fetched evidence.",
+      "passed": false,
+      "evidence": "The final states Path C and names NIST and an ISO outcome entry, but the JSONL records search actions only. It does not expose a fetched page or page content that proves the claimed evidence was retrieved."
+    },
+    {
+      "text": "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+      "passed": true,
+      "evidence": "Section 1 names the genus 'Determination', and section 3 begins 'A determination reached by...'."
+    },
+    {
+      "text": "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+      "passed": true,
+      "evidence": "The definition delimits the determination as concerning 'the association between an individual and presented identity evidence' without defining the verification process."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+      "passed": true,
+      "evidence": "The definition describes a determination reached by a process; it is not phrased as a process, artifact, code, or value domain."
+    },
+    {
+      "text": "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+      "passed": true,
+      "evidence": "None of those labels appears in section 3. They appear only in section 4's refinement explanation."
+    },
+    {
+      "text": "The compliance audit identifies and explains the corrected process-result category error.",
+      "passed": true,
+      "evidence": "Section 4 explicitly says the starter's process-category error was removed because the concept is a determination produced by a process."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+      "passed": true,
+      "evidence": "The output explicitly says no exact reusable definition for 'Identity Verification Outcome' was located; it does not attribute that exact compound term to a source. The named repositories correspond to visible site-targeted search queries."
+    },
+    {
+      "text": "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports.",
+      "passed": false,
+      "evidence": "Six final URLs are followed by the blanket claim that they were verified, but the JSONL exposes no URL-specific open/fetch result or destination content for any of them. Liveness and exact semantic support therefore cannot be verified from the retained evidence."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 2,
+    "total": 10,
+    "pass_rate": 0.8
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "web_search": 3
+    },
+    "total_tool_calls": 3,
+    "total_steps": 5,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 3375,
+    "transcript_chars": 6033
+  },
+  "timing": {
+    "executor_duration_seconds": 54.333,
+    "total_duration_seconds": 54.333
+  },
+  "claims": [
+    {
+      "claim": "No exact reusable definition for Identity Verification Outcome was located.",
+      "type": "process",
+      "verified": false,
+      "evidence": "The transcript shows several relevant searches, but the retained tool events do not expose their result sets, so the negative search claim cannot be verified exhaustively."
+    },
+    {
+      "claim": "NIST supplies the stated identity-verification semantics.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The NIST site was searched, but no fetched NIST text is present in the JSONL."
+    },
+    {
+      "claim": "All final URLs were verified as active.",
+      "type": "process",
+      "verified": false,
+      "evidence": "No URL-specific open or successful response is visible in the transcript."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+        "reason": "As written, an output that omits both required fields can satisfy the negative clause vacuously. Require both fields to be present and require any exact-match claim to cite observable source evidence."
+      },
+      {
+        "assertion": "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports.",
+        "reason": "Codex JSONL records web actions but may omit returned page content and URL details. Split this into an observable execution check and an independently verifiable final-source relevance check, or retain richer web evidence."
+      }
+    ],
+    "overall": "The semantic assertions discriminate well. Provenance assertions need observable-evidence wording so a grader can distinguish real retrieval from a polished unsupported claim."
+  }
+}

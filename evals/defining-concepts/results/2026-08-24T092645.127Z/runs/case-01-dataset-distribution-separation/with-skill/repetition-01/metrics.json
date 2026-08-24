@@ -1,0 +1,13 @@
+{
+  "tool_calls": {
+    "web_search": 4
+  },
+  "total_tool_calls": 4,
+  "total_steps": 7,
+  "files_created": [
+    "final.md"
+  ],
+  "errors_encountered": 0,
+  "output_chars": 4141,
+  "transcript_chars": 7963
+}

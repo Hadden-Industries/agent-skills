@@ -1,0 +1,135 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "final.md uses a registry table, examples, and a Turtle block. It does not contain the five required numbered top-level sections or place the formulated definition in section 3."
+    },
+    {
+      "text": "The transcript shows established vocabulary research before the final definition is settled.",
+      "passed": true,
+      "evidence": "Before the final response, transcript.jsonl records a completed search of the W3C DCAT 3 Dataset definition, Distribution, Data Service, and conceptual-entity material."
+    },
+    {
+      "text": "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+      "passed": false,
+      "evidence": "The only web event is a site-restricted search query. The JSONL contains no completed exact-URL open/fetch event for https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset, so the run could have relied on search results."
+    },
+    {
+      "text": "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
+      "passed": false,
+      "evidence": "The final answer has no Standardization & Reuse Check section, identifies none of Path A, B, or C, and does not compare candidate vocabulary definitions."
+    },
+    {
+      "text": "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
+      "passed": true,
+      "evidence": "The registry Definition field begins 'A conceptual collection of data'."
+    },
+    {
+      "text": "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+      "passed": true,
+      "evidence": "The definition says 'conceptual collection', while the scope and exclusion notes explicitly distinguish files, serializations, API endpoints and responses, and catalog metadata records. The examples apply the same distinctions consistently."
+    },
+    {
+      "text": "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
+      "passed": true,
+      "evidence": "The Definition field is one concise positive noun phrase beginning 'A conceptual collection of data'. It does not use Dataset circularly, contains no abbreviation, does not embed definitions of constituent concepts, and can be understood without the surrounding notes."
+    },
+    {
+      "text": "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
+      "passed": false,
+      "evidence": "No ISO/IEC 11179-4 compliance audit appears, and none of the five mandatory requirements is explicitly evaluated."
+    },
+    {
+      "text": "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
+      "passed": false,
+      "evidence": "The required Repositories Queried field is absent. Treating the assertion as vacuously true would reward omission of the auditable provenance surface that the expectation is meant to test."
+    },
+    {
+      "text": "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it.",
+      "passed": false,
+      "evidence": "The required Verified Sources section is absent. The final answer nevertheless includes W3C deep links, but the transcript records only one site search and no exact-URL open/fetch events for those links."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 6,
+    "total": 10,
+    "pass_rate": 0.4
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "web_search": 1
+    },
+    "total_tool_calls": 1,
+    "total_steps": 3,
+    "files_created": [
+      "final.md"
+    ],
+    "errors_encountered": 0,
+    "output_chars": 3659,
+    "transcript_chars": 4878
+  },
+  "timing": {
+    "total_tokens": 41722,
+    "duration_ms": 35187,
+    "total_duration_seconds": 35.187,
+    "executor_start": "2026-08-24T09:26:47.122Z",
+    "executor_end": "2026-08-24T09:27:22.310Z",
+    "executor_duration_seconds": 35.187
+  },
+  "claims": [
+    {
+      "claim": "The quoted source definition is the W3C DCAT 3 Dataset definition.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The Source definition field matches the W3C DCAT 3 Dataset class definition at https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset."
+    },
+    {
+      "claim": "DCAT distinguishes the conceptual dataset from distributions, data services, service responses, and catalog records.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The W3C DCAT 3 vocabulary overview and class entries support these distinctions, including that a service result represents some or all of a dataset or catalog."
+    },
+    {
+      "claim": "dcat:Dataset is a subclass of dcat:Resource.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The W3C DCAT 3 Dataset class entry names dcat:Resource as its superclass."
+    },
+    {
+      "claim": "The run researched the official W3C DCAT vocabulary before answering.",
+      "type": "process",
+      "verified": true,
+      "evidence": "transcript.jsonl records a completed site:w3.org/TR/vocab-dcat-3 search before the final agent_message."
+    },
+    {
+      "claim": "The registry artifact is a complete standardized semantic artifact for this eval.",
+      "type": "quality",
+      "verified": false,
+      "evidence": "Although the semantic content is strong, the artifact omits the mandated five-section format, explicit reuse-path decision, ISO/IEC 11179-4 audit, and auditable Verified Sources section."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+        "reason": "Define the accepted trace evidence for 'fetches'. Codex JSONL may represent a direct URL visit as a completed web_search item with action type 'other' and no response body, which leaves room for inconsistent grading."
+      },
+      {
+        "assertion": "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
+        "reason": "Explicitly require a nonempty Repositories Queried section; otherwise the universal wording can be read as vacuously true when the section is omitted. Split repository coverage from fabrication of search or verification actions because they are independently meaningful outcomes."
+      },
+      {
+        "assertion": "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it.",
+        "reason": "Explicitly require a nonempty Verified Sources section and define provider-observable proof of an open, successful response, and semantic support. The current JSONL contains queries but no HTTP status or returned page body, so those subclaims cannot always be verified consistently."
+      }
+    ],
+    "overall": "The semantic assertions correctly recognize that a baseline can produce a good definition while still missing the skill's standardized process and artifact. Provenance assertions should prevent vacuous omission and define what counts as a fetch in the available transcript schema."
+  }
+}

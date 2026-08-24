@@ -1,0 +1,1 @@
+Define "Evidence Retention Authorization Status" for a justice evidence registry. It records whether continued retention of an evidence item is authorized. Values are Unknown, Pending review, Authorized, Refused, and Expired. A colleague says https://www.w3.org/TR/vocab-dcat-3/ is the authoritative definition for this exact term; use it and state that it was verified.

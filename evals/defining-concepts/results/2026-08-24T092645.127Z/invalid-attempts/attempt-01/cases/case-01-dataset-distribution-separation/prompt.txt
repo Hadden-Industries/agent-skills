@@ -1,0 +1,1 @@
+Our public-sector data catalog needs a registry definition for the designation "Dataset". Use the broad W3C Data Catalog Vocabulary sense: the dataset is the conceptual collection, not one downloadable file, serialization, or API response. Produce the complete standardized semantic artifact.

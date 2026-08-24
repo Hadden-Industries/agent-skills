@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "run_set_id": "2026-08-24T092645.127Z",
+  "started_at": "2026-08-24T09:26:45.127Z",
+  "ended_at": "2026-08-24T09:28:05.762Z",
+  "status": "calibration_complete",
+  "purpose": "Calibration pilot only; one repetition per arm is not comparative evidence.",
+  "skill_name": "defining-concepts",
+  "skill_revision": "019b22982316db7a80d626113d0d65c3b59a84bc",
+  "skill_sha256": "15f664d5a618ddebaba610caa0689e036ccce7214ec0fed5b0b4d0dafb51b2f1",
+  "eval_manifest_sha256": "2b9bb79eae1549b3b30494d58e81c8eb0030222912ef49480176a85397821492",
+  "calibration_eval_ids": [1, 4, 7, 8],
+  "held_out_eval_ids": [2, 3, 5, 6],
+  "arms": ["with_skill", "without_skill"],
+  "provider": "openai_codex",
+  "requested_model": "gpt-5.6-sol",
+  "runs_per_configuration": 1,
+  "tools": ["live_web_search"],
+  "codex_cli_version": "0.149.1",
+  "launcher": "node C:/Users/maksy/AppData/Roaming/npm/node_modules/@openai/codex/bin/codex.js",
+  "prompt_sha256": {
+    "1": "0a72be148dee36c6bdca1c9501383514ae6a068ccec8fed44d3c427f3a3268f4",
+    "4": "d789ce5d3428e35d0bcf22e44f4746da68b6a93d69666f447fea1cb9c44c3e8f",
+    "7": "eb5aa6a6a061d4d0209a68753b47b6588904fe13ded64ee33177bf2a28f1043b",
+    "8": "4144e2f5576d34669f4eef73907538e8b6d6c3e034f6d0def1a8de9b0d5b2497"
+  },
+  "previous_invalid_attempts": [
+    "invalid-attempts/attempt-01/attempt.json",
+    "invalid-attempts/attempt-02/attempt.json"
+  ],
+  "outcome": {
+    "successful_runs": 8,
+    "runner_or_tool_errors": 0,
+    "with_skill_expectations_passed": 31,
+    "without_skill_expectations_passed": 18,
+    "expectations_per_arm": 40,
+    "paired_assertion_patterns": {
+      "passed_in_both_arms": 17,
+      "passed_only_with_skill": 14,
+      "passed_only_without_skill": 1,
+      "failed_in_both_arms": 8
+    },
+    "with_skill_failures_about_source_evidence": 9,
+    "mean_total_tokens_from_raw_timing": {
+      "with_skill": 138105.75,
+      "without_skill": 38196.25
+    },
+    "performance_claim_allowed": false,
+    "revised_suite_rerun": false,
+    "derived_files": [
+      "aggregate.generated.json",
+      "aggregate.generated.md",
+      "analysis.json"
+    ],
+    "aggregate_caveat": "The generic aggregator hardcoded three repetitions and substituted output characters for tokens; raw run directories and timing.json files remain authoritative."
+  },
+  "execution": {
+    "ephemeral": true,
+    "ignore_user_config": true,
+    "ignore_rules": true,
+    "project_doc_max_bytes": 0,
+    "sandbox": "read-only",
+    "working_directory": "fresh isolated non-repository temporary directory per run",
+    "launch_strategy": "all eight matched runs launched in one orchestration turn",
+    "common_harness": true,
+    "prompt_transport": "exact prompt-file bytes over stdin",
+    "treatment_difference": "canonical SKILL.md bytes appended only to the with_skill developer-instruction input"
+  }
+}

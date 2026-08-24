@@ -1,0 +1,134 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": true,
+      "evidence": "final.md has exactly the numbered top-level sections 1. Semantic Analysis, 2. Standardization & Reuse Check, 3. The Formulated Definition, 4. ISO/IEC 11179-4 Compliance Audit, and 5. Verified Sources, in that order. Section 3 contains the bold Electric charge definition, and final.md contains no preamble or conversational filler."
+    },
+    {
+      "text": "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+      "passed": false,
+      "evidence": "The raw transcript records searches for IUPAC, IEC, BIPM, VIM, and related sources, but it contains no page-fetch/open event and no returned term-bearing entry. The final answer's descriptions of IUPAC, IEC, and BIPM therefore cannot establish that those entries or metrology materials were actually fetched and checked."
+    },
+    {
+      "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+      "passed": true,
+      "evidence": "Section 1 explicitly labels the evaluated designation as Charge, explains its financial, legal, custodial, and task-related polysemy, recommends Electric charge for a domain-independent registry, and retains charge as an admitted synonym or scoped short label."
+    },
+    {
+      "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+      "passed": true,
+      "evidence": "Both Section 1 and the Section 3 definition use the genus Scalar physical quantity. Section 4 also explicitly distinguishes the quantity from its physical-system bearer."
+    },
+    {
+      "text": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+      "passed": true,
+      "evidence": "The differentia invoke net electric current, identifying the electric sense. Sections 1 and 4 expressly reject the financial/price, legal/accusation, assigned-duty/task, and battery-condition senses."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+      "passed": true,
+      "evidence": "Section 3 identifies electric charge as a scalar physical quantity of a system. Electric current occurs only in a relation that delimits change in charge; the coulomb is separately labeled as the SI unit in Section 4; the elementary charge constant is not used as the concept; and the physical system is the bearer rather than the quantity itself."
+    },
+    {
+      "text": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+      "passed": true,
+      "evidence": "The definition uses only the current-time relationship needed for the stated delimitation and remains a single declarative noun phrase. Section 4 separately identifies the SI unit and says measurement procedures, unit-realization details, force consequences, conservation, and quantization were excluded."
+    },
+    {
+      "text": "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
+      "passed": true,
+      "evidence": "Section 2 explicitly chooses Path B - Adapt and explains that it added an immediate genus, identified the bearer as a physical system, and reframed the integral relationship for independent intelligibility rather than claiming exact reuse."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
+      "passed": false,
+      "evidence": "The transcript visibly searches the named scientific repositories, but no fetched/opened page is visible. In particular, the claims that specific IUPAC and IEC formulations were adapted and that BIPM corroborates the metrology are not supported by a page-fetch event or captured page content."
+    },
+    {
+      "text": "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it.",
+      "passed": false,
+      "evidence": "final.md lists five source URLs and asserts they are active, but transcript.jsonl shows no URL fetch/open and no source-page content. Search-query events alone are insufficient to verify that each exact final URL was live and supported its attributed claim."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 3,
+    "total": 10,
+    "pass_rate": 0.7
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "web_search": 3
+    },
+    "total_tool_calls": 3,
+    "total_steps": 5,
+    "files_created": [
+      "final.md"
+    ],
+    "errors_encountered": 0,
+    "output_chars": 4866,
+    "transcript_chars": 7461
+  },
+  "timing": {
+    "total_tokens": 123794,
+    "duration_ms": 79108,
+    "total_duration_seconds": 79.108,
+    "executor_start": "2026-08-24T09:26:46.652Z",
+    "executor_end": "2026-08-24T09:28:05.762Z",
+    "executor_duration_seconds": 79.108
+  },
+  "claims": [
+    {
+      "claim": "IUPAC defines electric charge by a current-time integral and records charge as a synonym.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The transcript contains an IUPAC search query but no fetched Gold Book entry or returned source content from which this claim can be checked."
+    },
+    {
+      "claim": "IEC provides the corresponding current-time integral relationship for electric charge in circuit theory.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The transcript contains an IEC search query but no fetched Electropedia entry or captured source content."
+    },
+    {
+      "claim": "BIPM corroborates the SI treatment of electric charge and the coulomb.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "A BIPM search is visible, but no SI Brochure page was fetched or quoted in the transcript."
+    },
+    {
+      "claim": "The listed source URLs were verified as currently active.",
+      "type": "process",
+      "verified": false,
+      "evidence": "No fetch/open events for any listed URL appear in transcript.jsonl; the transcript records only three web_search calls."
+    },
+    {
+      "claim": "The final definition is a concise genus-differentia statement that keeps the quantity distinct from its bearer and unit.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Section 3 visibly begins with Scalar physical quantity, treats a system as the bearer, and does not name the coulomb as the concept; Section 4 separately labels the coulomb as the unit."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+        "reason": "It is ambiguous whether all exclusions must occur inside the definition's differentia or may be stated elsewhere in the semantic artifact. Requiring unrelated lexical senses inside a concise intensional definition would be counterproductive; specify that the artifact's semantic analysis must make these exclusions explicit."
+      },
+      {
+        "assertion": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+        "reason": "Only when essential is subjective without examples or a location constraint. Clarify whether supporting fields may name the SI unit, symbols, dimensions, or governing equations while the formulated definition itself remains non-procedural."
+      },
+      {
+        "reason": "No assertion directly checks that the adapted scientific definition accurately preserves the meaning of the authoritative term-bearing source. Source liveness and provenance can pass even if the synthesis misstates the source; add a semantic-faithfulness check against captured source text."
+      }
+    ],
+    "overall": "The assertions strongly discriminate artifact structure, category control, reuse handling, and evidence provenance. Assertions 5 and 7 need tighter scope, and source-grounded semantic accuracy remains an important uncovered outcome."
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "eval_id": 1,
+  "eval_name": "dataset-distribution-separation",
+  "prompt": "Our public-sector data catalog needs a registry definition for the designation \"Dataset\". Use the broad W3C Data Catalog Vocabulary sense: the dataset is the conceptual collection, not one downloadable file, serialization, or API response. Produce the complete standardized semantic artifact.",
+  "expected_output": "A five-section artifact that researches authoritative dataset vocabularies, makes an evidence-supported reuse decision, and defines Dataset as a conceptual collection of data while distinguishing it from a distribution or other representation.",
+  "assertions": [
+    "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+    "The transcript shows established vocabulary research before the final definition is settled.",
+    "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+    "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
+    "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
+    "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+    "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
+    "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
+    "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
+    "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it."
+  ]
+}

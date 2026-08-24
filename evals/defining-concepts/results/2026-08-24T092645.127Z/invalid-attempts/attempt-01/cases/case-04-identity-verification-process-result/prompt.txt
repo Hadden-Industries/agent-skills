@@ -1,0 +1,1 @@
+Standardize the designation "Identity Verification Outcome". Starter definition: "A process that checks a person's evidence and returns Pass, Fail, or Inconclusive." Notes: the concept records the result reached by an identity-verification process; the value labels belong to a separate value domain.

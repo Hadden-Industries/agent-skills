@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a03318-05ce-7373-8508-582c3061d111"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"**Preferred designation:** Identity Verification Outcome\n\n**Definition:** Result reached by an identity-verification process after evaluating a person’s identity evidence.\n\n**Note:** Permissible outcome labels, such as *Pass*, *Fail*, and *Inconclusive*, are specified in a separate value domain."}}
+{"type":"turn.completed","usage":{"input_tokens":16261,"cached_input_tokens":9984,"cache_write_input_tokens":0,"output_tokens":94,"reasoning_output_tokens":30}}

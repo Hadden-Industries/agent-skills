@@ -1,0 +1,101 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "The response is a three-field preferred-designation/definition/note answer and contains none of the required numbered sections."
+    },
+    {
+      "text": "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+      "passed": false,
+      "evidence": "The transcript contains no web action or research step; it proceeds directly to the answer."
+    },
+    {
+      "text": "The reuse decision states whether a source definition is reused, adapted, or insufficient and ties that decision to fetched evidence.",
+      "passed": false,
+      "evidence": "There is no reuse decision, source, or fetched evidence."
+    },
+    {
+      "text": "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+      "passed": true,
+      "evidence": "The definition begins 'Result reached by...', using an immediate result-category genus."
+    },
+    {
+      "text": "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+      "passed": true,
+      "evidence": "The definition says the result is reached after evaluating a person's identity evidence and does not embed a separate definition of identity verification."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+      "passed": true,
+      "evidence": "The concept is a result reached by a process, not the process, evidence, code, or value domain."
+    },
+    {
+      "text": "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+      "passed": true,
+      "evidence": "The labels appear only in a separate note, not inside the definition."
+    },
+    {
+      "text": "The compliance audit identifies and explains the corrected process-result category error.",
+      "passed": false,
+      "evidence": "No compliance audit or category-error explanation is present."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+      "passed": false,
+      "evidence": "The required Repositories Queried and Source Provenance fields are absent, leaving no substantive provenance evidence to grade."
+    },
+    {
+      "text": "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports.",
+      "passed": false,
+      "evidence": "The response provides no final citations and the transcript records no retrieval."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 6,
+    "total": 10,
+    "pass_rate": 0.4
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 1,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 296,
+    "transcript_chars": 644
+  },
+  "timing": {
+    "executor_duration_seconds": 7.846,
+    "total_duration_seconds": 7.846
+  },
+  "claims": [
+    {
+      "claim": "The preferred designation is Identity Verification Outcome.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "The designation matches the requested concept and the definition uses an outcome-category genus."
+    },
+    {
+      "claim": "Permissible labels belong in a separate value domain.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "This is supplied directly in the user's prompt and accurately preserved in the note."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+        "reason": "Make field presence explicit; otherwise omission can look like compliance with a purely negative assertion."
+      }
+    ],
+    "overall": "The baseline demonstrates that the category-separation checks are independently achievable, while the workflow, research, audit, and provenance checks discriminate the skill."
+  }
+}

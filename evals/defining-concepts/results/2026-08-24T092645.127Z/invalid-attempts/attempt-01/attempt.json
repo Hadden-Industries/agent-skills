@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "attempt_id": "attempt-01",
+  "status": "invalid",
+  "purpose": "Calibration pilot only; one repetition per arm is not comparative evidence.",
+  "skill_name": "defining-concepts",
+  "skill_revision": "019b22982316db7a80d626113d0d65c3b59a84bc",
+  "eval_manifest_sha256": "2b9bb79eae1549b3b30494d58e81c8eb0030222912ef49480176a85397821492",
+  "calibration_eval_ids": [1, 4, 7, 8],
+  "held_out_eval_ids": [2, 3, 5, 6],
+  "arms": ["with_skill", "without_skill"],
+  "requested_model": "sonnet",
+  "runs_per_configuration": 1,
+  "tools": ["WebSearch", "WebFetch"],
+  "claude_code_version": "2.1.233",
+  "max_budget_usd_per_run": 2,
+  "prompt_sha256": {
+    "1": "0a72be148dee36c6bdca1c9501383514ae6a068ccec8fed44d3c427f3a3268f4",
+    "4": "d789ce5d3428e35d0bcf22e44f4746da68b6a93d69666f447fea1cb9c44c3e8f",
+    "7": "eb5aa6a6a061d4d0209a68753b47b6588904fe13ded64ee33177bf2a28f1043b",
+    "8": "4144e2f5576d34669f4eef73907538e8b6d6c3e034f6d0def1a8de9b0d5b2497"
+  },
+  "invalid_reason": "The Claude Code account reached its weekly usage limit before any model work. Six launched runs retained the service failure; two treatment runs were never launched because the external-egress authorization gate stopped the orchestration call.",
+  "outcome": {
+    "succeeded": 0,
+    "service_failures_retained": 6,
+    "not_launched": 2,
+    "usable_for_grading": false
+  },
+  "execution": {
+    "safe_mode": true,
+    "session_persistence": false,
+    "working_directory": "fresh isolated temporary directory per run",
+    "launch_strategy": "all eight matched runs launched in one orchestration turn",
+    "common_harness": true,
+    "treatment_difference": "canonical SKILL.md bytes appended only to with_skill system input"
+  }
+}

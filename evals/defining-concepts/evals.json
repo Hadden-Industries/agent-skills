@@ -1,6 +1,6 @@
 {
   "skill_name": "defining-concepts",
-  "notes": "This live-research suite has not yet been model-run and contains no retained performance claims. Grade critical source integrity and ontological correctness before aggregate quality. A capable baseline may produce fluent definitions, so compare semantic discrimination, provenance, workflow evidence, and resource use rather than surface polish alone. Web results are time-sensitive; record the run timestamp and verify every final URL independently.",
+  "notes": "A one-repetition calibration pilot of cases 1, 4, 7, and 8 on 2026-08-24 was used only to refine grading observability; it is not a performance estimate and does not establish that these revised expectations pass. Cases 2, 3, 5, and 6 remain unrun. Grade critical source integrity and ontological correctness before aggregate quality. A capable baseline may produce fluent definitions, so compare semantic discrimination, provenance, workflow evidence, and resource use rather than surface polish alone. Web results are time-sensitive; record the run timestamp and verify every final URL independently.",
   "metrics": [
     "atomic expectation pass rate: passed expectations divided by graded expectations",
     "all-or-nothing case pass rate: cases in which every expectation passes",
@@ -15,7 +15,7 @@
     "source claim coverage: attributed semantic claims supported by a cited destination divided by attributed semantic claims",
     "verified citation rate: final cited destinations independently opened and semantically confirmed divided by final cited destinations",
     "unsupported or fabricated source count",
-    "web searches and destination fetches",
+    "web-search actions and completed URL-specific retrieval actions",
     "total tool calls",
     "input, output, and total tokens",
     "model and wall-clock elapsed time"
@@ -29,14 +29,16 @@
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
         "The transcript shows established vocabulary research before the final definition is settled.",
-        "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+        "The retained trace contains a completed URL-specific retrieval action for the authoritative W3C Data Catalog Vocabulary Dataset entry rather than only a search-result excerpt or vocabulary homepage.",
         "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
         "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
         "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
         "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
         "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
-        "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
-        "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -47,14 +49,16 @@
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
         "The transcript shows a good-faith search for an established definition of the compound designation before novel wording is drafted.",
-        "The reuse path is justified by the search evidence and does not claim an exact standard definition unless a fetched source actually defines the compound concept.",
+        "The reuse path is justified by candidate source content that an independent grader confirms, and it does not claim an exact standard definition unless a source actually defines the compound concept.",
         "The genus is a status, condition, preference state, or equally suitable abstract superordinate rather than a communication channel, database field, or code.",
         "The differentia cover both a preferred contact method and the recorded absence, prohibition, or uncertainty represented by the supplied values.",
         "The final definition does not enumerate Not known, No preference recorded, Email, Telephone, Post, or Do not contact.",
         "[CRITICAL] The final definition does not conflate the concept with its permissible-value list, stored code, metadata field, or user-interface control.",
         "The compliance audit checks the five mandatory requirements and explains removal of value-domain or implementation detail.",
-        "[CRITICAL] Repositories Queried and Action Taken describe only research and reuse decisions evidenced by the transcript.",
-        "[CRITICAL] Every final citation was fetched successfully and supports the constituent or compound meaning for which it is cited."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -64,15 +68,17 @@
       "files": [],
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The research checks an authoritative language-code or language-tag specification and opens the term-bearing destination used in the final reasoning.",
+        "The research checks an authoritative language-code or language-tag specification, and the retained trace contains a completed URL-specific retrieval action for the term-bearing destination used in the final reasoning.",
         "The refinement explicitly rejects the unsupported permanent restriction to a two-letter string.",
         "The genus is code, language code, language tag, identifier, or another superordinate that remains a representation rather than the represented language.",
         "The differentia identify the language of the document's intellectual or linguistic content without defining the document itself.",
         "[CRITICAL] The final definition distinguishes the code from the natural language, the document, the metadata field, and the characters used to serialize the code.",
         "The example values remain contextual evidence and are not embedded as an extensional definition.",
         "The compliance audit explains how carrier, field, length, or display wording was removed from the definition.",
-        "[CRITICAL] Repositories Queried lists only vocabularies or specifications actually searched or fetched.",
-        "[CRITICAL] Every final URL resolves and directly supports the semantic role attributed to that source."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -83,14 +89,16 @@
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
         "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
-        "The reuse decision states whether a source definition is reused, adapted, or insufficient and ties that decision to fetched evidence.",
+        "The reuse decision states whether a source definition is reused, adapted, or insufficient and cites candidate source content whose attributed role is confirmed by an independent source check.",
         "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
         "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
         "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
         "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
         "The compliance audit identifies and explains the corrected process-result category error.",
-        "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
-        "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -101,14 +109,17 @@
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
         "The research checks authoritative service-management or service-level terminology before selecting a reuse path.",
-        "The reuse decision is supported by fetched definitions and does not equate shared words with an exact concept match.",
+        "The reuse decision is supported by candidate source content that an independent grader confirms and does not equate shared words with an exact concept match.",
         "The final definition is positive and does not define the concept only as something that is not unavailable.",
         "The final definition is non-circular and does not use status merely to define status without delimiting characteristics.",
         "The uncommon abbreviation SLA is absent from the final definition, whether or not the expanded term appears.",
         "The differentia distinguish assessment against an agreed availability target during a reporting interval from the service's momentary operational condition.",
         "[CRITICAL] The concept is not conflated with the monitored service, service-level agreement, measurement process, stored code, or supplied value list.",
         "The compliance audit addresses the negative, circular, and abbreviation defects in the starter definition.",
-        "[CRITICAL] Every claimed query and final verified source is evidenced by tool use and supports its attributed meaning."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -119,14 +130,16 @@
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
         "The research checks authoritative invoicing or business-document vocabularies for issue-date terminology before drafting.",
-        "The action path is selected from the semantic fit of fetched definitions rather than from designation similarity alone.",
+        "The action path is selected from the semantic fit of candidate source content confirmed by an independent grader rather than from designation similarity alone.",
         "The immediate genus is date or an equivalently precise temporal concept.",
         "The differentia tie the date to formal issuance by the invoice issuer.",
         "The final definition does not conflate issue date with receipt date, delivery date, payment-due date, or payment date.",
         "The final definition excludes procedural instructions, system timestamps, formatting rules, and rationale.",
         "The compliance audit checks all five mandatory requirements and explains removal of nonessential neighboring-date detail.",
-        "[CRITICAL] Repositories Queried names only sources actually examined during the run.",
-        "[CRITICAL] Every URL in Verified Sources was opened and directly supports the invoice or issue-date semantics attributed to it."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -136,15 +149,18 @@
       "files": [],
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+        "The retained trace contains a completed URL-specific retrieval action for a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC.",
         "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
         "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
-        "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+        "The artifact identifies the electric or electrostatic sense and distinguishes the financial, legal, assignment, and battery-state senses; those exclusions need not be repeated in section 3 when its differentia already select the electric sense unambiguously.",
         "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
-        "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
-        "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
-        "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
-        "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it."
+        "Section 3 may contain one compact defining relation essential to electric charge, but it contains no measurement procedure, unit, conventional symbol, numerical constant, dimensional formula, force law, or worked equation.",
+        "Outside section 3, an SI unit or conventional symbol may be stated briefly, but dimensional formulas, exact constants, force laws, quantization detail, and worked equations are omitted unless the prompt requires them.",
+        "The reuse action identifies Path A, B, or C and, when adapting, preserves the defining semantic relation from the independently confirmed scientific source while explaining the changes needed for ISO/IEC 11179-4 form.",
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     },
     {
@@ -154,15 +170,17 @@
       "files": [],
       "expectations": [
         "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The agent opens the supplied W3C Data Catalog Vocabulary URL and checks its content instead of accepting the colleague's attribution.",
+        "The retained trace contains a completed URL-specific retrieval action for the supplied W3C Data Catalog Vocabulary URL before the response rejects or accepts the colleague's attribution.",
         "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
         "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
-        "Path C is selected unless a fetched authoritative source actually supplies an extensionally and intensionally matching definition; any different path is justified with direct evidence.",
+        "Section 2 explicitly selects Path C unless an independently confirmed authoritative source supplies an extensionally and intensionally matching definition; any different path is justified with that direct evidence.",
         "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
-        "The differentia concern authorization for continued retention and do not enumerate Unknown, Pending review, Authorized, Refused, or Expired in the final definition.",
+        "Section 3 concerns authorization for continued retention and does not enumerate Unknown, Pending review, Authorized, Refused, or Expired; elsewhere the artifact may mention those labels only to explain their exclusion as a separate value domain and does not define them individually.",
         "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
-        "[CRITICAL] Repositories Queried, Source Provenance, and URL-verification claims report only actions and semantic support evidenced by the transcript.",
-        "[CRITICAL] Every URL retained in Verified Sources resolves and supports the exact compound or constituent meaning for which it is cited."
+        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
       ]
     }
   ]

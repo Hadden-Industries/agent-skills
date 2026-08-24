@@ -1,0 +1,18 @@
+{
+  "eval_id": 7,
+  "eval_name": "charge-polysemy-and-quantity-unit",
+  "prompt": "Our physics glossary has the registry designation \"Charge\". Context note: this is the measurable quantity in electrostatics, not a price, legal accusation, task assignment, or battery state. Produce the complete standardized semantic artifact and assess whether the unqualified designation is linguistically precise enough.",
+  "expected_output": "A five-section artifact grounded in authoritative scientific terminology that defines the electric-quantity sense, keeps the quantity distinct from its unit and elementary constant, and evaluates whether Electric Charge is a more precise designation.",
+  "assertions": [
+    "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+    "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+    "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+    "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+    "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+    "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+    "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+    "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
+    "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
+    "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it."
+  ]
+}

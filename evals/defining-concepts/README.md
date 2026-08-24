@@ -2,8 +2,9 @@
 
 This maintainer-only suite evaluates the deployable skill at
 `skills/defining-concepts/`. It is not installed with the skill. The suite
-defines representative cases and a reproducible grading protocol; it does not
-contain model outputs or claim measured improvement.
+defines representative cases and a reproducible grading protocol. Versioned
+run evidence lives under `results/`; its presence records what occurred and
+does not by itself support a measured-improvement claim.
 
 ## Contents
 
@@ -13,6 +14,7 @@ contain model outputs or claim measured improvement.
 - [Critical gates](#critical-gates)
 - [Grading protocol](#grading-protocol)
 - [Run protocol](#run-protocol)
+- [Retained result layout](#retained-result-layout)
 - [Trigger protocol](#trigger-protocol)
 - [Decision rules](#decision-rules)
 - [Deterministic validation](#deterministic-validation)
@@ -20,22 +22,36 @@ contain model outputs or claim measured improvement.
 
 ## Evaluation status
 
-**Not yet run.** No baseline, treatment, trigger, latency, or token result is
-retained here. `evals.json` contains prospective expectations, not evidence
-that the current skill passes them.
+**Calibration run completed; revised suite not yet run.** On 2026-08-24, one
+matched repetition of cases 1, 4, 7, and 8 was run with and without the skill
+on one requested Codex model. The run was used only to find grading and runner
+defects. It is not a performance estimate, contains no variance evidence, and
+does not establish that the revised expectations pass. Cases 2, 3, 5, and 6
+remain held out and unrun.
 
-When results are eventually retained, record the exact skill revision, model
-identifiers, host, web tools, run date, randomization seed, repetitions, raw
-outputs, transcripts, usage reports, grades, and failed runs. Never replace a
-failed run silently.
+The calibration showed that bundled source assertions obscured three different
+questions: whether the executor performed a URL-specific action, whether the
+URL was independently reachable, and whether its content supported the stated
+semantic role. It also showed that Codex JSONL can omit returned page content
+and the actual model identifier. The revised protocol below grades those facts
+separately and labels unavailable provider evidence explicitly.
+
+Raw model outputs are retained under the timestamped maintainer-only result
+bundle at `results/2026-08-24T092645.127Z/`. Any reported run must record the
+exact skill revision, requested and provider-confirmed model identifiers, host,
+CLI and web tool versions, run date, randomization seed, repetitions, raw
+outputs, transcripts, usage reports, grades, and failed launches. Never replace
+a failed run silently.
 
 ## What each file measures
 
-| File                 | Question                                                                                                          |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `evals.json`         | Once activated, does the skill produce a semantically sound, ISO/IEC 11179-4-compliant, source-grounded artifact? |
-| `trigger-evals.json` | Does the description activate on standardized concept-definition work and stay out of adjacent tasks?             |
-| `README.md`          | How must matched runs be isolated, graded, compared, and reported?                                                |
+| File                         | Question                                                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `evals.json`                 | Once activated, does the skill produce a semantically sound, ISO/IEC 11179-4-compliant, source-grounded artifact? |
+| `trigger-evals.json`         | Does the description activate on standardized concept-definition work and stay out of adjacent tasks?             |
+| `run-evaluation-session.mjs` | Can a matched run be isolated and retained with prompt, skill, transcript, timing, and failure metadata?          |
+| `results/`                   | What immutable raw evidence, grading, derived analysis, and invalid attempts were retained from actual runs?      |
+| `README.md`                  | How must matched runs be isolated, graded, compared, and reported?                                                |
 
 Passing trigger cases says nothing about definition quality. Passing
 behavioral cases says nothing about whether the skill activates reliably.
@@ -71,10 +87,13 @@ A case fails the critical gate if any of these occurs:
 - the final definition has the wrong ontological category;
 - a concept is conflated with a process, artifact, carrier, code, field, unit,
   or value domain contrary to the case;
-- a repository is reported as queried without transcript evidence;
-- a URL is reported as verified without a successful destination fetch;
-- a cited destination does not support the exact semantic role attributed to
-  it;
+- `Repositories Queried` is absent, empty, or names a repository with no
+  visible pre-answer action;
+- a final URL has no completed URL-specific retrieval action in the retained
+  trace;
+- an independent verifier cannot reach accessible content at a final URL;
+- an independently opened destination does not support the exact affirmative
+  or refutational semantic role attributed to it;
 - an irrelevant or failed source is presented as authoritative provenance.
 
 Do not offset a critical failure with a high qualitative score. Report the
@@ -89,15 +108,40 @@ For each run, retain:
 1. the exact user prompt and input files;
 2. the skill revision or baseline identity;
 3. the complete final answer;
-4. the complete tool transcript, including searches, opens, redirects, and
-   failed fetches;
-5. the model's usage and elapsed-time report;
-6. the run timestamp and web-tool identity.
+4. the complete tool transcript, including search queries, exact URL actions,
+   redirects and tool errors, plus a note describing any response data the
+   transcript schema omits;
+5. the independent source-verification record;
+6. the model's usage and elapsed-time report;
+7. the run timestamp, executor version, and web-tool identity.
 
-A final answer without its transcript cannot prove repository queries or link
-verification and is not gradable for the corresponding expectations.
+A final answer without its transcript cannot prove repository queries or
+URL-specific retrieval actions and is not gradable for those expectations. A
+transcript that omits response bodies does not prove source semantics; the
+independent verifier supplies that evidence.
 
-### 2. Grade atomic expectations
+### 2. Keep evidence layers separate
+
+Grade source integrity in three layers. A pass in one layer never substitutes
+for another.
+
+| Evidence layer                 | What it proves                                                                                 | What it does not prove                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Retained run trace             | The executor searched a repository or completed an action naming an exact URL before answering | HTTP liveness or the page's semantic content when the schema omits those results |
+| Independent reachability check | The final URL currently resolves to accessible source content                                  | That the executor opened it during the run or interpreted it correctly           |
+| Independent semantic check     | The destination supports the exact source role attributed in the answer                        | That the executor actually queried or opened it                                  |
+
+For this suite, a **completed URL-specific retrieval action** is a completed,
+non-error tool event that names the exact URL or redirect destination. A topical
+query, site-restricted query, search-result excerpt, vocabulary homepage, or an
+empty tool event does not count for a deeper term-bearing destination.
+
+If an executor cannot retain exact URLs for retrieval actions, use a different
+executor or mark the affected trace expectations ungradable and rerun. Do not
+infer a page body, response status, or semantic claim from a completed action
+when the transcript schema does not expose those facts.
+
+### 3. Grade atomic expectations
 
 Grade every string in `expectations` as `passed: true` or `passed: false` and
 record concise evidence. Do not award partial credit to a binary expectation.
@@ -124,7 +168,7 @@ Compute both:
 The all-or-nothing rate prevents several easy formatting checks from hiding
 one decisive semantic or provenance failure.
 
-### 3. Grade semantic quality blindly
+### 4. Grade semantic quality blindly
 
 Remove arm labels and randomize output order before a human grades the five
 dimensions below. The grader may inspect source material but must not know
@@ -142,33 +186,38 @@ Report the five scores and their 0-10 sum, but keep them separate from binary
 expectation and critical-gate results. A subjective score must not turn a
 source-integrity failure into a pass.
 
-### 4. Verify every source independently
+### 5. Verify every source independently
 
 Use a verifier other than the agent that produced the answer:
 
 1. Extract every repository, source, URL, and semantic attribution from
    sections 2 and 5.
-2. Match every claimed repository query to a visible search or fetch in the
-   transcript.
-3. Open every final URL independently and follow redirects to the final
+2. Match every claimed repository query to a visible pre-answer search or
+   completed URL-specific retrieval action in the transcript.
+3. Match every URL retained in section 5 to its own completed URL-specific
+   retrieval action; do not treat a topical search as an open.
+4. Open every final URL independently and follow redirects to the final
    destination.
-4. Confirm that the destination is accessible content rather than a search
+5. Confirm that the destination is accessible content rather than a search
    result, generic homepage, authentication wall, or error page.
-5. Locate the exact term or constituent concept and confirm that the page says
+6. Locate the exact term or constituent concept and confirm that the page says
    what the answer attributes to it.
-6. Record the source's role: exact reused definition, adapted definition,
+7. Record the source's role: exact reused definition, adapted definition,
    constituent semantics, etymology, or methodological support.
-7. Fail any citation whose attributed role is stronger than its content.
+8. Fail any citation whose attributed role is stronger than its content.
 
 An active URL is not automatically a valid source. Conversely, a source may
 support a constituent concept without supporting the compound designation; the
 answer must label that limited role honestly.
 
-If shared infrastructure prevents all matched arms from fetching a source,
-mark the run invalid and rerun it. If only the agent claims verification after
-a failed or absent fetch, grade the critical expectation as failed.
+If shared infrastructure prevents all matched arms from retrieving a source,
+mark the matched block invalid and rerun it. If the final answer claims a URL
+was verified but its exact URL has no completed run-trace action, fail the
+trace expectation even when the independent verifier can open it. Conversely,
+an evidenced run-trace action does not make an inaccessible or semantically
+irrelevant destination pass the independent checks.
 
-### 5. Check the final artifact
+### 6. Check the final artifact
 
 The final answer must have these numbered top-level sections in order:
 
@@ -188,6 +237,15 @@ agent's pass table. Re-check singularity, positive declaration, descriptive
 form, abbreviations, and embedded definitions directly.
 
 ## Run protocol
+
+### External service authorization
+
+Before launching a hosted model, obtain authorization to send the exact
+evaluation payload to the named provider. Record the provider, canonical skill
+byte count and SHA-256 digest, prompt-file digests, selected cases, arms, model,
+and enabled web capability. A failed local launcher that sends no request does
+not consume a model repetition, but it must still be retained as a failed
+launch attempt.
 
 ### Comparison arms
 
@@ -222,6 +280,27 @@ The treatment arm must receive the canonical deployable directory and the same
 task prompt, files, web tools, permissions, locale, and time budget. The prompt
 must not coach the treatment with expectations that the baseline does not see.
 
+### Codex CLI isolation
+
+For Codex CLI runs, do not rely on a project `AGENTS.md` while using an
+authenticated home that may contain global instructions. The retained runner:
+
+1. uses a fresh, empty, non-repository working directory per run;
+2. passes the common harness through `developer_instructions`;
+3. sets `project_doc_max_bytes=0` so global and project instruction files are
+   not ingested;
+4. uses `--ignore-user-config`, `--ignore-rules`, `--ephemeral`, and a
+   read-only sandbox;
+5. enables live search explicitly and sends the exact prompt bytes over stdin;
+6. appends the canonical skill bytes only to the treatment developer input.
+
+Retain the full developer input and its digest for both arms. The same baseline
+digest must recur across cases, and the same treatment digest must recur when
+the skill revision is unchanged. If the provider does not echo the actual
+model identifier in JSONL, record the requested model separately and mark the
+actual identifier as unconfirmed rather than copying the request into an
+`actual_model` field.
+
 ### Models and repetitions
 
 At minimum, use one weaker and one stronger supported web-capable model. Add a
@@ -236,6 +315,10 @@ fresh context for every repetition.
 Three repetitions remain directional evidence, not statistical power. Report
 sample size, individual failures, mean, standard deviation, and range; do not
 claim significance without an appropriately powered design.
+
+A one-repetition pilot may calibrate prompts, trace capture, and graders. Do not
+report its arm delta as measured skill performance, and freeze revised
+expectations before running held-out cases.
 
 ### Stable execution conditions
 
@@ -254,9 +337,14 @@ not exact prose or a permanently fixed search ranking.
 
 ### Resource accounting
 
-Capture input, output, and total tokens; tool calls; web searches; destination
-fetches; failed calls; model elapsed time; and wall-clock elapsed time from the
-run's own reports.
+Capture input, output, and total tokens; tool calls; web searches; completed
+URL-specific retrieval actions; failed calls; model elapsed time; and
+wall-clock elapsed time from the run's own reports.
+
+Use the run's `timing.json` total-token value when it is available. Never
+substitute output character count for tokens. If an aggregation tool cannot
+carry the run's token or repetition metadata faithfully, correct or discard the
+derived aggregate before analysis and retain the raw timing files as authority.
 
 When making an efficiency claim, include the skill's trigger and invocation
 cost. A treatment that saves work after activation may still cost more across
@@ -272,6 +360,77 @@ record that names the superseded record; they do not rewrite raw runs.
 
 Retain every failure and document exclusions with a reason such as baseline
 contamination or shared web outage. Never retain only the best repetition.
+A launcher error must still produce an empty transcript, stderr diagnostics,
+run metadata, metrics, and timing record. If the runner itself fails before it
+can write those artifacts, retain the partial directory and start a new
+attempt rather than overwriting it.
+
+## Retained result layout
+
+Store each run set under `results/<run-set-id>/`. The run-set ID is the
+filename-safe UTC timestamp of the first accepted run, using
+`YYYY-MM-DDTHHmmss.SSSZ`. For example, the first accepted calibration run began
+at `2026-08-24T09:26:45.127Z`, so its directory is
+`2026-08-24T092645.127Z`. Millisecond precision reduces collisions, `Z` removes
+timezone ambiguity, and omitting colons keeps the name portable to Windows.
+The runner must refuse to reuse a non-empty destination; do not add an
+arbitrary suffix to overwrite or merge evidence.
+
+Do not repeat provider, model, or purpose in the directory name. Record those
+facts in `manifest.json`, along with a `run_set_id` matching the directory and
+the full RFC 3339 `started_at` timestamp. This keeps the manifest authoritative
+if a requested model or run classification later needs correction.
+
+Use this hierarchy:
+
+```text
+results/<run-set-id>/
+    manifest.json
+    analysis.json
+    aggregate.generated.json
+    aggregate.generated.md
+    runs/
+        case-<zero-padded-id>-<semantic-name>/
+            case.json
+            with-skill/
+                repetition-<zero-padded-number>/
+            without-skill/
+                repetition-<zero-padded-number>/
+    invalid-attempts/
+        attempt-<zero-padded-number>/
+            attempt.json
+            cases/
+```
+
+Within each repetition, separate the payload sent to the executor from the
+artifacts returned or derived from that execution:
+
+```text
+repetition-01/
+    inputs/
+        instructions.md
+    outputs/
+        final.md
+        stderr.log
+        transcript.jsonl
+    run.json
+    metrics.json
+    timing.json
+    grading.json
+```
+
+`run-evaluation-session.mjs` writes schema-version-2 `run.json` records. It
+uses the provider-neutral fields `instructions_bytes` and
+`instructions_sha256`, because the same retained instructions are a Claude
+system-prompt addition and Codex developer instructions. Historical pilot
+records remain schema version 1 and retain their original
+`system_prompt_bytes` and `system_prompt_sha256` field names.
+
+The `.generated` infix marks output from the generic aggregation tool. For the
+2026-08-24 pilot, that aggregate contains known repetition and token-accounting
+errors; `manifest.json`, individual `run.json` files, and `timing.json` files
+remain authoritative. Invalid service or launcher attempts stay under
+`invalid-attempts/` and never enter the successful run count.
 
 ## Trigger protocol
 
@@ -332,6 +491,8 @@ Run:
 
 ```powershell
 node --test tests/scripts/build-skill-bundles.test.mjs
+node --test tests/evals/defining-concepts-results.test.mjs
+node --test tests/evals/run-evaluation-session.test.mjs
 npm run verify
 ```
 
@@ -343,6 +504,11 @@ deterministic contract.
 
 - Live pages, redirects, vocabulary versions, and search rankings change. A run
   is evidence for its recorded time and environment.
+- Codex JSONL may expose a completed exact-URL action without its HTTP status or
+  returned page content. This is sufficient only for the run-trace layer; an
+  independent verifier must grade reachability and semantics.
+- Some providers do not echo the actual model identifier in their retained
+  event stream. A requested model is not provider-confirmed execution evidence.
 - Several cases admit more than one defensible definition. Exact-string grading
   would reward imitation rather than semantic quality.
 - Human judgments about the immediate genus and essential differentia can
@@ -352,4 +518,6 @@ deterministic contract.
   multilingual terminology quality.
 - Eight cases cannot cover every domain, category error, or source-failure
   mode.
-- No model or trigger run has been performed as part of creating this suite.
+- The 2026-08-24 single-repetition calibration covered only cases 1, 4, 7, and
+  8 on one requested model. It supports rubric and runner refinement only; no
+  trigger study or comparative performance study has been completed.

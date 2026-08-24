@@ -1,0 +1,132 @@
+{
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "final.md uses an unnumbered Standardized semantic artifact heading followed by YAML and a prose precision assessment. It does not contain the five required numbered top-level sections or place the formulated definition in Section 3."
+    },
+    {
+      "text": "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+      "passed": false,
+      "evidence": "transcript.jsonl contains no web-search or page-fetch events, and final.md provides no scientific-vocabulary or metrology source."
+    },
+    {
+      "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+      "passed": true,
+      "evidence": "The YAML preserves registry_designation: Charge, marks electric charge as preferred and charge as an admitted short form, lists excluded non-physics senses, and explicitly concludes that Charge is not precise enough when unqualified."
+    },
+    {
+      "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+      "passed": true,
+      "evidence": "concept_type is physical_quantity, and the definition begins Scalar physical quantity. The body or particle is described as the bearer whose interaction is characterized, not as the concept itself."
+    },
+    {
+      "text": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+      "passed": true,
+      "evidence": "The definition identifies electromagnetic interaction, while excluded_concepts explicitly lists price or fee, legal accusation, assigned duty or responsibility, and battery state of charge."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+      "passed": true,
+      "evidence": "The definition identifies a scalar physical quantity that characterizes a body's or particle's interaction. The YAML separately labels the coulomb as si_unit, elementary charge as reference_constant, electric current as a related concept/current relation, and the body or particle as the bearer."
+    },
+    {
+      "text": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+      "passed": false,
+      "evidence": "The artifact includes Coulomb's law, I = dQ/dt, a dimensional formula, an exact elementary-charge value, unit expression, quantization detail, and multiple symbols. It gives no rationale that all of these are essential to the concept definition, and several are explanatory consequences or reference data rather than delimiting characteristics. The definition is not procedural, but the assertion's essential-only condition is not met."
+    },
+    {
+      "text": "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
+      "passed": false,
+      "evidence": "The answer cites no reused definition, identifies no source formulation, and provides no reuse-versus-adaptation action or account of changes for ISO/IEC 11179-4 form."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
+      "passed": false,
+      "evidence": "The answer has no Repositories Queried or provenance account, and the raw transcript contains no searches or fetched pages."
+    },
+    {
+      "text": "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it.",
+      "passed": false,
+      "evidence": "No final sources are supplied, and the transcript contains no source-verification activity. The required source evidence is absent rather than vacuously satisfied."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 6,
+    "total": 10,
+    "pass_rate": 0.4
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 1,
+    "files_created": [
+      "final.md"
+    ],
+    "errors_encountered": 0,
+    "output_chars": 2670,
+    "transcript_chars": 3113
+  },
+  "timing": {
+    "total_tokens": 17044,
+    "duration_ms": 23240,
+    "total_duration_seconds": 23.24,
+    "executor_start": "2026-08-24T09:26:46.572Z",
+    "executor_end": "2026-08-24T09:27:09.812Z",
+    "executor_duration_seconds": 23.24
+  },
+  "claims": [
+    {
+      "claim": "Electric charge is the conventional preferred quantity name and charge is an admitted contextual short form.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The answer asserts this designation status but supplies no authoritative vocabulary source and performs no visible search or fetch."
+    },
+    {
+      "claim": "The elementary charge has the exact SI value 1.602 176 634 x 10^-19 C.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The value appears in the YAML, but no metrology source or transcript evidence is available to verify it."
+    },
+    {
+      "claim": "Free-particle charge occurs in integer multiples of elementary charge, while isolated quarks are not observed.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "This scientific claim is included without a source, search, or fetched reference."
+    },
+    {
+      "claim": "Charge is not linguistically precise enough as an unqualified registry designation.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "The answer preserves Charge as the registry designation, identifies multiple technical and non-technical competing senses, and gives the scoped recommendation Electric charge; this assessment is also responsive to the ambiguity supplied in the user prompt."
+    },
+    {
+      "claim": "The artifact keeps the quantity distinct from the SI unit, elementary-charge constant, electric current, and physical bearer.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "These appear in separate si_unit, reference_constant, related_concepts/current_relation, and definition fields rather than being identified as the concept itself."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+        "reason": "It is ambiguous whether all exclusions must occur inside the definition's differentia or may be stated elsewhere in the semantic artifact. Requiring unrelated lexical senses inside a concise intensional definition would be counterproductive; specify that the artifact's semantic analysis must make these exclusions explicit."
+      },
+      {
+        "assertion": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+        "reason": "Only when essential is subjective and changes the baseline verdict here. Clarify whether supporting fields may include SI units, dimensions, constants, or governing equations and identify which details are considered nonessential."
+      },
+      {
+        "reason": "No assertion directly checks that the scientific differentia are accurate and definitionally essential. This baseline uses force behavior as its differentia and adds many scientific consequences, yet the current assertions only indirectly test that semantic choice."
+      }
+    ],
+    "overall": "The suite catches the missing required structure, research, provenance, reuse decision, and source verification. Assertions 5 and 7 need tighter scoping, and the scientific accuracy and essentiality of the formulated differentia deserve a more direct check."
+  }
+}
