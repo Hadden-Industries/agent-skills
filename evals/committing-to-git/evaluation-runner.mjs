@@ -356,6 +356,7 @@ export function buildRuntimeIsolationOverrides({ skillPaths }) {
     "analytics.enabled=false",
     "apps._default.enabled=false",
     "check_for_update_on_startup=false",
+    'cli_auth_credentials_store="keyring"',
     "features.apps=false",
     "features.enable_mcp_apps=false",
     "features.plugins=false",

@@ -341,6 +341,21 @@ input.on("line", (line) => {
     });
   } else if (message.method === "initialized") {
     return;
+  } else if (message.method === "account/read") {
+    send({
+      id: message.id,
+      result: {
+        account:
+          scenario === "unauthenticated"
+            ? null
+            : {
+                email: "evaluation-runner@example.invalid",
+                planType: "pro",
+                type: "chatgpt",
+              },
+        requiresOpenaiAuth: true,
+      },
+    });
   } else if (message.method === "skills/list") {
     send({
       id: message.id,

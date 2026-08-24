@@ -243,6 +243,7 @@ test("runtime overrides disable every discovered external context source", async
 
   assert.ok(overrides.includes("agents.enabled=false"));
   assert.ok(overrides.includes("apps._default.enabled=false"));
+  assert.ok(overrides.includes('cli_auth_credentials_store="keyring"'));
   assert.ok(overrides.includes("features.apps=false"));
   assert.ok(overrides.includes("features.enable_mcp_apps=false"));
   assert.ok(overrides.includes("features.plugins=false"));
@@ -564,6 +565,56 @@ test("app-server transport records the isolated authorized two-turn flow", async
   ]);
 });
 
+test("session checks OpenAI authentication before a turn without retaining account identity", async (t) => {
+  const { record } = await runFakeSession(t);
+  const outboundMethods = record.transcript
+    .filter(({ direction }) => direction === "client->server")
+    .map(({ message }) => message.method)
+    .filter(Boolean);
+  const serializedRecord = JSON.stringify(record);
+
+  assert.deepEqual(record.authentication, {
+    accountType: "chatgpt",
+    requiresOpenaiAuth: true,
+  });
+  assert.deepEqual(
+    record.transcript.find(
+      ({ direction, message }) =>
+        direction === "client->server" && message.method === "account/read",
+    ).message.params,
+    { refreshToken: false },
+  );
+  assert.ok(
+    outboundMethods.indexOf("account/read") <
+      outboundMethods.indexOf("thread/start"),
+  );
+  assert.ok(
+    outboundMethods.indexOf("account/read") <
+      outboundMethods.indexOf("turn/start"),
+  );
+  assert.doesNotMatch(serializedRecord, /evaluation-runner@example\.invalid/u);
+  assert.doesNotMatch(serializedRecord, /"planType":"pro"/u);
+});
+
+test("session rejects missing OpenAI authentication before creating a thread", async (t) => {
+  const { record } = await runFakeSession(t, { scenario: "unauthenticated" });
+  const outboundMethods = record.transcript
+    .filter(({ direction }) => direction === "client->server")
+    .map(({ message }) => message.method)
+    .filter(Boolean);
+
+  assert.equal(record.status, "infrastructure-invalid");
+  assert.match(record.error.message, /OpenAI authentication/iu);
+  assert.deepEqual(record.authentication, {
+    accountType: null,
+    requiresOpenaiAuth: true,
+  });
+  assert.ok(outboundMethods.includes("account/read"));
+  assert.ok(!outboundMethods.includes("thread/start"));
+  assert.ok(!outboundMethods.includes("turn/start"));
+  assert.equal(record.turns.length, 0);
+});
+
 test("the no-skill control sends the exact prompt without a skill input", async (t) => {
   const { prompt, record } = await runFakeSession(t, {
     arm: "no-skill",
@@ -641,10 +692,46 @@ test("app-server preflight starts and deletes an isolated thread without a turn"
 
   assert.equal(record.status, "ready");
   assert.equal(record.modelTurns, 0);
+  assert.deepEqual(record.authentication, {
+    accountType: "chatgpt",
+    requiresOpenaiAuth: true,
+  });
   assert.ok(outboundMethods.includes("initialize"));
+  assert.ok(outboundMethods.includes("account/read"));
   assert.ok(outboundMethods.includes("skills/list"));
   assert.ok(outboundMethods.includes("thread/start"));
   assert.ok(outboundMethods.includes("thread/delete"));
+  assert.ok(!outboundMethods.includes("turn/start"));
+});
+
+test("preflight rejects missing OpenAI authentication without a model turn", async (t) => {
+  const { preflightAppServerSession } = await loadRunner();
+  const fixtureRoot = createTemporaryDirectory(t);
+  const record = await preflightAppServerSession({
+    appServer: {
+      args: [FAKE_APP_SERVER],
+      command: process.execPath,
+      env: { FAKE_APP_SERVER_SCENARIO: "unauthenticated" },
+    },
+    fixtureRoot,
+    model: "gpt-5.6-luna",
+    provider: "openai",
+    timeoutMs: 5_000,
+  });
+  const outboundMethods = record.transcript
+    .filter(({ direction }) => direction === "client->server")
+    .map(({ message }) => message.method)
+    .filter(Boolean);
+
+  assert.equal(record.status, "infrastructure-invalid");
+  assert.match(record.error.message, /OpenAI authentication/iu);
+  assert.deepEqual(record.authentication, {
+    accountType: null,
+    requiresOpenaiAuth: true,
+  });
+  assert.equal(record.modelTurns, 0);
+  assert.ok(outboundMethods.includes("account/read"));
+  assert.ok(!outboundMethods.includes("thread/start"));
   assert.ok(!outboundMethods.includes("turn/start"));
 });
 

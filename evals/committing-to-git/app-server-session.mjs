@@ -185,6 +185,74 @@ function parseCommitProposal(text, expectedScope) {
   return { proposal, valid: true };
 }
 
+function authenticationSummary(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    typeof result.requiresOpenaiAuth !== "boolean"
+  ) {
+    throw new InfrastructureError(
+      "app-server account/read returned an invalid authentication result",
+    );
+  }
+
+  let accountType = null;
+
+  if (result.account !== null) {
+    if (
+      !result.account ||
+      typeof result.account !== "object" ||
+      typeof result.account.type !== "string" ||
+      result.account.type.length === 0
+    ) {
+      throw new InfrastructureError(
+        "app-server account/read returned an invalid account",
+      );
+    }
+
+    accountType = result.account.type;
+  }
+
+  return {
+    accountType,
+    requiresOpenaiAuth: result.requiresOpenaiAuth,
+  };
+}
+
+function assertOpenaiAuthentication(authentication, provider) {
+  if (
+    (provider === "openai" || authentication.requiresOpenaiAuth) &&
+    authentication.accountType === null
+  ) {
+    throw new InfrastructureError(
+      "app-server has no OpenAI authentication; log in before running the evaluation",
+    );
+  }
+}
+
+function transcriptServerMessage(message, requestMethod) {
+  if (
+    requestMethod !== "account/read" ||
+    !message.result ||
+    typeof message.result !== "object"
+  ) {
+    return message;
+  }
+
+  const accountType =
+    typeof message.result.account?.type === "string"
+      ? message.result.account.type
+      : null;
+
+  return {
+    ...message,
+    result: {
+      account: accountType === null ? null : { type: accountType },
+      requiresOpenaiAuth: message.result.requiresOpenaiAuth,
+    },
+  };
+}
+
 class JsonlRpcClient {
   constructor({ appServer, cwd, onNotification, onServerRequest, timeoutMs }) {
     this.nextId = 1;
@@ -331,7 +399,14 @@ class JsonlRpcClient {
       return;
     }
 
-    this.record({ direction: "server->client", message });
+    const pendingRequest = Object.hasOwn(message, "id")
+      ? this.pendingRequests.get(message.id)
+      : undefined;
+
+    this.record({
+      direction: "server->client",
+      message: transcriptServerMessage(message, pendingRequest?.method),
+    });
 
     if (Object.hasOwn(message, "id") && typeof message.method === "string") {
       Promise.resolve(
@@ -355,7 +430,7 @@ class JsonlRpcClient {
     }
 
     if (Object.hasOwn(message, "id")) {
-      const pending = this.pendingRequests.get(message.id);
+      const pending = pendingRequest;
 
       if (!pending) {
         return;
@@ -719,6 +794,7 @@ export async function runAppServerSessionWithApprovalPolicy(
   const record = {
     approvals: [],
     arm: options.session.arm,
+    authentication: null,
     authorization: null,
     clarification: null,
     error: null,
@@ -806,6 +882,15 @@ export async function runAppServerSessionWithApprovalPolicy(
     );
     assertCodexHomeIsolation(record.initialize, options.appServer);
     client.notify("initialized");
+
+    const account = await client.request("account/read", {
+      refreshToken: false,
+    });
+    record.authentication = authenticationSummary(account);
+    assertOpenaiAuthentication(
+      record.authentication,
+      options.session.provider,
+    );
 
     const skills = await client.request("skills/list", {
       cwds: [options.session.fixtureRoot],
@@ -1031,6 +1116,7 @@ export async function preflightAppServerWithIsolation({
   timeoutMs = 30_000,
 }) {
   const record = {
+    authentication: null,
     error: null,
     initialize: null,
     modelTurns: 0,
@@ -1069,6 +1155,11 @@ export async function preflightAppServerWithIsolation({
     );
     assertCodexHomeIsolation(record.initialize, appServer);
     client.notify("initialized");
+    const account = await client.request("account/read", {
+      refreshToken: false,
+    });
+    record.authentication = authenticationSummary(account);
+    assertOpenaiAuthentication(record.authentication, provider);
     const skills = await client.request("skills/list", {
       cwds: [fixtureRoot],
       forceReload: true,
