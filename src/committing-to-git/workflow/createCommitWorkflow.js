@@ -14,7 +14,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 
-import { verifySnapshotAgainstRepository } from "../command/snapshotVerificationCommand.js";
+import { verifySnapshotAgainstRepository } from "../snapshot/verifySnapshot.js";
 import { captureGitProcessTranscript } from "../git/gitProcessTranscript.js";
 import {
   canUseDirectSubjectTransport,

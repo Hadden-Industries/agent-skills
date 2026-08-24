@@ -36,6 +36,27 @@ const COMMIT_WORKFLOW = join(
   "scripts",
   "commitWorkflow.mjs",
 );
+const CANONICAL_SKILL = join(
+  REPO_ROOT,
+  "skills",
+  "committing-to-git",
+  "SKILL.md",
+);
+
+const REMOVED_COMMANDS = [
+  "snapshot create",
+  "snapshot verify",
+  "inspection prepare",
+  "inspection expand-deletion",
+  "inspection acknowledge",
+  "inspection status",
+  "message scaffold",
+  "message render",
+  "message validate",
+  "signature verify",
+  "report create",
+  "publication push",
+];
 
 function temporaryEnvironment(scratch, overrides = {}) {
   return {
@@ -59,24 +80,150 @@ function uniformPrepareArguments(overrides = []) {
   ];
 }
 
-test("unified workflow help exposes the domain command groups", () => {
+test("unified workflow help exposes only the proportional command groups", () => {
   const result = runNodeScript(COMMIT_WORKFLOW, ["--help"], REPO_ROOT);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /snapshot create/u);
-  assert.match(result.stdout, /snapshot verify/u);
-  assert.match(result.stdout, /inspection prepare/u);
-  assert.match(result.stdout, /inspection expand-deletion/u);
-  assert.match(result.stdout, /message validate/u);
   assert.match(result.stdout, /message check/u);
   assert.match(result.stdout, /message finalize/u);
-  assert.match(result.stdout, /signature verify/u);
-  assert.match(result.stdout, /report create/u);
-  assert.match(result.stdout, /publication push/u);
   assert.match(result.stdout, /workflow prepare/u);
   assert.match(result.stdout, /workflow resume/u);
+  assert.match(result.stdout, /workflow extend/u);
+  assert.match(result.stdout, /workflow promote/u);
+  assert.match(result.stdout, /workflow commit/u);
+  assert.match(result.stdout, /workflow verify/u);
   assert.match(result.stdout, /workflow report-detail/u);
   assert.match(result.stdout, /workflow publish/u);
+  assert.match(result.stdout, /workflow recover/u);
+  assert.match(result.stdout, /workflow cleanup/u);
+
+  for (const command of REMOVED_COMMANDS) {
+    assert.doesNotMatch(result.stdout, new RegExp(command, "u"));
+  }
+});
+
+test("canonical skill teaches the proportional happy path and bounded decisions", () => {
+  const source = readFileSync(CANONICAL_SKILL, "utf8");
+  const words = source.trim().split(/\s+/u);
+  const first450 = words.slice(0, 450).join(" ");
+
+  assert.ok(words.length <= 1_500, `skill has ${words.length} words`);
+  assert.ok(Buffer.byteLength(source, "utf8") <= 12 * 1024);
+  assert.match(first450, /hint.+hypothesis|test.+hint.+evidence/iu);
+  assert.match(first450, /workflow prepare/u);
+  assert.match(first450, /exact approval/iu);
+  assert.match(first450, /workflow commit/u);
+  assert.match(source, /Git 2\.45\+/u);
+  assert.match(source, /GIT_NO_LAZY_FETCH=1/u);
+  assert.match(source, /canUseDirectSubjectTransport\(\)/u);
+  assert.match(source, /message-input\.txt/u);
+  assert.match(source, /evidence-plan-input\.json/u);
+  assert.match(source, /content\.json/u);
+  assert.match(source, /50.+32 KiB|32 KiB.+50/su);
+  assert.match(source, /file count never determines concise eligibility/iu);
+  assert.match(source, /evidence-required.+bounded delta/isu);
+  assert.match(
+    source,
+    /feat.+fix.+perf.+refactor.+docs.+test.+build.+ci.+chore/su,
+  );
+  assert.match(source, /wording-only.+new semantic claim.+tree\/scope/isu);
+  assert.match(
+    source,
+    /confirmed-no-live-child.+explicit user confirmation/isu,
+  );
+  assert.match(source, /--retry-after-attempt/iu);
+  assert.match(source, /workflow report-detail/iu);
+  assert.match(source, /--refresh/iu);
+  assert.doesNotMatch(source, /UUIDv4|inventory\.md|ledger\.json/iu);
+  assert.doesNotMatch(source, /inspection acknowledge/iu);
+  assert.doesNotMatch(source, /--message-file/iu);
+  assert.doesNotMatch(source, /manualReviewRequired/u);
+});
+
+test("canonical skill routes exceptions to the five focused references", () => {
+  const source = readFileSync(CANONICAL_SKILL, "utf8");
+  const expected = [
+    "inspection-recovery.md",
+    "transaction-recovery.md",
+    "signature-recovery.md",
+    "publication-recovery.md",
+    "message-format.md",
+  ];
+
+  for (const reference of expected) {
+    assert.match(source, new RegExp(reference.replace(".", "\\."), "u"));
+    assert.equal(
+      existsSync(join(dirname(CANONICAL_SKILL), "references", reference)),
+      true,
+      `${reference} must exist`,
+    );
+  }
+
+  for (const reference of [
+    "change-inspection.md",
+    "execution-permissions.md",
+    "signature-verification.md",
+    "transaction-artifacts.md",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(reference.replace(".", "\\."), "u"));
+    assert.equal(
+      existsSync(join(dirname(CANONICAL_SKILL), "references", reference)),
+      false,
+      `${reference} must be removed`,
+    );
+  }
+});
+
+test("canonical skill preserves proportional authoring and recovery boundaries", () => {
+  const source = readFileSync(CANONICAL_SKILL, "utf8");
+  const required = [
+    /hint as a hypothesis/iu,
+    /correct type and scope.+sharpen the outcome.+rationale.+user-experience/isu,
+    /hint alone belongs here/iu,
+    /Specific authored, read, generated, or surviving task-lineage evidence/iu,
+    /two materially different scopes remain plausible/iu,
+    /semantic hint used as a glob, pathspec, prefix, or fuzzy selector/iu,
+    /Loaded repository type policy wins/iu,
+    /Do not routinely scan history/iu,
+    /most specific dominant outcome/iu,
+    /tie that changes release or user meaning/iu,
+    /exact non-overlapping selections covering the scope/iu,
+    /Scope verification proves selection, message evidence supports claims, and full review inspects content/iu,
+    /No path or domain label.+is an escalation deny-list/isu,
+    /route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`/iu,
+    /no artifact access between helper calls/iu,
+    /only an unchanged draft may become actual.+only through promotion/isu,
+    /Resume a recoverably interrupted preparation only with `workflow resume/iu,
+    /attached, detached, or zero-parent unborn head anchor/iu,
+    /compares raw commit-message bytes without trimming/iu,
+    /Bounded diagnostics point to a complete hashed failure log/iu,
+    /count\/byte-limited report paths.+workflow report-detail/isu,
+    /replay the same cursor or cursorless completed page.+--refresh/isu,
+    /witnessed success differs from a recovery-time matching remote observation/iu,
+    /confirmed-no-live-child.+explicit user confirmation/isu,
+    /separately authorized retry.+--retry-after-attempt/isu,
+  ];
+
+  for (const pattern of required) {
+    assert.match(source, pattern);
+  }
+
+  for (const pattern of [
+    /manual UUID/iu,
+    /scope\.json/iu,
+    /ledger\.json/iu,
+    /inventory\.md/iu,
+    /acknowledge.+packet/iu,
+    /one[- ]file.+concise/iu,
+    /maximum file count.+concise/iu,
+    /keyword.+semantic equivalence/iu,
+    /edit distance.+semantic equivalence/iu,
+    /embedding.+semantic equivalence/iu,
+    /--message-file/iu,
+    /--content <|--evidence-plan <.*workflow extend/iu,
+  ]) {
+    assert.doesNotMatch(source, pattern);
+  }
 });
 
 test("high-level report-detail and publish help expose bounded transaction routes", () => {
@@ -1094,83 +1241,14 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
   assert.deepEqual(readdirSync(fixture.scratch), []);
 });
 
-test("deletion expansion help explains exact old-blob materialization", () => {
-  const result = runNodeScript(
-    COMMIT_WORKFLOW,
-    ["inspection", "expand-deletion", "--help"],
-    REPO_ROOT,
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /--manifest <snapshot\.json>/u);
-  assert.match(result.stdout, /--ledger <ledger\.json>/u);
-  assert.match(result.stdout, /--change-unit <F[0-9]+>/u);
-  assert.match(result.stdout, /exact old blob/u);
-  assert.match(result.stdout, /ledger incomplete/u);
-  assert.match(result.stdout, /Exit status:/u);
-});
-
-test("unified workflow rejects an unknown command with concise help", () => {
+test("unified workflow rejects an unknown command with one bounded envelope", () => {
   const result = runNodeScript(COMMIT_WORKFLOW, ["unknown"], REPO_ROOT);
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown command/u);
-  assert.match(result.stderr, /--help/u);
-  assert.doesNotMatch(result.stderr, /\n\s+at\s/u);
-});
-
-test("domain command help documents its required options without running Git", () => {
-  const result = runNodeScript(
-    COMMIT_WORKFLOW,
-    ["snapshot", "create", "--help"],
-    REPO_ROOT,
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /--mode <actual\|draft>/u);
-  assert.match(result.stdout, /--scope <staged\|full\|paths>/u);
-  assert.match(result.stdout, /Side effects:/u);
-  assert.match(result.stdout, /Staged scope reads the real index as-is/u);
-  assert.match(result.stdout, /may lock it to update cache metadata/u);
-  assert.match(result.stdout, /Draft full and paths do not change/u);
-  assert.match(result.stdout, /Exit status:/u);
-});
-
-test("command usage errors name the unified published executable", () => {
-  const result = runNodeScript(
-    COMMIT_WORKFLOW,
-    ["snapshot", "create"],
-    REPO_ROOT,
-  );
+  const output = JSON.parse(result.stdout);
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /commitWorkflow\.mjs snapshot create/u);
-  assert.doesNotMatch(result.stderr, /stage-commit-scope/u);
-});
-
-test("report help includes the optional publication artifact", () => {
-  const result = runNodeScript(
-    COMMIT_WORKFLOW,
-    ["report", "create", "--help"],
-    REPO_ROOT,
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /\[--publication <publication\.json>\]/u);
-  assert.match(result.stdout, /Output:/u);
-  assert.match(result.stdout, /Exit status:/u);
-});
-
-test("publication help discloses its network side effect and enforcement boundary", () => {
-  const result = runNodeScript(
-    COMMIT_WORKFLOW,
-    ["publication", "push", "--help"],
-    REPO_ROOT,
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Network side effect:/u);
-  assert.match(result.stdout, /\.pending/u);
-  assert.match(result.stdout, /does not enforce authorization/u);
-  assert.match(result.stdout, /Exit status:/u);
+  assert.equal(output.status, "invalid");
+  assert.equal(output.code, "UNKNOWN_COMMAND");
+  assert.match(output.message, /--help/u);
+  assert.equal(output.displayText.endsWith("\n"), true);
+  assert.doesNotMatch(result.stderr, /\n\s+at\s/u);
 });

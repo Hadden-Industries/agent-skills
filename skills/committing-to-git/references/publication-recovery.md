@@ -1,40 +1,21 @@
-# Publication recovery
+# Publication Recovery
 
-Read this reference before every `publication push`, when a `.pending` journal remains, when the user requests a retry, or when a later push request lacks an original transaction artifact.
+Read this reference only after an unknown publication result, when a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation.
 
-## Standard publication
+## Unknown result
 
-Continue only when the user authorized push, the full-workflow pre-push report returned `0`, the active verification policy permits publication, and no unresolved command failure remains. A verification result explicitly resolved by the user's advisory or skipped override is resolved for this gate.
+Run `workflow recover --transaction <opaque-transaction>`. Recovery performs at most one bounded, read-only `ls-remote` observation for the exact configured remote and full destination ref. It never pushes. A success witnessed by the original child is `witnessed-success`; a matching remote OID found later is `observed-matching`. Report the distinction.
 
-Resolve one configured remote name and one full destination branch ref. Use the existing unambiguous upstream for a plain push request. Ask when no upstream exists, the destination is ambiguous, or the user named a different target. Do not set an upstream or edit configuration.
+If the remote matches the exact recorded commit, publication is complete by observation. If the ref differs or is absent while the journal was `launching` or `running`, the result remains unknown because the child may still be live or delayed. Do not retry, change destination, or infer failure from an unchanged ref.
 
-Run `publication push` with the full created object ID, remote name, full `refs/heads/...` destination, and a fresh output path. The helper executes non-force `git push --porcelain` for exactly `<commit-oid>:<destination>` and writes `<publication.json>.pending` before invoking Git. Exactness describes the destination tip; Git transfers every reachable object it needs.
-
-Exit `0` records `pushed`. Exit `1` records Git's failed result. Exit `2` without a journal is a pre-invocation rejection; exit `2` with a journal is an unknown remote outcome. Never retry automatically.
-
-Every authorized retry uses the next unused output path, such as `<attempt>/publication-attempt-002.json`. Preserve every earlier result and journal. Never reuse or overwrite an existing publication path; after a successful or failed retry, pass the newest completed result to `report create --publication`.
-
-## Unknown publication outcome
-
-The helper writes `<publication.json>.pending` before invoking Git. Exit `2` with no pending journal means it rejected the operation before push invocation. Exit `2` with the journal means the remote outcome is unknown; a network update may have occurred before the final artifact could be written.
-
-Preserve the journal and do not retry automatically. Compare the exact destination with:
+`confirmed-no-live-child` may resolve that uncertainty only after the user explicitly confirms that the Git process and its credential/signing children ended or that the host restarted. Once the helper records the resolution, a retry still requires new explicit push authorization for the same OID, remote, and destination. The fresh attempt must bind its predecessor:
 
 ```text
-git ls-remote --refs <remote> <destination>
+node <skill>/scripts/commitWorkflow.mjs workflow publish --transaction <opaque-transaction> --remote <name> --destination <refs/heads/name> --retry-after-attempt <resolved-attempt-id>
 ```
 
-If the returned OID matches, report only that the destination points at the intended commit at the time of observation; this does not prove that the failed helper attempt performed the update. If it is absent or different, report that observation and ask whether to retry the same exact non-force publication using the fresh output rule above. Never infer remote state from a local tracking ref.
+Never reuse an attempt ID, omit the binding, force push, or retry automatically. A known rejection is also not authorization to retry.
 
-## Later push with missing artifacts
+## No matching transaction
 
-For a later push request, regenerate a missing pre-push report when the full commit OID, original manifest, approved message, verification artifact, and checks artifact are all available; the regenerated report must return `0`.
-
-If any required input is missing or unreadable, use only this reduced-assurance exception:
-
-- Disclose which snapshot, message, verification, or check assurances cannot be reproduced. Do not reconstruct them from current workspace state.
-- Continue without another authorization prompt only if the request already identifies an unambiguous source commit or ref and destination. Otherwise ask for the missing target information.
-- Resolve that user-selected source once to a full commit OID. Use `HEAD` only when the user explicitly selected current `HEAD`; never guess a source from the checked-out branch.
-- Apply the active signature-verification policy to that exact OID, then run only `publication push`. Report its durable result and state that the full transaction workflow was not reverified.
-
-This exception waives only the unavailable manifest, approved-message, checks, and pre-push-report gates. It never waives explicit push authorization, exact-OID targeting, signature policy, or durable publication evidence.
+When a user asks to push an existing local commit but no matching transaction capsule survives, do not claim snapshot, exact-message approval, comparison, signature-policy, or report assurance that cannot be recovered. Do not inspect, stage, commit, or alter current workspace changes. Explain the missing assurance and offer limited guidance for an ordinary explicit-OID non-force push only if the user separately chooses a workflow outside this skill. This skill's `workflow publish` must honestly refuse without a matching reported transaction.

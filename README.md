@@ -24,20 +24,19 @@ The repository follows one core rule:
 
 ### What `committing-to-git` adds
 
-The skill is an opinionated review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, numbered inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
+The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
 
-- drafting never changes staged entries: draft `full` and `paths` use a temporary index, while draft `staged` may lock the real index only to update cache metadata; `actual` mode records the exact intended staged tree before asking for message approval;
-- users receive one self-contained JavaScript CLI with no third-party runtime install, while maintainers work in reviewable domain modules under `src/`;
-- large diffs are split into bounded, hash-addressed artifacts so every recorded change can be reviewed without relying on truncated terminal output; whole-file deletions retain mandatory object, mode, path, and statistics coverage while their historical bodies are summarized unless meaning or risk requires exact old-blob expansion;
-- [execution-permission planning](./skills/committing-to-git/references/execution-permissions.md) requests narrowly scoped metadata access before a known sandbox denial, keeps inspection and snapshot verification read-only, and distinguishes missing permission from a live Git lock collision;
-- the agent supplies grounded rationale that a diff cannot reveal, while the renderer owns paths, change kinds, sorting, numbering, indentation, wrapping, and section order;
-- under the [message contract](./skills/committing-to-git/references/message-format.md), messages use one numbered change-unit entry for 1-49 changes and counted semantic domains for 50 or more, preserving navigability without narrating hundreds of paths;
-- the approved index tree is reverified immediately before a signed commit, and the resulting tree, parent, and stored message are compared with the approved transaction;
-- [signature policy](./skills/committing-to-git/references/signature-verification.md) is explicitly `required`, `advisory`, or `skipped`; an unavailable SSH trust file has a narrow recovery path and never causes an unsigned retry;
-- post-commit reports distinguish approved content, actual commit facts, checks, signature state, publication state, and remaining workspace changes; and
-- an authorized push targets the full created object ID with a non-force refspec and [durable recovery evidence](./skills/committing-to-git/references/publication-recovery.md) for an uncertain network outcome.
+- the public CLI is organized around `workflow prepare`, optional `workflow extend`/`message finalize`, `workflow promote`, `workflow commit`, optional `workflow publish`, and focused recovery, verification, cleanup, and report-detail commands;
+- concise preparation reuses grounded current-task evidence or returns bounded message evidence inline, while extended preparation creates hash-bound packets only for unresolved uncertainty;
+- a transport-safe ASCII subject goes directly from preparation and exact approval to commit; multiline, Unicode, nonportable, or explicitly checked text uses the one fixed transaction-local `message-input.txt` plus `message check`, and arbitrary external message-file paths are not accepted;
+- the agent treats a strong user hint as direction to improve against evidence, not as a demand for exact Conventional Commit type, scope, wording, rationale, UX consequence, or path selection;
+- draft `full` and `paths` isolate the real index, actual preparation records the exact intended tree, and only an unchanged draft can cross to actual through `workflow promote`;
+- exact manifests and bounded scope synopses prevent accidental inclusion; optional detailed or counted-domain presentation is derived only when it adds durable value;
+- the approved tree and raw message bytes are compared with the one journaled signed commit, and unknown outcomes are observed rather than replayed;
+- signature policy is `required`, `advisory`, or `skipped`, but every created commit still requires a signature header and recovery remains bound to the exact full OID; and
+- an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
 
-Runtime requirements are Git 2.25 or newer, Node.js 24 or newer, and configured Git commit signing. Under `required` policy, trusted SSH identity verification also needs access to the configured allowed-signers source; the user may choose `advisory` or `skipped` at any point without being pressured to keep the default.
+Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing. Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch. Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source; the user may explicitly choose `advisory` or `skipped`.
 
 The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The exact boundaries, primary-source rationale, tests, adversarial reviews, and residual limitations are documented in the [formal assurance case](./docs/assurance-cases/2026-08-22-committing-to-git-skill.md). The historical design decisions are preserved separately in the [implementation plan](./docs/implementation-plans/2026-08-21-committing-to-git-workflow-redesign.md).
 
@@ -57,7 +56,7 @@ To install only one skill, for example `defining-concepts`, run:
 npx skills add Hadden-Industries/agent-skills --skill defining-concepts
 ```
 
-Each complete `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets therefore live with the skill; maintainer-only prompts, fixtures, retained results, and evaluation programs live separately under [`evals/<name>/`](./evals/README.md) and are not installed as part of the skill.
+Each complete `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets therefore live with the skill. Maintainer evals are deliberately separate: prompts, fixtures, cost profiles, retained results, and evaluation programs under [`evals/<name>/`](./evals/README.md) test the deployable content but are not installed with it.
 
 ## How It Works
 
@@ -139,12 +138,11 @@ agent-skills/
 │   ├── committing-to-git/
 │   │   ├── SKILL.md                      # Signed snapshot transaction workflow
 │   │   ├── references/
-│   │   │   ├── change-inspection.md      # Deletion-aware inspection and expansion policy
-│   │   │   ├── execution-permissions.md  # Sandbox and Git-lock decision policy
-│   │   │   ├── message-format.md         # WHY-first detailed and bulk message policy
+│   │   │   ├── inspection-recovery.md    # Exceptional evidence and packet recovery
+│   │   │   ├── message-format.md         # Optional sections and structured formatting
 │   │   │   ├── publication-recovery.md   # Exact-OID push recovery policy
-│   │   │   ├── signature-verification.md # Backend-specific trust semantics
-│   │   │   └── transaction-artifacts.md  # Attempt allocation and artifact lifecycle
+│   │   │   ├── signature-recovery.md     # Trust and verification recovery
+│   │   │   └── transaction-recovery.md   # Permission, lock, and outcome recovery
 │   │   └── scripts/
 │   │       └── commitWorkflow.mjs         # Generated, self-contained workflow CLI
 │   ├── defining-concepts/

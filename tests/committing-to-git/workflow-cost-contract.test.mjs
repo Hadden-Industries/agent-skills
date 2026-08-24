@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -55,7 +55,20 @@ const EXPECTED_PRE_CUTOVER_PHASES = [
   "signature verify",
   "report create",
 ];
-const PRE_CUTOVER_ROUTES = new Set(EXPECTED_PRE_CUTOVER_PHASES);
+const REMOVED_ROUTES = [
+  "snapshot create",
+  "snapshot verify",
+  "inspection prepare",
+  "inspection expand-deletion",
+  "inspection acknowledge",
+  "inspection status",
+  "message scaffold",
+  "message render",
+  "message validate",
+  "signature verify",
+  "report create",
+  "publication push",
+];
 
 function assertNonnegativeInteger(value, label) {
   assert.equal(Number.isInteger(value), true, `${label} must be an integer`);
@@ -167,23 +180,6 @@ function assertFrozenBaseline(baseline) {
     signedCreationRequired: true,
     pushAttempted: false,
   });
-}
-
-function runCommitWorkflowWithRemovedPreCutoverRoutes(
-  command,
-  args,
-  cwd,
-  options,
-) {
-  if (PRE_CUTOVER_ROUTES.has(command)) {
-    return {
-      status: 2,
-      stdout: "",
-      stderr: `${JSON.stringify({ code: "UNKNOWN_COMMAND", command })}\n`,
-    };
-  }
-
-  return runCommitWorkflow(command, args, cwd, options);
 }
 
 function createRepresentativeOldLedger(unitCount) {
@@ -310,16 +306,70 @@ test("frozen pre-cutover baseline preserves provenance, cost, and safety facts",
   assertFrozenBaseline(PRE_CUTOVER_BASELINE);
 });
 
-test("frozen baseline does not execute routes removed by the cutover", () => {
-  const simulatedCommand = runCommitWorkflowWithRemovedPreCutoverRoutes(
-    "snapshot create",
-    [],
-    process.cwd(),
+test("removed pre-cutover routes fail uniformly before Git or filesystem effects", (t) => {
+  const fixture = createRepositoryFixture(t, "removed-routes-");
+
+  for (const command of REMOVED_ROUTES) {
+    const trace2File = join(
+      fixture.scratch,
+      `${command.replaceAll(" ", "-")}-trace.json`,
+    );
+    const outputPath = join(
+      fixture.scratch,
+      `${command.replaceAll(" ", "-")}-output.json`,
+    );
+    const result = runCommitWorkflow(
+      command,
+      ["--output", outputPath],
+      fixture.repo,
+      { env: { GIT_TRACE2_EVENT: trace2File } },
+    );
+
+    assert.equal(result.status, 2, command);
+    assert.equal(JSON.parse(result.stdout).code, "UNKNOWN_COMMAND", command);
+    assert.equal(existsSync(trace2File), false, command);
+    assert.equal(existsSync(outputPath), false, command);
+  }
+
+  assert.doesNotThrow(() => assertFrozenBaseline(PRE_CUTOVER_BASELINE));
+});
+
+test("every transaction route rejects old versions without migration", (t) => {
+  const fixture = createRepositoryFixture(t, "unsupported-attempt-version-");
+  const attemptDirectory = join(fixture.scratch, "old-attempt");
+  const transactionPath = join(attemptDirectory, "transaction.json");
+
+  writeRepositoryFile(
+    attemptDirectory,
+    "transaction.json",
+    '{"schemaVersion":0}\n',
   );
 
-  assert.equal(simulatedCommand.status, 2);
-  assert.match(simulatedCommand.stderr, /"code":"UNKNOWN_COMMAND"/u);
-  assert.doesNotThrow(() => assertFrozenBaseline(PRE_CUTOVER_BASELINE));
+  for (const command of [
+    "workflow resume",
+    "workflow extend",
+    "workflow promote",
+    "workflow commit",
+    "workflow verify",
+    "workflow report-detail",
+    "workflow publish",
+    "workflow recover",
+    "workflow cleanup",
+    "message check",
+    "message finalize",
+  ]) {
+    const result = runCommitWorkflow(
+      command,
+      ["--transaction", transactionPath],
+      fixture.repo,
+    );
+    const output = JSON.parse(result.stdout);
+
+    assert.equal(result.status, 2, command);
+    assert.equal(output.code, "UNSUPPORTED_ATTEMPT_VERSION", command);
+  }
+
+  assert.equal(readFileSync(transactionPath, "utf8"), '{"schemaVersion":0}\n');
 });
 
 test("pre-cutover acknowledgement response scales with the complete old ledger", () => {

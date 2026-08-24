@@ -1,14 +1,12 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
   activeGitOperations,
   indexMatchesTree,
-  repositoryRoot,
   resolveHead,
   runReadOnlyGit,
 } from "../git/gitRepository.js";
-import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
+import { formatGitAlternatePaths } from "./createSnapshot.js";
 
 function samePath(left, right) {
   const normalizedLeft = resolve(left);
@@ -49,7 +47,7 @@ function symbolicHead(root, env) {
   return result.status === 0 ? result.stdout.toString("utf8").trim() : null;
 }
 
-function headAnchorMatches(root, headAnchor, env) {
+function compareHeadAnchor(root, headAnchor, env) {
   const actualHeadOid = resolveHead(root, env);
   const actualTargetRef = symbolicHead(root, env);
 
@@ -93,29 +91,29 @@ export function verifySnapshotAgainstRepository({
     samePath(root, manifest.repositoryRoot);
   const env = useRealIndex ? undefined : manifestEnvironment(manifest);
   const head = repositoryMatches
-    ? headAnchorMatches(root, headAnchor, env)
+    ? compareHeadAnchor(root, headAnchor, env)
     : { matches: false, actualHeadOid: null, actualTargetRef: null };
   const treeMatches = repositoryMatches
     ? indexMatchesTree(root, manifest.indexTreeOid, env)
     : false;
   const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
-  const legacyExpectedHead = manifest.headOid ?? null;
-  const legacyHeadMatches = head.actualHeadOid === legacyExpectedHead;
+  const expectedHeadOid = manifest.headOid ?? null;
+  const snapshotHeadMatches = head.actualHeadOid === expectedHeadOid;
 
   return {
     schemaVersion: 1,
     valid:
       repositoryMatches &&
       head.matches &&
-      legacyHeadMatches &&
+      snapshotHeadMatches &&
       treeMatches &&
       activeOperations.length === 0,
     repositoryMatches,
-    headMatches: head.matches && legacyHeadMatches,
+    headMatches: head.matches && snapshotHeadMatches,
     headAnchorMatches: head.matches,
     treeMatches,
     operationClear: repositoryMatches && activeOperations.length === 0,
-    expectedHeadOid: legacyExpectedHead,
+    expectedHeadOid,
     actualHeadOid: head.actualHeadOid,
     expectedTargetRef: headAnchor?.targetRef ?? null,
     actualTargetRef: head.actualTargetRef,
@@ -123,37 +121,4 @@ export function verifySnapshotAgainstRepository({
     actualTreeOid: treeMatches ? manifest.indexTreeOid : null,
     activeOperations,
   };
-}
-
-function parseArguments(argv) {
-  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
-    throw new Error("--manifest is required.");
-  }
-
-  return resolve(argv[1]);
-}
-
-export function runSnapshotVerificationCommand(
-  argv,
-  {
-    cwd = process.cwd(),
-    stdout = process.stdout,
-    stderr = process.stderr,
-  } = {},
-) {
-  try {
-    const manifestPath = parseArguments(argv);
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const root = repositoryRoot(cwd);
-    const result = verifySnapshotAgainstRepository({
-      root,
-      manifest,
-    });
-
-    stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return result.valid ? 0 : 1;
-  } catch (error) {
-    stderr.write(`Commit snapshot verification failed: ${error.message}\n`);
-    return 2;
-  }
 }

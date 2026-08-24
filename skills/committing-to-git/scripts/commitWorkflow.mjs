@@ -521,9 +521,9 @@ async function streamGit(operation, args = [], {
   let stderrByteCount;
   let completionResult;
   try {
-    const safelyConsume = async (readable, options2) => {
+    const safelyConsume = async (readable, options) => {
       try {
-        return await consumeStream(readable, options2);
+        return await consumeStream(readable, options);
       } catch (error) {
         callbackError ??= error;
         child.kill("SIGTERM");
@@ -602,11 +602,8 @@ function runIndexMutationGit(root, operation, args = [], { env, input, allowFail
     allowFailure
   });
 }
-function readOnlyGitText(root, operation, args = [], options2) {
-  return runReadOnlyGit(root, operation, args, options2).stdout.toString("utf8");
-}
-function gitText(args, options2) {
-  return runGit(args, options2).stdout.toString("utf8");
+function readOnlyGitText(root, operation, args = [], options) {
+  return runReadOnlyGit(root, operation, args, options).stdout.toString("utf8");
 }
 function repositoryRoot(cwd = process.cwd()) {
   return readOnlyGitText(cwd, "repository-root").trim();
@@ -1804,7 +1801,7 @@ async function writePacketStream({
   maximumPacketBytes = MAXIMUM_PACKET_BYTES,
   maximumPacketLines = MAXIMUM_PACKET_LINES
 }) {
-  const options2 = {
+  const options = {
     idPrefix,
     startingOrdinal,
     kind,
@@ -1816,10 +1813,10 @@ async function writePacketStream({
     maximumPacketBytes,
     maximumPacketLines
   };
-  validateWriterOptions(options2);
+  validateWriterOptions(options);
   ensureOutputDirectories(outputDirectory);
   const spooled = await spoolSource(outputDirectory, source);
-  return packetsForSpool(outputDirectory, spooled, options2);
+  return packetsForSpool(outputDirectory, spooled, options);
 }
 function writePacketChunksSync({
   outputDirectory,
@@ -1835,7 +1832,7 @@ function writePacketChunksSync({
   maximumPacketBytes = MAXIMUM_PACKET_BYTES,
   maximumPacketLines = MAXIMUM_PACKET_LINES
 }) {
-  const options2 = {
+  const options = {
     idPrefix,
     startingOrdinal,
     kind,
@@ -1847,16 +1844,16 @@ function writePacketChunksSync({
     maximumPacketBytes,
     maximumPacketLines
   };
-  validateWriterOptions(options2);
+  validateWriterOptions(options);
   ensureOutputDirectories(outputDirectory);
   const spooled = spoolSourceSync(outputDirectory, source);
-  return packetsForSpool(outputDirectory, spooled, options2);
+  return packetsForSpool(outputDirectory, spooled, options);
 }
-function writePacketBytesSync(options2) {
-  if (!Buffer.isBuffer(options2.source) && !(options2.source instanceof Uint8Array)) {
+function writePacketBytesSync(options) {
+  if (!Buffer.isBuffer(options.source) && !(options.source instanceof Uint8Array)) {
     throw new Error("Synchronous packet input must be bytes.");
   }
-  return writePacketChunksSync({ ...options2, source: [options2.source] });
+  return writePacketChunksSync({ ...options, source: [options.source] });
 }
 var MAXIMUM_PACKET_LINES, MAXIMUM_PACKET_BYTES, MAXIMUM_RAW_SEGMENT_BYTES, MAXIMUM_RAW_SEGMENT_LINES, STRICT_UTF8_DECODER2;
 var init_streamingPacketWriter = __esm({
@@ -2094,7 +2091,7 @@ function validateReviewState(review) {
   if (review === null) {
     return;
   }
-  const required4 = [
+  const required = [
     "catalogPath",
     "catalogSha256",
     "evidencePlanPath",
@@ -2105,7 +2102,7 @@ function validateReviewState(review) {
     "semanticStructureRequired"
   ];
   const optional = review.coveredCapsuleSha256 === void 0 ? [] : ["coveredCapsuleSha256"];
-  assertExactKeys(review, [...required4, ...optional], "Review state");
+  assertExactKeys(review, [...required, ...optional], "Review state");
   if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN.test(review.catalogSha256) || !SHA256_PATTERN.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || typeof review.semanticStructureRequired !== "boolean") {
     throw new Error(
       "Review state contains invalid identities or routing facts."
@@ -2590,11 +2587,11 @@ function validateTransaction(transaction) {
   }
   return transaction;
 }
-function initialTransaction(repositoryRoot3, attemptDirectory) {
+function initialTransaction(repositoryRoot2, attemptDirectory) {
   return {
     schemaVersion: 1,
     phase: "allocated",
-    repositoryRoot: repositoryRoot3,
+    repositoryRoot: repositoryRoot2,
     attemptDirectory,
     mode: null,
     status: null,
@@ -2716,11 +2713,11 @@ function ensureDirectory(path, label) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
-function validateRepositoryPath(repositoryRoot3) {
-  ensureDirectory(repositoryRoot3, "Recorded repository root");
-  if (!existsSync3(join2(repositoryRoot3, ".git"))) {
+function validateRepositoryPath(repositoryRoot2) {
+  ensureDirectory(repositoryRoot2, "Recorded repository root");
+  if (!existsSync3(join2(repositoryRoot2, ".git"))) {
     throw new Error(
-      `Recorded repository root is no longer a Git working tree: ${repositoryRoot3}`
+      `Recorded repository root is no longer a Git working tree: ${repositoryRoot2}`
     );
   }
 }
@@ -2771,10 +2768,10 @@ function allocateAttemptDirectory({
   );
 }
 function createTransactionWorkspace({
-  repositoryRoot: repositoryRoot3,
+  repositoryRoot: repositoryRoot2,
   temporaryRoot = tmpdir()
 }) {
-  const normalizedRepositoryRoot = realpathSync(resolve2(repositoryRoot3));
+  const normalizedRepositoryRoot = realpathSync(resolve2(repositoryRoot2));
   const normalizedTemporaryRoot = realpathSync(resolve2(temporaryRoot));
   validateRepositoryPath(normalizedRepositoryRoot);
   ensureDirectory(normalizedTemporaryRoot, "Temporary root");
@@ -5290,7 +5287,7 @@ function assertReceipt(receipt, catalog) {
   }
 }
 function assertReviewPatchCoverage(catalog, requiredIds) {
-  const required4 = new Set(requiredIds);
+  const required = new Set(requiredIds);
   if (!catalog.inlineCoverage.scopeSynopsis && catalog.requiredSynopsisPacketIds.length === 0) {
     throw new Error("Required scope synopsis packets are missing.");
   }
@@ -5299,7 +5296,7 @@ function assertReviewPatchCoverage(catalog, requiredIds) {
   )) {
     const coveredOrdinals = new Set(
       catalog.packets.filter(
-        (packet) => required4.has(packet.id) && packet.kind === "text-patch"
+        (packet) => required.has(packet.id) && packet.kind === "text-patch"
       ).flatMap(
         (packet) => packet.changeUnitRanges.flatMap((range) => {
           const first = ordinalForId(range.first);
@@ -5329,10 +5326,10 @@ function assertReviewPatchCoverage(catalog, requiredIds) {
   }
 }
 function assertRequiredPacketKinds(catalog, requiredIds) {
-  const required4 = new Set(requiredIds);
+  const required = new Set(requiredIds);
   for (const id of catalog.requiredSynopsisPacketIds) {
     const packet = catalog.packets.find(
-      (candidate) => required4.has(candidate.id) && candidate.id === id
+      (candidate) => required.has(candidate.id) && candidate.id === id
     );
     if (packet?.kind !== "scope-synopsis") {
       throw new Error(`Required synopsis packet ${id} has the wrong kind.`);
@@ -5419,7 +5416,7 @@ function writeReviewPacketQueue({
   if (packetIds.length === 0) {
     return null;
   }
-  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha25611 }) => ({ id, artifact, sha256: sha25611 })).sort(
+  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha25610 }) => ({ id, artifact, sha256: sha25610 })).sort(
     (left, right) => Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact))
   );
   const partitions = partitionQueueRecords(
@@ -5513,7 +5510,7 @@ function supersedePriorQueue({
   }
   const pageSetSha256 = sha256Bytes(
     stableJsonBytes(
-      pages.map(({ artifact, sha256: sha25611 }) => ({ artifact, sha256: sha25611 }))
+      pages.map(({ artifact, sha256: sha25610 }) => ({ artifact, sha256: sha25610 }))
     )
   );
   const marker = {
@@ -6530,11 +6527,11 @@ function presentationWarnings(lines) {
       reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
     });
   });
-  const sha25611 = warnings.length === 0 ? null : createHash7("sha256").update(JSON.stringify(warnings)).digest("hex");
+  const sha25610 = warnings.length === 0 ? null : createHash7("sha256").update(JSON.stringify(warnings)).digest("hex");
   return {
     count: warnings.length,
     samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
-    sha256: sha25611
+    sha256: sha25610
   };
 }
 function canUseDirectSubjectTransport(subject) {
@@ -6660,275 +6657,6 @@ var init_approvedMessage = __esm({
 
 // src/committing-to-git/message/commitMessageRenderer.js
 import { Buffer as Buffer4 } from "node:buffer";
-function characterLength(text) {
-  return [...text].length;
-}
-function containsControlCharacter2(text) {
-  return /[\u0000-\u001f\u007f]/u.test(text);
-}
-function isCapitalizedDescription2(description) {
-  const [first = ""] = description;
-  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
-}
-function escapedPathBytes(bytes) {
-  let result = "";
-  for (const byte of bytes) {
-    if (byte >= 32 && byte <= 126 && byte !== 34 && byte !== 92) {
-      result += String.fromCharCode(byte);
-    } else if (byte === 34) {
-      result += '\\"';
-    } else if (byte === 92) {
-      result += "\\\\";
-    } else {
-      result += `\\x${byte.toString(16).padStart(2, "0")}`;
-    }
-  }
-  return `"${result}"`;
-}
-function safeCodeSpan(path, bytesBase64) {
-  const bytes = Buffer4.from(bytesBase64, "base64");
-  let decoded;
-  try {
-    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return escapedPathBytes(bytes);
-  }
-  if (!decoded.includes("`") && !/[\u0000-\u001f\u007f]/u.test(decoded)) {
-    return `\`${decoded}\``;
-  }
-  return JSON.stringify(decoded || path);
-}
-function sortKey(unit) {
-  return Buffer4.from(unit.destinationPathBytesBase64, "base64");
-}
-function compareChangeUnits(left, right) {
-  const destinationOrder = Buffer4.compare(sortKey(left), sortKey(right));
-  if (destinationOrder !== 0) {
-    return destinationOrder;
-  }
-  const leftSource = left.sourcePathBytesBase64 ? Buffer4.from(left.sourcePathBytesBase64, "base64") : Buffer4.alloc(0);
-  const rightSource = right.sourcePathBytesBase64 ? Buffer4.from(right.sourcePathBytesBase64, "base64") : Buffer4.alloc(0);
-  return Buffer4.compare(leftSource, rightSource) || left.kind.localeCompare(right.kind, "en");
-}
-function entryLabel(unit) {
-  if (unit.kind === "renamed") {
-    return `${safeCodeSpan(unit.sourcePath, unit.sourcePathBytesBase64)} \u2192 ${safeCodeSpan(unit.destinationPath, unit.destinationPathBytesBase64)} (${unit.kind})`;
-  }
-  const tags = {
-    deleted: "deleted",
-    binary: "binary",
-    "mode-changed": "mode changed",
-    "symlink-changed": "symlink changed",
-    "type-changed": "type changed",
-    "submodule-changed": "submodule changed"
-  };
-  const tag = tags[unit.kind] ?? (unit.binary ? "binary" : null);
-  return `${safeCodeSpan(unit.destinationPath, unit.destinationPathBytesBase64)}${tag ? ` (${tag})` : ""}`;
-}
-function wrapWithPrefix(text, firstPrefix, continuationPrefix) {
-  const words = text.trim().split(/\s+/u).filter(Boolean);
-  if (words.length === 0) {
-    throw new Error("Commit-message narrative fields cannot be empty.");
-  }
-  const lines = [];
-  let prefix = firstPrefix;
-  let current = prefix;
-  for (const word of words) {
-    const separator = current === prefix ? "" : " ";
-    const candidate = `${current}${separator}${word}`;
-    if (current !== prefix && characterLength(candidate) > MAX_LINE_LENGTH) {
-      lines.push(current);
-      prefix = continuationPrefix;
-      current = `${prefix}${word}`;
-    } else {
-      current = candidate;
-    }
-  }
-  lines.push(current);
-  return lines;
-}
-function renderSimpleSection(heading, entries) {
-  if (!entries || entries.length === 0) {
-    return null;
-  }
-  return [
-    heading,
-    ...entries.flatMap((entry) => wrapWithPrefix(entry, "  - ", "    "))
-  ].join("\n");
-}
-function validateSubject(subject) {
-  if (!subject || typeof subject.type !== "string" || !/^[a-z][a-z0-9-]*$/u.test(subject.type)) {
-    throw new Error(
-      "Subject type must be a lowercase Conventional Commit token."
-    );
-  }
-  if (typeof subject.description !== "string" || subject.description.trim() === "") {
-    throw new Error("Subject description is required.");
-  }
-  const description = subject.description.trim();
-  if (description !== subject.description || containsControlCharacter2(description)) {
-    throw new Error(
-      "Subject description must be one trimmed line without control characters."
-    );
-  }
-  if (!isCapitalizedDescription2(description)) {
-    throw new Error("Subject description must begin with a capitalized word.");
-  }
-  let scope = null;
-  if (subject.scope !== null && subject.scope !== void 0) {
-    if (typeof subject.scope !== "string" || subject.scope.trim() === "" || subject.scope !== subject.scope.trim() || containsControlCharacter2(subject.scope) || /[()]/u.test(subject.scope)) {
-      throw new Error(
-        "Subject scope must be one trimmed, non-empty value without parentheses or control characters."
-      );
-    }
-    scope = subject.scope;
-  }
-  const rendered = `${subject.type}${scope ? `(${scope})` : ""}: ${description}`;
-  if (characterLength(rendered) > MAX_LINE_LENGTH) {
-    throw new Error(`Subject exceeds ${MAX_LINE_LENGTH} characters.`);
-  }
-  if (rendered.endsWith(".")) {
-    throw new Error("Subject must not end with a period.");
-  }
-  return rendered;
-}
-function renderDetailed(manifest, content) {
-  if (manifest.changeUnitCount >= BULK_FILE_THRESHOLD || content.mode !== "detailed") {
-    throw new Error(
-      "Detailed mode is valid only for snapshots with fewer than 50 changes."
-    );
-  }
-  const changeEntries = content.changeEntries ?? [];
-  const entries = new Map(
-    changeEntries.map((entry) => [entry.changeUnitId, entry])
-  );
-  const expectedIds = new Set(manifest.changeUnits.map(({ id }) => id));
-  if (changeEntries.length !== manifest.changeUnitCount || entries.size !== changeEntries.length || [...entries].some(([id]) => !expectedIds.has(id)) || [...expectedIds].some((id) => !entries.has(id))) {
-    throw new Error(
-      "Detailed entries must cover every change unit exactly once."
-    );
-  }
-  const units = [...manifest.changeUnits].sort(compareChangeUnits);
-  const width = String(units.length).length;
-  const lines = ["File Changes:"];
-  units.forEach((unit, index) => {
-    const semantic = entries.get(unit.id);
-    if (!semantic || !Array.isArray(semantic.reasons) || semantic.reasons.length === 0) {
-      throw new Error(
-        `Change unit ${unit.id} requires at least one rationale.`
-      );
-    }
-    const ordinal = String(index + 1).padStart(width, " ");
-    const bulletPrefix = `${" ".repeat(width + 2)}- `;
-    const continuationPrefix = " ".repeat(width + 4);
-    lines.push(`${ordinal}. ${entryLabel(unit)}`);
-    for (const reason of semantic.reasons) {
-      lines.push(...wrapWithPrefix(reason, bulletPrefix, continuationPrefix));
-    }
-  });
-  return lines.join("\n");
-}
-function renderBulk(manifest, content) {
-  if (manifest.changeUnitCount < BULK_FILE_THRESHOLD || content.mode !== "bulk") {
-    throw new Error(
-      "Bulk mode is required for snapshots with 50 or more changes."
-    );
-  }
-  const domains = content.domains ?? [];
-  const assigned = domains.flatMap((domain) => domain.changeUnitIds ?? []);
-  const expected = new Set(manifest.changeUnits.map(({ id }) => id));
-  const assignedSet = new Set(assigned);
-  if (assigned.length !== assignedSet.size || assignedSet.size !== expected.size || [...expected].some((id) => !assignedSet.has(id))) {
-    throw new Error("Bulk domains must assign every change unit exactly once.");
-  }
-  const width = String(domains.length).length;
-  const lines = ["File Changes:"];
-  domains.forEach((domain, index) => {
-    if (!domain.title?.trim() || domain.title !== domain.title.trim() || containsControlCharacter2(domain.title) || !domain.reasons?.length || !domain.changeUnitIds?.length) {
-      throw new Error(
-        `Domain ${index + 1} requires a single-line title, files, and rationale.`
-      );
-    }
-    const count = domain.changeUnitIds.length;
-    const ordinal = String(index + 1).padStart(width, " ");
-    const bulletPrefix = `${" ".repeat(width + 2)}- `;
-    const continuationPrefix = " ".repeat(width + 4);
-    lines.push(
-      `${ordinal}. ${domain.title.trim()} (${count} ${count === 1 ? "file" : "files"})`
-    );
-    for (const reason of domain.reasons) {
-      lines.push(...wrapWithPrefix(reason, bulletPrefix, continuationPrefix));
-    }
-  });
-  return lines.join("\n");
-}
-function renderLegacyCommitMessage(manifest, content) {
-  if (manifest.changeUnitCount !== manifest.changeUnits.length) {
-    throw new Error("Snapshot change-unit count does not match its inventory.");
-  }
-  const sections = [validateSubject(content.subject)];
-  const rationale = renderSimpleSection("Rationale:", content.rationale);
-  const userExperience = renderSimpleSection(
-    "User Experience Changes:",
-    content.userExperienceChanges
-  );
-  if (rationale) {
-    sections.push(rationale);
-  }
-  if (userExperience) {
-    sections.push(userExperience);
-  }
-  sections.push(
-    content.mode === "bulk" ? renderBulk(manifest, content) : renderDetailed(manifest, content)
-  );
-  return `${sections.join("\n\n")}
-`;
-}
-function scaffoldLegacyContent(manifest) {
-  const common = {
-    subject: {
-      type: "feat",
-      scope: null,
-      description: "Explain the outcome <replace>"
-    },
-    rationale: [],
-    userExperienceChanges: []
-  };
-  if (manifest.changeUnitCount < BULK_FILE_THRESHOLD) {
-    return {
-      ...common,
-      mode: "detailed",
-      changeEntries: manifest.changeUnits.map(({ id }) => ({
-        changeUnitId: id,
-        reasons: [`Explain why ${id} changed <replace>`]
-      }))
-    };
-  }
-  return {
-    ...common,
-    mode: "bulk",
-    domains: [
-      {
-        title: "<name a semantic domain>",
-        changeUnitIds: [],
-        reasons: ["<explain why this domain changed>"]
-      }
-    ]
-  };
-}
-function renderLegacyScaffoldTemplate(manifest, content) {
-  if (content.mode === "detailed") {
-    return renderLegacyCommitMessage(manifest, content);
-  }
-  return [
-    "feat: <explain the outcome>",
-    "",
-    "File Changes:",
-    "1. <name a semantic domain> (<assigned file count>)",
-    "   - <explain why this domain changed>",
-    ""
-  ].join("\n");
-}
 function isCanonicalNarrative(value) {
   return typeof value === "string" && value.length > 0 && value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value);
 }
@@ -7240,23 +6968,12 @@ function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
   };
   return recommendedMode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
 }
-var BULK_FILE_THRESHOLD, MAX_LINE_LENGTH, RECOMMENDED_COMMIT_TYPES;
+var BULK_FILE_THRESHOLD;
 var init_commitMessageRenderer = __esm({
   "src/committing-to-git/message/commitMessageRenderer.js"() {
     init_approvedMessage();
     init_changeSelection();
     BULK_FILE_THRESHOLD = 50;
-    MAX_LINE_LENGTH = 72;
-    RECOMMENDED_COMMIT_TYPES = Object.freeze([
-      "build",
-      "ci",
-      "docs",
-      "feat",
-      "fix",
-      "perf",
-      "refactor",
-      "test"
-    ]);
   }
 });
 
@@ -7280,8 +6997,8 @@ import {
 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute5, join as join6, relative as relative4, resolve as resolve6, sep as sep2 } from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
-function fail2(code, message, options2) {
-  throw new CanonicalMessageError(code, message, options2);
+function fail2(code, message, options) {
+  throw new CanonicalMessageError(code, message, options);
 }
 function sha256(bytes) {
   return createHash8("sha256").update(bytes).digest("hex");
@@ -8231,8 +7948,8 @@ import {
 } from "node:fs";
 import { dirname as dirname7, resolve as resolve7 } from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
-function fail3(code, message, options2) {
-  throw new PreparationError(code, message, options2);
+function fail3(code, message, options) {
+  throw new PreparationError(code, message, options);
 }
 function preflightVerificationPolicy({
   root,
@@ -9558,13 +9275,13 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
   }
 }
 async function prepareWorkflow({
-  options: options2,
+  options,
   cwd = process.cwd(),
   environment = process.env,
   temporaryRoot,
   indexFailureInjector
 }) {
-  const parsed = options2 ?? fail3("INVALID_ARGUMENT", "Preparation options are required.");
+  const parsed = options ?? fail3("INVALID_ARGUMENT", "Preparation options are required.");
   let normalizedScope = null;
   let normalizedEvidence;
   if (parsed.scope === "paths") {
@@ -9817,9 +9534,9 @@ async function runPrepareWorkflowCommand(argv, {
 } = {}) {
   let format = "json";
   try {
-    const options2 = parsePrepareArguments(argv);
-    format = options2.format;
-    const result = await prepareWorkflow({ options: options2, cwd, environment });
+    const options = parsePrepareArguments(argv);
+    format = options.format;
+    const result = await prepareWorkflow({ options, cwd, environment });
     stdout.write(
       format === "text" ? textResult(result) : `${JSON.stringify(result)}
 `
@@ -10277,9 +9994,9 @@ function textResult2(result) {
 async function runExtendReviewCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const options2 = parseExtendReviewArguments(argv);
-    format = options2.format;
-    const result = await extendReviewWorkflow(options2);
+    const options = parseExtendReviewArguments(argv);
+    format = options.format;
+    const result = await extendReviewWorkflow(options);
     stdout.write(
       format === "text" ? textResult2(result) : `${JSON.stringify(result)}
 `
@@ -10621,9 +10338,9 @@ function textResult3(result) {
 async function runResumePreparationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const options2 = parseResumeArguments(argv);
-    format = options2.format;
-    const result = await resumePreparationWorkflow(options2);
+    const options = parseResumeArguments(argv);
+    format = options.format;
+    const result = await resumePreparationWorkflow(options);
     stdout.write(
       format === "text" ? textResult3(result) : `${JSON.stringify(result)}
 `
@@ -10662,8 +10379,8 @@ import { createHash as createHash11 } from "node:crypto";
 import { existsSync as existsSync12 } from "node:fs";
 import { isAbsolute as isAbsolute6, join as join8, resolve as resolve10 } from "node:path";
 import { TextDecoder as TextDecoder7 } from "node:util";
-function fail6(code, message, options2) {
-  throw new PromotionError(code, message, options2);
+function fail6(code, message, options) {
+  throw new PromotionError(code, message, options);
 }
 function sha2564(bytes) {
   return createHash11("sha256").update(bytes).digest("hex");
@@ -11403,9 +11120,9 @@ function runPromoteDraftCommand(argv, { stdout = process.stdout, stderr = proces
   let format = "json";
   let transactionPath = null;
   try {
-    const options2 = parseArguments(argv);
-    format = options2.format;
-    transactionPath = resolve10(options2.transactionPath);
+    const options = parseArguments(argv);
+    format = options.format;
+    transactionPath = resolve10(options.transactionPath);
     const result = promoteDraftWorkflow({ transactionPath });
     stdout.write(
       format === "text" ? textResult4(result) : `${JSON.stringify(result)}
@@ -11453,13 +11170,7 @@ var init_promoteDraftWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/command/snapshotVerificationCommand.js
-var snapshotVerificationCommand_exports = {};
-__export(snapshotVerificationCommand_exports, {
-  runSnapshotVerificationCommand: () => runSnapshotVerificationCommand,
-  verifySnapshotAgainstRepository: () => verifySnapshotAgainstRepository
-});
-import { readFileSync as readFileSync8 } from "node:fs";
+// src/committing-to-git/snapshot/verifySnapshot.js
 import { resolve as resolve11 } from "node:path";
 function samePath3(left, right) {
   const normalizedLeft = resolve11(left);
@@ -11487,7 +11198,7 @@ function symbolicHead(root, env) {
   });
   return result.status === 0 ? result.stdout.toString("utf8").trim() : null;
 }
-function headAnchorMatches(root, headAnchor, env) {
+function compareHeadAnchor(root, headAnchor, env) {
   const actualHeadOid = resolveHead(root, env);
   const actualTargetRef = symbolicHead(root, env);
   if (headAnchor === void 0) {
@@ -11519,20 +11230,20 @@ function verifySnapshotAgainstRepository({
 }) {
   const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath3(root, manifest.repositoryRoot);
   const env = useRealIndex ? void 0 : manifestEnvironment2(manifest);
-  const head = repositoryMatches ? headAnchorMatches(root, headAnchor, env) : { matches: false, actualHeadOid: null, actualTargetRef: null };
+  const head = repositoryMatches ? compareHeadAnchor(root, headAnchor, env) : { matches: false, actualHeadOid: null, actualTargetRef: null };
   const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
   const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
-  const legacyExpectedHead = manifest.headOid ?? null;
-  const legacyHeadMatches = head.actualHeadOid === legacyExpectedHead;
+  const expectedHeadOid = manifest.headOid ?? null;
+  const snapshotHeadMatches = head.actualHeadOid === expectedHeadOid;
   return {
     schemaVersion: 1,
-    valid: repositoryMatches && head.matches && legacyHeadMatches && treeMatches && activeOperations.length === 0,
+    valid: repositoryMatches && head.matches && snapshotHeadMatches && treeMatches && activeOperations.length === 0,
     repositoryMatches,
-    headMatches: head.matches && legacyHeadMatches,
+    headMatches: head.matches && snapshotHeadMatches,
     headAnchorMatches: head.matches,
     treeMatches,
     operationClear: repositoryMatches && activeOperations.length === 0,
-    expectedHeadOid: legacyExpectedHead,
+    expectedHeadOid,
     actualHeadOid: head.actualHeadOid,
     expectedTargetRef: headAnchor?.targetRef ?? null,
     actualTargetRef: head.actualTargetRef,
@@ -11541,36 +11252,8 @@ function verifySnapshotAgainstRepository({
     activeOperations
   };
 }
-function parseArguments2(argv) {
-  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
-    throw new Error("--manifest is required.");
-  }
-  return resolve11(argv[1]);
-}
-function runSnapshotVerificationCommand(argv, {
-  cwd = process.cwd(),
-  stdout = process.stdout,
-  stderr = process.stderr
-} = {}) {
-  try {
-    const manifestPath2 = parseArguments2(argv);
-    const manifest = JSON.parse(readFileSync8(manifestPath2, "utf8"));
-    const root = repositoryRoot(cwd);
-    const result = verifySnapshotAgainstRepository({
-      root,
-      manifest
-    });
-    stdout.write(`${JSON.stringify(result, null, 2)}
-`);
-    return result.valid ? 0 : 1;
-  } catch (error) {
-    stderr.write(`Commit snapshot verification failed: ${error.message}
-`);
-    return 2;
-  }
-}
-var init_snapshotVerificationCommand = __esm({
-  "src/committing-to-git/command/snapshotVerificationCommand.js"() {
+var init_verifySnapshot = __esm({
+  "src/committing-to-git/snapshot/verifySnapshot.js"() {
     init_gitRepository();
     init_createSnapshot();
   }
@@ -11585,7 +11268,7 @@ import {
   lstatSync as lstatSync7,
   mkdirSync as mkdirSync9,
   openSync as openSync8,
-  readFileSync as readFileSync9,
+  readFileSync as readFileSync8,
   realpathSync as realpathSync4,
   writeSync
 } from "node:fs";
@@ -12878,7 +12561,7 @@ import {
   fsyncSync as fsyncSync8,
   lstatSync as lstatSync8,
   openSync as openSync9,
-  readFileSync as readFileSync10,
+  readFileSync as readFileSync9,
   readdirSync as readdirSync3,
   realpathSync as realpathSync5,
   rmSync as rmSync4,
@@ -12938,7 +12621,7 @@ function acquireTransactionStateLock({
       const stat = lstatSync8(path);
       let owner;
       try {
-        owner = JSON.parse(readFileSync10(path, "utf8"));
+        owner = JSON.parse(readFileSync9(path, "utf8"));
       } catch {
         owner = null;
       }
@@ -13004,7 +12687,7 @@ function releaseTransactionStateLock(lock) {
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error("Transaction-state lock was replaced.");
   }
-  const recorded = JSON.parse(readFileSync10(lock.path, "utf8"));
+  const recorded = JSON.parse(readFileSync9(lock.path, "utf8"));
   if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
     throw new Error("Transaction-state lock ownership changed.");
   }
@@ -13065,7 +12748,7 @@ function processStartIdentity(pid) {
     return null;
   }
   try {
-    const stat = readFileSync10(`/proc/${pid}/stat`, "utf8");
+    const stat = readFileSync9(`/proc/${pid}/stat`, "utf8");
     const closingName = stat.lastIndexOf(") ");
     const fields = stat.slice(closingName + 2).split(" ");
     return fields[19] ?? null;
@@ -13114,7 +12797,7 @@ function assertConfirmedNoLiveChild(transaction, before, after, { processInspect
   });
 }
 function assertRecordedChildInactive({
-  repositoryRoot: repositoryRoot3,
+  repositoryRoot: repositoryRoot2,
   childIdentity,
   processInspector = {
     exists: processExists,
@@ -13129,7 +12812,7 @@ function assertRecordedChildInactive({
       reused ? "The recorded process ID has been reused; recovery remains conservative." : "The recorded Git/signing/hook child is still live."
     );
   }
-  if (indexLockInspector(repositoryRoot3)) {
+  if (indexLockInspector(repositoryRoot2)) {
     throw new Error("An index lock contradicts the no-live-child assertion.");
   }
 }
@@ -13301,10 +12984,10 @@ function cleanupIdentity(path) {
 function sameCleanupIdentity(left, right) {
   return left.device === right.device && left.inode === right.inode && left.kind === right.kind;
 }
-function removeWithRetry(path, options2, operation = rmSync4) {
+function removeWithRetry(path, options, operation = rmSync4) {
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      operation(path, options2);
+      operation(path, options);
       return;
     } catch (error) {
       if (process.platform !== "win32" || !WINDOWS_RETRY_CODES.has(error.code) || attempt === 4) {
@@ -13391,13 +13074,13 @@ function compactTerminalTransactionUnlocked({
     failed
   };
 }
-function compactTerminalTransaction(options2) {
+function compactTerminalTransaction(options) {
   const lock = acquireTransactionStateLock({
-    transactionPath: options2.transactionPath,
+    transactionPath: options.transactionPath,
     operation: "cleanup"
   });
   try {
-    return compactTerminalTransactionUnlocked(options2);
+    return compactTerminalTransactionUnlocked(options);
   } finally {
     releaseTransactionStateLock(lock);
   }
@@ -13437,14 +13120,14 @@ function purgeTransactionUnlocked({ transactionPath }) {
     failed: []
   };
 }
-function purgeTransaction(options2) {
+function purgeTransaction(options) {
   const lock = acquireTransactionStateLock({
-    transactionPath: options2.transactionPath,
+    transactionPath: options.transactionPath,
     operation: "purge"
   });
   let purged = false;
   try {
-    const result = purgeTransactionUnlocked(options2);
+    const result = purgeTransactionUnlocked(options);
     purged = true;
     return result;
   } finally {
@@ -13503,14 +13186,14 @@ import {
   fsyncSync as fsyncSync9,
   lstatSync as lstatSync9,
   openSync as openSync10,
-  readFileSync as readFileSync11,
+  readFileSync as readFileSync10,
   renameSync as renameSync5,
   writeFileSync as writeFileSync10
 } from "node:fs";
 import { dirname as dirname9, join as join11, resolve as resolve14 } from "node:path";
 import { TextDecoder as TextDecoder9 } from "node:util";
-function fail7(code, message, options2) {
-  throw new CommitWorkflowError(code, message, options2);
+function fail7(code, message, options) {
+  throw new CommitWorkflowError(code, message, options);
 }
 function sha2566(bytes) {
   return createHash15("sha256").update(bytes).digest("hex");
@@ -13696,7 +13379,7 @@ function readChecksArtifact(checksPath, { afterOpen = () => {
         `Checks input exceeds ${MAXIMUM_CHECKS_INPUT_BYTES} bytes or is not regular.`
       );
     }
-    const bytes = readFileSync11(descriptor);
+    const bytes = readFileSync10(descriptor);
     const after = fstatSync7(descriptor, { bigint: true });
     const final = lstatSync9(path, { bigint: true });
     if (final.isSymbolicLink() || !final.isFile() || !sameIdentity2(fileIdentity2(initial), fileIdentity2(before)) || !sameIdentity2(fileIdentity2(before), fileIdentity2(after)) || !sameIdentity2(fileIdentity2(after), fileIdentity2(final)) || bytes.length > MAXIMUM_CHECKS_INPUT_BYTES) {
@@ -13829,8 +13512,8 @@ function readRecordedReport(transactionPath) {
       "Transaction does not contain a final local report."
     );
   }
-  const report = JSON.parse(readFileSync11(transaction.report.jsonPath, "utf8"));
-  const displayText = readFileSync11(transaction.report.textPath, "utf8");
+  const report = JSON.parse(readFileSync10(transaction.report.jsonPath, "utf8"));
+  const displayText = readFileSync10(transaction.report.textPath, "utf8");
   const exitCode = transaction.status === "reported" ? 0 : 3;
   return reportResult(
     transactionPath,
@@ -14285,7 +13968,7 @@ function retrySignatureVerificationWorkflow({
     previousVerification: previous
   });
   const priorReport = JSON.parse(
-    readFileSync11(transaction.report.jsonPath, "utf8")
+    readFileSync10(transaction.report.jsonPath, "utf8")
   );
   const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
@@ -14358,7 +14041,7 @@ Code: ${result.code ?? "none"}
 async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags(argv);
+    const flags = parseFlags(argv);
     const allowed = /* @__PURE__ */ new Set([
       "transaction",
       "message",
@@ -14368,26 +14051,26 @@ async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = 
       "retain-process-logs",
       "format"
     ]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         fail7("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
+    format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
       fail7("INVALID_FORMAT", "--format must be json or text.");
     }
-    const transactionPath = flags4.get("transaction");
+    const transactionPath = flags.get("transaction");
     if (!transactionPath) {
       fail7("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = await createCommitWorkflow({
       transactionPath,
-      approvedSubject: flags4.get("message") ?? null,
-      checksPath: flags4.get("checks") ?? null,
-      retainReviewArtifacts: flags4.get("retain-review-artifacts") === true,
-      retainProcessLogs: flags4.get("retain-process-logs") === true,
-      verificationPolicyOverride: flags4.get("verification") ?? null
+      approvedSubject: flags.get("message") ?? null,
+      checksPath: flags.get("checks") ?? null,
+      retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
+      retainProcessLogs: flags.get("retain-process-logs") === true,
+      verificationPolicyOverride: flags.get("verification") ?? null
     });
     stdout.write(commandOutput(result, format));
     return result.exitCode;
@@ -14418,24 +14101,24 @@ async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = 
 async function runRetryVerificationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags(argv);
+    const flags = parseFlags(argv);
     const allowed = /* @__PURE__ */ new Set(["transaction", "verification", "format"]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         fail7("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
+    format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
       fail7("INVALID_FORMAT", "--format must be json or text.");
     }
-    const transactionPath = flags4.get("transaction");
+    const transactionPath = flags.get("transaction");
     if (!transactionPath) {
       fail7("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = retrySignatureVerificationWorkflow({
       transactionPath,
-      verificationPolicyOverride: flags4.get("verification") ?? null
+      verificationPolicyOverride: flags.get("verification") ?? null
     });
     stdout.write(commandOutput(result, format));
     return result.exitCode;
@@ -14465,7 +14148,7 @@ async function runRetryVerificationCommand(argv, { stdout = process.stdout, stde
 var MAXIMUM_CHECKS_INPUT_BYTES, MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER8, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
 var init_createCommitWorkflow = __esm({
   "src/committing-to-git/workflow/createCommitWorkflow.js"() {
-    init_snapshotVerificationCommand();
+    init_verifySnapshot();
     init_gitProcessTranscript();
     init_approvedMessage();
     init_canonicalMessageState();
@@ -14517,7 +14200,7 @@ import {
   lstatSync as lstatSync10,
   mkdirSync as mkdirSync10,
   openSync as openSync11,
-  readFileSync as readFileSync12,
+  readFileSync as readFileSync11,
   renameSync as renameSync6,
   rmSync as rmSync5,
   unlinkSync as unlinkSync8,
@@ -14588,7 +14271,7 @@ function assertRegularFile(path, label) {
 function readJson(path, label) {
   assertRegularFile(path, label);
   try {
-    return JSON.parse(readFileSync12(path, "utf8"));
+    return JSON.parse(readFileSync11(path, "utf8"));
   } catch (error) {
     fail8("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
   }
@@ -15075,8 +14758,8 @@ async function readWorkspaceDetailPage({
     releaseTransactionStateLock(lock);
   }
 }
-async function reportDetailWorkflow(options2) {
-  return readWorkspaceDetailPage(options2);
+async function reportDetailWorkflow(options) {
+  return readWorkspaceDetailPage(options);
 }
 function parseFlags2(argv) {
   const values = /* @__PURE__ */ new Map();
@@ -15109,25 +14792,25 @@ function commandOutput2(result, format) {
 async function runReportDetailCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags2(argv);
+    const flags = parseFlags2(argv);
     const allowed = /* @__PURE__ */ new Set(["transaction", "cursor", "refresh", "format"]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         fail8("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
+    format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
       fail8("INVALID_FORMAT", "--format must be json or text.");
     }
-    const transactionPath = flags4.get("transaction");
+    const transactionPath = flags.get("transaction");
     if (!transactionPath) {
       fail8("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = await reportDetailWorkflow({
       transactionPath,
-      cursor: flags4.get("cursor") ?? null,
-      refresh: flags4.get("refresh") === true
+      cursor: flags.get("cursor") ?? null,
+      refresh: flags.get("refresh") === true
     });
     stdout.write(commandOutput2(result, format));
     return result.exitCode;
@@ -15192,13 +14875,13 @@ import {
   fsyncSync as fsyncSync11,
   lstatSync as lstatSync11,
   openSync as openSync12,
-  readFileSync as readFileSync13,
+  readFileSync as readFileSync12,
   renameSync as renameSync7,
   writeFileSync as writeFileSync12
 } from "node:fs";
 import { dirname as dirname10, join as join13, resolve as resolve16 } from "node:path";
-function fail9(code, message, options2) {
-  throw new PublishWorkflowError(code, message, options2);
+function fail9(code, message, options) {
+  throw new PublishWorkflowError(code, message, options);
 }
 function sha2568(bytes) {
   return createHash17("sha256").update(bytes).digest("hex");
@@ -15207,7 +14890,7 @@ function canonicalBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
 `, "utf8");
 }
-function containsControlCharacter3(value) {
+function containsControlCharacter2(value) {
   return [...value].some((character) => {
     const code = character.codePointAt(0);
     return code <= 31 || code === 127;
@@ -15288,13 +14971,13 @@ function updateAttempt(transactionPath, attemptId, transform) {
   });
 }
 function validateDestination(root, remote, destination, readOnlyRunner = runReadOnlyGit) {
-  if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter3(remote)) {
+  if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter2(remote)) {
     fail9(
       "PUBLICATION_REMOTE_INVALID",
       "--remote must name one configured non-option Git remote."
     );
   }
-  if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter3(destination)) {
+  if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter2(destination)) {
     fail9(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination must be a full refs/heads/... branch ref."
@@ -15344,7 +15027,7 @@ function readPersistedReport(transaction) {
       { exitCode: 3 }
     );
   }
-  const bytes = readFileSync13(transaction.report.jsonPath);
+  const bytes = readFileSync12(transaction.report.jsonPath);
   if (sha2568(bytes) !== transaction.report.jsonSha256) {
     fail9(
       "REPORT_ARTIFACT_MISMATCH",
@@ -15360,7 +15043,7 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
   }
   try {
     const textStat = lstatSync11(transaction.report.textPath);
-    return !textStat.isSymbolicLink() && textStat.isFile() && sha2568(readFileSync13(transaction.report.textPath)) === transaction.report.textSha256;
+    return !textStat.isSymbolicLink() && textStat.isFile() && sha2568(readFileSync12(transaction.report.textPath)) === transaction.report.textSha256;
   } catch (error) {
     if (error.code === "ENOENT") {
       return false;
@@ -16081,7 +15764,7 @@ function commandOutput3(result, format) {
 async function runPublishCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags3(argv);
+    const flags = parseFlags3(argv);
     const allowed = /* @__PURE__ */ new Set([
       "transaction",
       "remote",
@@ -16089,25 +15772,25 @@ async function runPublishCommand(argv, { stdout = process.stdout, stderr = proce
       "retry-after-attempt",
       "format"
     ]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         fail9("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
+    format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
       fail9("INVALID_FORMAT", "--format must be json or text.");
     }
-    for (const required4 of ["transaction", "remote", "destination"]) {
-      if (!flags4.get(required4)) {
-        fail9("INVALID_ARGUMENT", `--${required4} is required.`);
+    for (const required of ["transaction", "remote", "destination"]) {
+      if (!flags.get(required)) {
+        fail9("INVALID_ARGUMENT", `--${required} is required.`);
       }
     }
     const result = await publishWorkflow({
-      transactionPath: flags4.get("transaction"),
-      remote: flags4.get("remote"),
-      destination: flags4.get("destination"),
-      retryAfterAttempt: flags4.get("retry-after-attempt") ?? null
+      transactionPath: flags.get("transaction"),
+      remote: flags.get("remote"),
+      destination: flags.get("destination"),
+      retryAfterAttempt: flags.get("retry-after-attempt") ?? null
     });
     stdout.write(commandOutput3(result, format));
     return result.exitCode;
@@ -16287,21 +15970,21 @@ Code: ${result.code ?? "none"}
 async function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags4(argv);
+    const flags = parseFlags4(argv);
     const allowed = /* @__PURE__ */ new Set(["transaction", "resolution", "format"]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         invalid("UNKNOWN_ARGUMENT", `Unknown workflow recover flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
-    const transactionPath = flags4.get("transaction");
+    format = flags.get("format") ?? "json";
+    const transactionPath = flags.get("transaction");
     if (!transactionPath) {
       invalid("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = await recoverTransactionWorkflow({
       transactionPath,
-      resolution: flags4.get("resolution") ?? null
+      resolution: flags.get("resolution") ?? null
     });
     stdout.write(output(result, format));
     return result.exitCode;
@@ -16322,19 +16005,19 @@ async function runRecoverTransactionCommand(argv, { stdout = process.stdout, std
 function runCleanupTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags4(argv, /* @__PURE__ */ new Set(["purge"]));
+    const flags = parseFlags4(argv, /* @__PURE__ */ new Set(["purge"]));
     const allowed = /* @__PURE__ */ new Set(["transaction", "purge", "format"]);
-    for (const name of flags4.keys()) {
+    for (const name of flags.keys()) {
       if (!allowed.has(name)) {
         invalid("UNKNOWN_ARGUMENT", `Unknown workflow cleanup flag --${name}.`);
       }
     }
-    format = flags4.get("format") ?? "json";
-    const transactionPath = flags4.get("transaction");
+    format = flags.get("format") ?? "json";
+    const transactionPath = flags.get("transaction");
     if (!transactionPath) {
       invalid("TRANSACTION_REQUIRED", "--transaction is required.");
     }
-    const result = flags4.get("purge") ? purgeTransaction({ transactionPath }) : compactTerminalTransaction({ transactionPath });
+    const result = flags.get("purge") ? purgeTransaction({ transactionPath }) : compactTerminalTransaction({ transactionPath });
     stdout.write(output({ ...result, exitCode: 0 }, format));
     return 0;
   } catch (caught) {
@@ -16368,1341 +16051,6 @@ var init_recoverTransactionWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/command/snapshotCommand.js
-var snapshotCommand_exports = {};
-import { readFileSync as readFileSync14 } from "node:fs";
-import { resolve as resolve18 } from "node:path";
-function usageError(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs snapshot create --mode actual|draft --scope staged|full|paths [--scope-file <scope.json>] --output <snapshot.json>"
-  );
-  process.exit(2);
-}
-function parseArguments3(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const key = argv[index];
-    const value = argv[index + 1];
-    if (!key?.startsWith("--") || value === void 0) {
-      usageError(`Invalid argument near ${JSON.stringify(key)}.`);
-    }
-    values.set(key.slice(2), value);
-  }
-  const mode = values.get("mode");
-  const scope = values.get("scope");
-  const scopeFile = values.get("scope-file");
-  const output2 = values.get("output");
-  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
-    usageError("--mode must be actual or draft.");
-  }
-  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
-    usageError("--scope must be staged, full, or paths.");
-  }
-  if (!output2) {
-    usageError("--output is required.");
-  }
-  if (scope === "paths" && !scopeFile) {
-    usageError("--scope-file is required for path scope.");
-  }
-  return {
-    mode,
-    scope,
-    scopeFile: scopeFile ? resolve18(scopeFile) : null,
-    output: resolve18(output2)
-  };
-}
-function readScopePaths(path) {
-  const payload = JSON.parse(readFileSync14(path, "utf8"));
-  if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.some(
-    (entry) => typeof entry !== "string" || entry.length === 0
-  )) {
-    throw new Error(
-      "Scope file must contain a non-empty string array named paths."
-    );
-  }
-  if (payload.paths.some((entry) => entry.includes("\0"))) {
-    throw new Error("Scope paths cannot contain NUL bytes.");
-  }
-  return payload.paths;
-}
-var options;
-var init_snapshotCommand = __esm({
-  "src/committing-to-git/command/snapshotCommand.js"() {
-    init_gitRepository();
-    init_createSnapshot();
-    options = parseArguments3(process.argv.slice(2));
-    try {
-      const result = createSnapshot({
-        root: repositoryRoot(),
-        mode: options.mode,
-        scope: options.scope,
-        scopePaths: options.scopeFile ? readScopePaths(options.scopeFile) : [],
-        outputPath: options.output
-      });
-      process.stdout.write(
-        `${JSON.stringify(
-          {
-            snapshot: options.output,
-            indexTreeOid: result.snapshot.indexTreeOid,
-            changeUnitCount: result.snapshot.changeUnitCount
-          },
-          null,
-          2
-        )}
-`
-      );
-    } catch (error) {
-      console.error(`Commit scope preparation failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/inspection/changeInspection.js
-import { createHash as createHash18 } from "node:crypto";
-import { mkdirSync as mkdirSync11, readFileSync as readFileSync15, writeFileSync as writeFileSync13 } from "node:fs";
-import { dirname as dirname11, join as join14 } from "node:path";
-function sha2569(buffer) {
-  return createHash18("sha256").update(buffer).digest("hex");
-}
-function utf8SafeBoundary(buffer, start, end) {
-  const isContinuation = (byte) => byte >= 128 && byte <= 191;
-  if (end >= buffer.length || end <= start || !isContinuation(buffer[end])) {
-    return end;
-  }
-  let boundary = end;
-  while (boundary > start && isContinuation(buffer[boundary])) {
-    boundary -= 1;
-  }
-  return boundary > start ? boundary : end;
-}
-function splitPatch(buffer) {
-  const chunks = [];
-  for (let start = 0; start < buffer.length; ) {
-    let end = start;
-    let newlineCount = 0;
-    while (end < buffer.length && end - start < MAX_CHUNK_BYTES) {
-      if (buffer[end] === 10) {
-        newlineCount += 1;
-      }
-      end += 1;
-      if (newlineCount === MAX_CHUNK_LINES) {
-        break;
-      }
-    }
-    const lastNewline = buffer.lastIndexOf(10, end - 1);
-    if (lastNewline >= start) {
-      end = lastNewline + 1;
-    } else {
-      end = utf8SafeBoundary(buffer, start, end);
-    }
-    const payload = buffer.subarray(start, end);
-    newlineCount = 0;
-    for (const byte of payload) {
-      if (byte === 10) {
-        newlineCount += 1;
-      }
-    }
-    const endsWithNewline = payload[payload.length - 1] === 10;
-    const lineCount2 = newlineCount + (endsWithNewline ? 0 : 1);
-    chunks.push({ payload, start, end, lineCount: lineCount2 });
-    start = end;
-  }
-  return chunks;
-}
-function isWholeDeletion(unit) {
-  return unit?.oldMode !== "000000" && unit?.newMode === "000000";
-}
-function writeInspection({ outputDir, manifest, patch }) {
-  const chunksDir = join14(outputDir, "chunks");
-  const deletionsDir = join14(outputDir, "deletions");
-  const inventoryDir = join14(outputDir, "inventory");
-  const metadataDir = join14(outputDir, "metadata");
-  const chunks = splitPatch(patch);
-  const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
-  const summarizedTextDeletionLines = summarizedDeletions.reduce(
-    (total, unit) => total + (!unit.binary && unit.oldMode !== "160000" && Number.isInteger(unit.deletions) ? unit.deletions : 0),
-    0
-  );
-  mkdirSync11(outputDir);
-  mkdirSync11(chunksDir);
-  mkdirSync11(deletionsDir);
-  mkdirSync11(inventoryDir);
-  mkdirSync11(metadataDir);
-  const inventoryPayload = Buffer.from(
-    [
-      "# Commit snapshot change inventory",
-      "",
-      ...manifest.changeUnits.map((unit) => {
-        const statistics = unit.binary ? "binary/unavailable" : `+${unit.additions}/-${unit.deletions}`;
-        const deletionSummary = isWholeDeletion(unit) ? `; historical body summarized; old object ${unit.oldOid}; mode ${unit.oldMode}` : "";
-        return `- \`${unit.id}\` ${unit.kind}: ${unit.displayPath} -- ${statistics}${deletionSummary}`;
-      }),
-      ""
-    ].join("\n")
-  );
-  const inventoryUnits = splitPatch(inventoryPayload).map(
-    ({ payload, start, end, lineCount: lineCount2 }, index) => {
-      const id = `I${String(index + 1).padStart(6, "0")}`;
-      const artifact = `inventory/${id}.md`;
-      writeFileSync13(join14(outputDir, artifact), payload);
-      return {
-        id,
-        kind: "inventory-page",
-        artifact,
-        byteStart: start,
-        byteEnd: end,
-        byteCount: payload.length,
-        lineCount: lineCount2,
-        sha256: sha2569(payload),
-        status: "pending"
-      };
-    }
-  );
-  const textUnits = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
-    const id = `C${String(index + 1).padStart(6, "0")}`;
-    const artifact = `chunks/${id}.patch`;
-    writeFileSync13(join14(outputDir, artifact), payload);
-    return {
-      id,
-      kind: "text-patch",
-      artifact,
-      byteStart: start,
-      byteEnd: end,
-      byteCount: payload.length,
-      lineCount: lineCount2,
-      sha256: sha2569(payload),
-      status: "pending"
-    };
-  });
-  const metadataUnits = manifest.changeUnits.filter((unit) => unit.binary || unit.kind === "submodule-changed").map((unit, index) => {
-    const id = `M${String(index + 1).padStart(6, "0")}`;
-    const kind = unit.binary ? "binary" : "submodule";
-    const artifact = `metadata/${id}.json`;
-    const metadata = unit.binary ? {
-      changeUnitId: unit.id,
-      kind,
-      path: unit.destinationPath,
-      additions: null,
-      deletions: null
-    } : {
-      changeUnitId: unit.id,
-      kind,
-      path: unit.destinationPath,
-      oldOid: unit.oldOid,
-      newOid: unit.newOid
-    };
-    const payload = Buffer.from(`${JSON.stringify(metadata, null, 2)}
-`);
-    writeFileSync13(join14(outputDir, artifact), payload);
-    return {
-      id,
-      kind: unit.binary ? "binary-metadata" : "submodule-metadata",
-      artifact,
-      byteStart: 0,
-      byteEnd: payload.length,
-      byteCount: payload.length,
-      lineCount: payload.toString("utf8").split("\n").length - 1,
-      sha256: sha2569(payload),
-      status: "pending"
-    };
-  });
-  const units = [...inventoryUnits, ...textUnits, ...metadataUnits];
-  const ledger = {
-    schemaVersion: 2,
-    indexTreeOid: manifest.indexTreeOid,
-    reviewPatchSha256: sha2569(patch),
-    reviewPatchBytes: patch.length,
-    summarizedDeletionCount: summarizedDeletions.length,
-    summarizedTextDeletionLines,
-    expandedDeletions: [],
-    unitCount: units.length,
-    reviewedCount: 0,
-    complete: units.length === 0,
-    units
-  };
-  const inventory = [
-    "# Commit snapshot inventory",
-    "",
-    `- Index tree: \`${manifest.indexTreeOid}\``,
-    `- File change units: ${manifest.changeUnitCount}`,
-    `- Required patch bytes: ${patch.length}`,
-    `- Inventory pages: ${inventoryUnits.length}`,
-    `- Required text chunks: ${textUnits.length}`,
-    `- Summarized whole-file deletions: ${summarizedDeletions.length} (${summarizedTextDeletionLines} text lines)`,
-    `- Metadata units: ${metadataUnits.length}`,
-    "",
-    "Process one pending artifact at a time:",
-    "1. Read exactly one pending artifact in a dedicated tool action.",
-    "2. Confirm that the complete artifact was returned without truncation.",
-    "3. Then acknowledge its recorded ID and SHA-256 before reading the next artifact.",
-    "Tool output limits apply to the combined response, so batching or parallel reads can truncate evidence before review.",
-    "",
-    "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
-    ""
-  ].join("\n");
-  writeFileSync13(join14(outputDir, "inventory.md"), inventory);
-  writeFileSync13(
-    join14(outputDir, "ledger.json"),
-    `${JSON.stringify(ledger, null, 2)}
-`
-  );
-  return ledger;
-}
-function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content }) {
-  const ledger = JSON.parse(readFileSync15(ledgerPath2, "utf8"));
-  if (ledger.schemaVersion !== 2) {
-    throw new Error(
-      "Deletion expansion requires an inspection ledger version 2."
-    );
-  }
-  if (ledger.expandedDeletions.some(
-    ({ changeUnitId }) => changeUnitId === changeUnit.id
-  )) {
-    throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
-  }
-  const inspectionDir = dirname11(ledgerPath2);
-  const deletionDir = join14(inspectionDir, "deletions", changeUnit.id);
-  const chunks = splitPatch(content);
-  mkdirSync11(deletionDir);
-  const units = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
-    const ordinal = `D${String(index + 1).padStart(6, "0")}`;
-    const id = `${changeUnit.id}-${ordinal}`;
-    const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
-    writeFileSync13(join14(inspectionDir, artifact), payload);
-    return {
-      id,
-      kind: "deleted-content",
-      changeUnitId: changeUnit.id,
-      artifact,
-      byteStart: start,
-      byteEnd: end,
-      byteCount: payload.length,
-      lineCount: lineCount2,
-      sha256: sha2569(payload),
-      status: "pending"
-    };
-  });
-  const expansion = {
-    changeUnitId: changeUnit.id,
-    oldOid: changeUnit.oldOid,
-    byteCount: content.length,
-    sha256: sha2569(content),
-    unitIds: units.map(({ id }) => id)
-  };
-  ledger.expandedDeletions.push(expansion);
-  ledger.units.push(...units);
-  ledger.unitCount = ledger.units.length;
-  ledger.reviewedCount = ledger.units.filter(
-    ({ status }) => status === "reviewed"
-  ).length;
-  ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync13(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
-`);
-  return { ledger, expansion, units };
-}
-function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) {
-  const ledger = JSON.parse(readFileSync15(ledgerPath2, "utf8"));
-  const unit = ledger.units.find((candidate) => candidate.id === id);
-  if (!unit) {
-    throw new Error(`Unknown inspection unit ${id}.`);
-  }
-  const artifactPath2 = join14(dirname11(ledgerPath2), unit.artifact);
-  const actualSha256 = sha2569(readFileSync15(artifactPath2));
-  if (actualSha256 !== unit.sha256 || actualSha256 !== expectedSha256) {
-    throw new Error(`Inspection unit ${id} changed after it was generated.`);
-  }
-  unit.status = "reviewed";
-  ledger.reviewedCount = ledger.units.filter(
-    ({ status }) => status === "reviewed"
-  ).length;
-  ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync13(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
-`);
-  return ledger;
-}
-var MAX_CHUNK_LINES, MAX_CHUNK_BYTES;
-var init_changeInspection = __esm({
-  "src/committing-to-git/inspection/changeInspection.js"() {
-    MAX_CHUNK_LINES = 200;
-    MAX_CHUNK_BYTES = 16 * 1024;
-  }
-});
-
-// src/committing-to-git/command/inspectionCommand.js
-var inspectionCommand_exports = {};
-import { readFileSync as readFileSync16 } from "node:fs";
-import { resolve as resolve19 } from "node:path";
-function usageError2(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory> | inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001> | inspection acknowledge --ledger <ledger.json> --id <id> --sha256 <hash> | inspection status --ledger <ledger.json>"
-  );
-  process.exit(2);
-}
-function parseFlags5(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError2(`Invalid argument near ${JSON.stringify(argv[index])}.`);
-    }
-    values.set(argv[index].slice(2), argv[index + 1]);
-  }
-  return values;
-}
-function required(values, name) {
-  const value = values.get(name);
-  if (!value) {
-    usageError2(`--${name} is required.`);
-  }
-  return value;
-}
-function patchForManifest(manifest, root) {
-  const env = manifestEnvironment3(manifest);
-  if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
-    throw new Error(
-      `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`
-    );
-  }
-  const base = manifest.headOid ? [manifest.headOid] : [];
-  return runReadOnlyGit(
-    root,
-    "diff",
-    ["--cached", "--no-renames", "--diff-filter=d", ...base, "--"],
-    { env }
-  ).stdout;
-}
-function manifestEnvironment3(manifest) {
-  if (!manifest.indexFile) {
-    return void 0;
-  }
-  return {
-    GIT_INDEX_FILE: manifest.indexFile,
-    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
-    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
-        manifest.objectAlternates
-      )
-    } : {}
-  };
-}
-var command, flagArguments, flags;
-var init_inspectionCommand = __esm({
-  "src/committing-to-git/command/inspectionCommand.js"() {
-    init_changeInspection();
-    init_gitRepository();
-    init_createSnapshot();
-    [command, ...flagArguments] = process.argv.slice(2);
-    flags = parseFlags5(flagArguments);
-    try {
-      if (command === "prepare") {
-        const manifestPath2 = resolve19(required(flags, "manifest"));
-        const outputDir = resolve19(required(flags, "output-dir"));
-        const manifest = JSON.parse(readFileSync16(manifestPath2, "utf8"));
-        const root = repositoryRoot();
-        if (resolve19(manifest.repositoryRoot) !== resolve19(root)) {
-          throw new Error("Snapshot manifest belongs to a different repository.");
-        }
-        const ledger = writeInspection({
-          outputDir,
-          manifest,
-          patch: patchForManifest(manifest, root)
-        });
-        process.stdout.write(
-          `${JSON.stringify(
-            {
-              ledger: resolve19(outputDir, "ledger.json"),
-              unitCount: ledger.unitCount,
-              requiredTextChunkCount: ledger.units.filter(
-                ({ kind }) => kind === "text-patch"
-              ).length,
-              summarizedDeletionCount: ledger.summarizedDeletionCount,
-              complete: ledger.complete
-            },
-            null,
-            2
-          )}
-`
-        );
-      } else if (command === "expand-deletion") {
-        const manifestPath2 = resolve19(required(flags, "manifest"));
-        const ledgerPath2 = resolve19(required(flags, "ledger"));
-        const changeUnitId = required(flags, "change-unit");
-        const manifest = JSON.parse(readFileSync16(manifestPath2, "utf8"));
-        const ledger = JSON.parse(readFileSync16(ledgerPath2, "utf8"));
-        const root = repositoryRoot();
-        if (resolve19(manifest.repositoryRoot) !== resolve19(root)) {
-          throw new Error("Snapshot manifest belongs to a different repository.");
-        }
-        if (ledger.indexTreeOid !== manifest.indexTreeOid) {
-          throw new Error("Inspection ledger belongs to a different index tree.");
-        }
-        const changeUnit = manifest.changeUnits.find(
-          ({ id }) => id === changeUnitId
-        );
-        if (!changeUnit) {
-          throw new Error(`Unknown change unit ${changeUnitId}.`);
-        }
-        if (!isWholeDeletion(changeUnit)) {
-          throw new Error(
-            `Change unit ${changeUnitId} is not a whole-file deletion.`
-          );
-        }
-        if (changeUnit.binary) {
-          throw new Error(
-            `Change unit ${changeUnitId} is binary; inspect its content separately.`
-          );
-        }
-        if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(changeUnit.oldOid)) {
-          throw new Error(
-            `Change unit ${changeUnitId} has an invalid full old object ID.`
-          );
-        }
-        const readOnlyEnv = manifestEnvironment3(manifest);
-        const objectType = readOnlyGitText(
-          root,
-          "cat-file",
-          ["-t", changeUnit.oldOid],
-          { env: readOnlyEnv }
-        ).trim();
-        if (objectType !== "blob") {
-          throw new Error(
-            `Old object ${changeUnit.oldOid} must identify a blob object, not ${objectType}.`
-          );
-        }
-        const content = runReadOnlyGit(
-          root,
-          "cat-file",
-          ["blob", changeUnit.oldOid],
-          {
-            env: readOnlyEnv
-          }
-        ).stdout;
-        const expansion = expandDeletionInspection({
-          ledgerPath: ledgerPath2,
-          changeUnit,
-          content
-        });
-        process.stdout.write(
-          `${JSON.stringify(
-            {
-              ledger: ledgerPath2,
-              changeUnitId,
-              oldOid: changeUnit.oldOid,
-              byteCount: expansion.expansion.byteCount,
-              unitIds: expansion.expansion.unitIds,
-              complete: expansion.ledger.complete
-            },
-            null,
-            2
-          )}
-`
-        );
-      } else if (command === "ack") {
-        const ledger = acknowledgeInspection({
-          ledgerPath: resolve19(required(flags, "ledger")),
-          id: required(flags, "id"),
-          expectedSha256: required(flags, "sha256")
-        });
-        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
-`);
-      } else if (command === "status") {
-        const ledger = JSON.parse(
-          readFileSync16(resolve19(required(flags, "ledger")), "utf8")
-        );
-        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
-`);
-      } else {
-        usageError2("Expected prepare, expand-deletion, ack, or status command.");
-      }
-    } catch (error) {
-      console.error(`Commit scope inspection failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/command/messageCommand.js
-var messageCommand_exports = {};
-import { existsSync as existsSync16, mkdirSync as mkdirSync12, readFileSync as readFileSync17, writeFileSync as writeFileSync14 } from "node:fs";
-import { dirname as dirname12, resolve as resolve20 } from "node:path";
-function usageError3(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs message scaffold --manifest <snapshot.json> --output <content.json> --template <template.txt> | message render --manifest <snapshot.json> --content <content.json> --ledger <ledger.json> --output <commit-message.txt>"
-  );
-  process.exit(2);
-}
-function parseFlags6(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError3(`Invalid argument near ${JSON.stringify(argv[index])}.`);
-    }
-    values.set(argv[index].slice(2), argv[index + 1]);
-  }
-  return values;
-}
-function required2(flags4, name) {
-  const value = flags4.get(name);
-  if (!value) {
-    usageError3(`--${name} is required.`);
-  }
-  return resolve20(value);
-}
-function readJson2(path) {
-  return JSON.parse(readFileSync17(path, "utf8"));
-}
-function writeText(path, text) {
-  mkdirSync12(dirname12(path), { recursive: true });
-  writeFileSync14(path, text);
-}
-function writeNewText(path, text) {
-  mkdirSync12(dirname12(path), { recursive: true });
-  writeFileSync14(path, text, { flag: "wx" });
-}
-function containsScaffoldPlaceholder(value) {
-  if (typeof value === "string") {
-    return /<(?:explain|name|replace)\b[^<>]*>/iu.test(value);
-  }
-  if (Array.isArray(value)) {
-    return value.some(containsScaffoldPlaceholder);
-  }
-  if (value && typeof value === "object") {
-    return Object.values(value).some(containsScaffoldPlaceholder);
-  }
-  return false;
-}
-function rejectPlaceholders(value) {
-  if (containsScaffoldPlaceholder(value)) {
-    throw new Error("Semantic worksheet still contains scaffold placeholders.");
-  }
-}
-var command2, flagArguments2, flags2;
-var init_messageCommand = __esm({
-  "src/committing-to-git/command/messageCommand.js"() {
-    init_commitMessageRenderer();
-    [command2, ...flagArguments2] = process.argv.slice(2);
-    flags2 = parseFlags6(flagArguments2);
-    try {
-      const manifest = readJson2(required2(flags2, "manifest"));
-      if (command2 === "scaffold") {
-        const output2 = required2(flags2, "output");
-        const template = required2(flags2, "template");
-        const content = scaffoldLegacyContent(manifest);
-        if (existsSync16(output2) || existsSync16(template)) {
-          throw new Error(
-            "A scaffold output already exists; start a new attempt instead of replacing it."
-          );
-        }
-        writeNewText(output2, `${JSON.stringify(content, null, 2)}
-`);
-        writeNewText(template, renderLegacyScaffoldTemplate(manifest, content));
-        process.stdout.write(
-          `${JSON.stringify({ output: output2, template, mode: content.mode }, null, 2)}
-`
-        );
-      } else if (command2 === "render") {
-        const content = readJson2(required2(flags2, "content"));
-        const ledger = readJson2(required2(flags2, "ledger"));
-        const output2 = required2(flags2, "output");
-        if (!ledger.complete || ledger.indexTreeOid !== manifest.indexTreeOid) {
-          throw new Error(
-            "Inspection ledger is incomplete or belongs to a different index tree."
-          );
-        }
-        rejectPlaceholders(content);
-        writeText(output2, renderLegacyCommitMessage(manifest, content));
-        process.stdout.write(
-          `${JSON.stringify({ output: output2, mode: content.mode }, null, 2)}
-`
-        );
-      } else {
-        usageError3("Expected scaffold or render command.");
-      }
-    } catch (error) {
-      console.error(`Commit-message preparation failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/message/commitMessageValidator.js
-var commitMessageValidator_exports = {};
-__export(commitMessageValidator_exports, {
-  RECOMMENDED_COMMIT_TYPES: () => RECOMMENDED_COMMIT_TYPES2
-});
-import { execFileSync } from "node:child_process";
-import { readFileSync as readFileSync18 } from "node:fs";
-function characterLength2(text) {
-  let length = 0;
-  for (const _ of text) {
-    length += 1;
-  }
-  return length;
-}
-function splitNul2(text) {
-  return text.split("\0").filter(Boolean);
-}
-function runGit2(args, cwd) {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true
-  });
-}
-function repositoryRoot2() {
-  return runGit2(["rev-parse", "--show-toplevel"], process.cwd()).trim();
-}
-function worktreeChangedFiles(root) {
-  const tracked = splitNul2(
-    runGit2(["-C", root, "diff", "--name-only", "-z", "HEAD", "--"])
-  );
-  const untracked = splitNul2(
-    runGit2(["-C", root, "ls-files", "--others", "--exclude-standard", "-z"])
-  );
-  return [.../* @__PURE__ */ new Set([...tracked, ...untracked])];
-}
-function stagedChangedFiles(root) {
-  return splitNul2(
-    runGit2(["-C", root, "diff", "--name-only", "--cached", "-z", "HEAD", "--"])
-  );
-}
-function resolveScope(root, requested) {
-  if (requested === "worktree") {
-    return { resolved: "worktree", files: worktreeChangedFiles(root) };
-  }
-  const staged = stagedChangedFiles(root);
-  if (requested === "staged") {
-    if (staged.length === 0) {
-      throw new Error(
-        "scope 'staged' was requested but nothing is staged; stage the files to commit, or use --scope worktree."
-      );
-    }
-    return { resolved: "staged", files: staged };
-  }
-  return staged.length > 0 ? { resolved: "staged", files: staged } : { resolved: "worktree", files: worktreeChangedFiles(root) };
-}
-function compareBinary(a, b) {
-  if (a < b) {
-    return -1;
-  }
-  if (a > b) {
-    return 1;
-  }
-  return 0;
-}
-function isCapitalizedDescription3(description) {
-  const [first = ""] = description;
-  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
-}
-function issue(severity, code, message, extra = {}) {
-  return {
-    severity,
-    code,
-    message,
-    ...extra
-  };
-}
-function normalizeMessage(text) {
-  const normalized = text.replace(/\r\n?/g, "\n");
-  return normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
-}
-function validateMessage(text, expectedFiles, fileScope) {
-  const issues = [];
-  const message = normalizeMessage(text);
-  const lines = message.split("\n");
-  const subject = lines[0] ?? "";
-  const subjectLength = characterLength2(subject);
-  const subjectMatch = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u.exec(
-    subject
-  );
-  let normalizedType = null;
-  let scope = null;
-  if (!subjectMatch) {
-    issues.push(
-      issue(
-        "error",
-        "SUBJECT_FORMAT_INVALID",
-        "Subject must match <type>: <description> or <type>(<scope>): <description>.",
-        { line: 1 }
-      )
-    );
-  } else {
-    const { type, description } = subjectMatch.groups;
-    scope = subjectMatch.groups.scope ?? null;
-    if (TYPE_PATTERN.test(type)) {
-      normalizedType = type;
-    }
-    if (!isCapitalizedDescription3(description)) {
-      issues.push(
-        issue(
-          "error",
-          "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
-          "Subject description must begin with a capitalized word.",
-          { line: 1 }
-        )
-      );
-    }
-  }
-  if (subject.endsWith(".")) {
-    issues.push(
-      issue(
-        "error",
-        "SUBJECT_TRAILING_PERIOD",
-        "Subject must not end with a period.",
-        { line: 1 }
-      )
-    );
-  }
-  if (subjectLength > MAX_LINE_LENGTH2) {
-    issues.push(
-      issue(
-        "error",
-        "SUBJECT_TOO_LONG",
-        `Subject is ${subjectLength} characters; maximum is ${MAX_LINE_LENGTH2}.`,
-        { line: 1 }
-      )
-    );
-  }
-  const uxHeading = "User Experience Changes:";
-  const fileHeading = "File Changes:";
-  const uxIndices = lines.map((line, index) => line === uxHeading ? index : -1).filter((index) => index >= 0);
-  const fileIndices = lines.map((line, index) => line === fileHeading ? index : -1).filter((index) => index >= 0);
-  const uxPresent = uxIndices.length > 0;
-  let uxStructureValid = true;
-  let fileStructureValid = true;
-  if (uxIndices.length > 1) {
-    uxStructureValid = false;
-    issues.push(
-      issue(
-        "error",
-        "UX_SECTION_DUPLICATE",
-        "User Experience Changes section appears more than once."
-      )
-    );
-  }
-  if (fileIndices.length !== 1) {
-    fileStructureValid = false;
-    issues.push(
-      issue(
-        "error",
-        fileIndices.length === 0 ? "FILE_SECTION_MISSING" : "FILE_SECTION_DUPLICATE",
-        fileIndices.length === 0 ? "File Changes section is required." : "File Changes section appears more than once."
-      )
-    );
-  }
-  const uxIndex = uxIndices[0] ?? -1;
-  const fileIndex = fileIndices[0] ?? -1;
-  const expectedFirstHeadingIndex = 2;
-  if (lines[1] !== "" || (uxPresent ? uxIndex : fileIndex) !== expectedFirstHeadingIndex) {
-    issues.push(
-      issue(
-        "error",
-        "SECTION_SPACING_INVALID",
-        "Subject and first body section must be separated by exactly one blank line."
-      )
-    );
-  }
-  const permittedBlankLines = /* @__PURE__ */ new Set([1]);
-  if (uxPresent && fileIndex >= 0) {
-    if (uxIndex !== 2 || fileIndex <= uxIndex + 2 || lines[fileIndex - 1] !== "") {
-      uxStructureValid = false;
-      issues.push(
-        issue(
-          "error",
-          "SECTION_ORDER_INVALID",
-          "User Experience Changes must precede File Changes and contain at least one change."
-        )
-      );
-    } else {
-      permittedBlankLines.add(fileIndex - 1);
-      if (fileIndex >= 2 && lines[fileIndex - 2] === "") {
-        issues.push(
-          issue(
-            "error",
-            "SECTION_SPACING_INVALID",
-            "Sections must be separated by exactly one blank line."
-          )
-        );
-      }
-    }
-    const uxEnd = fileIndex > uxIndex ? fileIndex - 1 : lines.length;
-    const uxLines = lines.slice(uxIndex + 1, uxEnd);
-    let sawBullet = false;
-    for (let offset = 0; offset < uxLines.length; offset += 1) {
-      const line = uxLines[offset];
-      const lineNumber = uxIndex + offset + 2;
-      if (/^ {2}- \S/u.test(line)) {
-        sawBullet = true;
-      } else if (/^ {4,}\S/u.test(line) && sawBullet) {
-      } else {
-        uxStructureValid = false;
-        issues.push(
-          issue(
-            "error",
-            "UX_ENTRY_FORMAT_INVALID",
-            "User Experience Changes entries must use two-space-indented bullets.",
-            { line: lineNumber }
-          )
-        );
-      }
-    }
-    if (!sawBullet) {
-      uxStructureValid = false;
-      issues.push(
-        issue(
-          "error",
-          "UX_SECTION_EMPTY",
-          "User Experience Changes must contain at least one bullet."
-        )
-      );
-    }
-  }
-  for (let index = 1; index < lines.length; index += 1) {
-    if (lines[index] === "" && !permittedBlankLines.has(index)) {
-      issues.push(
-        issue(
-          "error",
-          "UNEXPECTED_BLANK_LINE",
-          "Blank lines are permitted only between commit-message sections.",
-          { line: index + 1 }
-        )
-      );
-    }
-  }
-  const listedFiles = [];
-  const fileEntryLineNumbers = [];
-  if (fileIndex >= 0) {
-    let finalizeCurrentFile = function() {
-      if (currentFileIndex >= 0 && !currentFileHasBullet) {
-        fileStructureValid = false;
-        issues.push(
-          issue(
-            "error",
-            "FILE_ENTRY_MISSING_CHANGE",
-            "Each File Changes entry must contain at least one logical-change bullet.",
-            {
-              line: fileEntryLineNumbers[currentFileIndex]
-            }
-          )
-        );
-      }
-    };
-    let currentFileIndex = -1;
-    let currentFileHasBullet = false;
-    for (let index = fileIndex + 1; index < lines.length; index += 1) {
-      const line = lines[index];
-      const entryMatch = /^ {2}(\d+)\. `([^`]+)`$/u.exec(line);
-      if (entryMatch) {
-        finalizeCurrentFile();
-        const number = Number(entryMatch[1]);
-        const path = entryMatch[2];
-        listedFiles.push(path);
-        fileEntryLineNumbers.push(index + 1);
-        currentFileIndex = listedFiles.length - 1;
-        currentFileHasBullet = false;
-        if (number !== listedFiles.length) {
-          fileStructureValid = false;
-          issues.push(
-            issue(
-              "error",
-              "FILE_ENTRY_NUMBERING_INVALID",
-              `File entry number must be ${listedFiles.length}.`,
-              {
-                line: index + 1,
-                path
-              }
-            )
-          );
-        }
-        continue;
-      }
-      if (/^ {5}- \S/u.test(line) && currentFileIndex >= 0) {
-        currentFileHasBullet = true;
-        continue;
-      }
-      if (/^ {7,}\S/u.test(line) && currentFileIndex >= 0 && currentFileHasBullet) {
-        continue;
-      }
-      fileStructureValid = false;
-      if (/^ {1,6}\S/u.test(line) && currentFileIndex >= 0 && currentFileHasBullet) {
-        issues.push(
-          issue(
-            "error",
-            "FILE_ENTRY_FORMAT_INVALID",
-            "Wrapped lines under a bullet must be indented by at least 7 spaces to align properly.",
-            { line: index + 1 }
-          )
-        );
-      } else {
-        issues.push(
-          issue(
-            "error",
-            "FILE_ENTRY_FORMAT_INVALID",
-            "File Changes entries must match the required numbered path and nested-bullet structure.",
-            { line: index + 1 }
-          )
-        );
-      }
-    }
-    finalizeCurrentFile();
-    if (listedFiles.length === 0) {
-      fileStructureValid = false;
-      issues.push(
-        issue(
-          "error",
-          "FILE_SECTION_EMPTY",
-          "File Changes must contain at least one file entry."
-        )
-      );
-    }
-  }
-  const duplicateFiles = listedFiles.filter(
-    (path, index) => listedFiles.indexOf(path) !== index
-  );
-  for (const path of [...new Set(duplicateFiles)]) {
-    issues.push(
-      issue(
-        "error",
-        "FILE_DUPLICATE",
-        "Each changed file must appear exactly once.",
-        { path }
-      )
-    );
-  }
-  const uniqueListedFiles = [...new Set(listedFiles)];
-  const sortedFiles = [...uniqueListedFiles].sort(compareBinary);
-  const orderValid = uniqueListedFiles.every(
-    (path, index) => path === sortedFiles[index]
-  );
-  if (!orderValid) {
-    issues.push(
-      issue(
-        "error",
-        "FILE_ORDER_INVALID",
-        "File paths are not in the validator's strict binary sort order."
-      )
-    );
-  }
-  const expectedSet = new Set(expectedFiles);
-  const listedSet = new Set(uniqueListedFiles);
-  const staged = fileScope.resolved === "staged";
-  for (const path of expectedFiles) {
-    if (!listedSet.has(path)) {
-      issues.push(
-        issue(
-          "error",
-          "FILE_MISSING_FROM_MESSAGE",
-          staged ? "A file staged for this commit is missing from File Changes." : "A currently changed file is missing from File Changes.",
-          { path }
-        )
-      );
-    }
-  }
-  for (const path of uniqueListedFiles) {
-    if (!expectedSet.has(path)) {
-      issues.push(
-        issue(
-          "error",
-          "FILE_NOT_CURRENTLY_CHANGED",
-          staged ? "File Changes contains a path that is not staged for this commit." : "File Changes contains a path that is not currently changed relative to HEAD.",
-          { path }
-        )
-      );
-    }
-  }
-  for (let index = 1; index < lines.length; index += 1) {
-    const length = characterLength2(lines[index]);
-    if (length > MAX_LINE_LENGTH2) {
-      issues.push(
-        issue(
-          "review",
-          "BODY_LINE_OVER_LIMIT",
-          `Body line is ${length} characters; review whether an indivisible token requires the excess length.`,
-          { line: index + 1 }
-        )
-      );
-    }
-  }
-  const errorCount = issues.filter(
-    ({ severity }) => severity === "error"
-  ).length;
-  const reviewCount = issues.filter(
-    ({ severity }) => severity === "review"
-  ).length;
-  return {
-    schemaVersion: 2,
-    valid: errorCount === 0,
-    manualReviewRequired: reviewCount > 0,
-    canonical: null,
-    mode: "legacy",
-    inspection: null,
-    scope: {
-      requested: fileScope.requested,
-      resolved: fileScope.resolved,
-      indexTreeOid: null
-    },
-    manifest: {
-      schemaVersion: null,
-      indexTreeOid: null
-    },
-    subject: {
-      type: normalizedType,
-      scope,
-      length: subjectLength,
-      target: SUBJECT_TARGET,
-      maximum: MAX_LINE_LENGTH2
-    },
-    sections: {
-      rationale: {
-        present: false,
-        structureValid: true
-      },
-      userExperience: {
-        present: uxPresent,
-        structureValid: uxStructureValid
-      },
-      fileChanges: {
-        present: fileIndices.length > 0,
-        structureValid: fileStructureValid
-      }
-    },
-    files: {
-      expectedCount: expectedFiles.length,
-      listedCount: listedFiles.length,
-      setMatches: expectedFiles.length === listedSet.size && expectedFiles.every((path) => listedSet.has(path)),
-      orderValid,
-      unique: duplicateFiles.length === 0
-    },
-    summary: {
-      errors: errorCount,
-      reviews: reviewCount
-    },
-    issues
-  };
-}
-function validateManifestMessage(text, manifest, content, ledger) {
-  const message = normalizeMessage(text);
-  const expectedMessage = normalizeMessage(
-    renderLegacyCommitMessage(manifest, content)
-  );
-  const canonical = message === expectedMessage;
-  const issues = [];
-  const subjectText = message.split("\n")[0] ?? "";
-  const subjectLength = characterLength2(subjectText);
-  if (!canonical) {
-    issues.push(
-      issue(
-        "error",
-        "MESSAGE_NOT_CANONICAL",
-        "Message differs from the deterministic rendering of its manifest and content."
-      )
-    );
-  }
-  const inspectionComplete = ledger.complete === true;
-  const inspectionTreeMatches = ledger.indexTreeOid === manifest.indexTreeOid;
-  if (!inspectionComplete || !inspectionTreeMatches) {
-    issues.push(
-      issue(
-        "error",
-        "INSPECTION_INCOMPLETE",
-        "Inspection ledger must be complete and match the approved index tree."
-      )
-    );
-  }
-  const lines = message.split("\n");
-  for (let index = 1; index < lines.length; index += 1) {
-    const length = characterLength2(lines[index]);
-    if (length > MAX_LINE_LENGTH2) {
-      issues.push(
-        issue(
-          "review",
-          "BODY_LINE_OVER_LIMIT",
-          `Body line is ${length} characters; review whether an indivisible token requires the excess length.`,
-          { line: index + 1 }
-        )
-      );
-    }
-  }
-  const errorCount = issues.filter(
-    ({ severity }) => severity === "error"
-  ).length;
-  const reviewCount = issues.filter(
-    ({ severity }) => severity === "review"
-  ).length;
-  const listedCount = content.mode === "bulk" ? (content.domains ?? []).reduce(
-    (total, domain) => total + (domain.changeUnitIds?.length ?? 0),
-    0
-  ) : content.changeEntries?.length ?? 0;
-  return {
-    schemaVersion: 2,
-    valid: errorCount === 0,
-    manualReviewRequired: reviewCount > 0,
-    canonical,
-    mode: content.mode,
-    inspection: {
-      complete: inspectionComplete,
-      treeMatches: inspectionTreeMatches
-    },
-    scope: {
-      requested: "manifest",
-      resolved: "snapshot",
-      indexTreeOid: manifest.indexTreeOid
-    },
-    manifest: {
-      schemaVersion: manifest.schemaVersion,
-      indexTreeOid: manifest.indexTreeOid
-    },
-    subject: {
-      type: TYPE_PATTERN.test(content.subject?.type ?? "") ? content.subject.type : null,
-      scope: content.subject?.scope ?? null,
-      length: subjectLength,
-      target: SUBJECT_TARGET,
-      maximum: MAX_LINE_LENGTH2
-    },
-    sections: {
-      rationale: {
-        present: (content.rationale?.length ?? 0) > 0,
-        structureValid: canonical
-      },
-      userExperience: {
-        present: (content.userExperienceChanges?.length ?? 0) > 0,
-        structureValid: canonical
-      },
-      fileChanges: {
-        present: true,
-        structureValid: canonical
-      }
-    },
-    files: {
-      expectedCount: manifest.changeUnitCount,
-      listedCount,
-      setMatches: listedCount === manifest.changeUnitCount,
-      orderValid: canonical,
-      unique: listedCount === manifest.changeUnitCount
-    },
-    summary: {
-      errors: errorCount,
-      reviews: reviewCount
-    },
-    issues
-  };
-}
-function usageError4(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs message validate [--scope auto|staged|worktree] [--manifest <snapshot.json> --content <content.json> --ledger <ledger.json>] <commit-message-file>"
-  );
-  process.exit(2);
-}
-function parseArguments4(argv) {
-  let requestedScope2 = "auto";
-  let manifestPath2 = null;
-  let contentPath2 = null;
-  let ledgerPath2 = null;
-  const positional = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--scope") {
-      requestedScope2 = argv[index + 1];
-      index += 1;
-      continue;
-    }
-    if (argument.startsWith("--scope=")) {
-      requestedScope2 = argument.slice("--scope=".length);
-      continue;
-    }
-    if (argument === "--manifest") {
-      manifestPath2 = argv[index + 1];
-      index += 1;
-      continue;
-    }
-    if (argument === "--content") {
-      contentPath2 = argv[index + 1];
-      index += 1;
-      continue;
-    }
-    if (argument === "--ledger") {
-      ledgerPath2 = argv[index + 1];
-      index += 1;
-      continue;
-    }
-    positional.push(argument);
-  }
-  if (positional.length !== 1) {
-    usageError4("Expected exactly one commit-message file path.");
-  }
-  if (!ALLOWED_SCOPES.includes(requestedScope2)) {
-    usageError4(
-      `Unknown scope '${requestedScope2}'. Expected one of: ${ALLOWED_SCOPES.join(", ")}.`
-    );
-  }
-  const manifestInputs = [manifestPath2, contentPath2, ledgerPath2];
-  const suppliedManifestInputs = manifestInputs.filter(
-    (value) => value !== null
-  ).length;
-  if (suppliedManifestInputs !== 0 && suppliedManifestInputs !== manifestInputs.length) {
-    usageError4(
-      "--manifest, --content, and --ledger must be supplied together."
-    );
-  }
-  return {
-    messagePath: positional[0],
-    requestedScope: requestedScope2,
-    manifestPath: manifestPath2,
-    contentPath: contentPath2,
-    ledgerPath: ledgerPath2
-  };
-}
-var RECOMMENDED_COMMIT_TYPES2, TYPE_PATTERN, SUBJECT_TARGET, MAX_LINE_LENGTH2, ALLOWED_SCOPES, messagePath, requestedScope, manifestPath, contentPath, ledgerPath;
-var init_commitMessageValidator = __esm({
-  "src/committing-to-git/message/commitMessageValidator.js"() {
-    init_commitMessageRenderer();
-    RECOMMENDED_COMMIT_TYPES2 = Object.freeze([
-      "build",
-      "ci",
-      "docs",
-      "feat",
-      "fix",
-      "perf",
-      "refactor",
-      "test"
-    ]);
-    TYPE_PATTERN = /^[a-z][a-z0-9-]*$/u;
-    SUBJECT_TARGET = 50;
-    MAX_LINE_LENGTH2 = 72;
-    ALLOWED_SCOPES = ["auto", "staged", "worktree"];
-    ({ messagePath, requestedScope, manifestPath, contentPath, ledgerPath } = parseArguments4(process.argv.slice(2)));
-    try {
-      const root = repositoryRoot2();
-      const message = readFileSync18(messagePath, "utf8");
-      let result;
-      if (manifestPath) {
-        const manifest = JSON.parse(readFileSync18(manifestPath, "utf8"));
-        const content = JSON.parse(readFileSync18(contentPath, "utf8"));
-        const ledger = JSON.parse(readFileSync18(ledgerPath, "utf8"));
-        result = validateManifestMessage(message, manifest, content, ledger);
-      } else {
-        const { resolved, files } = resolveScope(root, requestedScope);
-        result = validateMessage(message, files, {
-          requested: requestedScope,
-          resolved
-        });
-      }
-      process.stdout.write(`${JSON.stringify(result, null, 2)}
-`);
-      process.exit(result.valid ? 0 : 1);
-    } catch (error) {
-      const detail = error?.stderr?.toString?.().trim() || error.message;
-      console.error(`Commit-message validation could not run: ${detail}`);
-      process.exit(2);
-    }
-  }
-});
-
 // src/committing-to-git/workflow/checkMessageWorkflow.js
 var checkMessageWorkflow_exports = {};
 __export(checkMessageWorkflow_exports, {
@@ -17716,14 +16064,14 @@ __export(checkMessageWorkflow_exports, {
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-import { createHash as createHash19 } from "node:crypto";
-import { resolve as resolve21 } from "node:path";
+import { createHash as createHash18 } from "node:crypto";
+import { resolve as resolve18 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
-function fail10(code, message, options2) {
-  throw new MessageWorkflowError(code, message, options2);
+function fail10(code, message, options) {
+  throw new MessageWorkflowError(code, message, options);
 }
-function sha25610(bytes) {
-  return createHash19("sha256").update(bytes).digest("hex");
+function sha2569(bytes) {
+  return createHash18("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
@@ -17753,21 +16101,21 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve21(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve21(transaction.snapshot?.path ?? "") !== expectedPath) {
+  const expectedPath = resolve18(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve18(transaction.snapshot?.path ?? "") !== expectedPath) {
     fail10(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
-  if (sha25610(bytes) !== transaction.snapshot.sha256) {
+  if (sha2569(bytes) !== transaction.snapshot.sha256) {
     fail10(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve21(manifest.repositoryRoot) !== resolve21(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+  if (resolve18(manifest.repositoryRoot) !== resolve18(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
     fail10(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
@@ -17801,7 +16149,7 @@ function commonResult(transactionPath, route, status, phase) {
     phase,
     terminalDisposition: null,
     route,
-    transaction: resolve21(transactionPath),
+    transaction: resolve18(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -17853,7 +16201,7 @@ function assertCheckTransaction(transaction, transactionPath) {
     fail10(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve21(transactionPath) } }
+      { details: { transaction: resolve18(transactionPath) } }
     );
   }
 }
@@ -17912,13 +16260,13 @@ function checkMessageWorkflow({
   });
   return assertMessageResultBudget(result);
 }
-function parseMessageWorkflowArguments(argv, command4) {
+function parseMessageWorkflowArguments(argv, command) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     const token = argv[index];
     const value = argv[index + 1];
     if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail10("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
+      fail10("UNKNOWN_ARGUMENT", `Unknown message ${command} flag ${token}.`);
     }
     if (value === void 0 || value.length === 0) {
       fail10("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
@@ -17931,7 +16279,7 @@ function parseMessageWorkflowArguments(argv, command4) {
   if (!values.has("--transaction")) {
     fail10(
       "MISSING_ARGUMENT",
-      `--transaction is required for message ${command4}.`
+      `--transaction is required for message ${command}.`
     );
   }
   const format = values.get("--format") ?? "json";
@@ -17946,7 +16294,7 @@ function messageErrorResult(error, transactionPath = null) {
     status: error.exitCode === 1 ? "evidence-required" : "invalid",
     phase: error.details?.phase ?? null,
     terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve21(transactionPath) : null),
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve18(transactionPath) : null),
     route: error.details?.route ?? null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17976,19 +16324,19 @@ function asMessageWorkflowError(caught, fallbackCode) {
   return new MessageWorkflowError(fallbackCode, caught.message);
 }
 async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
-  let options2 = null;
+  let options = null;
   try {
-    options2 = parseMessageWorkflowArguments(argv, "check");
-    const result = checkMessageWorkflow(options2);
+    options = parseMessageWorkflowArguments(argv, "check");
+    const result = checkMessageWorkflow(options);
     stdout.write(
-      options2.format === "text" ? result.displayText : `${JSON.stringify(result)}
+      options.format === "text" ? result.displayText : `${JSON.stringify(result)}
 `
     );
     return 0;
   } catch (caught) {
     const error = asMessageWorkflowError(caught, "MESSAGE_CHECK_FAILED");
     const result = assertMessageResultBudget(
-      messageErrorResult(error, options2?.transactionPath)
+      messageErrorResult(error, options?.transactionPath)
     );
     stdout.write(`${JSON.stringify(result)}
 `);
@@ -18025,13 +16373,13 @@ __export(finalizeMessageWorkflow_exports, {
   runFinalizeMessageCommand: () => runFinalizeMessageCommand
 });
 import {
-  existsSync as existsSync17,
+  existsSync as existsSync16,
   lstatSync as lstatSync12,
-  readFileSync as readFileSync19,
+  readFileSync as readFileSync13,
   realpathSync as realpathSync6,
-  writeFileSync as writeFileSync15
+  writeFileSync as writeFileSync13
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute8, join as join15, relative as relative8, resolve as resolve22, sep as sep3 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute8, join as join14, relative as relative8, resolve as resolve19, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
 function fail11(code, message, { exitCode = 2, details = {} } = {}) {
   throw new MessageWorkflowError(code, message, { exitCode, details });
@@ -18168,7 +16516,7 @@ function assertCompleteContentShape(content) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve22(path);
+  const absolute = resolve19(path);
   const contained = relative8(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute8(contained)) {
     fail11(
@@ -18202,7 +16550,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve22(transactionPath),
+          transaction: resolve19(transactionPath),
           route: transaction.route
         }
       }
@@ -18214,7 +16562,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve22(transactionPath),
+          transaction: resolve19(transactionPath),
           route: transaction.route
         }
       }
@@ -18222,7 +16570,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog(transaction) {
-  const expectedReviewDirectory = resolve22(
+  const expectedReviewDirectory = resolve19(
     transaction.attemptDirectory,
     "review"
   );
@@ -18337,20 +16685,20 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join15(
+  const path = join14(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync17(path)) {
-    if (!readFileSync19(path).equals(bytes)) {
+  if (existsSync16(path)) {
+    if (!readFileSync13(path).equals(bytes)) {
       fail11(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
       );
     }
   } else {
-    writeFileSync15(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync13(path, bytes, { flag: "wx", mode: 384 });
   }
   return path;
 }
@@ -18430,7 +16778,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     phase: "review-pending",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve22(transactionPath),
+    transaction: resolve19(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -18438,7 +16786,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     canonical: false,
     evidenceDelta: {
       newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage: firstPage === null ? null : resolve22(transaction.attemptDirectory, "review", firstPage.artifact),
+      firstQueuePage: firstPage === null ? null : resolve19(transaction.attemptDirectory, "review", firstPage.artifact),
       firstQueuePageSha256: firstPage?.sha256 ?? null
     },
     displayText: null
@@ -18460,7 +16808,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve22(transactionPath),
+    transaction: resolve19(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -18529,7 +16877,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync19(path)
+            empty ? Buffer.alloc(0) : readFileSync13(path)
           ])
         )
       };
@@ -18638,11 +16986,11 @@ async function finalizeMessageWorkflow({
   );
 }
 async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {}) {
-  let options2 = null;
+  let options = null;
   try {
-    options2 = parseMessageWorkflowArguments(argv, "finalize");
-    const result = await finalizeMessageWorkflow(options2);
-    if (options2.format === "text" && result.displayText !== null) {
+    options = parseMessageWorkflowArguments(argv, "finalize");
+    const result = await finalizeMessageWorkflow(options);
+    if (options.format === "text" && result.displayText !== null) {
       stdout.write(result.displayText);
     } else {
       stdout.write(`${JSON.stringify(result)}
@@ -18652,7 +17000,7 @@ async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {})
   } catch (caught) {
     const error = asMessageWorkflowError(caught, "MESSAGE_FINALIZE_FAILED");
     const result = assertMessageResultBudget(
-      messageErrorResult(error, options2?.transactionPath)
+      messageErrorResult(error, options?.transactionPath)
     );
     stdout.write(`${JSON.stringify(result)}
 `);
@@ -18687,264 +17035,13 @@ var init_finalizeMessageWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/command/postCommitCommand.js
-var postCommitCommand_exports = {};
-import { mkdirSync as mkdirSync13, readFileSync as readFileSync20, writeFileSync as writeFileSync16 } from "node:fs";
-import { dirname as dirname13, resolve as resolve23 } from "node:path";
-function usageError5(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs signature verify --commit <oid> --initial-policy <policy> --policy <policy> --output <verification.json> | report create --commit <oid> --manifest <snapshot.json> --approved-message <message.txt> --verification <verification.json> --checks <checks.json> [--publication <publication.json>] --output-json <report.json> --output-text <report.txt>"
-  );
-  process.exit(2);
-}
-function parseFlags7(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError5(`Invalid argument near ${JSON.stringify(argv[index])}.`);
-    }
-    values.set(argv[index].slice(2), argv[index + 1]);
-  }
-  return values;
-}
-function required3(flags4, name) {
-  const value = flags4.get(name);
-  if (!value) {
-    usageError5(`--${name} is required.`);
-  }
-  return value;
-}
-function readJson3(path) {
-  return JSON.parse(readFileSync20(resolve23(path), "utf8"));
-}
-function write(path, contents) {
-  const resolved = resolve23(path);
-  mkdirSync13(dirname13(resolved), { recursive: true });
-  writeFileSync16(resolved, contents);
-  return resolved;
-}
-var command3, flagArguments3, flags3;
-var init_postCommitCommand = __esm({
-  "src/committing-to-git/command/postCommitCommand.js"() {
-    init_gitRepository();
-    init_commitReport();
-    init_commitSignature();
-    [command3, ...flagArguments3] = process.argv.slice(2);
-    flags3 = parseFlags7(flagArguments3);
-    try {
-      const root = repositoryRoot();
-      if (command3 === "verify") {
-        const requestedCommitOid = required3(flags3, "commit");
-        if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(requestedCommitOid)) {
-          throw new Error("--commit must be a full 40- or 64-hex object ID.");
-        }
-        const commitOid = gitText(
-          ["rev-parse", "--verify", `${requestedCommitOid}^{commit}`],
-          { cwd: root }
-        ).trim();
-        if (commitOid.toLowerCase() !== requestedCommitOid.toLowerCase()) {
-          throw new Error(
-            "--commit did not resolve to the exact supplied object ID."
-          );
-        }
-        const initialPolicy = required3(flags3, "initial-policy");
-        const finalPolicy = required3(flags3, "policy");
-        const verificationAttempt = finalPolicy === "skipped" ? null : verifyCommitSignature(root, commitOid);
-        const verification = applyVerificationPolicy({
-          commitOid,
-          initialPolicy,
-          finalPolicy,
-          verificationAttempt
-        });
-        write(
-          required3(flags3, "output"),
-          `${JSON.stringify(verification, null, 2)}
-`
-        );
-        process.stdout.write(`${JSON.stringify(verification, null, 2)}
-`);
-        process.exit(verification.blocksPush ? 1 : 0);
-      } else if (command3 === "report") {
-        const report = collectCommitReport({
-          root,
-          commitOid: required3(flags3, "commit"),
-          manifest: readJson3(required3(flags3, "manifest")),
-          approvedMessage: readFileSync20(
-            resolve23(required3(flags3, "approved-message")),
-            "utf8"
-          ),
-          verification: readJson3(required3(flags3, "verification")),
-          checks: readJson3(required3(flags3, "checks")),
-          publication: flags3.get("publication") ? readJson3(flags3.get("publication")) : { status: "not-requested" }
-        });
-        const outputJson = write(
-          required3(flags3, "output-json"),
-          `${JSON.stringify(report, null, 2)}
-`
-        );
-        const outputText = write(
-          required3(flags3, "output-text"),
-          renderCommitReport(report)
-        );
-        process.stdout.write(
-          `${JSON.stringify({ outputJson, outputText }, null, 2)}
-`
-        );
-        process.exit(
-          report.commit.treeMatches && report.commit.messageMatches && report.commit.parentMatches ? 0 : 1
-        );
-      } else {
-        usageError5("Expected verify or report command.");
-      }
-    } catch (error) {
-      console.error(`Commit-result reporting failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/command/publicationCommand.js
-var publicationCommand_exports = {};
-import { existsSync as existsSync18, mkdirSync as mkdirSync14, unlinkSync as unlinkSync9, writeFileSync as writeFileSync17 } from "node:fs";
-import { dirname as dirname14, resolve as resolve24 } from "node:path";
-function usageError6(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs publication push --commit <oid> --remote <name> --destination <refs/heads/name> --output <publication.json>"
-  );
-  process.exit(2);
-}
-function parseFlags8(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError6(`Invalid argument near ${JSON.stringify(argv[index])}.`);
-    }
-    values.set(argv[index].slice(2), argv[index + 1]);
-  }
-  for (const name of ["commit", "remote", "destination", "output"]) {
-    if (!values.get(name)) {
-      usageError6(`--${name} is required.`);
-    }
-  }
-  return {
-    commit: values.get("commit"),
-    remote: values.get("remote"),
-    destination: values.get("destination"),
-    output: resolve24(values.get("output"))
-  };
-}
-function validateInputs(root, options2) {
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(options2.commit)) {
-    throw new Error("--commit must be a full 40- or 64-hex object ID.");
-  }
-  if (!/^[a-z0-9][a-z0-9._/-]*$/iu.test(options2.remote)) {
-    throw new Error("--remote must name a configured Git remote.");
-  }
-  if (!options2.destination.startsWith("refs/heads/")) {
-    throw new Error("--destination must be a full refs/heads/... branch ref.");
-  }
-  const refCheck = runGit(["check-ref-format", options2.destination], {
-    cwd: root,
-    allowFailure: true
-  });
-  if (refCheck.status !== 0) {
-    throw new Error("--destination is not a valid Git branch ref.");
-  }
-  const resolvedCommit = gitText(
-    ["rev-parse", "--verify", `${options2.commit}^{commit}`],
-    { cwd: root }
-  ).trim();
-  if (resolvedCommit.toLowerCase() !== options2.commit.toLowerCase()) {
-    throw new Error(
-      "--commit did not resolve to the exact supplied object ID."
-    );
-  }
-  return resolvedCommit;
-}
-var pendingPath;
-var init_publicationCommand = __esm({
-  "src/committing-to-git/command/publicationCommand.js"() {
-    init_gitRepository();
-    pendingPath = null;
-    try {
-      const options2 = parseFlags8(process.argv.slice(2));
-      const root = repositoryRoot();
-      const commitOid = validateInputs(root, options2);
-      const refspec = `${commitOid}:${options2.destination}`;
-      pendingPath = `${options2.output}.pending`;
-      if (existsSync18(options2.output) || existsSync18(pendingPath)) {
-        throw new Error(
-          "--output and its .pending journal path must not already exist."
-        );
-      }
-      mkdirSync14(dirname14(options2.output), { recursive: true });
-      writeFileSync17(
-        pendingPath,
-        `${JSON.stringify(
-          {
-            schemaVersion: 1,
-            status: "unknown",
-            commitOid,
-            remote: options2.remote,
-            destination: options2.destination,
-            refspec,
-            exitCode: null,
-            stdout: "",
-            stderr: "Publication may have started, but no final Git result was durably recorded."
-          },
-          null,
-          2
-        )}
-`,
-        { flag: "wx" }
-      );
-      const push = runGit(["push", "--porcelain", "--", options2.remote, refspec], {
-        cwd: root,
-        allowFailure: true
-      });
-      const publication = {
-        schemaVersion: 1,
-        status: push.status === 0 ? "pushed" : "failed",
-        commitOid,
-        remote: options2.remote,
-        destination: options2.destination,
-        refspec,
-        exitCode: push.status,
-        stdout: push.stdout.toString("utf8"),
-        stderr: push.stderr.toString("utf8")
-      };
-      writeFileSync17(options2.output, `${JSON.stringify(publication, null, 2)}
-`, {
-        flag: "wx"
-      });
-      try {
-        unlinkSync9(pendingPath);
-      } catch {
-      }
-      process.stdout.write(`${JSON.stringify(publication, null, 2)}
-`);
-      process.exit(push.status === 0 ? 0 : 1);
-    } catch (error) {
-      console.error(`Commit publication failed: ${error.message}`);
-      if (pendingPath && existsSync18(pendingPath)) {
-        console.error(
-          `Remote outcome is unknown; preserve and inspect ${pendingPath}. Do not infer failure or retry automatically.`
-        );
-      }
-      process.exit(2);
-    }
-  }
-});
-
 // src/committing-to-git/cli/commitWorkflow.js
+import { readFileSync as readFileSync14 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
     "workflow prepare",
     [
       () => Promise.resolve().then(() => (init_prepareWorkflow(), prepareWorkflow_exports)),
-      null,
       "runPrepareWorkflowCommand"
     ]
   ],
@@ -18952,7 +17049,6 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow extend",
     [
       () => Promise.resolve().then(() => (init_extendReviewWorkflow(), extendReviewWorkflow_exports)),
-      null,
       "runExtendReviewCommand"
     ]
   ],
@@ -18960,7 +17056,6 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow resume",
     [
       () => Promise.resolve().then(() => (init_resumePreparationWorkflow(), resumePreparationWorkflow_exports)),
-      null,
       "runResumePreparationCommand"
     ]
   ],
@@ -18968,7 +17063,6 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow promote",
     [
       () => Promise.resolve().then(() => (init_promoteDraftWorkflow(), promoteDraftWorkflow_exports)),
-      null,
       "runPromoteDraftCommand"
     ]
   ],
@@ -18976,7 +17070,6 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow commit",
     [
       () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
-      null,
       "runCreateCommitCommand"
     ]
   ],
@@ -18984,7 +17077,6 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow verify",
     [
       () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
-      null,
       "runRetryVerificationCommand"
     ]
   ],
@@ -18992,19 +17084,17 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow report-detail",
     [
       () => Promise.resolve().then(() => (init_reportDetailWorkflow(), reportDetailWorkflow_exports)),
-      null,
       "runReportDetailCommand"
     ]
   ],
   [
     "workflow publish",
-    [() => Promise.resolve().then(() => (init_publishWorkflow(), publishWorkflow_exports)), null, "runPublishCommand"]
+    [() => Promise.resolve().then(() => (init_publishWorkflow(), publishWorkflow_exports)), "runPublishCommand"]
   ],
   [
     "workflow recover",
     [
       () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
-      null,
       "runRecoverTransactionCommand"
     ]
   ],
@@ -19012,49 +17102,13 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "workflow cleanup",
     [
       () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
-      null,
       "runCleanupTransactionCommand"
     ]
-  ],
-  ["snapshot create", [() => Promise.resolve().then(() => (init_snapshotCommand(), snapshotCommand_exports)), null]],
-  [
-    "snapshot verify",
-    [
-      () => Promise.resolve().then(() => (init_snapshotVerificationCommand(), snapshotVerificationCommand_exports)),
-      null,
-      "runSnapshotVerificationCommand"
-    ]
-  ],
-  [
-    "inspection prepare",
-    [() => Promise.resolve().then(() => (init_inspectionCommand(), inspectionCommand_exports)), "prepare"]
-  ],
-  [
-    "inspection expand-deletion",
-    [() => Promise.resolve().then(() => (init_inspectionCommand(), inspectionCommand_exports)), "expand-deletion"]
-  ],
-  [
-    "inspection acknowledge",
-    [() => Promise.resolve().then(() => (init_inspectionCommand(), inspectionCommand_exports)), "ack"]
-  ],
-  [
-    "inspection status",
-    [() => Promise.resolve().then(() => (init_inspectionCommand(), inspectionCommand_exports)), "status"]
-  ],
-  [
-    "message scaffold",
-    [() => Promise.resolve().then(() => (init_messageCommand(), messageCommand_exports)), "scaffold"]
-  ],
-  ["message render", [() => Promise.resolve().then(() => (init_messageCommand(), messageCommand_exports)), "render"]],
-  [
-    "message validate",
-    [() => Promise.resolve().then(() => (init_commitMessageValidator(), commitMessageValidator_exports)), null]
   ],
   [
     "message check",
     [
       () => Promise.resolve().then(() => (init_checkMessageWorkflow(), checkMessageWorkflow_exports)),
-      null,
       "runCheckMessageCommand"
     ]
   ],
@@ -19062,85 +17116,115 @@ var COMMANDS = /* @__PURE__ */ new Map([
     "message finalize",
     [
       () => Promise.resolve().then(() => (init_finalizeMessageWorkflow(), finalizeMessageWorkflow_exports)),
-      null,
       "runFinalizeMessageCommand"
     ]
-  ],
-  [
-    "signature verify",
-    [() => Promise.resolve().then(() => (init_postCommitCommand(), postCommitCommand_exports)), "verify"]
-  ],
-  [
-    "report create",
-    [() => Promise.resolve().then(() => (init_postCommitCommand(), postCommitCommand_exports)), "report"]
-  ],
-  [
-    "publication push",
-    [() => Promise.resolve().then(() => (init_publicationCommand(), publicationCommand_exports)), null]
   ]
 ]);
 var COMMAND_HELP = /* @__PURE__ */ new Map([
   [
+    "workflow prepare",
+    `Usage: commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> (--evidence <reuse|message|review> --basis <kind> | --evidence-plan <file>) [options]
+
+Allocates one helper-owned transaction, validates literal scope and evidence
+policy, and records the exact snapshot. Path scope accepts literal repeatable
+selectors or one --scope-file. JSON is the default output format.
+
+Exit status:
+  0  Preparation reached evidence-ready or review-pending.
+  1  Repository state stopped safely or preparation is resumable.
+  2  Input, policy, capability, selector, or execution failure.
+`
+  ],
+  [
+    "workflow resume",
+    `Usage: commitWorkflow.mjs workflow resume --transaction <transaction.json> [--format <json|text>]
+
+Continues only a reversible preparation from its persisted inputs. Scope,
+evidence, policy, and mutation inputs cannot be reconstructed or overridden.
+`
+  ],
+  [
+    "workflow extend",
+    `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
+
+Extends one unchanged concise snapshot. Evidence uncertainty consumes only the
+fixed evidence-plan-input.json. Semantic structure carries existing evidence
+forward without accepting or reading a new plan.
+`
+  ],
+  [
     "workflow promote",
     `Usage: commitWorkflow.mjs workflow promote --transaction <transaction.json> [--format <json|text>]
 
-Recreates an unchanged draft tree in the real object database, compares the
-complete recorded head and tree anchors, and installs only the exact matching
-index. Reviewed evidence and canonical message bytes remain unchanged.
+Promotes an unchanged draft after complete head, tree, scope, and staged-state
+comparison. It installs only the exact recorded tree and preserves review and
+message state.
+`
+  ],
+  [
+    "message check",
+    `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
 
-Exit status:
-  0  The exact draft tree is staged and the transaction is promoted.
-  1  Repository drift, blocked staged state, or recoverable installation stop.
-  2  Usage, transaction, artifact, or unsupported-state failure.
+Checks the exact fixed transaction-local message-input.txt and records those
+unchanged bytes as the latest canonical concise message revision. The input is
+consumed only after durable success. Arbitrary message-file paths are rejected.
+`
+  ],
+  [
+    "message finalize",
+    `Usage: commitWorkflow.mjs message finalize --transaction <transaction.json> [--format <json|text>]
+
+Finalizes only the fixed transaction-local content.json for an extended
+transaction. Newly required evidence returns as a bounded delta queue.
 `
   ],
   [
     "workflow commit",
     `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--checks <checks.json>] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
 
-Creates at most one signed commit from the recorded tree and canonical message.
-The irreversible child is journaled before launch; rerun recovery, never commit,
-when the returned outcome is unknown.
+After exact commit authorization, creates at most one signed commit from the
+recorded tree and approved bytes, verifies the exact OID, and records one
+bounded report. An unknown outcome requires recovery and is never replayed.
 
 Exit status:
-  0  Matching signed commit and policy-permitted local report completed.
+  0  Matching commit and policy-permitted report completed.
   1  Git durably did not create a commit or repository state stopped safely.
-  2  Usage, message, checks, snapshot, or pre-journal helper failure.
+  2  Input or pre-journal failure.
   3  A known commit is blocked by comparison, verification, or reporting.
-  4  Commit child or ref outcome is indeterminate and requires recovery.
+  4  Commit outcome is unknown and requires recovery.
 `
   ],
   [
     "workflow verify",
     `Usage: commitWorkflow.mjs workflow verify --transaction <transaction.json> [--verification <required|advisory|skipped>] [--format <json|text>]
 
-Retries or reclassifies signature verification only for the already recorded
-commit OID. This command never invokes commit creation.
+Retries or reclassifies signature verification only for the exact recorded
+commit OID. It never creates or replaces a commit.
 `
   ],
   [
     "workflow report-detail",
     `Usage: commitWorkflow.mjs workflow report-detail --transaction <transaction.json> [--cursor <cursor> | --refresh] [--format <json|text>]
 
-Streams one fresh, bounded workspace observation for a reported or published
-transaction. Continue an immutable observation with its opaque cursor. A
-completed response is replayed until --refresh explicitly starts a new one.
+Returns one bounded page of a durable workspace observation. A completed page,
+including a cursorless one-page result, replays until --refresh explicitly
+starts a new observation.
 `
   ],
   [
     "workflow publish",
     `Usage: commitWorkflow.mjs workflow publish --transaction <transaction.json> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <attempt-id>] [--format <json|text>]
 
-Publishes the exact recorded commit only when its comparison, signature header,
-verification policy, configured remote, and full destination ref permit it.
-Every attempt is journaled and never retried automatically.
+After separate push authorization, publishes only the exact reported commit.
+Every attempt is journaled; no failed or unknown publication is retried
+automatically.
 
 Exit status:
-  0  Push success was witnessed, or recovery observed the matching remote OID.
-  1  Git reported a known rejection with no successful push recorded.
-  2  Invalid input or failure before a publication attempt was journaled.
-  3  The known commit report or verification policy blocks publication.
-  4  Remote outcome is unknown and requires recovery before any new attempt.
+  0  Push success was witnessed or a matching remote OID was observed.
+  1  Git reported a known rejection.
+  2  Input or pre-journal failure.
+  3  Commit comparison or verification policy blocks publication.
+  4  Remote outcome is unknown and requires recovery.
 `
   ],
   [
@@ -19149,7 +17233,7 @@ Exit status:
 
 Observes only the exact journaled transaction and never replays commit or push.
 The exceptional resolution requires explicit confirmation that the relevant
-Git, signing, and hook process has ended or the host restarted.
+Git, signing, and hook process ended or that the host restarted.
 `
   ],
   [
@@ -19157,239 +17241,7 @@ Git, signing, and hook process has ended or the host restarted.
     `Usage: commitWorkflow.mjs workflow cleanup --transaction <transaction.json> [--purge] [--format <json|text>]
 
 Compacts only known-safe helper-owned artifacts beneath the exact transaction.
---purge abandons an active precommit transaction or removes a terminal attempt.
 Pending or unknown mutations are never removed.
-`
-  ],
-  [
-    "workflow extend",
-    `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
-
-Moves one unchanged concise snapshot into the extended review route. Evidence
-uncertainty consumes only the fixed transaction-local evidence-plan input after
-durable success. Semantic structure forbids that input and carries the existing
-capsule forward without a packet queue.
-
-Exit status:
-  0  The unchanged snapshot reached review-pending.
-  1  Transaction state or repository anchors no longer permit extension.
-  2  Usage, plan, artifact, or execution failure.
-`
-  ],
-  [
-    "workflow prepare",
-    `Usage: commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> (--evidence <reuse|message|review> --basis <kind> | --evidence-plan <file>) [options]
-
-Creates one helper-owned transaction, validates literal scope and evidence policy,
-and records an exact snapshot. Path scope accepts repeatable --path,
---path-prefix, --exclude-path, and --exclude-path-prefix selectors or one
---scope-file. --allowed-type is repeatable. Verification defaults to required.
-
-Exit status:
-  0  Snapshot and applicable exact index installation completed.
-  1  Safe repository-state stop or resumable preparation interruption.
-  2  Usage, policy, artifact, selector, repository, or execution failure.
-`
-  ],
-  [
-    "workflow resume",
-    `Usage: commitWorkflow.mjs workflow resume --transaction <transaction.json> [--format <json|text>]
-
-Continues only a reversible preparation from its persisted scope, evidence,
-policy, snapshot, head anchor, and index-installation journal. No override input
-is accepted, and commit or publication mutation is never replayed.
-
-Exit status:
-  0  Persisted preparation reached evidence-ready or review-pending.
-  1  Resume is unsafe, ambiguous, or not permitted from the current phase.
-  2  Usage, transaction, artifact, or execution failure.
-`
-  ],
-  [
-    "snapshot create",
-    `Usage: commitWorkflow.mjs snapshot create --mode <actual|draft> --scope <staged|full|paths> [--scope-file <scope.json>] --output <snapshot.json>
-
-Records one exact Git index tree and its normalized change inventory.
-
-Side effects:
-  Every mode may write Git objects. Staged scope reads the real index as-is
-  and may lock it to update cache metadata without changing staged entries.
-  Draft full and paths do not change the real index.
-  Actual full and paths prepare elsewhere, then install the completed tree in the real index.
-
-Output:
-  Writes snapshot.json. Draft full and paths also retain a temporary index beside it.
-
-Exit status:
-  0  Snapshot written; any documented actual-mode index installation completed.
-  2  Input, repository, staging, snapshot, state-drift, or output failure.
-`
-  ],
-  [
-    "snapshot verify",
-    `Usage: commitWorkflow.mjs snapshot verify --manifest <snapshot.json>
-
-Read-only comparison of repository root, HEAD, index tree, and operation state with the supplied manifest.
-
-Output and exit status:
-  0  Emits JSON with valid true.
-  1  Emits structured drift JSON with valid false.
-  2  Usage, manifest, repository, or Git execution failure.
-`
-  ],
-  [
-    "inspection prepare",
-    `Usage: commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory>
-
-Writes bounded exhaustive inventory, required non-deletion patch, metadata, and ledger artifacts after confirming the source index still matches the manifest. Whole-file deletion bodies are summarized with exact old-object facts and can be expanded separately.
-
-Exit status:
-  0  Artifacts written and ledger summary emitted as JSON.
-  2  Usage, manifest, index-drift, Git, or output failure.
-`
-  ],
-  [
-    "inspection acknowledge",
-    `Usage: commitWorkflow.mjs inspection acknowledge --ledger <ledger.json> --id <unit-id> --sha256 <hash>
-
-Marks one ledger artifact reviewed only when its current SHA-256 matches the supplied hash.
-
-Side effect and exit status:
-  0  Rewrites the ledger and emits it as JSON.
-  2  Usage, ID, hash, artifact, or output failure; no successful acknowledgement.
-`
-  ],
-  [
-    "inspection expand-deletion",
-    `Usage: commitWorkflow.mjs inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001>
-
-Materializes the exact old blob for one summarized whole-file text deletion and appends bounded deleted-content units to the primary inspection ledger.
-
-Side effect:
-  Creates one deletion artifact directory and makes the ledger incomplete until every appended unit is acknowledged.
-
-Exit status:
-  0  Exact old-blob chunks appended and the updated ledger summary emitted as JSON.
-  2  Usage, manifest, ledger, change-unit, object-type, Git, collision, or output failure.
-`
-  ],
-  [
-    "inspection status",
-    `Usage: commitWorkflow.mjs inspection status --ledger <ledger.json>
-
-Read-only ledger status output.
-
-Exit status:
-  0  Emits the ledger JSON.
-  2  Usage or input failure.
-`
-  ],
-  [
-    "message scaffold",
-    `Usage: commitWorkflow.mjs message scaffold --manifest <snapshot.json> --output <content.json> --template <template.txt>
-
-Writes semantic content scaffolding and a deliberately noncommittable human template for the manifest's detailed or bulk mode.
-
-Exit status:
-  0  Both files written and their paths emitted as JSON.
-  2  Usage, manifest, rendering, or output failure.
-`
-  ],
-  [
-    "message render",
-    `Usage: commitWorkflow.mjs message render --manifest <snapshot.json> --content <content.json> --ledger <ledger.json> --output <message.txt>
-
-Requires a complete tree-matched inspection ledger and writes the deterministic message for the semantic content.
-
-Exit status:
-  0  Canonical message written and path emitted as JSON.
-  2  Usage, artifact, incomplete-inspection, semantic-input, or output failure.
-`
-  ],
-  [
-    "message validate",
-    `Usage: commitWorkflow.mjs message validate [--manifest <snapshot.json> --content <content.json> --ledger <ledger.json>] <message.txt>
-
-Validates a message and emits a JSON result on stdout. Supply all three manifest-backed inputs together for this workflow.
-
-Exit status:
-  0  No blocking error; read manualReviewRequired and every review issue.
-  1  Structured validation failure was emitted.
-  2  Usage, input, repository, schema, or execution failure.
-`
-  ],
-  [
-    "message check",
-    `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
-
-Validates the exact fixed transaction-local message-input.txt for a concise
-precommit transaction, persists those unchanged bytes as the sole canonical
-message revision, and removes the input only when same-object cleanup is safe.
-
-Exit status:
-  0  The exact checked bytes reached message-ready.
-  2  Usage, transaction, input, snapshot, validation, or persistence failure.
-`
-  ],
-  [
-    "message finalize",
-    `Usage: commitWorkflow.mjs message finalize --transaction <transaction.json> [--format <json|text>]
-
-Finalizes only the fixed transaction-local content.json for an extended
-precommit transaction. A changed evidence plan may return a bounded delta queue
-before the exact structured message can be persisted.
-
-Exit status:
-  0  Structured content reached one canonical message-ready revision.
-  1  Newly required evidence was materialized for review.
-  2  Usage, transaction, content, review, validation, or persistence failure.
-`
-  ],
-  [
-    "signature verify",
-    `Usage: commitWorkflow.mjs signature verify --commit <full-oid> --initial-policy <policy> --policy <policy> --output <verification.json>
-
-Runs Git verification unless policy is skipped and binds the result to the exact full commit OID.
-
-Output:
-  Writes verification.json and emits the same JSON on stdout.
-
-Exit status:
-  0  The selected policy does not block publication.
-  1  Required policy lacks a verified result; the artifact is still written.
-  2  Usage, commit-resolution, verifier-launch, input, or output failure.
-`
-  ],
-  [
-    "report create",
-    `Usage: commitWorkflow.mjs report create --commit <oid> --manifest <snapshot.json> --approved-message <message.txt> --verification <verification.json> --checks <checks.json> [--publication <publication.json>] --output-json <report.json> --output-text <report.txt>
-
-Compares the actual commit with the recorded parent, tree, message, verification OID, and optional publication result.
-
-Output:
-  Writes machine-readable report.json and human-readable report.txt.
-
-Exit status:
-  0  Parent, tree, and message match.
-  1  At least one comparison differs; both reports are still written.
-  2  Usage, artifact, commit-inspection, or output failure.
-`
-  ],
-  [
-    "publication push",
-    `Usage: commitWorkflow.mjs publication push --commit <full-oid> --remote <name> --destination <refs/heads/name> --output <publication.json>
-
-Network side effect:
-  Performs a non-force push of the exact OID to the full destination ref.
-  This command does not enforce authorization, signature policy, or pre-push report gates.
-
-Output:
-  Requires unused output and .pending paths. Writes .pending before Git, then the final JSON result.
-
-Exit status:
-  0  Git reported success and publication.json records pushed.
-  1  Git reported failure and publication.json records failed.
-  2  Input/execution/output failure. A remaining .pending journal means remote outcome unknown.
 `
   ]
 ]);
@@ -19400,94 +17252,106 @@ Usage:
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
   commitWorkflow.mjs workflow promote [options]
+  commitWorkflow.mjs message check [options]
+  commitWorkflow.mjs message finalize [options]
   commitWorkflow.mjs workflow commit [options]
   commitWorkflow.mjs workflow verify [options]
   commitWorkflow.mjs workflow report-detail [options]
   commitWorkflow.mjs workflow publish [options]
   commitWorkflow.mjs workflow recover [options]
   commitWorkflow.mjs workflow cleanup [options]
-  commitWorkflow.mjs snapshot create [options]
-  commitWorkflow.mjs snapshot verify [options]
-  commitWorkflow.mjs inspection prepare [options]
-  commitWorkflow.mjs inspection expand-deletion [options]
-  commitWorkflow.mjs inspection acknowledge [options]
-  commitWorkflow.mjs inspection status [options]
-  commitWorkflow.mjs message scaffold [options]
-  commitWorkflow.mjs message render [options]
-  commitWorkflow.mjs message validate [options] <message-file>
-  commitWorkflow.mjs message check [options]
-  commitWorkflow.mjs message finalize [options]
-  commitWorkflow.mjs signature verify [options]
-  commitWorkflow.mjs report create [options]
-  commitWorkflow.mjs publication push [options]
 
+JSON is the default machine contract. --format text is for direct human use.
 Run a command with --help to inspect its options.
 `;
+function requestedOutputFormat(args) {
+  const index = args.lastIndexOf("--format");
+  return index >= 0 && args[index + 1] === "text" ? "text" : "json";
+}
+function invalidResult(code, message, details = {}) {
+  const displayText = `Status: invalid
+Code: ${code}
+Message: ${message}
+`;
+  return {
+    schemaVersion: 1,
+    status: "invalid",
+    phase: null,
+    terminalDisposition: null,
+    transaction: null,
+    route: null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    code,
+    message,
+    ...details,
+    displayText
+  };
+}
+function writeInvalidResult(result, args, stdout, stderr) {
+  stderr.write(`${result.code}: ${result.message}
+`);
+  stdout.write(
+    requestedOutputFormat(args) === "text" ? result.displayText : `${JSON.stringify(result)}
+`
+  );
+}
+function unsupportedAttemptResult(args) {
+  const index = args.indexOf("--transaction");
+  if (index < 0 || typeof args[index + 1] !== "string") {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(readFileSync14(args[index + 1], "utf8"));
+    if (payload?.schemaVersion !== 1) {
+      return invalidResult(
+        "UNSUPPORTED_ATTEMPT_VERSION",
+        `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,
+        { transaction: args[index + 1] }
+      );
+    }
+  } catch {
+  }
+  return null;
+}
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
     stdout.write(HELP);
     return 0;
   }
-  const command4 = args.slice(0, 2).join(" ");
-  const route = COMMANDS.get(command4);
+  const command = args.slice(0, 2).join(" ");
+  const route = COMMANDS.get(command);
   if (!route) {
-    const label = command4 || "(none)";
-    stderr.write(
-      `Unknown command: ${label}
-Run commitWorkflow.mjs --help for usage.`
+    const label = command || "(none)";
+    const result = invalidResult(
+      "UNKNOWN_COMMAND",
+      `Unknown command: ${label}. Run commitWorkflow.mjs --help for usage.`,
+      { command: label }
     );
+    writeInvalidResult(result, args, stdout, stderr);
     return 2;
-  } else if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
-    stdout.write(COMMAND_HELP.get(command4));
-    return 0;
-  } else {
-    const [loadCommand, legacyAction, handlerName] = route;
-    if (handlerName) {
-      const commandModule = await loadCommand();
-      return commandModule[handlerName](args.slice(2), { stdout, stderr });
-    } else {
-      process.argv = [
-        process.argv[0],
-        process.argv[1],
-        ...legacyAction ? [legacyAction] : [],
-        ...args.slice(2)
-      ];
-      await loadCommand();
-      return process.exitCode ?? 0;
-    }
   }
-}
-function requestedOutputFormat(args) {
-  const index = args.lastIndexOf("--format");
-  return index >= 0 && args[index + 1] === "text" ? "text" : "json";
+  if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
+    stdout.write(COMMAND_HELP.get(command));
+    return 0;
+  }
+  const unsupported = unsupportedAttemptResult(args.slice(2));
+  if (unsupported) {
+    writeInvalidResult(unsupported, args, stdout, stderr);
+    return 2;
+  }
+  const [loadCommand, handlerName] = route;
+  const commandModule = await loadCommand();
+  return commandModule[handlerName](args.slice(2), { stdout, stderr });
 }
 async function runCommitWorkflowCli(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   try {
     return await dispatchCommitWorkflow(args, { stdout, stderr });
   } catch (error) {
-    const result = {
-      schemaVersion: 1,
-      status: "invalid",
-      phase: null,
-      terminalDisposition: null,
-      transaction: null,
-      route: null,
-      commitState: "absent",
-      publicationState: "not-requested",
-      publicationAllowed: false,
-      recoveryRequired: false,
-      code: "COMMAND_DISPATCH_FAILED",
-      message: error.message
-    };
-    stderr.write(`COMMAND_DISPATCH_FAILED: ${error.message}
-`);
-    stdout.write(
-      requestedOutputFormat(args) === "text" ? `Status: invalid
-Code: ${result.code}
-Message: ${result.message}
-` : `${JSON.stringify(result)}
-`
-    );
+    const result = invalidResult("COMMAND_DISPATCH_FAILED", error.message);
+    writeInvalidResult(result, args, stdout, stderr);
     return 2;
   }
 }

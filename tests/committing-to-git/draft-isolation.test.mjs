@@ -245,7 +245,6 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
   const fixture = createRepositoryFixture(t, "read-only-config-sentinels-");
   const marker = join(fixture.scratch, "sentinel-ran.txt");
   const sentinelScript = join(fixture.scratch, "sentinel.mjs");
-  const inspectionDirectory = join(fixture.scratch, "inspection");
   const command = [process.execPath, sentinelScript, marker]
     .map((value) => `"${value.replaceAll("\\", "/").replaceAll('"', '\\"')}"`)
     .join(" ");
@@ -290,25 +289,6 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
   assert.equal(prepare.status, 0, prepare.stderr);
   const transactionPath = JSON.parse(prepare.stdout).transaction;
   const transaction = readJson(transactionPath);
-
-  const inspection = runCommitWorkflow(
-    "inspection prepare",
-    [
-      "--manifest",
-      transaction.snapshot.path,
-      "--output-dir",
-      inspectionDirectory,
-    ],
-    fixture.repo,
-  );
-  assert.equal(inspection.status, 0, inspection.stderr);
-
-  const verification = runCommitWorkflow(
-    "snapshot verify",
-    ["--manifest", transaction.snapshot.path],
-    fixture.repo,
-  );
-  assert.equal(verification.status, 0, verification.stderr);
 
   writeJson(transactionPath, {
     ...transaction,
@@ -362,13 +342,12 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
     },
     checks: { schemaVersion: 1, checks: [] },
   });
-  const patchBytes = readFileSync(
-    join(inspectionDirectory, "chunks", "C000001.patch"),
-  );
-
   assert.equal(report.commit.treeMatches, true);
   assert.deepEqual(report.statistics.kinds, { modified: 1 });
-  assert.equal(patchBytes.includes(Buffer.from("\u001b[")), false);
+  assert.equal(
+    Buffer.from(prepare.stdout).includes(Buffer.from("\u001b[")),
+    false,
+  );
   assert.equal(existsSync(marker), false);
 });
 

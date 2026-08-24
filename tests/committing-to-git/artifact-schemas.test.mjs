@@ -327,51 +327,6 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     mode: "detailed",
     fileNotes: [],
   };
-  const ledger = {
-    schemaVersion: 2,
-    indexTreeOid: "2".repeat(40),
-    reviewPatchSha256: "5".repeat(64),
-    reviewPatchBytes: 128,
-    summarizedDeletionCount: 1,
-    summarizedTextDeletionLines: 24,
-    expandedDeletions: [
-      {
-        changeUnitId: "F000002",
-        oldOid: "7".repeat(40),
-        byteCount: 96,
-        sha256: "8".repeat(64),
-        unitIds: ["F000002-D000001"],
-      },
-    ],
-    unitCount: 2,
-    reviewedCount: 2,
-    complete: true,
-    units: [
-      {
-        id: "C000001",
-        kind: "text-patch",
-        artifact: "chunks/C000001.patch",
-        byteStart: 0,
-        byteEnd: 128,
-        byteCount: 128,
-        lineCount: 8,
-        sha256: "5".repeat(64),
-        status: "reviewed",
-      },
-      {
-        id: "F000002-D000001",
-        kind: "deleted-content",
-        changeUnitId: "F000002",
-        artifact: "deletions/F000002/D000001.deleted",
-        byteStart: 0,
-        byteEnd: 96,
-        byteCount: 96,
-        lineCount: 6,
-        sha256: "8".repeat(64),
-        status: "reviewed",
-      },
-    ],
-  };
   const verification = {
     schemaVersion: 2,
     commitOid: "6".repeat(40),
@@ -597,10 +552,6 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
       "\n",
     ),
     /oneOf|schemaVersion/u,
-  );
-  assert.deepEqual(
-    schemaErrors(ledger, schema("inspectionLedger.schema.json")),
-    [],
   );
   assert.deepEqual(
     schemaErrors(verification, schema("signatureVerification.schema.json")),
