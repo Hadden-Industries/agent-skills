@@ -2,12 +2,15 @@
 
 This maintainer-only directory evaluates the deployable skill in `skills/committing-to-git/`. It is deliberately outside the installed skill payload. A deterministic test, a model run, and a human readability review answer different questions; passing one layer never implies that another passed.
 
-| Artifact | Purpose |
-| --- | --- |
-| `evals.json` | Active post-cutover behavior cases, safety labels, fixture bindings, and cost-profile bindings |
-| `trigger-evals.json` | Activation and near-miss non-activation cases |
-| `create-fixture-repository.mjs` | Fresh disposable Git states plus separate expected safety and cost facts |
-| `results/` | Versioned records from model runs that actually occurred |
+| Artifact                        | Purpose                                                                                                     |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `evals.json`                    | Active post-cutover behavior cases, safety labels, fixture bindings, and cost-profile bindings              |
+| `trigger-evals.json`            | Activation and near-miss non-activation cases                                                               |
+| `create-fixture-repository.mjs` | Fresh disposable Git states plus separate expected safety and cost facts                                    |
+| `evaluation-runner.mjs`         | Deterministic schedule, fixture/treatment preparation, isolation, evidence capture, and blinding primitives |
+| `app-server-session.mjs`        | JSONL Codex app-server transport with fail-closed approval and conversation gates                           |
+| `run-evaluation-session.mjs`    | Maintainer CLI for planning, cataloging, preparing, running, and blinding one session at a time             |
+| `results/`                      | Versioned records from model runs that actually occurred                                                    |
 
 ## Active configuration contract
 
@@ -97,20 +100,79 @@ The registry covers every scenario named by the proportional-workflow plan. The 
 
 Cost profiles are requirements after safety and correctness pass. Important profiles include:
 
-| Profile | Core budget |
-| --- | --- |
+| Profile                | Core budget                                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `known-context-direct` | Two high-level helper calls, one opaque-handle pass-through, zero agent artifact reads/writes, one approval turn, at least 80% fewer treatment tokens than the old-skill arm, and at most 2x no-skill tokens |
-| `concise-direct` | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn |
-| `concise-checked` | Prepare, one check, and commit; one fixed input write; no semantic/review artifact |
-| `extended-review` | Sequential packet reads, each at most 16 KiB |
-| `structured-bulk` | No authored unit-ID array and at most 32 KiB canonical message text |
-| `evidence-delta` | No reread of unchanged packets |
-| `permission-preflight` | No known-doomed command and one narrow permission request |
-| `publication-recovery` | At most one remote observation and zero automatic push retries |
+| `concise-direct`       | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn                                                                                                                  |
+| `concise-checked`      | Prepare, one check, and commit; one fixed input write; no semantic/review artifact                                                                                                                           |
+| `extended-review`      | Sequential packet reads, each at most 16 KiB                                                                                                                                                                 |
+| `structured-bulk`      | No authored unit-ID array and at most 32 KiB canonical message text                                                                                                                                          |
+| `evidence-delta`       | No reread of unchanged packets                                                                                                                                                                               |
+| `permission-preflight` | No known-doomed command and one narrow permission request                                                                                                                                                    |
+| `publication-recovery` | At most one remote observation and zero automatic push retries                                                                                                                                               |
 
 The profiles are data, not a substitute for transcript grading. For example, a reported two-call happy path fails if the final tree differs or exact approval is missing.
 
 The frozen deterministic pre-cutover characterization at `tests/committing-to-git/fixtures/pre-cutover-workflow-cost.json` is pinned to commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`. Its known-context path used nine helper calls, 42 helper-internal Git processes, 4,428 stdout bytes, ten agent-managed artifact reads, three writes, and one approval turn. Permanent high-level tests establish the successor two-helper contract for coherent 1-, 12-, and 1,000-unit cases. They do not invent model-token measurements.
+
+## Deterministic app-server harness
+
+The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 306 sessions: 17 cases times three matched arms times five Luna repetitions, plus the same 17 matched triplets once on Sol.
+
+These commands are local-only and make zero model calls:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs plan --seed SEED --output C:\absolute\plan.json
+node evals/committing-to-git/run-evaluation-session.mjs catalog --repository-root C:\absolute\agent-skills --codex-home C:\absolute\.codex --output C:\absolute\isolation-catalog.json
+node evals/committing-to-git/run-evaluation-session.mjs prepare --repository-root C:\absolute\agent-skills --isolation-catalog C:\absolute\isolation-catalog.json --case-id 35 --arm old-skill --model gpt-5.6-luna --provider openai --effort low --repetition 1 --sequence 1 --seed SEED --authorization-eligible true --destination C:\absolute\new-session
+node evals/committing-to-git/run-evaluation-session.mjs preflight --packet C:\absolute\new-session\transmission-packet.json --result C:\absolute\new-session\preflight.json
+```
+
+`plan` records the matched randomized order. `catalog` only reads local skill roots and Codex/repository configuration; it does not edit configuration or start app-server. `prepare` creates the fixture, exact treatment snapshot, two fresh packet-bound Codex homes (one for preflight and one for the authorized run), and `transmission-packet.json` in a previously nonexistent destination. `preflight` starts the installed app-server locally under the dedicated preflight home, verifies that initialization reports that exact home, verifies zero enabled skills and zero instruction sources, and starts one isolated ephemeral thread. A read-only thread baseline is accepted as a stricter privilege subset; network must still be disabled and the exact fixture must be the current working directory. Cleanup is attempted, and an app-server response that the ephemeral thread was never persisted is recorded as `already-ephemeral`. Preflight fails if any turn, token-usage, or active external-capability event appears. It never sends `turn/start`. For case 42, preparation additionally requires `--predetermined-scope-id importer`; the packet retains both plausible scopes but the initial prompt does not reveal the selection.
+
+The transmission digest binds the provider, model, effort, exact user/base/developer prompts, fixture initial-state digest and expected facts, exact old/new skill files and source commit when present, predetermined scope policy, and runtime tool/isolation policy. Immediately before execution, the runner rescans the isolation catalog and rejects any added, removed, or changed skill, plugin, MCP server, or app source. It starts app-server under the purpose-specific fresh Codex home, which prevents ambient global configuration and `AGENTS.md` files from entering the session. The process overrides disable agents, apps, web search, memories, analytics, skill dependency installation, plugins, and MCP servers. Bundled system skills are installed into each fresh home only so app-server can initialize; their purpose-specific exact paths, along with every cataloged skill path, are disabled. Before `turn/start`, initialization must report the selected exact Codex home, `skills/list` must report no enabled skill, `thread/start` must report no instruction source, and an active MCP status notification fails closed.
+
+`run` is the only command that can start model turns. Two independent gates are mandatory:
+
+1. the literal `--allow-external-model-call` flag; and
+2. an authorization JSON artifact whose digest matches the still-valid packet exactly.
+
+The authorization artifact has this exact contract:
+
+```json
+{
+  "schemaVersion": 1,
+  "decision": "authorized",
+  "statement": "I authorize transmitting the exact packet identified by transmissionSha256 to the named provider and model.",
+  "transmissionSha256": "COPY_THE_APPROVED_PACKET_DIGEST_HERE"
+}
+```
+
+Create that artifact only after the user has reviewed and authorized the named provider/model and exact packet contents. The harness never turns a general implementation approval into transmission approval. A missing flag, malformed authorization, digest mismatch, changed packet, changed fixture/treatment, or changed isolation catalog stops before app-server launch or before a model turn, as applicable.
+
+After exact authorization, one session is invoked as follows:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs run --packet C:\absolute\new-session\transmission-packet.json --authorization C:\absolute\authorization.json --result C:\absolute\new-session\result.json --allow-external-model-call
+```
+
+The app-server thread is ephemeral and uses `approvalsReviewer: user`. Regardless of whether its stricter baseline is read-only, every model turn requests workspace-write access limited to the fixture and no network. The exact fixture is marked trusted only inside the packet-specific runtime process, including the Windows elevated-sandbox selection needed by the installed CLI; no configuration file is edited. Approval requests are decided one at a time: fixture-scoped commands and one-turn exact permissions may be accepted, while network, out-of-fixture, reparse-point escape, and unsupported requests are denied. A valid commit proposal receives exactly this second-turn authorization and never push authorization:
+
+```text
+I approve the exact message and authorize creating the proposed local commit for the exact scope shown. Do not push.
+```
+
+For an ambiguous fixture, the predetermined exact scope is disclosed only after the model emits all plausible exact scopes in the structured question envelope and a fresh Git-state digest proves no staging or other fixture mutation occurred. Invalid proposals, invalid questions, failures, denied requests, and infrastructure-invalid sessions remain retained rather than disappearing from aggregates.
+
+Every result records the raw JSONL transcript, permission decisions, completed tool calls, failed commands, structured conversation gates, cumulative token events, turn and wall timing, and initial/final Git states. Cleanup targets only the newly created ephemeral thread; if app-server reports that the thread was never persisted, the record retains `already-ephemeral` instead of treating that expected state as a cleanup failure. The runner never pushes.
+
+After all three records for each matched block exist, create a grading package and separate private arm mapping:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs blind --records-manifest C:\absolute\records-manifest.json --seed BLIND_SEED --package C:\absolute\grader-package.json --mapping C:\absolute\private-arm-mapping.json
+```
+
+The manifest contains a `records` array of absolute paths or paths relative to the manifest. The grader package uses opaque A/B/C labels and excludes arm names, pinned source commits, skill inputs, and treatment extraction paths. The separate mapping retains the arm identity and must not be given to the grader.
 
 ## Run records
 
