@@ -37,6 +37,11 @@ const FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const MESSAGE_SOURCES = new Set([
+  "approved-subject",
+  "checked-file",
+  "finalized-extended",
+]);
 const EXTENDED_REASONS = new Set([
   "review-policy",
   "required-evidence-over-budget",
@@ -167,7 +172,13 @@ const PHASE_TRANSITIONS = new Map([
   ],
   [
     "message-ready",
-    new Set(["commit-pending", "stopped", "abandoned", "superseded"]),
+    new Set([
+      "review-pending",
+      "commit-pending",
+      "stopped",
+      "abandoned",
+      "superseded",
+    ]),
   ],
   ["commit-pending", new Set(["reported", "stopped"])],
   ["reported", new Set(["publication-pending", "published"])],
@@ -364,6 +375,42 @@ function validateReviewState(review) {
   }
 }
 
+function validateMessageState(message) {
+  if (message === null) {
+    return;
+  }
+
+  assertExactKeys(
+    message,
+    [
+      "schemaVersion",
+      "revision",
+      "sha256",
+      "source",
+      "byteCount",
+      "stateSha256",
+      "validationSha256",
+      "slot",
+    ],
+    "Canonical message state",
+  );
+
+  if (
+    message.schemaVersion !== 1 ||
+    !Number.isSafeInteger(message.revision) ||
+    message.revision < 1 ||
+    !SHA256_PATTERN.test(message.sha256) ||
+    !MESSAGE_SOURCES.has(message.source) ||
+    !Number.isSafeInteger(message.byteCount) ||
+    message.byteCount < 1 ||
+    !SHA256_PATTERN.test(message.stateSha256) ||
+    !SHA256_PATTERN.test(message.validationSha256) ||
+    message.slot !== "message/current"
+  ) {
+    throw new Error("Canonical message state is invalid.");
+  }
+}
+
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
@@ -430,6 +477,7 @@ export function validateTransaction(transaction) {
   validateHeadAnchor(transaction.headAnchor);
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
+  validateMessageState(transaction.message);
 
   if (
     transaction.phase === "evidence-ready" &&
@@ -451,6 +499,39 @@ export function validateTransaction(transaction) {
     throw new Error(
       "A review-pending transaction requires extended review state only.",
     );
+  }
+
+  if (transaction.phase === "message-ready" && transaction.message === null) {
+    throw new Error(
+      "A message-ready transaction requires one canonical message state.",
+    );
+  }
+
+  if (
+    new Set(["allocated", "snapshot-created", "evidence-ready"]).has(
+      transaction.phase,
+    ) &&
+    transaction.message !== null
+  ) {
+    throw new Error(
+      `Transaction phase ${transaction.phase} cannot retain a canonical message.`,
+    );
+  }
+
+  if (transaction.message !== null) {
+    const sourceMatchesRoute =
+      (transaction.route === "concise" &&
+        new Set(["approved-subject", "checked-file"]).has(
+          transaction.message.source,
+        )) ||
+      (transaction.route === "extended" &&
+        transaction.message.source === "finalized-extended");
+
+    if (!sourceMatchesRoute) {
+      throw new Error(
+        "Canonical message source does not match the transaction route.",
+      );
+    }
   }
 
   if (!Array.isArray(transaction.publicationAttempts)) {

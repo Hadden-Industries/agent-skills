@@ -34,6 +34,8 @@ import {
   createReviewCatalog,
   writeReviewPacketQueue,
 } from "../inspection/reviewCatalog.js";
+import { scaffoldContent } from "../message/commitMessageRenderer.js";
+import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
 import { writePacketStream } from "../inspection/streamingPacketWriter.js";
 import {
   MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
@@ -1625,6 +1627,11 @@ export async function routePreparedEvidence({
       packetIds,
       queueKind: "initial",
       outputDirectory: reviewDirectory,
+    });
+    ensureTransactionOwnedJson({
+      transactionPath,
+      artifactName: "content.json",
+      value: scaffoldContent(anchoredManifest, catalog, evidencePlan),
     });
     const completed = advanceTransaction(transactionPath, "snapshot-created", {
       ...common,

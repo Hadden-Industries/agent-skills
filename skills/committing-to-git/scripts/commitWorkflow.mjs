@@ -982,8 +982,8 @@ function countedGroupLines(manifest, maximumGroups, maximumSamples) {
     return `${display}: ${units.length} change units (${kindSummary(units)})${samples ? `; samples ${samples}` : ""}`;
   });
 }
-function boundedWarning(warning) {
-  return safeBoundedText(Buffer.from(String(warning), "utf8"), "warning-bytes");
+function boundedWarning(warning2) {
+  return safeBoundedText(Buffer.from(String(warning2), "utf8"), "warning-bytes");
 }
 function pathHasInvalidUtf8(unit) {
   const paths = [unitPathBytes(unit)];
@@ -1161,7 +1161,7 @@ function extended(reason) {
 }
 function manifestExtendedReason(manifest) {
   if (manifest.warnings?.some(
-    (warning) => String(warning).startsWith("required-object-unavailable:")
+    (warning2) => String(warning2).startsWith("required-object-unavailable:")
   )) {
     return "required-object-unavailable";
   }
@@ -1997,6 +1997,28 @@ function validateReviewState(review) {
     }
   }
 }
+function validateMessageState(message) {
+  if (message === null) {
+    return;
+  }
+  assertExactKeys(
+    message,
+    [
+      "schemaVersion",
+      "revision",
+      "sha256",
+      "source",
+      "byteCount",
+      "stateSha256",
+      "validationSha256",
+      "slot"
+    ],
+    "Canonical message state"
+  );
+  if (message.schemaVersion !== 1 || !Number.isSafeInteger(message.revision) || message.revision < 1 || !SHA256_PATTERN.test(message.sha256) || !MESSAGE_SOURCES.has(message.source) || !Number.isSafeInteger(message.byteCount) || message.byteCount < 1 || !SHA256_PATTERN.test(message.stateSha256) || !SHA256_PATTERN.test(message.validationSha256) || message.slot !== "message/current") {
+    throw new Error("Canonical message state is invalid.");
+  }
+}
 function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
   if (transaction.schemaVersion !== 1) {
@@ -2047,6 +2069,7 @@ function validateTransaction(transaction) {
   validateHeadAnchor(transaction.headAnchor);
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
+  validateMessageState(transaction.message);
   if (transaction.phase === "evidence-ready" && (transaction.route !== "concise" || transaction.inlineEvidence === null || transaction.review !== null)) {
     throw new Error(
       "An evidence-ready transaction requires concise inline evidence only."
@@ -2056,6 +2079,28 @@ function validateTransaction(transaction) {
     throw new Error(
       "A review-pending transaction requires extended review state only."
     );
+  }
+  if (transaction.phase === "message-ready" && transaction.message === null) {
+    throw new Error(
+      "A message-ready transaction requires one canonical message state."
+    );
+  }
+  if ((/* @__PURE__ */ new Set(["allocated", "snapshot-created", "evidence-ready"])).has(
+    transaction.phase
+  ) && transaction.message !== null) {
+    throw new Error(
+      `Transaction phase ${transaction.phase} cannot retain a canonical message.`
+    );
+  }
+  if (transaction.message !== null) {
+    const sourceMatchesRoute = transaction.route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(
+      transaction.message.source
+    ) || transaction.route === "extended" && transaction.message.source === "finalized-extended";
+    if (!sourceMatchesRoute) {
+      throw new Error(
+        "Canonical message source does not match the transaction route."
+      );
+    }
   }
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");
@@ -2360,7 +2405,7 @@ function updateTransaction(transactionPath, expectedPhase, nextState) {
   replaceJsonAtomically(absoluteTransactionPath, candidate);
   return readTransaction(absoluteTransactionPath);
 }
-var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
+var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
 var init_transactionWorkspace = __esm({
   "src/committing-to-git/transaction/transactionWorkspace.js"() {
     MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
@@ -2374,6 +2419,11 @@ var init_transactionWorkspace = __esm({
     TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
     WINDOWS_RENAME_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
     SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+    MESSAGE_SOURCES = /* @__PURE__ */ new Set([
+      "approved-subject",
+      "checked-file",
+      "finalized-extended"
+    ]);
     EXTENDED_REASONS = /* @__PURE__ */ new Set([
       "review-policy",
       "required-evidence-over-budget",
@@ -2503,7 +2553,13 @@ var init_transactionWorkspace = __esm({
       ],
       [
         "message-ready",
-        /* @__PURE__ */ new Set(["commit-pending", "stopped", "abandoned", "superseded"])
+        /* @__PURE__ */ new Set([
+          "review-pending",
+          "commit-pending",
+          "stopped",
+          "abandoned",
+          "superseded"
+        ])
       ],
       ["commit-pending", /* @__PURE__ */ new Set(["reported", "stopped"])],
       ["reported", /* @__PURE__ */ new Set(["publication-pending", "published"])],
@@ -3890,6 +3946,7 @@ var init_createSnapshot = __esm({
 });
 
 // src/committing-to-git/inspection/reviewCatalog.js
+import { createHash as createHash5 } from "node:crypto";
 import {
   closeSync as closeSync4,
   createReadStream,
@@ -4260,6 +4317,9 @@ function writeImmutableSmallFile(path, bytes) {
     }
   }
 }
+function relativeArtifact(outputDirectory, path) {
+  return relative3(outputDirectory, path).split(sep).join("/");
+}
 function persistBaseCatalog(outputDirectory, catalog) {
   const baseIndex = {
     schemaVersion: 1,
@@ -4283,6 +4343,81 @@ function persistBaseCatalog(outputDirectory, catalog) {
   );
   writeNewJson3(catalogPath, catalog);
   return withCatalogIdentity(catalog, catalogPath);
+}
+function catalogOutputDirectory(catalog) {
+  if (typeof catalog.catalogPath !== "string") {
+    throw new Error("Catalog is missing its immutable storage path.");
+  }
+  const catalogPath = resolve5(catalog.catalogPath);
+  return dirname4(catalogPath).endsWith(`${sep}revisions`) ? dirname4(dirname4(catalogPath)) : dirname4(catalogPath);
+}
+function arrayDifference(left, right) {
+  const rightSet = new Set(right);
+  return left.filter((value) => !rightSet.has(value));
+}
+function persistCatalogRevision(priorCatalog, catalog, addedPackets) {
+  const outputDirectory = catalogOutputDirectory(priorCatalog);
+  const revisionsDirectory = join5(outputDirectory, "revisions");
+  if (!existsSync6(revisionsDirectory)) {
+    mkdirSync4(revisionsDirectory);
+  }
+  catalog.storage = {
+    ...priorCatalog.storage,
+    revisionCount: priorCatalog.storage.revisionCount + 1,
+    currentRevisionArtifact: null
+  };
+  catalog.catalogSha256 = digestCatalog(catalog);
+  const ordinal = String(catalog.storage.revisionCount).padStart(6, "0");
+  const revisionArtifact = `revisions/R${ordinal}-${catalog.catalogSha256}.json`;
+  catalog.storage.currentRevisionArtifact = revisionArtifact;
+  catalog.catalogSha256 = digestCatalog(catalog);
+  const revisionPath = join5(outputDirectory, revisionArtifact);
+  const coveredHashes = coverageHashes(priorCatalog);
+  const record = {
+    revisionRecordVersion: 1,
+    priorCatalogArtifact: relativeArtifact(
+      outputDirectory,
+      priorCatalog.catalogPath
+    ),
+    priorCatalogSha256: priorCatalog.catalogSha256,
+    catalogSha256: catalog.catalogSha256,
+    evidencePlanSha256: catalog.evidencePlanSha256,
+    evidenceGroups: catalog.evidenceGroups,
+    inlineCoverage: catalog.inlineCoverage,
+    addedPackets,
+    addedRequiredSynopsisPacketIds: arrayDifference(
+      catalog.requiredSynopsisPacketIds,
+      priorCatalog.requiredSynopsisPacketIds
+    ),
+    removedRequiredSynopsisPacketIds: arrayDifference(
+      priorCatalog.requiredSynopsisPacketIds,
+      catalog.requiredSynopsisPacketIds
+    ),
+    addedExactInventoryPacketIds: arrayDifference(
+      catalog.exactInventoryPacketIds,
+      priorCatalog.exactInventoryPacketIds
+    ),
+    removedExactInventoryPacketIds: arrayDifference(
+      priorCatalog.exactInventoryPacketIds,
+      catalog.exactInventoryPacketIds
+    ),
+    addedFullPatchPacketIds: arrayDifference(
+      catalog.fullPatchPacketIds,
+      priorCatalog.fullPatchPacketIds
+    ),
+    removedFullPatchPacketIds: arrayDifference(
+      priorCatalog.fullPatchPacketIds,
+      catalog.fullPatchPacketIds
+    ),
+    addedDeletions: catalog.deletions.slice(priorCatalog.deletions.length),
+    coveredPacketHashCount: coveredHashes.size,
+    coveredPacketHashesSha256: sha256Bytes(
+      stableJsonBytes([...coveredHashes].sort())
+    ),
+    storage: catalog.storage
+  };
+  writeNewJson3(revisionPath, record);
+  return withCatalogIdentity(catalog, revisionPath);
 }
 function evidenceBytesForGroup(manifest, group) {
   const value = manifest.evidenceByGroupId?.[group.id];
@@ -4325,6 +4460,13 @@ function* inventoryChunks(units) {
       "utf8"
     );
   }
+}
+function sha256Chunks(chunks) {
+  const hash = createHash5("sha256");
+  for (const chunk of chunks) {
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
 }
 function packetizeInventory({ outputDirectory, catalog, units, context }) {
   return writePacketChunksSync({
@@ -4474,12 +4616,213 @@ function createReviewCatalog({
   addInitialRequiredPackets(manifest, evidencePlan, catalog, outputDirectory);
   return persistBaseCatalog(outputDirectory, catalog);
 }
+function requiredPacketIds(catalog) {
+  return [
+    .../* @__PURE__ */ new Set([
+      ...catalog.requiredSynopsisPacketIds,
+      ...catalog.exactInventoryPacketIds,
+      ...catalog.fullPatchPacketIds
+    ])
+  ];
+}
+function applyDelta(values, additions, removals) {
+  const removed = new Set(removals);
+  return [
+    .../* @__PURE__ */ new Set([
+      ...values.filter((value) => !removed.has(value)),
+      ...additions
+    ])
+  ];
+}
+function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
+  const absolutePath = resolve5(catalogPath);
+  if (visited.has(absolutePath)) {
+    throw new Error("Catalog revision chain contains a cycle.");
+  }
+  visited.add(absolutePath);
+  const document = JSON.parse(readFileSync3(absolutePath, "utf8"));
+  if (document.revisionRecordVersion !== 1) {
+    const expected = digestCatalog(document);
+    if (document.catalogSha256 !== expected) {
+      throw new Error("Catalog digest does not match its immutable payload.");
+    }
+    return withCatalogIdentity(document, absolutePath);
+  }
+  const outputDirectory = dirname4(dirname4(absolutePath));
+  const priorPath = resolve5(outputDirectory, document.priorCatalogArtifact);
+  const prior = loadCatalogDocument(priorPath, visited);
+  if (prior.catalogSha256 !== document.priorCatalogSha256) {
+    throw new Error("Catalog revision prior digest does not match.");
+  }
+  const catalog = {
+    ...prior,
+    evidencePlanSha256: document.evidencePlanSha256,
+    evidenceGroups: document.evidenceGroups,
+    inlineCoverage: document.inlineCoverage,
+    packets: [...prior.packets, ...document.addedPackets],
+    requiredSynopsisPacketIds: applyDelta(
+      prior.requiredSynopsisPacketIds,
+      document.addedRequiredSynopsisPacketIds,
+      document.removedRequiredSynopsisPacketIds
+    ),
+    exactInventoryPacketIds: applyDelta(
+      prior.exactInventoryPacketIds,
+      document.addedExactInventoryPacketIds,
+      document.removedExactInventoryPacketIds
+    ),
+    fullPatchPacketIds: applyDelta(
+      prior.fullPatchPacketIds,
+      document.addedFullPatchPacketIds,
+      document.removedFullPatchPacketIds
+    ),
+    deletions: [...prior.deletions, ...document.addedDeletions],
+    storage: document.storage,
+    catalogSha256: document.catalogSha256
+  };
+  if (digestCatalog(catalog) !== document.catalogSha256) {
+    throw new Error(
+      "Reconstructed catalog digest does not match its revision."
+    );
+  }
+  return withCatalogIdentity(catalog, absolutePath);
+}
+function readReviewCatalog(catalogPath) {
+  return loadCatalogDocument(catalogPath);
+}
+function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
+  let currentPath = resolve5(catalogPath);
+  const visited = /* @__PURE__ */ new Set();
+  while (true) {
+    if (visited.has(currentPath)) {
+      throw new Error("Catalog revision chain contains a cycle.");
+    }
+    visited.add(currentPath);
+    const document = JSON.parse(readFileSync3(currentPath, "utf8"));
+    if (document.catalogSha256 === catalogSha256) {
+      loadCatalogDocument(currentPath);
+      return currentPath;
+    }
+    if (document.revisionRecordVersion !== 1) {
+      return null;
+    }
+    const outputDirectory = dirname4(dirname4(currentPath));
+    currentPath = resolve5(outputDirectory, document.priorCatalogArtifact);
+  }
+}
+function bindReviewCoverage(catalog, coverage) {
+  const covered = { ...catalog, priorCoverage: coverage };
+  return withCatalogIdentity(covered, catalog.catalogPath);
+}
 function packetById(catalog, id) {
   const packet = catalog.packets.find((candidate) => candidate.id === id);
   if (!packet) {
     throw new Error(`Unknown review packet ID ${id}.`);
   }
   return packet;
+}
+function verifyPacket(outputDirectory, packet) {
+  const path = resolve5(outputDirectory, packet.artifact);
+  const bytes = readFileSync3(path);
+  const actual = sha256Bytes(bytes);
+  if (actual !== packet.sha256) {
+    throw new Error(
+      `Review packet ${packet.id} changed after catalog creation.`
+    );
+  }
+}
+function coverageHashes(catalog) {
+  const coverage = catalog.priorCoverage;
+  if (!coverage) {
+    return /* @__PURE__ */ new Set();
+  }
+  return new Set(coverage.coveredPacketSha256 ?? []);
+}
+function assertReceipt(receipt, catalog) {
+  const expectedKeys = [
+    "schemaVersion",
+    "catalogSha256",
+    "evidencePlanSha256",
+    "requiredPacketsReviewed",
+    "additionalPacketIds"
+  ].sort();
+  if (!isPlainObject(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
+    throw new Error(
+      "Review receipt does not bind the current catalog and evidence plan."
+    );
+  }
+}
+function assertReviewPatchCoverage(catalog, requiredIds) {
+  const required4 = new Set(requiredIds);
+  if (!catalog.inlineCoverage.scopeSynopsis && catalog.requiredSynopsisPacketIds.length === 0) {
+    throw new Error("Required scope synopsis packets are missing.");
+  }
+  for (const group of catalog.evidenceGroups.filter(
+    ({ policy, id }) => (/* @__PURE__ */ new Set(["message", "review"])).has(policy) && !catalog.inlineCoverage.evidenceGroupIds.includes(id)
+  )) {
+    const coveredOrdinals = new Set(
+      catalog.packets.filter(
+        (packet) => required4.has(packet.id) && packet.kind === "text-patch"
+      ).flatMap(
+        (packet) => packet.changeUnitRanges.flatMap((range) => {
+          const first = ordinalForId(range.first);
+          const last = ordinalForId(range.last);
+          return Array.from(
+            { length: last - first + 1 },
+            (_, index) => first + index
+          );
+        })
+      )
+    );
+    const requiredOrdinals = new Set(
+      group.requiredTextPatchRanges.flatMap((range) => {
+        const first = ordinalForId(range.first);
+        const last = ordinalForId(range.last);
+        return Array.from(
+          { length: last - first + 1 },
+          (_, index) => first + index
+        );
+      })
+    );
+    if (requiredOrdinals.size !== group.requiredTextPatchCount || [...requiredOrdinals].some((ordinal) => !coveredOrdinals.has(ordinal))) {
+      throw new Error(
+        `Required text-patch coverage for ${group.id} is incomplete.`
+      );
+    }
+  }
+}
+function assertRequiredPacketKinds(catalog, requiredIds) {
+  const required4 = new Set(requiredIds);
+  for (const id of catalog.requiredSynopsisPacketIds) {
+    const packet = catalog.packets.find(
+      (candidate) => required4.has(candidate.id) && candidate.id === id
+    );
+    if (packet?.kind !== "scope-synopsis") {
+      throw new Error(`Required synopsis packet ${id} has the wrong kind.`);
+    }
+  }
+}
+function verifyReviewReceipt({ catalogPath, receipt }) {
+  const catalog = loadCatalogDocument(catalogPath);
+  assertReceipt(receipt, catalog);
+  const additional = receipt.additionalPacketIds;
+  additional.forEach((id) => packetById(catalog, id));
+  const ids = [.../* @__PURE__ */ new Set([...requiredPacketIds(catalog), ...additional])];
+  const outputDirectory = catalogOutputDirectory(catalog);
+  for (const id of ids) {
+    verifyPacket(outputDirectory, packetById(catalog, id));
+  }
+  assertRequiredPacketKinds(catalog, ids);
+  assertReviewPatchCoverage(catalog, ids);
+  const hashes = ids.map((id) => packetById(catalog, id).sha256);
+  return {
+    schemaVersion: 1,
+    catalogSha256: catalog.catalogSha256,
+    evidencePlanSha256: catalog.evidencePlanSha256,
+    complete: true,
+    coveredPacketCount: ids.length,
+    coveredPacketIds: ids,
+    coveredPacketSha256: [...new Set(hashes)].sort()
+  };
 }
 function pagePayload({ catalog, queueKind, records, nextPage }) {
   return {
@@ -4538,7 +4881,7 @@ function writeReviewPacketQueue({
   if (packetIds.length === 0) {
     return null;
   }
-  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha2564 }) => ({ id, artifact, sha256: sha2564 })).sort(
+  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha2566 }) => ({ id, artifact, sha256: sha2566 })).sort(
     (left, right) => Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact))
   );
   const partitions = partitionQueueRecords(
@@ -4591,6 +4934,217 @@ function writeReviewPacketQueue({
   });
   return summary;
 }
+function queuePagesForCatalog(outputDirectory, catalogSha256) {
+  const queuesDirectory = join5(outputDirectory, "queues");
+  if (!existsSync6(queuesDirectory)) {
+    return [];
+  }
+  return readdirSync2(queuesDirectory).filter(
+    (name) => /^(?:initial|delta)-[0-9a-f]{12}-Q[0-9]{6}\.json$/u.test(name)
+  ).sort(
+    (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
+  ).flatMap((name) => {
+    const path = join5(queuesDirectory, name);
+    const bytes = readFileSync3(path);
+    let page;
+    try {
+      page = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      return [];
+    }
+    return page.catalogSha256 === catalogSha256 ? [
+      {
+        artifact: `queues/${name}`,
+        path,
+        sha256: sha256Bytes(bytes)
+      }
+    ] : [];
+  });
+}
+function supersedePriorQueue({
+  outputDirectory,
+  priorCatalog,
+  supersedingCatalogSha256
+}) {
+  const pages = queuePagesForCatalog(
+    outputDirectory,
+    priorCatalog.catalogSha256
+  );
+  if (pages.length === 0) {
+    return null;
+  }
+  const pageSetSha256 = sha256Bytes(
+    stableJsonBytes(
+      pages.map(({ artifact, sha256: sha2566 }) => ({ artifact, sha256: sha2566 }))
+    )
+  );
+  const marker = {
+    schemaVersion: 1,
+    status: "superseded",
+    catalogSha256: priorCatalog.catalogSha256,
+    evidencePlanSha256: priorCatalog.evidencePlanSha256,
+    supersededByCatalogSha256: supersedingCatalogSha256,
+    removedPageCount: pages.length,
+    removedPageSetSha256: pageSetSha256
+  };
+  const markerBytes = stableJsonBytes(marker);
+  const markerSha256 = sha256Bytes(markerBytes);
+  const markerArtifact = `queues/superseded-${markerSha256}.json`;
+  writeImmutableSmallFile(join5(outputDirectory, markerArtifact), markerBytes);
+  for (const { path } of pages) {
+    unlinkSync2(path);
+  }
+  return {
+    catalogSha256: priorCatalog.catalogSha256,
+    supersededByCatalogSha256: supersedingCatalogSha256,
+    removedPageCount: pages.length,
+    removedPageSetSha256: pageSetSha256,
+    markerArtifact,
+    markerSha256
+  };
+}
+function groupRequirementDescriptors(manifest, catalog, plan, group) {
+  const units = unitsForGroup(manifest, group);
+  const descriptors = [];
+  if (group.policy === "review" && manifest.changeUnitCount >= 50) {
+    descriptors.push({ kind: "exact-inventory", units, group });
+  }
+  const patchUnits = units.filter(
+    (unit) => unit.newMode !== "000000" && unit.oldMode !== "160000" && unit.newMode !== "160000" && unit.binary !== true
+  );
+  if ((/* @__PURE__ */ new Set(["message", "review"])).has(group.policy) && patchUnits.length > 0) {
+    descriptors.push({ kind: "text-patch", units: patchUnits, group, plan });
+  }
+  return descriptors;
+}
+function requirementBytes(manifest, descriptor) {
+  const { group } = descriptor;
+  const bytes = evidenceBytesForGroup(manifest, group);
+  if (bytes === null) {
+    throw new Error(`Required patch evidence for ${group.id} is unavailable.`);
+  }
+  return bytes;
+}
+function requirementRawSha256(manifest, descriptor) {
+  return descriptor.kind === "exact-inventory" ? sha256Chunks(inventoryChunks(descriptor.units)) : sha256Bytes(requirementBytes(manifest, descriptor));
+}
+function requirementIdentity(kind, rawSha256, units) {
+  return `${kind}:${rawSha256}:${JSON.stringify(rangesForUnits(units))}`;
+}
+function createRequirementPacket(manifest, catalog, descriptor, outputDirectory, bytes = null) {
+  const { kind, units, group } = descriptor;
+  const packets = kind === "exact-inventory" ? packetizeInventory({
+    outputDirectory,
+    catalog,
+    units,
+    context: `evidence-group=${group.id}`
+  }) : packetize({
+    outputDirectory,
+    catalog,
+    kind,
+    bytes: bytes ?? requirementBytes(manifest, descriptor),
+    units,
+    context: `evidence-group=${group.id}`
+  });
+  return packets.map((packet) => ({
+    ...packet,
+    evidenceGroupIds: [group.id]
+  }));
+}
+function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
+  if (evidencePlan.manifestSha256 !== priorCatalog.manifestSha256) {
+    throw new Error("Revised evidence plan belongs to a different manifest.");
+  }
+  const outputDirectory = catalogOutputDirectory(priorCatalog);
+  const packets = priorCatalog.packets;
+  const packetGroups = /* @__PURE__ */ new Map();
+  for (const packet of packets) {
+    const identity = `${packet.kind}:${packet.rawSha256}:${JSON.stringify(packet.changeUnitRanges)}`;
+    packetGroups.set(identity, [...packetGroups.get(identity) ?? [], packet]);
+  }
+  const additions = [];
+  const exactInventoryPacketIds = [];
+  const fullPatchPacketIds = [];
+  for (const group of evidencePlan.groups) {
+    for (const descriptor of groupRequirementDescriptors(
+      manifest,
+      priorCatalog,
+      evidencePlan,
+      group
+    )) {
+      const bytes = descriptor.kind === "exact-inventory" ? null : requirementBytes(manifest, descriptor);
+      const identity = requirementIdentity(
+        descriptor.kind,
+        requirementRawSha256(manifest, descriptor),
+        descriptor.units
+      );
+      const existingPackets = packetGroups.get(identity);
+      const candidatePackets = existingPackets ?? createRequirementPacket(
+        manifest,
+        { ...priorCatalog, packets: [...packets, ...additions] },
+        descriptor,
+        outputDirectory,
+        bytes
+      );
+      for (const packet of candidatePackets) {
+        if (!existingPackets) {
+          additions.push(packet);
+        }
+        if (descriptor.kind === "exact-inventory") {
+          exactInventoryPacketIds.push(packet.id);
+        } else {
+          fullPatchPacketIds.push(packet.id);
+        }
+      }
+      if (!existingPackets) {
+        packetGroups.set(identity, candidatePackets);
+      }
+    }
+  }
+  const catalog = {
+    ...priorCatalog,
+    evidencePlanSha256: evidencePlan.evidencePlanSha256,
+    evidenceGroups: evidencePlan.groups.map(
+      (group) => evidenceGroupRecord(manifest, group)
+    ),
+    inlineCoverage: evidencePlan.evidencePlanSha256 === priorCatalog.evidencePlanSha256 ? priorCatalog.inlineCoverage : {
+      scopeSynopsis: priorCatalog.inlineCoverage.scopeSynopsis,
+      evidenceGroupIds: []
+    },
+    packets: additions.length === 0 ? packets : [...packets, ...additions],
+    exactInventoryPacketIds: [...new Set(exactInventoryPacketIds)],
+    fullPatchPacketIds: [...new Set(fullPatchPacketIds)],
+    storage: null,
+    catalogSha256: null
+  };
+  const persisted = persistCatalogRevision(priorCatalog, catalog, additions);
+  const covered = coverageHashes(priorCatalog);
+  const deltaIds = requiredPacketIds(persisted).filter(
+    (id) => !covered.has(packetById(persisted, id).sha256)
+  );
+  const queue = deltaIds.length === 0 ? null : writeReviewPacketQueue({
+    catalog: persisted,
+    packetIds: deltaIds,
+    queueKind: "delta",
+    outputDirectory
+  });
+  const supersededQueue = supersedePriorQueue({
+    outputDirectory,
+    priorCatalog,
+    supersedingCatalogSha256: persisted.catalogSha256
+  });
+  const evidenceDelta = {
+    schemaVersion: 1,
+    priorCatalogSha256: priorCatalog.catalogSha256,
+    catalogSha256: persisted.catalogSha256,
+    evidencePlanSha256: persisted.evidencePlanSha256,
+    requiredPacketIds: deltaIds,
+    requiredPacketCount: deltaIds.length,
+    queue,
+    supersededQueue
+  };
+  return { catalog: persisted, evidenceDelta };
+}
 var EVIDENCE_POLICIES, BASIS_KINDS, REUSE_BASIS_KINDS, ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS, PACKET_PREFIXES, MAXIMUM_BASIS_NOTE_BYTES2;
 var init_reviewCatalog = __esm({
   "src/committing-to-git/inspection/reviewCatalog.js"() {
@@ -4632,3032 +5186,364 @@ var init_reviewCatalog = __esm({
   }
 });
 
-// src/committing-to-git/workflow/prepareWorkflow.js
-var prepareWorkflow_exports = {};
-__export(prepareWorkflow_exports, {
-  PreparationError: () => PreparationError,
-  acquireEvidence: () => acquireEvidence,
-  assertNoGitStorageOverrides: () => assertNoGitStorageOverrides,
-  cleanupEvidenceSpools: () => cleanupEvidenceSpools,
-  manifestEnvironment: () => manifestEnvironment,
-  parsePrepareArguments: () => parsePrepareArguments,
-  preMaterializePatchPackets: () => preMaterializePatchPackets,
-  prepareWorkflow: () => prepareWorkflow,
-  routePreparedEvidence: () => routePreparedEvidence,
-  runPrepareWorkflowCommand: () => runPrepareWorkflowCommand
-});
-import { createHash as createHash5, randomUUID as randomUUID3 } from "node:crypto";
-import {
-  closeSync as closeSync5,
-  constants as fsConstants3,
-  createReadStream as createReadStream2,
-  fstatSync as fstatSync4,
-  fsyncSync as fsyncSync5,
-  existsSync as existsSync7,
-  lstatSync as lstatSync3,
-  mkdirSync as mkdirSync5,
-  openSync as openSync5,
-  readFileSync as readFileSync4,
-  unlinkSync as unlinkSync3,
-  writeFileSync as writeFileSync6
-} from "node:fs";
-import { dirname as dirname5, resolve as resolve6 } from "node:path";
-import { TextDecoder as TextDecoder4 } from "node:util";
-function fail(code, message, options2) {
-  throw new PreparationError(code, message, options2);
-}
+// src/committing-to-git/message/changeSelection.js
+import { Buffer as Buffer2 } from "node:buffer";
 function isPlainObject2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function assertExactKeys2(value, keys, label, code) {
-  if (!isPlainObject2(value)) {
-    fail(code, `${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail(code, `${label} contains missing or unknown members.`);
-  }
-}
-function sha256(bytes) {
-  return createHash5("sha256").update(bytes).digest("hex");
-}
-function canonicalJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}
-`, "utf8");
-}
-function validateRepositoryRelativePath(path, { prefix, label }) {
-  if (typeof path !== "string" || path.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
-  }
-  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must be a slash-separated repository-relative path.`
+function assertManifest(manifest) {
+  if (!isPlainObject2(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
+    throw new Error(
+      "Semantic selection requires one nonempty exact change manifest."
     );
   }
-  if (prefix !== path.endsWith("/")) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      prefix ? `${label} must end with a slash.` : `${label} must not end with a slash.`
+  const ids = manifest.changeUnits.map(({ id }) => id);
+  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error("Manifest change-unit IDs must be unique and canonical.");
+  }
+}
+function pathBytes2(unit, direction) {
+  const encoded = unit[`${direction}PathBytesBase64`];
+  if (typeof encoded === "string") {
+    return Buffer2.from(encoded, "base64");
+  }
+  const path = unit[`${direction}Path`];
+  return typeof path === "string" ? Buffer2.from(path, "utf8") : null;
+}
+function assertRepositoryPath2(value, { prefix, field }) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
+    throw new Error(
+      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
     );
   }
-  const components = path.split("/");
-  const meaningfulComponents = prefix ? components.slice(0, -1) : components;
-  if (meaningfulComponents.some(
+  if (prefix && !value.endsWith("/")) {
+    throw new Error(
+      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
+    );
+  }
+  if (!prefix && value.endsWith("/")) {
+    throw new Error(
+      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
+    );
+  }
+  const components = value.split("/");
+  const meaningful = prefix ? components.slice(0, -1) : components;
+  if (meaningful.some(
     (component) => component.length === 0 || component === "." || component === ".."
   )) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`
+    throw new Error(
+      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
     );
   }
-  return Buffer.from(path, "utf8");
 }
-function decodeCanonicalBase64Path(value, label) {
-  if (typeof value !== "string" || value.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
+function normalizeSelection(selection) {
+  if (!isPlainObject2(selection)) {
+    throw new Error("Change selection must be an object.");
   }
-  const bytes = Buffer.from(value, "base64");
-  if (bytes.length === 0 || bytes.toString("base64") !== value || bytes.includes(0) || bytes.includes(92) || bytes[0] === 47 || bytes[bytes.length - 1] === 47) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must encode one canonical repository-relative exact path.`
-    );
-  }
-  const components = [];
-  let start = 0;
-  for (let index = 0; index <= bytes.length; index += 1) {
-    if (index === bytes.length || bytes[index] === 47) {
-      components.push(bytes.subarray(start, index));
-      start = index + 1;
-    }
-  }
-  if (components.some(
-    (component) => component.length === 0 || component.equals(Buffer.from(".")) || component.equals(Buffer.from(".."))
-  )) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`
-    );
-  }
-  return bytes;
-}
-function compareBuffers(left, right) {
-  return Buffer.compare(left, right);
-}
-function pathStartsWith(path, prefix) {
-  return path.length >= prefix.length && path.subarray(0, prefix.length).equals(prefix);
-}
-function selectorContains(include, exclude) {
-  if (include.kind === "exact") {
-    return exclude.kind === "exact" && include.bytes.equals(exclude.bytes);
-  }
-  return pathStartsWith(exclude.bytes, include.bytes);
-}
-function selectorMatches(selector, path) {
-  return selector.kind === "exact" ? selector.bytes.equals(path) : pathStartsWith(path, selector.bytes);
-}
-function normalizeScopePayload(payload) {
-  assertExactKeys2(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
-  if (payload.schemaVersion !== 2) {
-    fail("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
-  }
-  for (const key of SCOPE_KEYS.slice(1)) {
-    if (!Array.isArray(payload[key])) {
-      fail("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
-    }
-    if (payload[key].length > 4096) {
-      fail("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
-    }
-  }
-  const descriptors = [];
-  function addUtf8(values, direction, kind, label) {
-    for (const value of values) {
-      descriptors.push({
-        direction,
-        kind,
-        bytes: validateRepositoryRelativePath(value, {
-          prefix: kind === "prefix",
-          label
-        })
-      });
-    }
-  }
-  addUtf8(payload.includePaths, "include", "exact", "includePaths entry");
-  addUtf8(
-    payload.includePathPrefixes,
-    "include",
-    "prefix",
-    "includePathPrefixes entry"
+  const unknown = Object.keys(selection).find(
+    (field) => !SELECTOR_FIELDS2.has(field)
   );
-  addUtf8(payload.excludePaths, "exclude", "exact", "excludePaths entry");
-  addUtf8(
-    payload.excludePathPrefixes,
-    "exclude",
-    "prefix",
-    "excludePathPrefixes entry"
-  );
-  for (const value of payload.includePathBytesBase64) {
-    descriptors.push({
-      direction: "include",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "includePathBytesBase64 entry")
-    });
+  if (unknown) {
+    throw new Error(`Unknown change selector field ${unknown}.`);
   }
-  for (const value of payload.excludePathBytesBase64) {
-    descriptors.push({
-      direction: "exclude",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "excludePathBytesBase64 entry")
-    });
+  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
+    throw new Error("Selector all and remaining values must be booleans.");
   }
-  const includes = descriptors.filter(
-    ({ direction }) => direction === "include"
-  );
-  const excludes = descriptors.filter(
-    ({ direction }) => direction === "exclude"
-  );
-  if (includes.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
-  }
-  const seen = /* @__PURE__ */ new Set();
-  for (const selector of descriptors) {
-    const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
-    if (seen.has(key)) {
-      fail("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
-    }
-    seen.add(key);
-  }
-  for (const exclusion of excludes) {
-    if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
-      fail(
-        "UNCONTAINED_SCOPE_EXCLUSION",
-        "Every exclusion must be contained by at least one inclusion."
-      );
-    }
-  }
-  const canonicalPayload = {
-    schemaVersion: 2,
-    includePaths: [...payload.includePaths],
-    includePathPrefixes: [...payload.includePathPrefixes],
-    excludePaths: [...payload.excludePaths],
-    excludePathPrefixes: [...payload.excludePathPrefixes],
-    includePathBytesBase64: [...payload.includePathBytesBase64],
-    excludePathBytesBase64: [...payload.excludePathBytesBase64]
-  };
-  return {
-    canonicalPayload,
-    canonicalBytes: canonicalJsonBytes(canonicalPayload),
-    includes,
-    excludes,
-    descriptors
-  };
-}
-function normalizeEvidenceSelection(selection) {
-  if (!isPlainObject2(selection) || Object.keys(selection).length === 0) {
-    fail(
-      "INVALID_EVIDENCE_PLAN",
-      "Evidence selection must be a non-empty object."
-    );
-  }
-  for (const key of Object.keys(selection)) {
-    if (!SELECTION_KEYS.has(key)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection contains unknown member ${JSON.stringify(key)}.`
-      );
-    }
-  }
-  if ("all" in selection && selection.all !== true) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
-  }
-  if ("remaining" in selection && selection.remaining !== true) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
-  }
-  for (const [key, value] of Object.entries(selection)) {
-    if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
+  const all = selection.all === true;
+  const remaining = selection.remaining === true;
+  const populated = [];
+  const normalized = {};
+  for (const field of ARRAY_SELECTOR_FIELDS2) {
+    const values = selection[field];
+    if (values === void 0) {
       continue;
     }
-    if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection ${key} must be a non-empty string array.`
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
+      throw new Error(`Selector ${field} must be a string array.`);
+    }
+    if (new Set(values).size !== values.length) {
+      throw new Error(`Selector ${field} contains duplicate values.`);
+    }
+    if (field.endsWith("Paths")) {
+      values.forEach(
+        (value) => assertRepositoryPath2(value, { prefix: false, field })
+      );
+    } else if (field.endsWith("Prefixes")) {
+      values.forEach(
+        (value) => assertRepositoryPath2(value, { prefix: true, field })
       );
     }
+    if (values.length > 0) {
+      populated.push(field);
+      normalized[field] = [...values];
+    }
   }
-  return structuredClone(selection);
-}
-function normalizeEvidencePlan(payload) {
-  assertExactKeys2(
-    payload,
-    EVIDENCE_PLAN_KEYS,
-    "Evidence plan",
-    "INVALID_EVIDENCE_PLAN"
-  );
-  if (payload.schemaVersion !== 1) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
-  }
-  if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
-  }
-  if (payload.groups.length > 4096) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
-  }
-  const groups = payload.groups.map((group, index) => {
-    assertExactKeys2(
-      group,
-      GROUP_KEYS,
-      `Evidence group ${index + 1}`,
-      "INVALID_EVIDENCE_PLAN"
+  if ((all || remaining) && (all === remaining || populated.length > 0)) {
+    throw new Error(
+      "Selectors all and remaining are each exclusive of every other selector field."
     );
-    assertExactKeys2(
-      group.basis,
-      BASIS_KEYS,
-      `Evidence group ${index + 1} basis`,
-      "INVALID_EVIDENCE_PLAN"
-    );
-    if (!EVIDENCE_POLICIES2.has(group.policy)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} policy is invalid.`
-      );
-    }
-    if (!BASIS_KINDS2.has(group.basis.kind)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis is invalid.`
-      );
-    }
-    if (group.basis.note !== null && (typeof group.basis.note !== "string" || Buffer.byteLength(group.basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis note exceeds ${MAXIMUM_BASIS_NOTE_BYTES} UTF-8 bytes.`
-      );
-    }
-    if (group.policy === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(group.basis.kind)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
-      );
-    }
-    return {
-      selection: normalizeEvidenceSelection(group.selection),
-      policy: group.policy,
-      basis: { kind: group.basis.kind, note: group.basis.note }
-    };
-  });
-  const canonicalPlan = { schemaVersion: 1, groups };
-  return {
-    plan: canonicalPlan,
-    canonicalBytes: canonicalJsonBytes(canonicalPlan)
-  };
-}
-function readBoundedJson(path, label) {
-  const absolutePath = resolve6(path);
-  const initialPathStat = lstatSync3(absolutePath);
-  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
-    fail("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
-  const descriptor = openSync5(absolutePath, fsConstants3.O_RDONLY + noFollow);
-  try {
-    const before = fstatSync4(descriptor);
-    if (!before.isFile()) {
-      fail("INVALID_JSON_INPUT", `${label} must be a regular file.`);
-    }
-    if (before.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail(
-        "JSON_INPUT_TOO_LARGE",
-        `${label} exceeds ${MAXIMUM_INITIAL_JSON_INPUT_BYTES} bytes.`
-      );
-    }
-    const bytes = readFileSync4(descriptor);
-    const after = fstatSync4(descriptor);
-    const finalPathStat = lstatSync3(absolutePath);
-    if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
-    }
-    let text;
-    try {
-      text = STRICT_UTF8_DECODER3.decode(bytes);
-    } catch {
-      fail("INVALID_JSON_UTF8", `${label} is not strict UTF-8.`);
-    }
-    try {
-      return JSON.parse(text);
-    } catch (error) {
-      fail(
-        "INVALID_JSON_INPUT",
-        `${label} is not valid JSON: ${error.message}`
-      );
-    }
-  } finally {
-    closeSync5(descriptor);
+  if (!all && !remaining && populated.length === 0) {
+    throw new Error("Change selection requires one nonempty selector.");
   }
+  if (all) {
+    return { all: true };
+  }
+  if (remaining) {
+    return { remaining: true };
+  }
+  return normalized;
 }
-function inlineScopePayload(values) {
-  return {
-    schemaVersion: 2,
-    includePaths: values.get("path") ?? [],
-    includePathPrefixes: values.get("path-prefix") ?? [],
-    excludePaths: values.get("exclude-path") ?? [],
-    excludePathPrefixes: values.get("exclude-path-prefix") ?? [],
-    includePathBytesBase64: [],
-    excludePathBytesBase64: []
-  };
+function unitMatchesValue(unit, field, value) {
+  if (field === "ids") {
+    return unit.id === value;
+  }
+  if (field === "kinds") {
+    return unit.kind === value;
+  }
+  const source = field.startsWith("source");
+  if (source && unit.kind !== "renamed") {
+    return false;
+  }
+  const bytes = pathBytes2(unit, source ? "source" : "destination");
+  if (bytes === null) {
+    return false;
+  }
+  const expected = Buffer2.from(value, "utf8");
+  return field.endsWith("Prefixes") ? bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected) : bytes.equals(expected);
 }
-function parsePrepareArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (typeof token !== "string" || !token.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+function resolveSelection2(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
+  assertManifest(manifest);
+  if (!(assignedIds instanceof Set)) {
+    throw new Error("Selection assignedIds must be a Set.");
+  }
+  const normalized = normalizeSelection(selection);
+  if (normalized.all === true) {
+    return [...manifest.changeUnits];
+  }
+  if (normalized.remaining === true) {
+    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
+    if (units.length === 0) {
+      throw new Error("The remaining selector matched no change units.");
     }
-    const name = token.slice(2);
-    if (!SINGLETON_FLAGS.has(name) && !REPEATABLE_FLAGS.has(name)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow prepare flag --${name}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail("INVALID_ARGUMENT", `--${name} requires a non-empty value.`);
-    }
-    if (SINGLETON_FLAGS.has(name)) {
-      if (values.has(name)) {
-        fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+    return units;
+  }
+  const matchedIds = /* @__PURE__ */ new Set();
+  for (const [field, values] of Object.entries(normalized)) {
+    for (const value of values) {
+      const matches = manifest.changeUnits.filter(
+        (unit) => unitMatchesValue(unit, field, value)
+      );
+      if (matches.length === 0) {
+        throw new Error(
+          `Selector field ${field} value ${JSON.stringify(value)} matched no change units.`
+        );
       }
-      values.set(name, value);
-    } else {
-      values.set(name, [...values.get(name) ?? [], value]);
+      matches.forEach(({ id }) => matchedIds.add(id));
     }
   }
-  const mode = values.get("mode");
-  const scope = values.get("scope");
-  const verificationPolicy = values.get("verification") ?? "required";
-  const format = values.get("format") ?? "json";
-  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
-    fail("INVALID_MODE", "--mode must be actual or draft.");
+  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
+}
+function validateReasons(reasons, label) {
+  if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
+    (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
+  )) {
+    throw new Error(`${label} requires one or more canonical reasons.`);
   }
-  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
-    fail("INVALID_SCOPE", "--scope must be staged, full, or paths.");
+  if (new Set(reasons).size !== reasons.length) {
+    throw new Error(`${label} contains duplicate reasons.`);
   }
-  if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
-    fail(
-      "INVALID_VERIFICATION_POLICY",
-      "--verification must be required, advisory, or skipped."
-    );
+  return [...reasons];
+}
+function validateBasis2(policy, basis) {
+  if (!EVIDENCE_POLICIES2.has(policy) || !isPlainObject2(basis) || !BASIS_KINDS2.has(basis.kind) || !(basis.note === null || typeof basis.note === "string") || typeof basis.note === "string" && Buffer2.byteLength(basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES3) {
+    throw new Error("Evidence policy or basis is invalid.");
   }
-  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-  const evidencePlanPath = values.get("evidence-plan") ?? null;
-  const evidence = values.get("evidence") ?? null;
-  const basis = values.get("basis") ?? null;
-  if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
-    fail(
-      "CONFLICTING_EVIDENCE_INPUT",
-      "--evidence-plan is an alternative to --evidence and --basis."
-    );
-  }
-  if (evidencePlanPath === null && (evidence === null || basis === null)) {
-    fail(
-      "MISSING_EVIDENCE_INPUT",
-      "Supply --evidence and --basis together, or supply --evidence-plan."
-    );
-  }
-  if (evidence !== null && !EVIDENCE_POLICIES2.has(evidence)) {
-    fail(
-      "INVALID_EVIDENCE_POLICY",
-      "--evidence must be reuse, message, or review."
-    );
-  }
-  if (basis !== null && !BASIS_KINDS2.has(basis)) {
-    fail(
-      "INVALID_EVIDENCE_BASIS",
-      "--basis is not a supported provenance kind."
-    );
-  }
-  if (evidence === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(basis)) {
-    fail(
-      "INVALID_EVIDENCE_BASIS",
+  if (policy === "reuse" && !REUSE_BASIS_KINDS2.has(basis.kind)) {
+    throw new Error(
       "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
     );
   }
-  const allowedTypes = values.get("allowed-type") ?? [];
-  if (allowedTypes.length > 64) {
-    fail(
-      "INVALID_ALLOWED_TYPE",
-      "At most 64 allowed commit types may be supplied."
+  if (policy === "reuse" && basis.kind === "task-lineage" && (typeof basis.note !== "string" || basis.note.trim().length === 0)) {
+    throw new Error(
+      "Reuse task-lineage basis requires a specific nonempty note."
     );
   }
-  if (allowedTypes.some((type) => !TYPE_TOKEN_PATTERN2.test(type)) || new Set(allowedTypes).size !== allowedTypes.length) {
-    fail(
-      "INVALID_ALLOWED_TYPE",
-      "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters."
+  return { kind: basis.kind, note: basis.note };
+}
+function resolvePartition(manifest, groups, { label, validateGroup }) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    throw new Error(`${label} groups must be a nonempty array.`);
+  }
+  const assignedIds = /* @__PURE__ */ new Set();
+  const resolved = groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new Error(`${label} group ${index + 1} must be an object.`);
+    }
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
+      throw new Error(
+        `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
+      );
+    }
+    const units = resolveSelection2(manifest, selection, { assignedIds });
+    const overlap = units.find(({ id }) => assignedIds.has(id));
+    if (overlap) {
+      throw new Error(`${label} groups overlap at ${overlap.id}.`);
+    }
+    units.forEach(({ id }) => assignedIds.add(id));
+    return {
+      ...validateGroup(group, index),
+      selection,
+      units
+    };
+  });
+  if (assignedIds.size !== manifest.changeUnitCount) {
+    const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
+    throw new Error(
+      `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
     );
   }
-  const hasInlineSelectors = INLINE_SELECTOR_FLAGS.some(
-    (name) => values.has(name)
-  );
-  const scopeFilePath = values.get("scope-file") ?? null;
-  if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
-    fail(
-      "SELECTOR_OUTSIDE_PATH_SCOPE",
-      "Path selectors and --scope-file are valid only with --scope paths."
-    );
-  }
-  if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
-    fail(
-      "CONFLICTING_SCOPE_INPUT",
-      "Inline selectors and --scope-file cannot be combined."
-    );
-  }
-  if (scope === "paths" && scopeFilePath === null && !(values.has("path") || values.has("path-prefix"))) {
-    fail("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
-  }
-  return {
-    mode,
-    scope,
-    evidencePlanPath,
-    evidence,
-    basis,
-    allowedTypes: allowedTypes.length === 0 ? null : allowedTypes,
-    scopeFilePath,
-    inlineScope: scope === "paths" && scopeFilePath === null ? inlineScopePayload(values) : null,
-    verificationPolicy,
-    format
-  };
+  return { assignedIds, resolved };
 }
-function assertNoGitStorageOverrides(environment) {
-  for (const name of STORAGE_OVERRIDE_NAMES) {
-    if (Object.prototype.hasOwnProperty.call(environment, name)) {
-      fail(
-        "UNSUPPORTED_GIT_STORAGE_OVERRIDE",
-        `Inherited Git storage override ${name} is unsupported.`
-      );
-    }
-  }
-}
-function parseNameStatus(buffer, source) {
-  const fields = splitNul(buffer);
-  const records = [];
-  for (let index = 0; index < fields.length; ) {
-    const status = fields[index].toString("ascii");
-    const rename = status.startsWith("R") || status.startsWith("C");
-    const firstPath = fields[index + 1];
-    const secondPath = rename ? fields[index + 2] : null;
-    if (!/^[A-Z][0-9]*$/u.test(status) || !firstPath || rename && !secondPath) {
-      fail(
-        "GIT_OUTPUT_INVALID",
-        `Git returned an invalid ${source} name-status record.`
-      );
-    }
-    records.push({
-      source,
-      status,
-      paths: rename ? [firstPath, secondPath] : [firstPath],
-      rename: rename ? [firstPath, secondPath] : null
-    });
-    index += rename ? 3 : 2;
-  }
-  return records;
-}
-function bytesAfterSpaces(field, spaceCount, label) {
-  let spaces = 0;
-  for (let index = 0; index < field.length; index += 1) {
-    if (field[index] !== 32) {
-      continue;
-    }
-    spaces += 1;
-    if (spaces === spaceCount) {
-      const value = field.subarray(index + 1);
-      if (value.length === 0) {
-        fail("GIT_OUTPUT_INVALID", `${label} contains an empty path.`);
-      }
-      return value;
-    }
-  }
-  fail("GIT_OUTPUT_INVALID", `${label} is missing required fields.`);
-}
-function parseStatusRenamePairs(buffer) {
-  const fields = splitNul(buffer);
-  const pairs = [];
-  for (let index = 0; index < fields.length; index += 1) {
-    const field = fields[index];
-    if (field[0] !== 50 || field[1] !== 32) {
-      continue;
-    }
-    const destination = bytesAfterSpaces(
-      field,
-      9,
-      "Git porcelain-v2 rename record"
-    );
-    const source = fields[index + 1];
-    if (!source) {
-      fail(
-        "GIT_OUTPUT_INVALID",
-        "Git porcelain-v2 rename record is missing its source path."
-      );
-    }
-    pairs.push([source, destination]);
-    index += 1;
-  }
-  return pairs;
-}
-function parseIndexBlobOids(buffer) {
-  const entries = /* @__PURE__ */ new Map();
-  for (const field of splitNul(buffer)) {
-    const tab = field.indexOf(9);
-    if (tab < 0) {
-      fail(
-        "GIT_OUTPUT_INVALID",
-        "Git index entry is missing its path separator."
-      );
-    }
-    const metadata = field.subarray(0, tab).toString("ascii").split(" ");
-    const [mode, oid, stage] = metadata;
-    const path = field.subarray(tab + 1);
-    if (!/^(?:100644|100755|120000|160000)$/u.test(mode) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid) || stage !== "0" || path.length === 0) {
-      fail(
-        "GIT_OUTPUT_INVALID",
-        "Git returned an invalid stage-zero index entry."
-      );
-    }
-    entries.set(path.toString("base64"), oid);
-  }
-  return entries;
-}
-function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
-  const deletedPaths = unstaged.filter(({ status }) => status === "D").flatMap(({ paths }) => paths);
-  if (deletedPaths.length === 0 || untracked.length === 0) {
+function resolveOverlappingGroups(manifest, groups, label) {
+  if (groups === void 0) {
     return [];
   }
-  const indexBlobOids = parseIndexBlobOids(
-    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"], {
-      env: environment
-    }).stdout
-  );
-  const deletedByOid = /* @__PURE__ */ new Map();
-  for (const path of deletedPaths) {
-    const oid = indexBlobOids.get(path.toString("base64"));
-    if (oid) {
-      deletedByOid.set(oid, [...deletedByOid.get(oid) ?? [], path]);
+  if (!Array.isArray(groups)) {
+    throw new Error(`${label} must be an array.`);
+  }
+  const previouslyMatched = /* @__PURE__ */ new Set();
+  return groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new Error(`${label} entry ${index + 1} must be an object.`);
     }
-  }
-  const pairs = [];
-  for (const record of untracked) {
-    const path = record.paths[0];
-    let text;
-    try {
-      text = STRICT_UTF8_DECODER3.decode(path);
-    } catch {
-      continue;
-    }
-    if (!Buffer.from(text, "utf8").equals(path)) {
-      continue;
-    }
-    const oid = runReadOnlyGit(
-      root,
-      "hash-object",
-      ["--no-filters", "--", text],
-      {
-        env: environment
-      }
-    ).stdout.toString("ascii").trim();
-    for (const source of deletedByOid.get(oid) ?? []) {
-      pairs.push([source, path]);
-    }
-  }
-  return pairs;
-}
-function renamePolicyForRecords(records) {
-  return selectRenamePolicy({
-    addedCandidates: records.filter(({ status }) => status === "A").length,
-    deletedCandidates: records.filter(({ status }) => status === "D").length,
-    maximumCandidatePairs: MAXIMUM_SIMILARITY_CANDIDATE_PAIRS
-  });
-}
-function discoverTrackedChanges(root, source, prefix, environment) {
-  const initial = parseNameStatus(
-    runReadOnlyGit(
-      root,
-      "diff",
-      [...prefix, "--name-status", "-z", "--no-renames", "--"],
-      { env: environment }
-    ).stdout,
-    source
-  );
-  const policy = renamePolicyForRecords(initial);
-  if (policy.mode !== "eager" || policy.candidatePairs === 0) {
-    return initial;
-  }
-  return parseNameStatus(
-    runReadOnlyGit(
-      root,
-      "diff",
-      [...prefix, "--name-status", "-z", "--find-renames=50%", "-l0", "--"],
-      { env: environment }
-    ).stdout,
-    source
-  );
-}
-function discoverCandidates(root) {
-  const readOnlyEnvironment = {
-    GIT_OPTIONAL_LOCKS: "0",
-    GIT_NO_REPLACE_OBJECTS: "1"
-  };
-  const staged = discoverTrackedChanges(
-    root,
-    "staged",
-    ["--cached"],
-    readOnlyEnvironment
-  );
-  const unstaged = discoverTrackedChanges(
-    root,
-    "unstaged",
-    [],
-    readOnlyEnvironment
-  );
-  const untracked = splitNul(
-    runReadOnlyGit(
-      root,
-      "ls-files",
-      ["--others", "--exclude-standard", "-z", "--"],
-      { env: readOnlyEnvironment }
-    ).stdout
-  ).map((path) => ({
-    source: "untracked",
-    status: "A",
-    paths: [path],
-    rename: null
-  }));
-  const records = [...staged, ...unstaged, ...untracked];
-  const statusRenamePolicy = renamePolicyForRecords(records);
-  const statusRenamePairs = statusRenamePolicy.mode === "eager" && statusRenamePolicy.candidatePairs > 0 ? parseStatusRenamePairs(
-    runReadOnlyGit(
-      root,
-      "status",
-      ["--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
-      { env: readOnlyEnvironment }
-    ).stdout
-  ) : [];
-  const exactRenamePairs = exactUnstagedRenamePairs(
-    root,
-    unstaged,
-    untracked,
-    readOnlyEnvironment
-  );
-  const pathsByBase64 = /* @__PURE__ */ new Map();
-  for (const record of records) {
-    for (const path of record.paths) {
-      pathsByBase64.set(path.toString("base64"), path);
-    }
-  }
-  return {
-    records,
-    staged,
-    paths: [...pathsByBase64.values()].sort(compareBuffers),
-    renamePairs: [
-      ...records.flatMap(
-        (record) => record.rename === null ? [] : [record.rename]
-      ),
-      ...statusRenamePairs,
-      ...exactRenamePairs
-    ]
-  };
-}
-function containsUnsafeControl2(value) {
-  return [...value].some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint <= 31 || codePoint >= 127 && codePoint <= 159;
-  });
-}
-function safePathDisplay(bytes) {
-  const digest = sha256(bytes);
-  let text;
-  try {
-    text = STRICT_UTF8_DECODER3.decode(bytes);
-  } catch {
-    text = null;
-  }
-  if (text !== null && !containsUnsafeControl2(text) && Buffer.byteLength(text, "utf8") <= 192) {
-    return text;
-  }
-  const prefix = bytes.subarray(0, 48).toString("hex");
-  const suffix = bytes.length > 48 ? bytes.subarray(-24).toString("hex") : "";
-  return `path-bytes:${prefix}${suffix ? `...${suffix}` : ""};bytes=${bytes.length};sha256=${digest}`;
-}
-function validateSelectorsAgainstCandidates(scope, candidates) {
-  for (const selector of scope.descriptors) {
-    if (!candidates.paths.some((path) => selectorMatches(selector, path))) {
-      fail(
-        "UNMATCHED_SCOPE_SELECTOR",
-        "A literal scope selector matched no current change.",
-        {
-          details: {
-            selectorKind: `${selector.direction}-${selector.kind}`,
-            candidateSamples: candidates.paths.slice(0, 5).map(safePathDisplay)
-          }
-        }
-      );
-    }
-  }
-  const selectedPaths = candidates.paths.filter(
-    (path) => scope.includes.some((selector) => selectorMatches(selector, path)) && !scope.excludes.some((selector) => selectorMatches(selector, path))
-  );
-  const selectedKeys = new Set(
-    selectedPaths.map((path) => path.toString("base64"))
-  );
-  if (selectedPaths.length === 0) {
-    fail(
-      "EMPTY_SCOPE",
-      "Scope exclusions remove every included current change."
-    );
-  }
-  for (const [source, destination] of candidates.renamePairs) {
-    if (selectedKeys.has(source.toString("base64")) !== selectedKeys.has(destination.toString("base64"))) {
-      fail(
-        "RENAME_SCOPE_BOUNDARY",
-        "A rename crosses the selected scope boundary; select or exclude both endpoints."
-      );
-    }
-  }
-  return selectedPaths;
-}
-function scopeSummary(kind, normalizedScope, selectedPaths) {
-  if (kind !== "paths") {
-    return {
-      kind,
-      selectorCount: 0,
-      selectorKinds: {
-        includeExact: 0,
-        includePrefix: 0,
-        excludeExact: 0,
-        excludePrefix: 0
-      },
-      canonicalSelectorSha256: sha256(Buffer.from(`${kind}
-`)),
-      expandedPathCount: null,
-      samples: []
-    };
-  }
-  const count = (direction, selectorKind) => normalizedScope.descriptors.filter(
-    ({ direction: candidateDirection, kind: candidateKind }) => direction === candidateDirection && selectorKind === candidateKind
-  ).length;
-  return {
-    kind,
-    selectorCount: normalizedScope.descriptors.length,
-    selectorKinds: {
-      includeExact: count("include", "exact"),
-      includePrefix: count("include", "prefix"),
-      excludeExact: count("exclude", "exact"),
-      excludePrefix: count("exclude", "prefix")
-    },
-    canonicalSelectorSha256: sha256(normalizedScope.canonicalBytes),
-    expandedPathCount: selectedPaths.length,
-    samples: selectedPaths.slice(0, 5).map(safePathDisplay)
-  };
-}
-function writeOwnedInput(path, bytes) {
-  const descriptor = openSync5(
-    path,
-    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
-    384
-  );
-  try {
-    writeFileSync6(descriptor, bytes);
-    fsyncSync5(descriptor);
-  } finally {
-    closeSync5(descriptor);
-  }
-  if (process.platform !== "win32") {
-    const directoryDescriptor = openSync5(dirname5(path), fsConstants3.O_RDONLY);
-    try {
-      fsyncSync5(directoryDescriptor);
-    } finally {
-      closeSync5(directoryDescriptor);
-    }
-  }
-}
-function assertPreallocationRepositoryState(root) {
-  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"], {
-    env: { GIT_OPTIONAL_LOCKS: "0" }
-  }).stdout;
-  if (conflicts.length > 0) {
-    fail(
-      "UNRESOLVED_CONFLICTS",
-      "Cannot prepare an ordinary commit while unresolved conflicts remain.",
-      { exitCode: 1 }
-    );
-  }
-  const operations = activeGitOperations(root);
-  if (operations.length > 0) {
-    fail(
-      "ACTIVE_GIT_OPERATION",
-      `Cannot prepare an ordinary commit during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
-    );
-  }
-}
-function verifySnapshotScope(snapshot, scope, selectedPaths) {
-  if (scope === null) {
-    return;
-  }
-  const selected = new Set(
-    selectedPaths.map((path) => path.toString("base64"))
-  );
-  const covered = /* @__PURE__ */ new Set();
-  for (const unit of snapshot.changeUnits) {
-    const endpoints = [
-      unit.sourcePathBytesBase64,
-      unit.destinationPathBytesBase64
-    ].filter((value) => value !== null);
-    if (endpoints.some((value) => !selected.has(value))) {
-      fail(
-        "SNAPSHOT_SCOPE_MISMATCH",
-        "The prepared snapshot contains a change outside the literal selected scope."
-      );
-    }
-    endpoints.forEach((value) => covered.add(value));
-  }
-  if ([...selected].some((value) => !covered.has(value))) {
-    fail(
-      "SNAPSHOT_SCOPE_MISMATCH",
-      "A selected current-change path is absent from the prepared snapshot."
-    );
-  }
-}
-function manifestEnvironment(manifest) {
-  if (!manifest.indexFile) {
-    return void 0;
-  }
-  return {
-    GIT_INDEX_FILE: manifest.indexFile,
-    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
-    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
-        manifest.objectAlternates
-      )
-    } : {}
-  };
-}
-function patchUnitsForGroup(manifest, group) {
-  const selectedIds = new Set(group.changeUnitIds);
-  return manifest.changeUnits.filter(
-    (unit) => selectedIds.has(unit.id) && unit.newMode !== "000000" && unit.oldMode !== "160000" && unit.newMode !== "160000" && unit.binary !== true
-  );
-}
-function patchArguments(manifest, units) {
-  const paths = units.map(({ destinationPath }) => destinationPath);
-  if (paths.some((path) => typeof path !== "string" || path.length === 0)) {
-    throw new Error(
-      "Selected patch evidence contains a path that cannot be represented as strict UTF-8."
-    );
-  }
-  return [
-    "--cached",
-    "--no-renames",
-    "--diff-filter=d",
-    ...manifest.headOid ? [manifest.headOid] : ["--root"],
-    "--",
-    ...paths
-  ];
-}
-async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
-  const units = patchUnitsForGroup(manifest, group);
-  const path = resolve6(
-    attemptDirectory,
-    `.evidence-${group.id}-${randomUUID3()}.tmp`
-  );
-  if (units.length === 0) {
-    return { group, units, path: null, byteCount: 0, empty: true };
-  }
-  try {
-    const descriptor = openSync5(
-      path,
-      fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
-      384
-    );
-    let result;
-    try {
-      result = await streamGit("diff-paths", patchArguments(manifest, units), {
-        cwd: root,
-        env: manifestEnvironment(manifest),
-        onStdout(chunk) {
-          writeFileSync6(descriptor, chunk);
-        }
-      });
-      fsyncSync5(descriptor);
-    } finally {
-      closeSync5(descriptor);
-    }
-    if (result.aborted || result.timedOut || result.status !== 0) {
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
       throw new Error(
-        `Patch evidence stream for ${group.id} did not complete.`
+        `The remaining selector is permitted only in the final ${label} entry.`
       );
     }
+    const units = resolveSelection2(manifest, selection, {
+      assignedIds: previouslyMatched
+    });
+    units.forEach(({ id }) => previouslyMatched.add(id));
     return {
-      group,
+      selection,
       units,
-      path,
-      byteCount: result.stdoutByteCount,
-      empty: false
+      reasons: validateReasons(group.reasons, `${label} entry ${index + 1}`)
     };
-  } catch (error) {
-    if (existsSync7(path)) {
-      unlinkSync3(path);
-    }
-    throw error;
-  }
-}
-async function acquireEvidence({
-  root,
-  manifest,
-  evidencePlan,
-  attemptDirectory
-}) {
-  const records = [];
-  for (const group of evidencePlan.groups) {
-    if (!(/* @__PURE__ */ new Set(["message", "review"])).has(group.policy)) {
-      continue;
-    }
-    records.push(
-      await spoolEvidenceGroup({
-        root,
-        manifest,
-        group,
-        attemptDirectory
-      })
-    );
-  }
-  return records;
-}
-function inlineEvidenceManifest(manifest, records, evidencePlan) {
-  const totalBytes = records.reduce(
-    (total, record) => total + record.byteCount,
-    0
-  );
-  if (totalBytes > MAXIMUM_CONCISE_RESULT_BYTES) {
-    return null;
-  }
-  return {
-    ...manifest,
-    manifestSha256: evidencePlan.manifestSha256,
-    evidenceByGroupId: Object.fromEntries(
-      records.map((record) => [
-        record.group.id,
-        record.empty ? Buffer.alloc(0) : readFileSync4(record.path)
-      ])
-    )
-  };
-}
-async function preMaterializePatchPackets({ reviewDirectory, records }) {
-  const packetsByGroupId = {};
-  let nextOrdinal = 1;
-  for (const record of records) {
-    if (record.empty) {
-      continue;
-    }
-    const written = await writePacketStream({
-      outputDirectory: reviewDirectory,
-      source: createReadStream2(record.path, { highWaterMark: 16 * 1024 }),
-      idPrefix: "P",
-      startingOrdinal: nextOrdinal,
-      kind: "text-patch",
-      changeUnitRanges: record.group.changeUnitRanges,
-      changeUnitCount: record.units.length,
-      pathIdentity: record.group.id,
-      context: `evidence-group=${record.group.id}`
-    });
-    packetsByGroupId[record.group.id] = written.packets;
-    nextOrdinal += written.packets.length;
-  }
-  return packetsByGroupId;
-}
-function cleanupEvidenceSpools(records) {
-  for (const { path } of records) {
-    if (path && existsSync7(path)) {
-      unlinkSync3(path);
-    }
-  }
-}
-function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
-  const path = resolve6(attemptDirectory, "evidence-plan.json");
-  const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync7(path)) {
-    if (!readFileSync4(path).equals(bytes)) {
-      throw new Error(
-        "Canonical evidence-plan artifact has conflicting bytes."
-      );
-    }
-  } else {
-    writeOwnedInput(path, bytes);
-  }
-  return path;
-}
-async function routePreparedEvidence({
-  transactionPath,
-  transaction,
-  manifest,
-  root
-}) {
-  const anchoredManifest = {
-    ...manifest,
-    manifestSha256: transaction.snapshot.sha256
-  };
-  const evidencePlan = canonicalizeEvidencePlan({
-    manifest: anchoredManifest,
-    groups: transaction.initialEvidencePlan.groups
   });
-  const evidencePlanPath = writeCanonicalEvidencePlan(
-    transaction.attemptDirectory,
-    evidencePlan
-  );
-  const records = await acquireEvidence({
-    root,
-    manifest: anchoredManifest,
-    evidencePlan,
-    attemptDirectory: transaction.attemptDirectory
-  });
-  let routing;
-  try {
-    const inlineManifest = inlineEvidenceManifest(
-      anchoredManifest,
-      records,
-      evidencePlan
-    );
-    routing = evidencePlan.groups.some(({ policy }) => policy === "review") ? { route: "extended", capsule: null, extendedReason: "review-policy" } : inlineManifest === null ? {
-      route: "extended",
-      capsule: null,
-      extendedReason: "required-evidence-over-budget"
-    } : createInlineEvidenceCapsule({
-      manifest: inlineManifest,
-      evidencePlan
-    });
-    const common = {
-      ...transaction,
-      initialEvidencePlan: {
-        ...transaction.initialEvidencePlan,
-        inputSha256: transaction.initialEvidencePlan.sha256,
-        sha256: evidencePlan.evidencePlanSha256,
-        manifestSha256: evidencePlan.manifestSha256,
-        groups: evidencePlan.groups,
-        path: evidencePlanPath
+}
+function resolveSemanticCoverage(manifest, content) {
+  assertManifest(manifest);
+  if (!isPlainObject2(content)) {
+    throw new Error("Semantic message content must be an object.");
+  }
+  const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
+    label: "Evidence",
+    validateGroup(group, index) {
+      if (!EVIDENCE_POLICIES2.has(group.policy)) {
+        throw new Error(`Evidence group ${index + 1} has an invalid policy.`);
       }
-    };
-    if (routing.route === "concise") {
-      let measuredByteCount = routing.capsule.byteCount;
-      let preview;
-      for (; ; ) {
-        routing.capsule.byteCount = measuredByteCount;
-        preview = {
-          ...common,
-          phase: "evidence-ready",
-          status: "prepared",
-          route: "concise",
-          inlineEvidence: {
-            capsuleSha256: "0".repeat(64),
-            manifestSha256: evidencePlan.manifestSha256,
-            evidencePlanSha256: evidencePlan.evidencePlanSha256,
-            capsule: routing.capsule
-          },
-          review: null
-        };
-        const nextByteCount = Buffer.byteLength(
-          JSON.stringify(successEnvelope(preview, transaction.scope.summary)),
-          "utf8"
-        );
-        if (nextByteCount === measuredByteCount) {
-          break;
-        }
-        measuredByteCount = nextByteCount;
-      }
-      if (measuredByteCount > MAXIMUM_CONCISE_RESULT_BYTES) {
-        routing = {
-          route: "extended",
-          capsule: null,
-          extendedReason: routing.capsule.evidence.some(
-            ({ patchText }) => patchText !== null
-          ) ? "required-evidence-over-budget" : "scope-synopsis-over-budget"
-        };
-      }
-    }
-    if (routing.route === "concise") {
-      const capsuleSha256 = sha256Bytes(stableJsonBytes(routing.capsule));
-      const completed2 = advanceTransaction(
-        transactionPath,
-        "snapshot-created",
-        {
-          ...common,
-          phase: "evidence-ready",
-          status: "prepared",
-          route: "concise",
-          inlineEvidence: {
-            capsuleSha256,
-            manifestSha256: evidencePlan.manifestSha256,
-            evidencePlanSha256: evidencePlan.evidencePlanSha256,
-            capsule: routing.capsule
-          },
-          review: null
-        }
-      );
-      return completed2;
-    }
-    const reviewDirectory = resolve6(transaction.attemptDirectory, "review");
-    if (records.some(({ empty }) => !empty) && !existsSync7(reviewDirectory)) {
-      mkdirSync5(reviewDirectory);
-    }
-    const packetsByGroupId = await preMaterializePatchPackets({
-      reviewDirectory,
-      records
-    });
-    const extendedManifest = {
-      ...anchoredManifest,
-      manifestSha256: evidencePlan.manifestSha256,
-      preMaterializedPacketsByGroupId: packetsByGroupId,
-      evidenceByGroupId: Object.fromEntries(
-        records.filter(({ empty }) => empty).map(({ group }) => [group.id, Buffer.alloc(0)])
-      )
-    };
-    const catalog = createReviewCatalog({
-      manifest: extendedManifest,
-      outputDirectory: reviewDirectory,
-      evidencePlan
-    });
-    const packetIds = [
-      .../* @__PURE__ */ new Set([
-        ...catalog.requiredSynopsisPacketIds,
-        ...catalog.exactInventoryPacketIds,
-        ...catalog.fullPatchPacketIds
-      ])
-    ];
-    const reviewQueue = writeReviewPacketQueue({
-      catalog,
-      packetIds,
-      queueKind: "initial",
-      outputDirectory: reviewDirectory
-    });
-    const completed = advanceTransaction(transactionPath, "snapshot-created", {
-      ...common,
-      phase: "review-pending",
-      status: "review-pending",
-      route: "extended",
-      inlineEvidence: null,
-      review: {
-        catalogPath: catalog.catalogPath,
-        catalogSha256: catalog.catalogSha256,
-        evidencePlanPath,
-        evidencePlanSha256: evidencePlan.evidencePlanSha256,
-        extendedReason: routing.extendedReason,
-        queue: reviewQueue,
-        receipt: null,
-        semanticStructureRequired: false
-      }
-    });
-    return completed;
-  } finally {
-    cleanupEvidenceSpools(records);
-  }
-}
-function successEnvelope(transaction, summary) {
-  return {
-    schemaVersion: 1,
-    status: "prepared",
-    phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve6(transaction.attemptDirectory, "transaction.json"),
-    route: transaction.route,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    mode: transaction.mode,
-    scope: summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
-      extendedReason: transaction.review.extendedReason,
-      reviewQueue: transaction.review.queue
-    }
-  };
-}
-function interruptionError(error, transactionPath, summary) {
-  let recovery = null;
-  try {
-    recovery = recoverIndexInstallation({
-      root: readTransaction(transactionPath).repositoryRoot,
-      transactionPath
-    });
-  } catch {
-  }
-  return new PreparationError(
-    "INDEX_INSTALLATION_INTERRUPTED",
-    `Prepared index installation did not finish: ${error.message}`,
-    {
-      exitCode: 1,
-      details: {
-        transaction: transactionPath,
-        phase: "allocated",
-        recoveryRequired: true,
-        resumeAllowed: recovery?.resumeAllowed ?? true,
-        recoveryStatus: recovery?.status ?? "not-started",
-        scope: summary
-      }
-    }
-  );
-}
-function stopAllocatedPreparation(error, transactionPath, summary) {
-  try {
-    const current = readTransaction(transactionPath);
-    const stopped = advanceTransaction(transactionPath, "allocated", {
-      ...current,
-      phase: "stopped",
-      status: "stopped",
-      terminalDisposition: "no-commit-stopped"
-    });
-    const stoppedError = new PreparationError(
-      "PREPARATION_STOPPED",
-      `Preparation stopped before index installation: ${error.message}`,
-      {
-        exitCode: 1,
-        details: {
-          transaction: transactionPath,
-          phase: stopped.phase,
-          terminalDisposition: stopped.terminalDisposition,
-          recoveryRequired: false,
-          scope: summary
-        }
-      }
-    );
-    stoppedError.cause = error;
-    return stoppedError;
-  } catch (checkpointError) {
-    const interrupted = new PreparationError(
-      "PREPARATION_CHECKPOINT_INTERRUPTED",
-      `Preparation checkpoint could not be completed: ${checkpointError.message}`,
-      {
-        exitCode: 1,
-        details: {
-          transaction: transactionPath,
-          phase: "allocated",
-          recoveryRequired: true,
-          resumeAllowed: true,
-          scope: summary
-        }
-      }
-    );
-    interrupted.cause = checkpointError;
-    return interrupted;
-  }
-}
-async function prepareWorkflow({
-  options: options2,
-  cwd = process.cwd(),
-  environment = process.env,
-  temporaryRoot,
-  indexFailureInjector
-}) {
-  const parsed = options2 ?? fail("INVALID_ARGUMENT", "Preparation options are required.");
-  let normalizedScope = null;
-  let normalizedEvidence;
-  if (parsed.scope === "paths") {
-    const payload = parsed.scopeFilePath ? readBoundedJson(resolve6(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
-    normalizedScope = normalizeScopePayload(payload);
-  }
-  if (parsed.evidencePlanPath) {
-    normalizedEvidence = normalizeEvidencePlan(
-      readBoundedJson(resolve6(cwd, parsed.evidencePlanPath), "Evidence plan")
-    );
-  } else {
-    normalizedEvidence = normalizeEvidencePlan({
-      schemaVersion: 1,
-      groups: [
-        {
-          selection: { all: true },
-          policy: parsed.evidence,
-          basis: { kind: parsed.basis, note: null }
-        }
-      ]
-    });
-  }
-  assertNoGitStorageOverrides(environment);
-  const root = repositoryRoot(cwd);
-  assertPreallocationRepositoryState(root);
-  const candidates = discoverCandidates(root);
-  let selectedPaths = [];
-  if (parsed.scope === "staged") {
-    if (candidates.staged.length === 0) {
-      fail("EMPTY_SCOPE", "The staged scope is empty.");
-    }
-  } else if (parsed.scope === "full") {
-    if (candidates.paths.length === 0) {
-      fail("EMPTY_SCOPE", "The full workspace scope is empty.");
-    }
-  } else {
-    selectedPaths = validateSelectorsAgainstCandidates(
-      normalizedScope,
-      candidates
-    );
-    if (parsed.mode === "actual" && candidates.staged.length > 0) {
-      fail(
-        "PREEXISTING_STAGED_CHANGES",
-        "Actual path scope requires an initially clean staged index.",
-        {
-          exitCode: 1,
-          details: {
-            stagedChangeUnitCount: candidates.staged.length,
-            stagedSamples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
-          }
-        }
-      );
-    }
-    if (parsed.mode === "draft" && candidates.staged.length > 0) {
-      const stagedKeys = new Set(
-        candidates.staged.flatMap(({ paths }) => paths).map((path) => path.toString("base64"))
-      );
-      const overlap = selectedPaths.filter(
-        (path) => stagedKeys.has(path.toString("base64"))
-      );
-      if (overlap.length > 0) {
-        fail(
-          "DRAFT_SCOPE_OVERLAPS_STAGED",
-          "Draft path scope overlaps existing staged work.",
-          {
-            exitCode: 1,
-            details: {
-              overlapSamples: overlap.slice(0, 5).map(safePathDisplay)
-            }
-          }
-        );
-      }
-    }
-  }
-  const summary = scopeSummary(parsed.scope, normalizedScope, selectedPaths);
-  const workspace = createTransactionWorkspace({
-    repositoryRoot: root,
-    ...temporaryRoot ? { temporaryRoot } : {}
-  });
-  const evidenceSha256 = sha256(normalizedEvidence.canonicalBytes);
-  if (parsed.evidencePlanPath) {
-    writeOwnedInput(
-      getEvidencePlanInputPath(workspace.transactionPath),
-      normalizedEvidence.canonicalBytes
-    );
-  }
-  const initialScope = {
-    schemaVersion: 1,
-    kind: parsed.scope,
-    selectors: normalizedScope?.canonicalPayload ?? null,
-    selectorDigest: summary.canonicalSelectorSha256,
-    expandedPathBytesBase64: parsed.scope === "paths" ? selectedPaths.map((path) => path.toString("base64")) : [],
-    summary
-  };
-  const allocated = updateTransaction(workspace.transactionPath, "allocated", {
-    ...workspace.transaction,
-    mode: parsed.mode,
-    scope: initialScope,
-    repositoryTypePolicy: { allowedTypes: parsed.allowedTypes },
-    initialEvidencePlan: {
-      source: parsed.evidencePlanPath ? "file" : "uniform",
-      sha256: evidenceSha256,
-      groups: normalizedEvidence.plan.groups
-    },
-    verificationPolicy: parsed.verificationPolicy
-  });
-  const snapshotPath = resolve6(workspace.attemptDirectory, "snapshot.json");
-  let snapshotResult;
-  let prepared;
-  try {
-    snapshotResult = createSnapshot({
-      root,
-      mode: parsed.mode,
-      scope: parsed.scope,
-      scopePaths: selectedPaths,
-      outputPath: snapshotPath,
-      preparedIndexPath: parsed.scope === "staged" ? null : resolve6(
-        workspace.attemptDirectory,
-        parsed.mode === "draft" ? "temporary-index" : "preparation-index"
-      ),
-      deferIndexInstallation: parsed.mode === "actual" && parsed.scope !== "staged",
-      stagedPromotionSummary: parsed.mode === "draft" && parsed.scope === "paths" && candidates.staged.length > 0 ? {
-        stagedChangeUnitCount: candidates.staged.length,
-        samples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
-      } : null
-    });
-    verifySnapshotScope(
-      snapshotResult.snapshot,
-      normalizedScope,
-      selectedPaths
-    );
-    const snapshotBytes = readFileSync4(snapshotPath);
-    prepared = updateTransaction(workspace.transactionPath, "allocated", {
-      ...allocated,
-      scope: {
-        ...allocated.scope,
-        promotionBlocker: snapshotResult.promotionBlocker
-      },
-      headAnchor: snapshotResult.headAnchor,
-      snapshot: {
-        path: snapshotPath,
-        sha256: sha256(snapshotBytes),
-        indexTreeOid: snapshotResult.snapshot.indexTreeOid,
-        changeUnitCount: snapshotResult.snapshot.changeUnitCount,
-        preparedIndexPath: snapshotResult.preparedIndexPath,
-        originalIndexIdentity: snapshotResult.originalIndexIdentity,
-        preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
-        temporaryObjectDirectory: snapshotResult.temporaryObjectDirectory,
-        promotionBlocker: snapshotResult.promotionBlocker,
-        indexInstallationRequired: snapshotResult.indexInstallationRequired
-      }
-    });
-  } catch (error) {
-    throw stopAllocatedPreparation(error, workspace.transactionPath, summary);
-  }
-  if (snapshotResult.indexInstallationRequired) {
-    try {
-      const installation = installPreparedIndex({
-        root,
-        transactionPath: workspace.transactionPath,
-        originalIndexIdentity: snapshotResult.originalIndexIdentity,
-        preparedIndexPath: snapshotResult.preparedIndexPath,
-        preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
-        ...indexFailureInjector ? { failureInjector: indexFailureInjector } : {}
-      });
-      if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshotResult.snapshot.indexTreeOid || JSON.stringify(installation.headAnchor) !== JSON.stringify(snapshotResult.headAnchor)) {
-        throw new Error(
-          "Prepared index installation did not preserve the snapshot anchors."
-        );
-      }
-    } catch (error) {
-      throw interruptionError(error, workspace.transactionPath, summary);
-    }
-  }
-  let completed;
-  try {
-    completed = advanceTransaction(workspace.transactionPath, "allocated", {
-      ...prepared,
-      phase: "snapshot-created"
-    });
-  } catch (error) {
-    throw interruptionError(error, workspace.transactionPath, summary);
-  }
-  completed = await routePreparedEvidence({
-    transactionPath: workspace.transactionPath,
-    transaction: completed,
-    manifest: snapshotResult.snapshot,
-    root
-  });
-  const evidencePlanInputPath = getEvidencePlanInputPath(
-    workspace.transactionPath
-  );
-  if (existsSync7(evidencePlanInputPath)) {
-    unlinkSync3(evidencePlanInputPath);
-  }
-  return successEnvelope(completed, summary);
-}
-function errorEnvelope(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: error.details.terminalDisposition ?? null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...Object.fromEntries(
-      Object.entries(error.details).filter(
-        ([key]) => !(/* @__PURE__ */ new Set([
-          "phase",
-          "terminalDisposition",
-          "transaction",
-          "recoveryRequired"
-        ])).has(key)
-      )
-    )
-  };
-}
-function textResult(result) {
-  const lines = [`Status: ${result.status}`];
-  if (result.code) {
-    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
-  }
-  if (result.transaction) {
-    lines.push(`Transaction: ${result.transaction}`);
-  }
-  if (result.indexTreeOid) {
-    lines.push(`Index tree: ${result.indexTreeOid}`);
-  }
-  return `${lines.join("\n")}
-`;
-}
-async function runPrepareWorkflowCommand(argv, {
-  cwd = process.cwd(),
-  environment = process.env,
-  stdout = process.stdout,
-  stderr = process.stderr
-} = {}) {
-  let format = "json";
-  try {
-    const options2 = parsePrepareArguments(argv);
-    format = options2.format;
-    const result = await prepareWorkflow({ options: options2, cwd, environment });
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("PREPARATION_FAILED", caught.message);
-    const result = errorEnvelope(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
-}
-var STORAGE_OVERRIDE_NAMES, EVIDENCE_POLICIES2, BASIS_KINDS2, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, SINGLETON_FLAGS, REPEATABLE_FLAGS, INLINE_SELECTOR_FLAGS, SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS, SELECTION_KEYS, STRICT_UTF8_DECODER3, PreparationError;
-var init_prepareWorkflow = __esm({
-  "src/committing-to-git/workflow/prepareWorkflow.js"() {
-    init_gitRepository();
-    init_gitPath();
-    init_inlineEvidenceCapsule();
-    init_reviewCatalog();
-    init_streamingPacketWriter();
-    init_commitSnapshot();
-    init_createSnapshot();
-    init_createSnapshot();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    STORAGE_OVERRIDE_NAMES = [
-      "GIT_DIR",
-      "GIT_WORK_TREE",
-      "GIT_COMMON_DIR",
-      "GIT_INDEX_FILE",
-      "GIT_OBJECT_DIRECTORY",
-      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-      "GIT_QUARANTINE_PATH",
-      "GIT_NAMESPACE"
-    ];
-    EVIDENCE_POLICIES2 = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
-    BASIS_KINDS2 = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "user-grounded",
-      "generated-derived",
-      "unknown-preexisting"
-    ]);
-    VERIFICATION_POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
-    TYPE_TOKEN_PATTERN2 = /^[a-z][a-z0-9-]{0,31}$/u;
-    SINGLETON_FLAGS = /* @__PURE__ */ new Set([
-      "mode",
-      "scope",
-      "evidence",
-      "basis",
-      "evidence-plan",
-      "scope-file",
-      "verification",
-      "format"
-    ]);
-    REPEATABLE_FLAGS = /* @__PURE__ */ new Set([
-      "allowed-type",
-      "path",
-      "path-prefix",
-      "exclude-path",
-      "exclude-path-prefix"
-    ]);
-    INLINE_SELECTOR_FLAGS = [
-      "path",
-      "path-prefix",
-      "exclude-path",
-      "exclude-path-prefix"
-    ];
-    SCOPE_KEYS = [
-      "schemaVersion",
-      "includePaths",
-      "includePathPrefixes",
-      "excludePaths",
-      "excludePathPrefixes",
-      "includePathBytesBase64",
-      "excludePathBytesBase64"
-    ];
-    EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
-    GROUP_KEYS = ["selection", "policy", "basis"];
-    BASIS_KEYS = ["kind", "note"];
-    SELECTION_KEYS = /* @__PURE__ */ new Set([
-      "all",
-      "remaining",
-      "ids",
-      "destinationPaths",
-      "sourcePaths",
-      "destinationPathPrefixes",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
-    STRICT_UTF8_DECODER3 = new TextDecoder4("utf-8", { fatal: true });
-    PreparationError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "PreparationError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
-  }
-});
-
-// src/committing-to-git/workflow/extendReviewWorkflow.js
-var extendReviewWorkflow_exports = {};
-__export(extendReviewWorkflow_exports, {
-  extendReviewWorkflow: () => extendReviewWorkflow,
-  parseExtendReviewArguments: () => parseExtendReviewArguments,
-  runExtendReviewCommand: () => runExtendReviewCommand
-});
-import {
-  closeSync as closeSync6,
-  constants as fsConstants4,
-  existsSync as existsSync8,
-  fstatSync as fstatSync5,
-  lstatSync as lstatSync4,
-  mkdirSync as mkdirSync6,
-  openSync as openSync6,
-  readFileSync as readFileSync5,
-  unlinkSync as unlinkSync4,
-  writeFileSync as writeFileSync7
-} from "node:fs";
-import { resolve as resolve7 } from "node:path";
-import { TextDecoder as TextDecoder5 } from "node:util";
-function fail2(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
-}
-function readFixedEvidencePlan(path) {
-  const initialPathStat = lstatSync4(path);
-  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile() || initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-    fail2(
-      "INVALID_EVIDENCE_PLAN_INPUT",
-      "The fixed evidence-plan input must be a bounded non-symbolic regular file."
-    );
-  }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
-  const descriptor = openSync6(path, fsConstants4.O_RDONLY + noFollow);
-  try {
-    const before = fstatSync5(descriptor);
-    const bytes = readFileSync5(descriptor);
-    const after = fstatSync5(descriptor);
-    const finalPathStat = lstatSync4(path);
-    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail2(
-        "EVIDENCE_PLAN_INPUT_CHANGED",
-        "The fixed evidence-plan input changed while it was read."
-      );
-    }
-    let text;
-    try {
-      text = STRICT_UTF8_DECODER4.decode(bytes);
-    } catch {
-      fail2(
-        "INVALID_EVIDENCE_PLAN_INPUT",
-        "The fixed evidence-plan input is not strict UTF-8."
-      );
-    }
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch (error) {
-      fail2(
-        "INVALID_EVIDENCE_PLAN_INPUT",
-        `The fixed evidence-plan input is invalid JSON: ${error.message}`
-      );
-    }
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.groups) || JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(["groups", "schemaVersion"])) {
-      fail2(
-        "INVALID_EVIDENCE_PLAN_INPUT",
-        "The fixed evidence-plan input must contain only schemaVersion and groups."
-      );
-    }
-    return payload.groups;
-  } finally {
-    closeSync6(descriptor);
-  }
-}
-function readExactSnapshot(transaction) {
-  const bytes = readFileSync5(transaction.snapshot.path);
-  if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
-    fail2(
-      "SNAPSHOT_CHANGED",
-      "The transaction snapshot changed after preparation.",
-      {
-        exitCode: 1,
-        details: {
-          transaction: resolve7(
-            transaction.snapshot.path,
-            "..",
-            "transaction.json"
-          )
-        }
-      }
-    );
-  }
-  const manifest = JSON.parse(STRICT_UTF8_DECODER4.decode(bytes));
-  if (manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount) {
-    fail2("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
-      exitCode: 1
-    });
-  }
-  return { ...manifest, manifestSha256: transaction.snapshot.sha256 };
-}
-function assertUnchangedAnchor(transaction, manifest) {
-  if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail2("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
-      exitCode: 1
-    });
-  }
-  const operations = activeGitOperations(transaction.repositoryRoot);
-  if (operations.length > 0) {
-    fail2(
-      "ACTIVE_GIT_OPERATION",
-      `Review cannot be extended during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
-    );
-  }
-  if (!indexMatchesTree(
-    transaction.repositoryRoot,
-    manifest.indexTreeOid,
-    manifestEnvironment(manifest)
-  )) {
-    fail2(
-      "INDEX_DRIFT",
-      "The prepared index tree changed before review extension.",
-      {
-        exitCode: 1
-      }
-    );
-  }
-}
-function initialGroups(transaction) {
-  return transaction.initialEvidencePlan.groups.map(
-    ({ selection, policy, basis }) => ({ selection, policy, basis })
-  );
-}
-function writeEvidencePlanRevision(transaction, evidencePlan) {
-  const path = resolve7(
-    transaction.attemptDirectory,
-    `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
-  );
-  const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync8(path)) {
-    if (!readFileSync5(path).equals(bytes)) {
-      fail2(
-        "EVIDENCE_PLAN_COLLISION",
-        "An immutable evidence-plan revision has conflicting bytes."
-      );
-    }
-    return path;
-  }
-  writeFileSync7(path, bytes, { flag: "wx", mode: 384 });
-  return path;
-}
-function extensionResult(transaction) {
-  return {
-    schemaVersion: 1,
-    status: transaction.status,
-    phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve7(transaction.attemptDirectory, "transaction.json"),
-    route: transaction.route,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    mode: transaction.mode,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.review.evidencePlanSha256,
-    capsuleSha256: transaction.review.coveredCapsuleSha256,
-    extendedReason: transaction.review.extendedReason,
-    reviewQueue: transaction.review.queue
-  };
-}
-async function extendReviewWorkflow({ transactionPath, reason }) {
-  if (!EXTENSION_REASONS.has(reason)) {
-    fail2(
-      "INVALID_EXTENSION_REASON",
-      "Review extension reason must be evidence-uncertainty or semantic-structure-required."
-    );
-  }
-  const transaction = readTransaction(transactionPath);
-  if (transaction.phase !== "evidence-ready" || transaction.route !== "concise") {
-    fail2(
-      "EXTENSION_NOT_ALLOWED",
-      `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve7(transactionPath) } }
-    );
-  }
-  const inputPath = getEvidencePlanInputPath(transactionPath);
-  if (reason === "semantic-structure-required" && existsSync8(inputPath)) {
-    fail2(
-      "UNEXPECTED_EVIDENCE_PLAN_INPUT",
-      "Semantic-structure extension forbids an evidence-plan input.",
-      { details: { transaction: resolve7(transactionPath) } }
-    );
-  }
-  if (reason === "evidence-uncertainty" && !existsSync8(inputPath)) {
-    fail2(
-      "MISSING_EVIDENCE_PLAN_INPUT",
-      "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
-      { details: { transaction: resolve7(transactionPath) } }
-    );
-  }
-  const manifest = readExactSnapshot(transaction);
-  assertUnchangedAnchor(transaction, manifest);
-  const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
-  const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
-  const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
-  const reviewDirectory = resolve7(transaction.attemptDirectory, "review");
-  let records = [];
-  try {
-    if (reason === "evidence-uncertainty") {
-      records = await acquireEvidence({
-        root: transaction.repositoryRoot,
-        manifest,
-        evidencePlan,
-        attemptDirectory: transaction.attemptDirectory
-      });
-    }
-    if (records.some(({ empty }) => !empty) && !existsSync8(reviewDirectory)) {
-      mkdirSync6(reviewDirectory);
-    }
-    const packetsByGroupId = await preMaterializePatchPackets({
-      reviewDirectory,
-      records
-    });
-    const extendedManifest = {
-      ...manifest,
-      manifestSha256: evidencePlan.manifestSha256,
-      coveredSynopsis: true,
-      coveredEvidenceGroupIds: reason === "semantic-structure-required" ? evidencePlan.groups.map(({ id }) => id) : [],
-      preMaterializedPacketsByGroupId: packetsByGroupId,
-      evidenceByGroupId: Object.fromEntries(
-        records.filter(({ empty }) => empty).map(({ group }) => [group.id, Buffer.alloc(0)])
-      )
-    };
-    const catalog = createReviewCatalog({
-      manifest: extendedManifest,
-      outputDirectory: reviewDirectory,
-      evidencePlan
-    });
-    const packetIds = [
-      .../* @__PURE__ */ new Set([
-        ...catalog.requiredSynopsisPacketIds,
-        ...catalog.exactInventoryPacketIds,
-        ...catalog.fullPatchPacketIds
-      ])
-    ];
-    const queue = packetIds.length === 0 ? null : writeReviewPacketQueue({
-      catalog,
-      packetIds,
-      queueKind: "delta",
-      outputDirectory: reviewDirectory
-    });
-    const completed = advanceTransaction(transactionPath, "evidence-ready", {
-      ...transaction,
-      phase: "review-pending",
-      status: "review-pending",
-      route: "extended",
-      inlineEvidence: null,
-      review: {
-        catalogPath: catalog.catalogPath,
-        catalogSha256: catalog.catalogSha256,
-        evidencePlanPath,
-        evidencePlanSha256: evidencePlan.evidencePlanSha256,
-        coveredCapsuleSha256: transaction.inlineEvidence.capsuleSha256,
-        extendedReason: reason,
-        queue,
-        receipt: null,
-        semanticStructureRequired: reason === "semantic-structure-required"
-      }
-    });
-    if (reason === "evidence-uncertainty") {
-      unlinkSync4(inputPath);
-    }
-    return extensionResult(completed);
-  } finally {
-    cleanupEvidenceSpools(records);
-  }
-}
-function parseExtendReviewArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--reason", "--format"])).has(token)) {
-      fail2("UNKNOWN_ARGUMENT", `Unknown workflow extend flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail2("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail2("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction") || !values.has("--reason")) {
-    fail2(
-      "MISSING_ARGUMENT",
-      "--transaction and --reason are required for workflow extend."
-    );
-  }
-  const format = values.get("--format") ?? "json";
-  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail2("INVALID_FORMAT", "--format must be json or text.");
-  }
-  return {
-    transactionPath: values.get("--transaction"),
-    reason: values.get("--reason"),
-    format
-  };
-}
-function errorResult(error) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code,
-    message: error.message
-  };
-}
-function textResult2(result) {
-  return [
-    `Status: ${result.status}`,
-    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
-    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
-    ...result.indexTreeOid ? [`Index tree: ${result.indexTreeOid}`] : [],
-    ""
-  ].join("\n");
-}
-async function runExtendReviewCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const options2 = parseExtendReviewArguments(argv);
-    format = options2.format;
-    const result = await extendReviewWorkflow(options2);
-    stdout.write(
-      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("EXTENSION_FAILED", caught.message);
-    const result = errorResult(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
-}
-var STRICT_UTF8_DECODER4, EXTENSION_REASONS;
-var init_extendReviewWorkflow = __esm({
-  "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
-    init_gitRepository();
-    init_reviewCatalog();
-    init_inlineEvidenceCapsule();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    init_prepareWorkflow();
-    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
-    EXTENSION_REASONS = /* @__PURE__ */ new Set([
-      "evidence-uncertainty",
-      "semantic-structure-required"
-    ]);
-  }
-});
-
-// src/committing-to-git/workflow/resumePreparationWorkflow.js
-var resumePreparationWorkflow_exports = {};
-__export(resumePreparationWorkflow_exports, {
-  parseResumeArguments: () => parseResumeArguments,
-  resumePreparationWorkflow: () => resumePreparationWorkflow,
-  runResumePreparationCommand: () => runResumePreparationCommand
-});
-import { createHash as createHash6 } from "node:crypto";
-import { existsSync as existsSync9, lstatSync as lstatSync5, readFileSync as readFileSync6, unlinkSync as unlinkSync5 } from "node:fs";
-import { join as join6, relative as relative4, resolve as resolve8 } from "node:path";
-function fail3(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
-}
-function sha2562(bytes) {
-  return createHash6("sha256").update(bytes).digest("hex");
-}
-function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve8(attemptDirectory, name);
-  const relation = relative4(attemptDirectory, path);
-  if (resolve8(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      `${name} has an invalid recorded path.`
-    );
-  }
-  const stat = lstatSync5(path);
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      `${name} was replaced or is not a file.`
-    );
-  }
-}
-function validatePersistedSnapshot(transaction) {
-  const snapshot = transaction.snapshot;
-  if (snapshot === null || typeof snapshot.path !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.sha256) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(snapshot.indexTreeOid) || !Number.isSafeInteger(snapshot.changeUnitCount) || snapshot.changeUnitCount < 1 || typeof snapshot.indexInstallationRequired !== "boolean") {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      "Transaction snapshot facts are invalid."
-    );
-  }
-  assertContainedExactPath(
-    transaction.attemptDirectory,
-    snapshot.path,
-    "snapshot.json"
-  );
-  const bytes = readFileSync6(snapshot.path);
-  if (sha2562(bytes) !== snapshot.sha256) {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      "snapshot.json digest does not match."
-    );
-  }
-  let manifest;
-  try {
-    manifest = JSON.parse(bytes.toString("utf8"));
-  } catch (error) {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      `snapshot.json is invalid JSON: ${error.message}`
-    );
-  }
-  if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
-    fail3(
-      "INVALID_TRANSACTION_ARTIFACT",
-      "snapshot.json does not match the persisted transaction facts."
-    );
-  }
-  return manifest;
-}
-function assertRepositoryResumePreconditions(transaction) {
-  const operations = activeGitOperations(transaction.repositoryRoot);
-  if (operations.length > 0) {
-    fail3(
-      "ACTIVE_GIT_OPERATION",
-      `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
-    );
-  }
-  const conflicts = runReadOnlyGit(
-    transaction.repositoryRoot,
-    "ls-files",
-    ["-u", "-z"],
-    {
-      env: { GIT_OPTIONAL_LOCKS: "0" }
-    }
-  ).stdout;
-  if (conflicts.length > 0) {
-    fail3(
-      "UNRESOLVED_CONFLICTS",
-      "Preparation cannot resume while unresolved conflicts remain.",
-      { exitCode: 1 }
-    );
-  }
-  const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
-  if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    fail3("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
-      exitCode: 1
-    });
-  }
-}
-function resultEnvelope(transaction) {
-  return {
-    schemaVersion: 1,
-    status: transaction.status ?? "prepared",
-    phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve8(transaction.attemptDirectory, "transaction.json"),
-    route: transaction.route,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    mode: transaction.mode,
-    scope: transaction.scope.summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : transaction.route === "extended" ? {
-      extendedReason: transaction.review.extendedReason,
-      reviewQueue: transaction.review.queue
-    } : {}
-  };
-}
-function assertSnapshotIndexState(transaction, manifest) {
-  const snapshot = transaction.snapshot;
-  if (snapshot.preparedIndexPath) {
-    const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
-    if (!indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)) {
-      fail3(
-        "PREPARED_INDEX_DRIFT",
-        "The transaction-local prepared index changed before resume.",
-        { exitCode: 1 }
-      );
-    }
-    if (!indexMatchesTree(
-      transaction.repositoryRoot,
-      snapshot.indexTreeOid,
-      manifestEnvironment(manifest)
-    )) {
-      fail3(
-        "PREPARED_INDEX_DRIFT",
-        "The transaction-local prepared index no longer matches the snapshot tree.",
-        { exitCode: 1 }
-      );
-    }
-  }
-  if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
-    fail3("INDEX_DRIFT", "The real index changed after snapshot creation.", {
-      exitCode: 1
-    });
-  }
-}
-function removeConsumedEvidencePlanInput(transactionPath) {
-  const evidencePlanInputPath = getEvidencePlanInputPath(transactionPath);
-  if (existsSync9(evidencePlanInputPath)) {
-    unlinkSync5(evidencePlanInputPath);
-  }
-}
-async function finishEvidenceRouting({
-  transactionPath,
-  transaction,
-  manifest
-}) {
-  const completed = await routePreparedEvidence({
-    transactionPath,
-    transaction,
-    manifest,
-    root: transaction.repositoryRoot
-  });
-  removeConsumedEvidencePlanInput(transactionPath);
-  return resultEnvelope(completed);
-}
-async function resumePreparationWorkflow({ transactionPath }) {
-  if (typeof transactionPath !== "string" || transactionPath.length === 0 || Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-    fail3(
-      "INVALID_TRANSACTION_PATH",
-      `Transaction path must be at most ${MAXIMUM_TRANSACTION_PATH_BYTES} UTF-8 bytes.`
-    );
-  }
-  let transaction = readTransaction(transactionPath);
-  if ((/* @__PURE__ */ new Set(["evidence-ready", "review-pending"])).has(transaction.phase)) {
-    validatePersistedSnapshot(transaction);
-    removeConsumedEvidencePlanInput(transactionPath);
-    return resultEnvelope(transaction);
-  }
-  if (transaction.phase === "snapshot-created") {
-    const manifest2 = validatePersistedSnapshot(transaction);
-    assertRepositoryResumePreconditions(transaction);
-    assertSnapshotIndexState(transaction, manifest2);
-    return finishEvidenceRouting({ transactionPath, transaction, manifest: manifest2 });
-  }
-  if (transaction.phase !== "allocated") {
-    fail3(
-      "RESUME_NOT_ALLOWED",
-      `Preparation cannot resume from phase ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve8(transactionPath) } }
-    );
-  }
-  const manifest = validatePersistedSnapshot(transaction);
-  assertRepositoryResumePreconditions(transaction);
-  const snapshot = transaction.snapshot;
-  if (snapshot.indexInstallationRequired) {
-    let installation;
-    try {
-      const journalPath = join6(
-        transaction.attemptDirectory,
-        "index-installation.json"
-      );
-      if (existsSync9(journalPath)) {
-        installation = resumePreparedIndexInstallation({
-          root: transaction.repositoryRoot,
-          transactionPath
-        });
-      } else {
-        installation = installPreparedIndex({
-          root: transaction.repositoryRoot,
-          transactionPath,
-          originalIndexIdentity: snapshot.originalIndexIdentity,
-          preparedIndexPath: snapshot.preparedIndexPath,
-          preparedIndexIdentity: snapshot.preparedIndexIdentity
-        });
-      }
-    } catch (error) {
-      fail3(
-        "INDEX_INSTALLATION_INTERRUPTED",
-        `Prepared index installation resume failed: ${error.message}`,
-        {
-          exitCode: 1,
-          details: {
-            transaction: resolve8(transactionPath),
-            phase: "allocated",
-            recoveryRequired: true
-          }
-        }
-      );
-    }
-    if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshot.indexTreeOid) {
-      fail3(
-        "INDEX_INSTALLATION_MISMATCH",
-        "Resumed index installation does not match the persisted snapshot.",
-        { exitCode: 1 }
-      );
-    }
-  }
-  assertSnapshotIndexState(transaction, manifest);
-  transaction = advanceTransaction(transactionPath, "allocated", {
-    ...transaction,
-    phase: "snapshot-created"
-  });
-  return finishEvidenceRouting({ transactionPath, transaction, manifest });
-}
-function parseResumeArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail3("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail3("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail3("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction")) {
-    fail3("MISSING_TRANSACTION", "--transaction is required.");
-  }
-  const format = values.get("--format") ?? "json";
-  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail3("INVALID_FORMAT", "--format must be json or text.");
-  }
-  return { transactionPath: values.get("--transaction"), format };
-}
-function errorEnvelope2(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message
-  };
-}
-function textResult3(result) {
-  return [
-    `Status: ${result.status}`,
-    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
-    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
-    ""
-  ].join("\n");
-}
-async function runResumePreparationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const options2 = parseResumeArguments(argv);
-    format = options2.format;
-    const result = await resumePreparationWorkflow(options2);
-    stdout.write(
-      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("RESUME_FAILED", caught.message);
-    const result = errorEnvelope2(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
-}
-var init_resumePreparationWorkflow = __esm({
-  "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
-    init_gitRepository();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    init_prepareWorkflow();
-  }
-});
-
-// src/committing-to-git/command/snapshotCommand.js
-var snapshotCommand_exports = {};
-import { readFileSync as readFileSync7 } from "node:fs";
-import { resolve as resolve9 } from "node:path";
-function usageError(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs snapshot create --mode actual|draft --scope staged|full|paths [--scope-file <scope.json>] --output <snapshot.json>"
-  );
-  process.exit(2);
-}
-function parseArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const key = argv[index];
-    const value = argv[index + 1];
-    if (!key?.startsWith("--") || value === void 0) {
-      usageError(`Invalid argument near ${JSON.stringify(key)}.`);
-    }
-    values.set(key.slice(2), value);
-  }
-  const mode = values.get("mode");
-  const scope = values.get("scope");
-  const scopeFile = values.get("scope-file");
-  const output = values.get("output");
-  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
-    usageError("--mode must be actual or draft.");
-  }
-  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
-    usageError("--scope must be staged, full, or paths.");
-  }
-  if (!output) {
-    usageError("--output is required.");
-  }
-  if (scope === "paths" && !scopeFile) {
-    usageError("--scope-file is required for path scope.");
-  }
-  return {
-    mode,
-    scope,
-    scopeFile: scopeFile ? resolve9(scopeFile) : null,
-    output: resolve9(output)
-  };
-}
-function readScopePaths(path) {
-  const payload = JSON.parse(readFileSync7(path, "utf8"));
-  if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.some(
-    (entry) => typeof entry !== "string" || entry.length === 0
-  )) {
-    throw new Error(
-      "Scope file must contain a non-empty string array named paths."
-    );
-  }
-  if (payload.paths.some((entry) => entry.includes("\0"))) {
-    throw new Error("Scope paths cannot contain NUL bytes.");
-  }
-  return payload.paths;
-}
-var options;
-var init_snapshotCommand = __esm({
-  "src/committing-to-git/command/snapshotCommand.js"() {
-    init_gitRepository();
-    init_createSnapshot();
-    options = parseArguments(process.argv.slice(2));
-    try {
-      const result = createSnapshot({
-        root: repositoryRoot(),
-        mode: options.mode,
-        scope: options.scope,
-        scopePaths: options.scopeFile ? readScopePaths(options.scopeFile) : [],
-        outputPath: options.output
-      });
-      process.stdout.write(
-        `${JSON.stringify(
-          {
-            snapshot: options.output,
-            indexTreeOid: result.snapshot.indexTreeOid,
-            changeUnitCount: result.snapshot.changeUnitCount
-          },
-          null,
-          2
-        )}
-`
-      );
-    } catch (error) {
-      console.error(`Commit scope preparation failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/command/snapshotVerificationCommand.js
-var snapshotVerificationCommand_exports = {};
-import { readFileSync as readFileSync8 } from "node:fs";
-import { resolve as resolve10 } from "node:path";
-function usageError2(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs snapshot verify --manifest <snapshot.json>"
-  );
-  process.exit(2);
-}
-function parseArguments2(argv) {
-  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
-    usageError2("--manifest is required.");
-  }
-  return resolve10(argv[1]);
-}
-function samePath2(left, right) {
-  const normalizedLeft = resolve10(left);
-  const normalizedRight = resolve10(right);
-  return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
-}
-function manifestEnvironment2(manifest) {
-  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
-    return void 0;
-  }
-  return {
-    GIT_INDEX_FILE: manifest.indexFile,
-    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
-    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
-        manifest.objectAlternates
-      )
-    } : {}
-  };
-}
-var init_snapshotVerificationCommand = __esm({
-  "src/committing-to-git/command/snapshotVerificationCommand.js"() {
-    init_gitRepository();
-    init_createSnapshot();
-    try {
-      const manifestPath2 = parseArguments2(process.argv.slice(2));
-      const manifest = JSON.parse(readFileSync8(manifestPath2, "utf8"));
-      const root = repositoryRoot();
-      const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath2(root, manifest.repositoryRoot);
-      const env = manifestEnvironment2(manifest);
-      const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
-      const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
-      const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
-      const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
-      const result = {
-        schemaVersion: 1,
-        valid: repositoryMatches && actualHeadOid === manifest.headOid && treeMatches && activeOperations.length === 0,
-        repositoryMatches,
-        headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
-        treeMatches,
-        operationClear: repositoryMatches && activeOperations.length === 0,
-        expectedHeadOid: manifest.headOid ?? null,
-        actualHeadOid,
-        expectedTreeOid: manifest.indexTreeOid ?? null,
-        actualTreeOid,
-        activeOperations
-      };
-      process.stdout.write(`${JSON.stringify(result, null, 2)}
-`);
-      process.exit(result.valid ? 0 : 1);
-    } catch (error) {
-      console.error(`Commit snapshot verification failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
-// src/committing-to-git/inspection/changeInspection.js
-import { createHash as createHash7 } from "node:crypto";
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync9, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname6, join as join7 } from "node:path";
-function sha2563(buffer) {
-  return createHash7("sha256").update(buffer).digest("hex");
-}
-function utf8SafeBoundary(buffer, start, end) {
-  const isContinuation = (byte) => byte >= 128 && byte <= 191;
-  if (end >= buffer.length || end <= start || !isContinuation(buffer[end])) {
-    return end;
-  }
-  let boundary = end;
-  while (boundary > start && isContinuation(buffer[boundary])) {
-    boundary -= 1;
-  }
-  return boundary > start ? boundary : end;
-}
-function splitPatch(buffer) {
-  const chunks = [];
-  for (let start = 0; start < buffer.length; ) {
-    let end = start;
-    let newlineCount = 0;
-    while (end < buffer.length && end - start < MAX_CHUNK_BYTES) {
-      if (buffer[end] === 10) {
-        newlineCount += 1;
-      }
-      end += 1;
-      if (newlineCount === MAX_CHUNK_LINES) {
-        break;
-      }
-    }
-    const lastNewline = buffer.lastIndexOf(10, end - 1);
-    if (lastNewline >= start) {
-      end = lastNewline + 1;
-    } else {
-      end = utf8SafeBoundary(buffer, start, end);
-    }
-    const payload = buffer.subarray(start, end);
-    newlineCount = 0;
-    for (const byte of payload) {
-      if (byte === 10) {
-        newlineCount += 1;
-      }
-    }
-    const endsWithNewline = payload[payload.length - 1] === 10;
-    const lineCount2 = newlineCount + (endsWithNewline ? 0 : 1);
-    chunks.push({ payload, start, end, lineCount: lineCount2 });
-    start = end;
-  }
-  return chunks;
-}
-function isWholeDeletion(unit) {
-  return unit?.oldMode !== "000000" && unit?.newMode === "000000";
-}
-function writeInspection({ outputDir, manifest, patch }) {
-  const chunksDir = join7(outputDir, "chunks");
-  const deletionsDir = join7(outputDir, "deletions");
-  const inventoryDir = join7(outputDir, "inventory");
-  const metadataDir = join7(outputDir, "metadata");
-  const chunks = splitPatch(patch);
-  const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
-  const summarizedTextDeletionLines = summarizedDeletions.reduce(
-    (total, unit) => total + (!unit.binary && unit.oldMode !== "160000" && Number.isInteger(unit.deletions) ? unit.deletions : 0),
-    0
-  );
-  mkdirSync7(outputDir);
-  mkdirSync7(chunksDir);
-  mkdirSync7(deletionsDir);
-  mkdirSync7(inventoryDir);
-  mkdirSync7(metadataDir);
-  const inventoryPayload = Buffer.from(
-    [
-      "# Commit snapshot change inventory",
-      "",
-      ...manifest.changeUnits.map((unit) => {
-        const statistics = unit.binary ? "binary/unavailable" : `+${unit.additions}/-${unit.deletions}`;
-        const deletionSummary = isWholeDeletion(unit) ? `; historical body summarized; old object ${unit.oldOid}; mode ${unit.oldMode}` : "";
-        return `- \`${unit.id}\` ${unit.kind}: ${unit.displayPath} -- ${statistics}${deletionSummary}`;
-      }),
-      ""
-    ].join("\n")
-  );
-  const inventoryUnits = splitPatch(inventoryPayload).map(
-    ({ payload, start, end, lineCount: lineCount2 }, index) => {
-      const id = `I${String(index + 1).padStart(6, "0")}`;
-      const artifact = `inventory/${id}.md`;
-      writeFileSync8(join7(outputDir, artifact), payload);
       return {
-        id,
-        kind: "inventory-page",
-        artifact,
-        byteStart: start,
-        byteEnd: end,
-        byteCount: payload.length,
-        lineCount: lineCount2,
-        sha256: sha2563(payload),
-        status: "pending"
+        policy: group.policy,
+        basis: validateBasis2(group.policy, group.basis)
       };
     }
-  );
-  const textUnits = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
-    const id = `C${String(index + 1).padStart(6, "0")}`;
-    const artifact = `chunks/${id}.patch`;
-    writeFileSync8(join7(outputDir, artifact), payload);
-    return {
-      id,
-      kind: "text-patch",
-      artifact,
-      byteStart: start,
-      byteEnd: end,
-      byteCount: payload.length,
-      lineCount: lineCount2,
-      sha256: sha2563(payload),
-      status: "pending"
-    };
   });
-  const metadataUnits = manifest.changeUnits.filter((unit) => unit.binary || unit.kind === "submodule-changed").map((unit, index) => {
-    const id = `M${String(index + 1).padStart(6, "0")}`;
-    const kind = unit.binary ? "binary" : "submodule";
-    const artifact = `metadata/${id}.json`;
-    const metadata = unit.binary ? {
-      changeUnitId: unit.id,
-      kind,
-      path: unit.destinationPath,
-      additions: null,
-      deletions: null
-    } : {
-      changeUnitId: unit.id,
-      kind,
-      path: unit.destinationPath,
-      oldOid: unit.oldOid,
-      newOid: unit.newOid
-    };
-    const payload = Buffer.from(`${JSON.stringify(metadata, null, 2)}
-`);
-    writeFileSync8(join7(outputDir, artifact), payload);
-    return {
-      id,
-      kind: unit.binary ? "binary-metadata" : "submodule-metadata",
-      artifact,
-      byteStart: 0,
-      byteEnd: payload.length,
-      byteCount: payload.length,
-      lineCount: payload.toString("utf8").split("\n").length - 1,
-      sha256: sha2563(payload),
-      status: "pending"
-    };
-  });
-  const units = [...inventoryUnits, ...textUnits, ...metadataUnits];
-  const ledger = {
-    schemaVersion: 2,
-    indexTreeOid: manifest.indexTreeOid,
-    reviewPatchSha256: sha2563(patch),
-    reviewPatchBytes: patch.length,
-    summarizedDeletionCount: summarizedDeletions.length,
-    summarizedTextDeletionLines,
-    expandedDeletions: [],
-    unitCount: units.length,
-    reviewedCount: 0,
-    complete: units.length === 0,
-    units
-  };
-  const inventory = [
-    "# Commit snapshot inventory",
-    "",
-    `- Index tree: \`${manifest.indexTreeOid}\``,
-    `- File change units: ${manifest.changeUnitCount}`,
-    `- Required patch bytes: ${patch.length}`,
-    `- Inventory pages: ${inventoryUnits.length}`,
-    `- Required text chunks: ${textUnits.length}`,
-    `- Summarized whole-file deletions: ${summarizedDeletions.length} (${summarizedTextDeletionLines} text lines)`,
-    `- Metadata units: ${metadataUnits.length}`,
-    "",
-    "Process one pending artifact at a time:",
-    "1. Read exactly one pending artifact in a dedicated tool action.",
-    "2. Confirm that the complete artifact was returned without truncation.",
-    "3. Then acknowledge its recorded ID and SHA-256 before reading the next artifact.",
-    "Tool output limits apply to the combined response, so batching or parallel reads can truncate evidence before review.",
-    "",
-    "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
-    ""
-  ].join("\n");
-  writeFileSync8(join7(outputDir, "inventory.md"), inventory);
-  writeFileSync8(
-    join7(outputDir, "ledger.json"),
-    `${JSON.stringify(ledger, null, 2)}
-`
+  const sharedRationales = resolveOverlappingGroups(
+    manifest,
+    content.sharedRationales ?? [],
+    "shared rationale"
   );
-  return ledger;
-}
-function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content }) {
-  const ledger = JSON.parse(readFileSync9(ledgerPath2, "utf8"));
-  if (ledger.schemaVersion !== 2) {
-    throw new Error(
-      "Deletion expansion requires an inspection ledger version 2."
-    );
-  }
-  if (ledger.expandedDeletions.some(
-    ({ changeUnitId }) => changeUnitId === changeUnit.id
-  )) {
-    throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
-  }
-  const inspectionDir = dirname6(ledgerPath2);
-  const deletionDir = join7(inspectionDir, "deletions", changeUnit.id);
-  const chunks = splitPatch(content);
-  mkdirSync7(deletionDir);
-  const units = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
-    const ordinal = `D${String(index + 1).padStart(6, "0")}`;
-    const id = `${changeUnit.id}-${ordinal}`;
-    const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
-    writeFileSync8(join7(inspectionDir, artifact), payload);
-    return {
-      id,
-      kind: "deleted-content",
-      changeUnitId: changeUnit.id,
-      artifact,
-      byteStart: start,
-      byteEnd: end,
-      byteCount: payload.length,
-      lineCount: lineCount2,
-      sha256: sha2563(payload),
-      status: "pending"
-    };
-  });
-  const expansion = {
-    changeUnitId: changeUnit.id,
-    oldOid: changeUnit.oldOid,
-    byteCount: content.length,
-    sha256: sha2563(content),
-    unitIds: units.map(({ id }) => id)
-  };
-  ledger.expandedDeletions.push(expansion);
-  ledger.units.push(...units);
-  ledger.unitCount = ledger.units.length;
-  ledger.reviewedCount = ledger.units.filter(
-    ({ status }) => status === "reviewed"
-  ).length;
-  ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync8(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
-`);
-  return { ledger, expansion, units };
-}
-function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) {
-  const ledger = JSON.parse(readFileSync9(ledgerPath2, "utf8"));
-  const unit = ledger.units.find((candidate) => candidate.id === id);
-  if (!unit) {
-    throw new Error(`Unknown inspection unit ${id}.`);
-  }
-  const artifactPath = join7(dirname6(ledgerPath2), unit.artifact);
-  const actualSha256 = sha2563(readFileSync9(artifactPath));
-  if (actualSha256 !== unit.sha256 || actualSha256 !== expectedSha256) {
-    throw new Error(`Inspection unit ${id} changed after it was generated.`);
-  }
-  unit.status = "reviewed";
-  ledger.reviewedCount = ledger.units.filter(
-    ({ status }) => status === "reviewed"
-  ).length;
-  ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync8(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
-`);
-  return ledger;
-}
-var MAX_CHUNK_LINES, MAX_CHUNK_BYTES;
-var init_changeInspection = __esm({
-  "src/committing-to-git/inspection/changeInspection.js"() {
-    MAX_CHUNK_LINES = 200;
-    MAX_CHUNK_BYTES = 16 * 1024;
-  }
-});
-
-// src/committing-to-git/command/inspectionCommand.js
-var inspectionCommand_exports = {};
-import { readFileSync as readFileSync10 } from "node:fs";
-import { resolve as resolve11 } from "node:path";
-function usageError3(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory> | inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001> | inspection acknowledge --ledger <ledger.json> --id <id> --sha256 <hash> | inspection status --ledger <ledger.json>"
+  const fileNotes = resolveOverlappingGroups(
+    manifest,
+    content.fileNotes ?? [],
+    "file note"
   );
-  process.exit(2);
-}
-function parseFlags(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError3(`Invalid argument near ${JSON.stringify(argv[index])}.`);
-    }
-    values.set(argv[index].slice(2), argv[index + 1]);
-  }
-  return values;
-}
-function required(values, name) {
-  const value = values.get(name);
-  if (!value) {
-    usageError3(`--${name} is required.`);
-  }
-  return value;
-}
-function patchForManifest(manifest, root) {
-  const env = manifestEnvironment3(manifest);
-  if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
-    throw new Error(
-      `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`
-    );
-  }
-  const base = manifest.headOid ? [manifest.headOid] : [];
-  return runReadOnlyGit(
-    root,
-    "diff",
-    ["--cached", "--no-renames", "--diff-filter=d", ...base, "--"],
-    { env }
-  ).stdout;
-}
-function manifestEnvironment3(manifest) {
-  if (!manifest.indexFile) {
-    return void 0;
+  let domains = [];
+  if (content.mode === "bulk") {
+    domains = resolvePartition(manifest, content.domains, {
+      label: "Domain",
+      validateGroup(group, index) {
+        if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
+          throw new Error(`Domain group ${index + 1} has an invalid title.`);
+        }
+        return {
+          title: group.title,
+          reasons: validateReasons(group.reasons, `Domain group ${index + 1}`)
+        };
+      }
+    }).resolved;
+  } else if (content.mode !== "detailed") {
+    throw new Error("Semantic message mode must be detailed or bulk.");
+  } else if (content.domains !== void 0 && content.domains.length > 0) {
+    throw new Error("Detailed semantic content cannot contain bulk domains.");
   }
   return {
-    GIT_INDEX_FILE: manifest.indexFile,
-    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
-    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
-        manifest.objectAlternates
-      )
-    } : {}
+    coveredIds: evidenceCoverage.assignedIds,
+    evidenceGroups: evidenceCoverage.resolved,
+    sharedRationales,
+    domains,
+    fileNotes
   };
 }
-var command, flagArguments, flags;
-var init_inspectionCommand = __esm({
-  "src/committing-to-git/command/inspectionCommand.js"() {
-    init_changeInspection();
-    init_gitRepository();
-    init_createSnapshot();
-    [command, ...flagArguments] = process.argv.slice(2);
-    flags = parseFlags(flagArguments);
-    try {
-      if (command === "prepare") {
-        const manifestPath2 = resolve11(required(flags, "manifest"));
-        const outputDir = resolve11(required(flags, "output-dir"));
-        const manifest = JSON.parse(readFileSync10(manifestPath2, "utf8"));
-        const root = repositoryRoot();
-        if (resolve11(manifest.repositoryRoot) !== resolve11(root)) {
-          throw new Error("Snapshot manifest belongs to a different repository.");
-        }
-        const ledger = writeInspection({
-          outputDir,
-          manifest,
-          patch: patchForManifest(manifest, root)
-        });
-        process.stdout.write(
-          `${JSON.stringify(
-            {
-              ledger: resolve11(outputDir, "ledger.json"),
-              unitCount: ledger.unitCount,
-              requiredTextChunkCount: ledger.units.filter(
-                ({ kind }) => kind === "text-patch"
-              ).length,
-              summarizedDeletionCount: ledger.summarizedDeletionCount,
-              complete: ledger.complete
-            },
-            null,
-            2
-          )}
-`
-        );
-      } else if (command === "expand-deletion") {
-        const manifestPath2 = resolve11(required(flags, "manifest"));
-        const ledgerPath2 = resolve11(required(flags, "ledger"));
-        const changeUnitId = required(flags, "change-unit");
-        const manifest = JSON.parse(readFileSync10(manifestPath2, "utf8"));
-        const ledger = JSON.parse(readFileSync10(ledgerPath2, "utf8"));
-        const root = repositoryRoot();
-        if (resolve11(manifest.repositoryRoot) !== resolve11(root)) {
-          throw new Error("Snapshot manifest belongs to a different repository.");
-        }
-        if (ledger.indexTreeOid !== manifest.indexTreeOid) {
-          throw new Error("Inspection ledger belongs to a different index tree.");
-        }
-        const changeUnit = manifest.changeUnits.find(
-          ({ id }) => id === changeUnitId
-        );
-        if (!changeUnit) {
-          throw new Error(`Unknown change unit ${changeUnitId}.`);
-        }
-        if (!isWholeDeletion(changeUnit)) {
-          throw new Error(
-            `Change unit ${changeUnitId} is not a whole-file deletion.`
-          );
-        }
-        if (changeUnit.binary) {
-          throw new Error(
-            `Change unit ${changeUnitId} is binary; inspect its content separately.`
-          );
-        }
-        if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(changeUnit.oldOid)) {
-          throw new Error(
-            `Change unit ${changeUnitId} has an invalid full old object ID.`
-          );
-        }
-        const readOnlyEnv = manifestEnvironment3(manifest);
-        const objectType = readOnlyGitText(
-          root,
-          "cat-file",
-          ["-t", changeUnit.oldOid],
-          { env: readOnlyEnv }
-        ).trim();
-        if (objectType !== "blob") {
-          throw new Error(
-            `Old object ${changeUnit.oldOid} must identify a blob object, not ${objectType}.`
-          );
-        }
-        const content = runReadOnlyGit(
-          root,
-          "cat-file",
-          ["blob", changeUnit.oldOid],
-          {
-            env: readOnlyEnv
-          }
-        ).stdout;
-        const expansion = expandDeletionInspection({
-          ledgerPath: ledgerPath2,
-          changeUnit,
-          content
-        });
-        process.stdout.write(
-          `${JSON.stringify(
-            {
-              ledger: ledgerPath2,
-              changeUnitId,
-              oldOid: changeUnit.oldOid,
-              byteCount: expansion.expansion.byteCount,
-              unitIds: expansion.expansion.unitIds,
-              complete: expansion.ledger.complete
-            },
-            null,
-            2
-          )}
-`
-        );
-      } else if (command === "ack") {
-        const ledger = acknowledgeInspection({
-          ledgerPath: resolve11(required(flags, "ledger")),
-          id: required(flags, "id"),
-          expectedSha256: required(flags, "sha256")
-        });
-        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
-`);
-      } else if (command === "status") {
-        const ledger = JSON.parse(
-          readFileSync10(resolve11(required(flags, "ledger")), "utf8")
-        );
-        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
-`);
-      } else {
-        usageError3("Expected prepare, expand-deletion, ack, or status command.");
-      }
-    } catch (error) {
-      console.error(`Commit scope inspection failed: ${error.message}`);
-      process.exit(2);
-    }
+function compareChangeUnitsByRawPath(left, right) {
+  const destination = Buffer2.compare(
+    pathBytes2(left, "destination") ?? Buffer2.alloc(0),
+    pathBytes2(right, "destination") ?? Buffer2.alloc(0)
+  );
+  if (destination !== 0) {
+    return destination;
   }
-});
-
-// src/committing-to-git/message/changeSelection.js
-var MAXIMUM_CANONICAL_MESSAGE_BYTES, ARRAY_SELECTOR_FIELDS2, SELECTOR_FIELDS2;
+  const source = Buffer2.compare(
+    pathBytes2(left, "source") ?? Buffer2.alloc(0),
+    pathBytes2(right, "source") ?? Buffer2.alloc(0)
+  );
+  if (source !== 0) {
+    return source;
+  }
+  return Buffer2.compare(Buffer2.from(left.id), Buffer2.from(right.id));
+}
+function formatMessagePath(rawPathBytes) {
+  if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
+    throw new Error("Message path identity must be raw bytes.");
+  }
+  const bytes = Buffer2.from(rawPathBytes);
+  let decoded;
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    decoded = null;
+  }
+  if (decoded !== null && decoded.length > 0 && !PROHIBITED_RENDERED_PATH_CHARACTER.test(decoded)) {
+    return `\`${decoded}\``;
+  }
+  return `\`path-bytes-base64:${bytes.toString("base64")}\``;
+}
+function formatChangeUnitPath(unit) {
+  const destination = formatMessagePath(pathBytes2(unit, "destination"));
+  if (unit.kind !== "renamed") {
+    return destination;
+  }
+  const source = pathBytes2(unit, "source");
+  if (source === null) {
+    throw new Error(`Rename ${unit.id} has no recorded source path.`);
+  }
+  return `${formatMessagePath(source)} -> ${destination}`;
+}
+function selectMessagePresentation({
+  changeUnitCount,
+  projectedDetailedBytes,
+  maximumBytes = MAXIMUM_CANONICAL_MESSAGE_BYTES
+}) {
+  if (!Number.isSafeInteger(changeUnitCount) || changeUnitCount < 1 || !Number.isSafeInteger(projectedDetailedBytes) || projectedDetailedBytes < 0 || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new Error("Message presentation inputs must be bounded integers.");
+  }
+  return changeUnitCount >= 50 || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
+}
+var MAXIMUM_CANONICAL_MESSAGE_BYTES, ARRAY_SELECTOR_FIELDS2, SELECTOR_FIELDS2, EVIDENCE_POLICIES2, BASIS_KINDS2, REUSE_BASIS_KINDS2, MAXIMUM_BASIS_NOTE_BYTES3, PROHIBITED_RENDERED_PATH_CHARACTER;
 var init_changeSelection = __esm({
   "src/committing-to-git/message/changeSelection.js"() {
     MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
@@ -7670,32 +5556,579 @@ var init_changeSelection = __esm({
       "kinds"
     ]);
     SELECTOR_FIELDS2 = /* @__PURE__ */ new Set(["all", "remaining", ...ARRAY_SELECTOR_FIELDS2]);
+    EVIDENCE_POLICIES2 = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
+    BASIS_KINDS2 = /* @__PURE__ */ new Set([
+      "authored-current-task",
+      "read-current-task",
+      "task-lineage",
+      "user-grounded",
+      "generated-derived",
+      "unknown-preexisting"
+    ]);
+    REUSE_BASIS_KINDS2 = /* @__PURE__ */ new Set([
+      "authored-current-task",
+      "read-current-task",
+      "task-lineage",
+      "generated-derived"
+    ]);
+    MAXIMUM_BASIS_NOTE_BYTES3 = 512;
+    PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
   }
 });
 
 // src/committing-to-git/message/approvedMessage.js
-var SECTION_ORDER;
+import { createHash as createHash6 } from "node:crypto";
+import { Buffer as Buffer3 } from "node:buffer";
+function fail(code, message, details = {}) {
+  throw new ApprovedMessageError(code, message, details);
+}
+function scalarLength(value) {
+  return [...value].length;
+}
+function isCapitalizedDescription(description) {
+  const first = [...description][0] ?? "";
+  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
+}
+function validateRepositoryType(type, repositoryTypePolicy) {
+  if (repositoryTypePolicy === null || repositoryTypePolicy === void 0 || repositoryTypePolicy.allowedTypes === null || repositoryTypePolicy.allowedTypes === void 0 || Array.isArray(repositoryTypePolicy.allowedTypes) && repositoryTypePolicy.allowedTypes.length === 0) {
+    return;
+  }
+  if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
+    fail(
+      "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
+      "Repository type policy must provide an allowedTypes array or null."
+    );
+  }
+  if (!repositoryTypePolicy.allowedTypes.includes(type)) {
+    fail(
+      "SUBJECT_TYPE_NOT_ALLOWED",
+      `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
+      { type, allowedTypes: repositoryTypePolicy.allowedTypes }
+    );
+  }
+}
+function parseSubject(subjectText, repositoryTypePolicy) {
+  const match = SUBJECT_PATTERN.exec(subjectText);
+  if (!match) {
+    fail(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject must match <type>: <description> or <type>(<scope>): <description>."
+    );
+  }
+  const { type, description } = match.groups;
+  const scope = match.groups.scope ?? null;
+  if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
+    fail(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject description must be one exact nonempty line without controls or surrounding whitespace."
+    );
+  }
+  if (!isCapitalizedDescription(description)) {
+    fail(
+      "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
+      "Subject description must begin with an uppercase Unicode cased letter."
+    );
+  }
+  if (description.endsWith(".")) {
+    fail(
+      "SUBJECT_TRAILING_PERIOD",
+      "Subject description must not end with an ASCII period."
+    );
+  }
+  if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
+    fail(
+      "SUBJECT_SCOPE_INVALID",
+      "Subject scope must be one exact nonempty value without parentheses or controls."
+    );
+  }
+  const length = scalarLength(subjectText);
+  if (length > MAXIMUM_SUBJECT_SCALARS) {
+    fail(
+      "SUBJECT_TOO_LONG",
+      `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
+      { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
+    );
+  }
+  validateRepositoryType(type, repositoryTypePolicy);
+  return {
+    text: subjectText,
+    type,
+    scope,
+    description,
+    scalarLength: length
+  };
+}
+function canonicalBytes(value) {
+  if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
+    fail("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
+  }
+  return Buffer3.from(value);
+}
+function decodeCanonicalMessage(bytes) {
+  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
+      {
+        byteCount: bytes.length,
+        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+        remedy: "Shorten prose or combine truthful structured domains without changing scope."
+      }
+    );
+  }
+  if (bytes.length === 0 || bytes.at(-1) !== 10) {
+    fail(
+      "TERMINAL_LF_REQUIRED",
+      "Canonical message bytes must end in exactly one LF."
+    );
+  }
+  if (bytes.length > 1 && bytes.at(-2) === 10) {
+    fail(
+      "MULTIPLE_TERMINAL_LF",
+      "Canonical message bytes must not end in multiple LF bytes."
+    );
+  }
+  if (bytes.includes(13)) {
+    fail(
+      "CARRIAGE_RETURN_FORBIDDEN",
+      "Canonical message bytes must not contain CR or CRLF."
+    );
+  }
+  if (bytes.includes(0)) {
+    fail("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
+  }
+  for (const character of text) {
+    if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
+      fail(
+        "PROHIBITED_UNICODE_CHARACTER",
+        "Canonical message contains a prohibited Unicode control or format character."
+      );
+    }
+  }
+  return text;
+}
+function assertUsefulEntry(text, label) {
+  if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
+    fail("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
+  }
+}
+function parseNarrativeSection(lines, heading) {
+  const entries = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith("  - ")) {
+      const text = line.slice(4);
+      assertUsefulEntry(text, heading);
+      current = text;
+      entries.push(text);
+    } else if (line.startsWith("    ") && current !== null) {
+      const continuation = line.slice(4);
+      assertUsefulEntry(continuation, heading);
+      entries[entries.length - 1] += `
+${continuation}`;
+    } else {
+      fail(
+        "SECTION_ENTRY_FORMAT_INVALID",
+        `${heading} entries must use two-space bullets with aligned continuations.`
+      );
+    }
+  }
+  if (entries.length === 0) {
+    fail("EMPTY_SECTION", `${heading} cannot be present without entries.`);
+  }
+  return entries;
+}
+function expectedDetailedInventory(manifest) {
+  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
+    fail(
+      "INVALID_MESSAGE_MANIFEST",
+      "Approved-message validation requires one exact nonempty manifest."
+    );
+  }
+  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const width = String(units.length).length;
+  return units.map((unit, index) => ({
+    id: unit.id,
+    label: formatChangeUnitPath(unit),
+    ordinal: index + 1,
+    line: `${"  "}${String(index + 1).padStart(width, " ")}. ${formatChangeUnitPath(unit)}`
+  }));
+}
+function parseDetailedInventory(lines, manifest) {
+  if (manifest.changeUnitCount >= 50) {
+    fail(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+      "A counted bulk inventory must be derived by the structured extended finalizer.",
+      { remedy: "Extend for semantic structure or omit File Changes." }
+    );
+  }
+  const expected = expectedDetailedInventory(manifest);
+  const expectedLabels = new Set(expected.map(({ label }) => label));
+  const width = String(expected.length).length;
+  const notePrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  const listed = [];
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      const ordinal = Number(match[1]);
+      const label = match[2];
+      if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
+        fail(
+          "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+          "Free-form counted domains cannot prove manifest membership.",
+          { remedy: "Use the structured extended finalizer." }
+        );
+      }
+      if (listed.some((entry) => entry.label === label)) {
+        fail(
+          "FILE_INVENTORY_DUPLICATE",
+          `Detailed inventory repeats ${label}.`
+        );
+      }
+      if (!expectedLabels.has(label)) {
+        fail(
+          "FILE_INVENTORY_UNKNOWN_PATH",
+          `Detailed inventory path ${label} does not identify a manifest change unit.`
+        );
+      }
+      current = { ordinal, label, notes: [], line };
+      listed.push(current);
+      continue;
+    }
+    if (line.startsWith(notePrefix) && current !== null) {
+      const note = line.slice(notePrefix.length);
+      assertUsefulEntry(note, "File Changes:");
+      current.notes.push(note);
+      continue;
+    }
+    if (line.startsWith(continuationPrefix) && current?.notes.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.notes[current.notes.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail(
+      "FILE_INVENTORY_INCOMPLETE",
+      `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
+      fail(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
+      );
+    }
+  }
+  return listed;
+}
+function parseStructuredBulkInventory(lines, manifest, structuredContent) {
+  const coverage = resolveSemanticCoverage(manifest, structuredContent);
+  const expected = coverage.domains.map((domain, index) => {
+    const count = domain.units.length;
+    const width2 = String(coverage.domains.length).length;
+    return {
+      ordinal: index + 1,
+      label: `${domain.title} (${count} ${count === 1 ? "file" : "files"})`,
+      prefix: `  ${String(index + 1).padStart(width2, " ")}. `
+    };
+  });
+  const listed = [];
+  const width = String(expected.length).length;
+  const reasonPrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      current = {
+        ordinal: Number(match[1]),
+        label: match[2],
+        reasons: [],
+        line
+      };
+      listed.push(current);
+      continue;
+    }
+    if (line.startsWith(reasonPrefix) && current !== null) {
+      const reason = line.slice(reasonPrefix.length);
+      assertUsefulEntry(reason, "File Changes:");
+      current.reasons.push(reason);
+      continue;
+    }
+    if (line.startsWith(continuationPrefix) && current?.reasons.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.reasons[current.reasons.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail(
+      "FILE_INVENTORY_INCOMPLETE",
+      "Structured bulk rendering does not contain every derived domain."
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
+      fail(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Structured bulk rendering must preserve derived domain order, counts, and reasons."
+      );
+    }
+  }
+  return listed;
+}
+function parseSections(bodyLines, manifest, { messageSource, structuredContent }) {
+  const parsed = {
+    rationale: { present: false, entries: [] },
+    userExperience: { present: false, entries: [] },
+    fileChanges: { present: false, entries: [] }
+  };
+  if (bodyLines.length === 0) {
+    return parsed;
+  }
+  if (bodyLines[0] !== "") {
+    fail(
+      "SECTION_SPACING_INVALID",
+      "Subject and body must be separated by exactly one blank line."
+    );
+  }
+  let index = 1;
+  let priorOrder = -1;
+  while (index < bodyLines.length) {
+    const heading = bodyLines[index];
+    const order = SECTION_ORDER.indexOf(heading);
+    if (order < 0 || order <= priorOrder) {
+      fail(
+        "SECTION_ORDER_INVALID",
+        "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
+      );
+    }
+    priorOrder = order;
+    index += 1;
+    const entries = [];
+    while (index < bodyLines.length && bodyLines[index] !== "") {
+      entries.push(bodyLines[index]);
+      index += 1;
+    }
+    if (entries.length === 0) {
+      fail("EMPTY_SECTION", `${heading} cannot be empty.`);
+    }
+    if (heading === "Rationale:") {
+      parsed.rationale = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else if (heading === "User Experience Changes:") {
+      parsed.userExperience = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else {
+      parsed.fileChanges = {
+        present: true,
+        entries: messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? parseStructuredBulkInventory(entries, manifest, structuredContent) : parseDetailedInventory(entries, manifest)
+      };
+    }
+    if (index < bodyLines.length) {
+      index += 1;
+      if (index >= bodyLines.length || bodyLines[index] === "") {
+        fail(
+          "SECTION_SPACING_INVALID",
+          "Sections must be separated by exactly one blank line."
+        );
+      }
+    }
+  }
+  return parsed;
+}
+function isFileIdentityLine(line) {
+  return /^ {2,}[0-9]+\. /u.test(line);
+}
+function presentationWarnings(lines) {
+  const warnings = [];
+  lines.forEach((line, index) => {
+    const length = scalarLength(line);
+    if (index === 0 || length <= MAXIMUM_BODY_LINE_SCALARS) {
+      return;
+    }
+    const trimmed = line.trim();
+    const words = trimmed.split(/\s+/u);
+    const formattedIdentity = isFileIdentityLine(line);
+    if (!formattedIdentity && words.length > 1) {
+      const longest = Math.max(...words.map(scalarLength));
+      if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
+        fail(
+          "BODY_LINE_AVOIDABLY_OVERLONG",
+          `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
+          { lineNumber: index + 1, scalarLength: length }
+        );
+      }
+    }
+    warnings.push({
+      lineNumber: index + 1,
+      scalarLength: length,
+      reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
+    });
+  });
+  const sha2566 = warnings.length === 0 ? null : createHash6("sha256").update(JSON.stringify(warnings)).digest("hex");
+  return {
+    count: warnings.length,
+    samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
+    sha256: sha2566
+  };
+}
+function canUseDirectSubjectTransport(subject) {
+  if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
+    return false;
+  }
+  try {
+    parseSubject(subject, { allowedTypes: [] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function validateApprovedMessage({
+  manifest,
+  route,
+  bytes: inputBytes,
+  repositoryTypePolicy,
+  messageSource,
+  structuredContent = null
+}) {
+  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && messageSource === "structured-finalizer";
+  if (!sourceAllowed) {
+    fail(
+      "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
+      "Direct or checked text is valid only for a concise transaction; extended messages require structured finalization."
+    );
+  }
+  const bytes = canonicalBytes(inputBytes);
+  const displayText = decodeCanonicalMessage(bytes);
+  const withoutTerminalLf = displayText.slice(0, -1);
+  const lines = withoutTerminalLf.split("\n");
+  const subject = parseSubject(lines[0] ?? "", repositoryTypePolicy);
+  const sections = parseSections(lines.slice(1), manifest, {
+    messageSource,
+    structuredContent
+  });
+  if (messageSource === "approved-subject") {
+    if (lines.length !== 1) {
+      fail(
+        "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
+        "Direct subject transport cannot contain a body."
+      );
+    }
+    if (!canUseDirectSubjectTransport(subject.text)) {
+      fail(
+        "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
+        "Subject is valid canonical text but is outside the conservative direct transport set."
+      );
+    }
+    if (!bytes.equals(Buffer3.from(`${subject.text}
+`, "utf8"))) {
+      fail(
+        "DIRECT_SUBJECT_ENCODING_INVALID",
+        "Direct subject bytes must equal the deterministic subject plus one LF encoding."
+      );
+    }
+  }
+  const warnings = presentationWarnings(lines);
+  const messageSha256 = createHash6("sha256").update(bytes).digest("hex");
+  const presentationEntryCount = sections.fileChanges.entries.length;
+  const listedCount = messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? manifest.changeUnitCount : presentationEntryCount;
+  return {
+    schemaVersion: 1,
+    valid: true,
+    route,
+    messageSource,
+    byteCount: bytes.length,
+    messageSha256,
+    displayText,
+    subject,
+    sections: {
+      rationale: {
+        present: sections.rationale.present,
+        entryCount: sections.rationale.entries.length
+      },
+      userExperience: {
+        present: sections.userExperience.present,
+        entryCount: sections.userExperience.entries.length
+      },
+      fileChanges: {
+        present: sections.fileChanges.present,
+        entryCount: presentationEntryCount
+      }
+    },
+    files: {
+      expectedCount: manifest.changeUnitCount,
+      listedCount,
+      setMatches: !sections.fileChanges.present || listedCount === manifest.changeUnitCount,
+      orderValid: true,
+      unique: true
+    },
+    presentationWarnings: warnings
+  };
+}
+var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN, ApprovedMessageError;
 var init_approvedMessage = __esm({
   "src/committing-to-git/message/approvedMessage.js"() {
     init_changeSelection();
     init_changeSelection();
+    MAXIMUM_SUBJECT_SCALARS = 72;
+    MAXIMUM_BODY_LINE_SCALARS = 72;
+    MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
+    DIRECT_SUBJECT_TRANSPORT_PATTERN = /^[A-Za-z0-9 ():,._/+-]+$/u;
+    SUBJECT_PATTERN = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u;
+    PROHIBITED_UNICODE_CHARACTER = /[\p{Cc}\p{Cf}]/u;
     SECTION_ORDER = Object.freeze([
       "Rationale:",
       "User Experience Changes:",
       "File Changes:"
     ]);
+    PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
+    ApprovedMessageError = class extends Error {
+      constructor(code, message, details = {}) {
+        super(message);
+        this.name = "ApprovedMessageError";
+        this.code = code;
+        this.details = details;
+      }
+    };
   }
 });
 
 // src/committing-to-git/message/commitMessageRenderer.js
-import { Buffer as Buffer2 } from "node:buffer";
+import { Buffer as Buffer4 } from "node:buffer";
 function characterLength(text) {
   return [...text].length;
 }
 function containsControlCharacter(text) {
   return /[\u0000-\u001f\u007f]/u.test(text);
 }
-function isCapitalizedDescription(description) {
+function isCapitalizedDescription2(description) {
   const [first = ""] = description;
   return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
 }
@@ -7715,7 +6148,7 @@ function escapedPathBytes(bytes) {
   return `"${result}"`;
 }
 function safeCodeSpan(path, bytesBase64) {
-  const bytes = Buffer2.from(bytesBase64, "base64");
+  const bytes = Buffer4.from(bytesBase64, "base64");
   let decoded;
   try {
     decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -7728,16 +6161,16 @@ function safeCodeSpan(path, bytesBase64) {
   return JSON.stringify(decoded || path);
 }
 function sortKey(unit) {
-  return Buffer2.from(unit.destinationPathBytesBase64, "base64");
+  return Buffer4.from(unit.destinationPathBytesBase64, "base64");
 }
 function compareChangeUnits(left, right) {
-  const destinationOrder = Buffer2.compare(sortKey(left), sortKey(right));
+  const destinationOrder = Buffer4.compare(sortKey(left), sortKey(right));
   if (destinationOrder !== 0) {
     return destinationOrder;
   }
-  const leftSource = left.sourcePathBytesBase64 ? Buffer2.from(left.sourcePathBytesBase64, "base64") : Buffer2.alloc(0);
-  const rightSource = right.sourcePathBytesBase64 ? Buffer2.from(right.sourcePathBytesBase64, "base64") : Buffer2.alloc(0);
-  return Buffer2.compare(leftSource, rightSource) || left.kind.localeCompare(right.kind, "en");
+  const leftSource = left.sourcePathBytesBase64 ? Buffer4.from(left.sourcePathBytesBase64, "base64") : Buffer4.alloc(0);
+  const rightSource = right.sourcePathBytesBase64 ? Buffer4.from(right.sourcePathBytesBase64, "base64") : Buffer4.alloc(0);
+  return Buffer4.compare(leftSource, rightSource) || left.kind.localeCompare(right.kind, "en");
 }
 function entryLabel(unit) {
   if (unit.kind === "renamed") {
@@ -7800,7 +6233,7 @@ function validateSubject(subject) {
       "Subject description must be one trimmed line without control characters."
     );
   }
-  if (!isCapitalizedDescription(description)) {
+  if (!isCapitalizedDescription2(description)) {
     throw new Error("Subject description must begin with a capitalized word.");
   }
   let scope = null;
@@ -7958,6 +6391,317 @@ function renderLegacyScaffoldTemplate(manifest, content) {
     ""
   ].join("\n");
 }
+function isCanonicalNarrative(value) {
+  return typeof value === "string" && value.length > 0 && value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+function wrapNarrative(text, firstPrefix, continuationPrefix) {
+  if (!isCanonicalNarrative(text)) {
+    throw new Error(
+      "Structured message narrative must be trimmed, nonempty, and free of control or format characters."
+    );
+  }
+  const words = text.split(/\s+/u);
+  const lines = [];
+  let prefix = firstPrefix;
+  let current = prefix;
+  for (const word of words) {
+    const separator = current === prefix ? "" : " ";
+    const candidate = `${current}${separator}${word}`;
+    if (current !== prefix && [...candidate].length > MAXIMUM_BODY_LINE_SCALARS) {
+      lines.push(current);
+      prefix = continuationPrefix;
+      current = `${prefix}${word}`;
+    } else {
+      current = candidate;
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+function ordinalLayout(index, itemCount) {
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(itemCount) || index < 1 || itemCount < 1 || index > itemCount) {
+    throw new Error("Ordinal layout requires a valid one-based item index.");
+  }
+  const width = String(itemCount).length;
+  return {
+    titlePrefix: `  ${String(index).padStart(width, " ")}. `,
+    bulletPrefix: `${" ".repeat(width + 4)}- `,
+    continuationPrefix: " ".repeat(width + 6)
+  };
+}
+function renderNarrativeSection(heading, entries) {
+  if (entries.length === 0) {
+    return null;
+  }
+  return [
+    heading,
+    ...entries.flatMap((entry) => wrapNarrative(entry, "  - ", "    "))
+  ];
+}
+function uniqueReasons(groups) {
+  const seen = /* @__PURE__ */ new Set();
+  const reasons = [];
+  for (const group of groups) {
+    for (const reason of group.reasons) {
+      if (!seen.has(reason)) {
+        seen.add(reason);
+        reasons.push(reason);
+      }
+    }
+  }
+  return reasons;
+}
+function assertEvidencePlanBinding(content, evidencePlan) {
+  if (!evidencePlan || typeof evidencePlan.evidencePlanSha256 !== "string" || !Array.isArray(evidencePlan.groups)) {
+    throw new Error(
+      "Structured rendering requires the current canonical evidence plan."
+    );
+  }
+  function normalizedGroup({ selection, policy, basis }) {
+    const normalizedSelection2 = Object.fromEntries(
+      Object.entries(selection).sort(
+        ([left], [right]) => Buffer4.compare(Buffer4.from(left), Buffer4.from(right))
+      ).map(([field, value]) => [
+        field,
+        Array.isArray(value) ? [...value].sort(
+          (left, right) => Buffer4.compare(Buffer4.from(left), Buffer4.from(right))
+        ) : value
+      ])
+    );
+    return {
+      selection: normalizedSelection2,
+      policy,
+      basis: { kind: basis.kind, note: basis.note }
+    };
+  }
+  const authored = content.evidenceGroups.map(normalizedGroup);
+  const current = evidencePlan.groups.map(normalizedGroup);
+  if (JSON.stringify(authored) !== JSON.stringify(current)) {
+    throw new Error(
+      "Structured content evidence groups do not match the current evidence plan."
+    );
+  }
+}
+function assertCompleteContent(content, reviewCatalog, evidencePlan) {
+  if (!content || content.schemaVersion !== 2) {
+    const error = new Error(
+      "Only complete schema-version-2 semantic content can be rendered."
+    );
+    error.code = "INCOMPLETE_SEMANTIC_CONTENT";
+    throw error;
+  }
+  if (content.authoringState !== "complete") {
+    const missing = [];
+    if (content.subject === null) {
+      missing.push("subject");
+    }
+    if (content.review?.requiredPacketsReviewed !== true) {
+      missing.push("review receipt");
+    }
+    if (content.mode === "bulk" && (content.domains?.length ?? 0) === 0) {
+      missing.push("bulk domains");
+    }
+    const error = new Error(
+      missing.length > 0 ? `Draft semantic content is missing: ${missing.join(", ")}.` : "Set authoringState to complete after reviewing every semantic decision."
+    );
+    error.code = missing.length > 0 ? "MISSING_SEMANTIC_DECISIONS" : "INCOMPLETE_SEMANTIC_CONTENT";
+    error.details = { missing };
+    throw error;
+  }
+  if (content.subject === null || typeof content.subject !== "object") {
+    const error = new Error("Complete semantic content requires a subject.");
+    error.code = "MISSING_SUBJECT_DECISION";
+    throw error;
+  }
+  if (!content.review || content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== reviewCatalog?.catalogSha256 || content.review.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
+    const error = new Error(
+      "Complete semantic content requires a current reviewed receipt."
+    );
+    error.code = "CURRENT_REVIEW_RECEIPT_REQUIRED";
+    throw error;
+  }
+  assertEvidencePlanBinding(content, evidencePlan);
+}
+function notesByUnit(coverage, sharedReasonSet) {
+  const notes = /* @__PURE__ */ new Map();
+  for (const group of coverage.fileNotes) {
+    for (const reason of group.reasons) {
+      if (sharedReasonSet.has(reason)) {
+        throw new Error(
+          `File note ${JSON.stringify(reason)} duplicates a shared rationale.`
+        );
+      }
+      for (const unit of group.units) {
+        const values = notes.get(unit.id) ?? [];
+        if (!values.includes(reason)) {
+          values.push(reason);
+        }
+        notes.set(unit.id, values);
+      }
+    }
+  }
+  return notes;
+}
+function renderDetailedV2(manifest, coverage, sharedReasonSet) {
+  if (manifest.changeUnitCount >= BULK_FILE_THRESHOLD) {
+    const error = new Error(
+      "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains."
+    );
+    error.code = "STRUCTURED_BULK_FINALIZATION_REQUIRED";
+    throw error;
+  }
+  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const notes = notesByUnit(coverage, sharedReasonSet);
+  const lines = ["File Changes:"];
+  units.forEach((unit, index) => {
+    const layout = ordinalLayout(index + 1, units.length);
+    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
+    for (const note of notes.get(unit.id) ?? []) {
+      lines.push(
+        ...wrapNarrative(note, layout.bulletPrefix, layout.continuationPrefix)
+      );
+    }
+  });
+  return lines;
+}
+function renderBulkV2(coverage) {
+  const lines = ["File Changes:"];
+  coverage.domains.forEach((domain, index) => {
+    const layout = ordinalLayout(index + 1, coverage.domains.length);
+    const count = domain.units.length;
+    lines.push(
+      `${layout.titlePrefix}${domain.title} (${count} ${count === 1 ? "file" : "files"})`
+    );
+    for (const reason of domain.reasons) {
+      lines.push(
+        ...wrapNarrative(
+          reason,
+          layout.bulletPrefix,
+          layout.continuationPrefix
+        )
+      );
+    }
+  });
+  return lines;
+}
+function joinSections(sections) {
+  return `${sections.filter(Boolean).map((lines) => lines.join("\n")).join("\n\n")}
+`;
+}
+function renderCommitMessage({
+  manifest,
+  content,
+  reviewCatalog,
+  evidencePlan,
+  repositoryTypePolicy = { allowedTypes: null }
+}) {
+  assertCompleteContent(content, reviewCatalog, evidencePlan);
+  const coverage = resolveSemanticCoverage(manifest, content);
+  const sharedReasons = uniqueReasons(coverage.sharedRationales);
+  const sharedReasonSet = new Set(sharedReasons);
+  const userExperience = content.userExperienceChanges ?? [];
+  if (!Array.isArray(userExperience)) {
+    throw new Error("User experience changes must be an array.");
+  }
+  const subject = `${content.subject.type}${content.subject.scope === null || content.subject.scope === void 0 ? "" : `(${content.subject.scope})`}: ${content.subject.description}`;
+  const sections = [[subject]];
+  const rationaleSection = renderNarrativeSection("Rationale:", sharedReasons);
+  const userExperienceSection = renderNarrativeSection(
+    "User Experience Changes:",
+    userExperience
+  );
+  if (rationaleSection) {
+    sections.push(rationaleSection);
+  }
+  if (userExperienceSection) {
+    sections.push(userExperienceSection);
+  }
+  sections.push(
+    content.mode === "bulk" ? renderBulkV2(coverage) : renderDetailedV2(manifest, coverage, sharedReasonSet)
+  );
+  const displayText = joinSections(sections);
+  const bytes = Buffer4.from(displayText, "utf8");
+  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    throw new ApprovedMessageError(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Rendered message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
+      {
+        byteCount: bytes.length,
+        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+        remedy: content.mode === "detailed" ? "Select structured bulk mode without changing scope." : "Shorten prose or combine truthful domains without changing scope."
+      }
+    );
+  }
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "extended",
+    bytes,
+    repositoryTypePolicy,
+    messageSource: "structured-finalizer",
+    structuredContent: content
+  });
+  return {
+    schemaVersion: 1,
+    mode: content.mode,
+    bytes,
+    byteCount: bytes.length,
+    displayText,
+    validation,
+    presentationWarnings: validation.presentationWarnings,
+    coverage
+  };
+}
+function projectedDetailedInventoryBytes(manifest) {
+  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const lines = ["a: A", "", "File Changes:"];
+  units.forEach((unit, index) => {
+    const layout = ordinalLayout(index + 1, units.length);
+    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
+  });
+  return Buffer4.byteLength(`${lines.join("\n")}
+`, "utf8");
+}
+function scaffoldEvidenceGroups(evidencePlan) {
+  return evidencePlan.groups.map(({ selection, policy, basis }) => ({
+    selection,
+    policy,
+    basis
+  }));
+}
+function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
+  if (!reviewCatalog || typeof reviewCatalog.catalogSha256 !== "string" || reviewCatalog.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || !Array.isArray(evidencePlan?.groups)) {
+    throw new Error(
+      "Semantic scaffolding requires one matching review catalog and evidence plan."
+    );
+  }
+  const recommendedMode = selectMessagePresentation({
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest)
+  });
+  const requiredPacketCount = [
+    ...reviewCatalog.requiredSynopsisPacketIds ?? [],
+    ...reviewCatalog.exactInventoryPacketIds ?? [],
+    ...reviewCatalog.fullPatchPacketIds ?? []
+  ].length;
+  const common = {
+    schemaVersion: 2,
+    authoringState: "draft",
+    review: {
+      schemaVersion: 1,
+      catalogSha256: reviewCatalog.catalogSha256,
+      evidencePlanSha256: evidencePlan.evidencePlanSha256,
+      requiredPacketsReviewed: requiredPacketCount === 0,
+      additionalPacketIds: []
+    },
+    evidenceGroups: scaffoldEvidenceGroups(evidencePlan),
+    subject: null,
+    sharedRationales: [],
+    userExperienceChanges: [],
+    mode: recommendedMode,
+    recommendedMode
+  };
+  return recommendedMode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
+}
 var BULK_FILE_THRESHOLD, MAX_LINE_LENGTH, RECOMMENDED_COMMIT_TYPES;
 var init_commitMessageRenderer = __esm({
   "src/committing-to-git/message/commitMessageRenderer.js"() {
@@ -7978,10 +6722,3891 @@ var init_commitMessageRenderer = __esm({
   }
 });
 
+// src/committing-to-git/message/canonicalMessageState.js
+import { createHash as createHash7, randomUUID as randomUUID3 } from "node:crypto";
+import {
+  closeSync as closeSync5,
+  constants as fsConstants3,
+  existsSync as existsSync7,
+  fstatSync as fstatSync4,
+  fsyncSync as fsyncSync5,
+  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync5,
+  openSync as openSync5,
+  readFileSync as readFileSync4,
+  realpathSync as realpathSync3,
+  renameSync as renameSync4,
+  rmSync as rmSync3,
+  unlinkSync as unlinkSync3,
+  writeFileSync as writeFileSync6
+} from "node:fs";
+import { dirname as dirname5, isAbsolute as isAbsolute5, join as join6, relative as relative4, resolve as resolve6, sep as sep2 } from "node:path";
+import { TextDecoder as TextDecoder4 } from "node:util";
+function fail2(code, message, options2) {
+  throw new CanonicalMessageError(code, message, options2);
+}
+function sha256(bytes) {
+  return createHash7("sha256").update(bytes).digest("hex");
+}
+function canonicalJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function flushDirectory3(path) {
+  if (process.platform === "win32") {
+    return;
+  }
+  const descriptor = openSync5(path, fsConstants3.O_RDONLY);
+  try {
+    fsyncSync5(descriptor);
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function assertContained(attemptDirectory, path) {
+  const contained = relative4(attemptDirectory, path);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute5(contained)) {
+    fail2(
+      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
+      `Derived message artifact escapes its transaction: ${path}`
+    );
+  }
+}
+function artifactPath(transaction, name) {
+  const path = join6(transaction.attemptDirectory, name);
+  assertContained(transaction.attemptDirectory, path);
+  return path;
+}
+function ensureDirectory2(path, label) {
+  const stat = lstatSync3(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    fail2(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} was replaced or is not a directory: ${path}`
+    );
+  }
+  if (realpathSync3(path) !== resolve6(path)) {
+    fail2(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} no longer resolves to its recorded path: ${path}`
+    );
+  }
+}
+function ensureMessageDirectory(transaction) {
+  const path = artifactPath(transaction, MESSAGE_DIRECTORY_NAME);
+  if (!existsSync7(path)) {
+    mkdirSync5(path, { mode: 448 });
+    flushDirectory3(transaction.attemptDirectory);
+  }
+  ensureDirectory2(path, "Canonical message directory");
+  return path;
+}
+function statIdentity2(stat) {
+  const device = String(stat.dev);
+  const inode = String(stat.ino);
+  return {
+    available: inode !== "0",
+    device,
+    inode,
+    byteCount: Number(stat.size),
+    modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
+  };
+}
+function sameIdentity(left, right) {
+  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
+}
+function openReadOnlyNoFollow3(path) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
+  return openSync5(path, fsConstants3.O_RDONLY + noFollow);
+}
+function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
+  let initial;
+  try {
+    initial = lstatSync3(path, { bigint: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
+    }
+    throw error;
+  }
+  if (initial.isSymbolicLink() || !initial.isFile()) {
+    fail2(
+      "MESSAGE_INPUT_NOT_REGULAR",
+      `${label} must be a non-link regular file: ${path}`
+    );
+  }
+  if (initial.size > BigInt(maximumBytes)) {
+    fail2("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
+      details: { maximumBytes }
+    });
+  }
+  const descriptor = openReadOnlyNoFollow3(path);
+  try {
+    const before = fstatSync4(descriptor, { bigint: true });
+    const initialIdentity = statIdentity2(initial);
+    const openedIdentity = statIdentity2(before);
+    if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
+      fail2(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed before its fixed path could be opened safely.`
+      );
+    }
+    afterOpen?.({ descriptor, identity: openedIdentity, path });
+    const bytes = readFileSync4(descriptor);
+    const after = fstatSync4(descriptor, { bigint: true });
+    const finalIdentity = statIdentity2(after);
+    if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || bytes.length > maximumBytes) {
+      fail2(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed while its opened handle was being read.`
+      );
+    }
+    if (!allowPathReplacement) {
+      const pathStat = lstatSync3(path, { bigint: true });
+      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity2(pathStat))) {
+        fail2(
+          "MESSAGE_INPUT_CHANGED",
+          `${label} path changed while its opened handle was being read.`
+        );
+      }
+    }
+    return { bytes, identity: finalIdentity, path };
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function readTransactionOwnedFile({
+  transactionPath,
+  artifactName,
+  maximumBytes,
+  label,
+  afterOpen,
+  allowPathReplacement = true
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  return {
+    transaction,
+    ...readStablePath(path, {
+      maximumBytes,
+      label,
+      afterOpen,
+      allowPathReplacement
+    })
+  };
+}
+function warning(code, message, path) {
+  return { code, message, path };
+}
+function cleanupTransactionOwnedInput({
+  path,
+  identity,
+  forceIdentityUnavailable = false
+}) {
+  if (forceIdentityUnavailable || identity.available !== true) {
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_IDENTITY_UNAVAILABLE",
+        "The fixed input was retained because same-object identity is unavailable on this filesystem.",
+        path
+      )
+    };
+  }
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow3(path);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because it could not be reopened safely: ${error.message}`,
+        path
+      )
+    };
+  }
+  try {
+    const opened = fstatSync4(descriptor, { bigint: true });
+    if (!opened.isFile() || !sameIdentity(identity, statIdentity2(opened))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because its directory entry no longer identifies the opened object.",
+          path
+        )
+      };
+    }
+  } finally {
+    closeSync5(descriptor);
+  }
+  try {
+    const finalPathStat = lstatSync3(path, { bigint: true });
+    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity, statIdentity2(finalPathStat))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because it changed during cleanup.",
+          path
+        )
+      };
+    }
+    unlinkSync3(path);
+    flushDirectory3(dirname5(path));
+    return { removed: true, warning: null };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because cleanup failed: ${error.message}`,
+        path
+      )
+    };
+  }
+}
+function writeNewFile2(path, bytes) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
+  const descriptor = openSync5(
+    path,
+    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL + noFollow,
+    384
+  );
+  try {
+    writeFileSync6(descriptor, bytes);
+    fsyncSync5(descriptor);
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function ensureTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  maximumBytes = 8 * 1024 * 1024
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  const bytes = canonicalJsonBytes(value);
+  if (bytes.length > maximumBytes) {
+    fail2(
+      "MESSAGE_ARTIFACT_TOO_LARGE",
+      `${artifactName} exceeds ${maximumBytes} bytes.`
+    );
+  }
+  if (existsSync7(path)) {
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail2(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} already exists with conflicting bytes.`
+      );
+    }
+    return path;
+  }
+  try {
+    writeNewFile2(path, bytes);
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      throw error;
+    }
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail2(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} was concurrently created with conflicting bytes.`
+      );
+    }
+  }
+  flushDirectory3(transaction.attemptDirectory);
+  return path;
+}
+function currentPathMatches(path, identity) {
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow3(path);
+    const stat = fstatSync4(descriptor, { bigint: true });
+    return stat.isFile() && sameIdentity(identity, statIdentity2(stat));
+  } catch {
+    return false;
+  } finally {
+    if (descriptor !== void 0) {
+      closeSync5(descriptor);
+    }
+  }
+}
+function replaceTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  expectedIdentity = null
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
+    fail2(
+      "MESSAGE_INPUT_REPLACED",
+      `The fixed ${artifactName} changed before normalized content could be persisted.`
+    );
+  }
+  const candidatePath = artifactPath(
+    transaction,
+    `.${artifactName}-${randomUUID3()}.tmp`
+  );
+  writeNewFile2(candidatePath, canonicalJsonBytes(value));
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      renameSync4(candidatePath, path);
+      flushDirectory3(transaction.attemptDirectory);
+      return path;
+    } catch (error) {
+      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES2.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS2;
+      if (!retryable) {
+        throw error;
+      }
+    }
+  }
+}
+function slotPaths(messageDirectory, slot) {
+  const directory = join6(messageDirectory, slot);
+  return {
+    directory,
+    messagePath: join6(directory, MESSAGE_FILE_NAME),
+    validationPath: join6(directory, VALIDATION_FILE_NAME),
+    statePath: join6(directory, STATE_FILE_NAME)
+  };
+}
+function assertExactKeys2(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail2("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `${label} contains missing or unknown members.`
+    );
+  }
+}
+function assertValidationMatches(bytes, validation, source) {
+  if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
+    fail2(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical message replacement requires one successful validation object."
+    );
+  }
+  const digest = sha256(bytes);
+  const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
+  if (validation.messageSha256 !== digest || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
+    fail2(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical validation does not describe the exact replacement message bytes."
+    );
+  }
+}
+function transactionMessageState(state, stateSha256) {
+  return {
+    schemaVersion: 1,
+    revision: state.messageRevision,
+    sha256: state.messageSha256,
+    source: state.messageSource,
+    byteCount: state.byteCount,
+    stateSha256,
+    validationSha256: state.validationSha256,
+    slot: "message/current"
+  };
+}
+function writeCandidate({
+  messageDirectory,
+  bytes,
+  validation,
+  source,
+  revision,
+  failureInjector
+}) {
+  const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
+  if (existsSync7(paths.directory)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "The fixed candidate slot is occupied; recover the pending replacement first."
+    );
+  }
+  mkdirSync5(paths.directory, { mode: 448 });
+  writeNewFile2(paths.messagePath, bytes);
+  const validationBytes = canonicalJsonBytes(validation);
+  if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
+    fail2(
+      "MESSAGE_VALIDATION_TOO_LARGE",
+      `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
+    );
+  }
+  writeNewFile2(paths.validationPath, validationBytes);
+  const state = {
+    schemaVersion: 1,
+    messageRevision: revision,
+    messageSha256: sha256(bytes),
+    messageSource: source,
+    byteCount: bytes.length,
+    validationSha256: sha256(validationBytes)
+  };
+  const stateBytes = canonicalJsonBytes(state);
+  writeNewFile2(paths.statePath, stateBytes);
+  failureInjector("before-candidate-flush");
+  flushDirectory3(paths.directory);
+  flushDirectory3(messageDirectory);
+  failureInjector("after-candidate-flush");
+  return {
+    ...state,
+    stateSha256: sha256(stateBytes),
+    transactionState: transactionMessageState(state, sha256(stateBytes))
+  };
+}
+function readSlot(messageDirectory, slot) {
+  const paths = slotPaths(messageDirectory, slot);
+  if (!existsSync7(paths.directory)) {
+    return null;
+  }
+  ensureDirectory2(paths.directory, `Canonical message ${slot} slot`);
+  const message = readStablePath(paths.messagePath, {
+    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    label: `Canonical message ${slot} body`,
+    allowPathReplacement: false
+  }).bytes;
+  const validationBytes = readStablePath(paths.validationPath, {
+    maximumBytes: MAXIMUM_VALIDATION_BYTES,
+    label: `Canonical message ${slot} validation`,
+    allowPathReplacement: false
+  }).bytes;
+  const stateBytes = readStablePath(paths.statePath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES2,
+    label: `Canonical message ${slot} state`,
+    allowPathReplacement: false
+  }).bytes;
+  let validation;
+  let state;
+  try {
+    validation = JSON.parse(STRICT_UTF8_DECODER3.decode(validationBytes));
+    state = JSON.parse(STRICT_UTF8_DECODER3.decode(stateBytes));
+  } catch (error) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} JSON is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys2(
+    state,
+    [
+      "schemaVersion",
+      "messageRevision",
+      "messageSha256",
+      "messageSource",
+      "byteCount",
+      "validationSha256"
+    ],
+    `Canonical message ${slot} state`
+  );
+  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN2.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN2.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} state does not match its artifacts.`
+    );
+  }
+  assertValidationMatches(message, validation, state.messageSource);
+  const stateSha256 = sha256(stateBytes);
+  return {
+    ...state,
+    bytes: message,
+    displayText: message.toString("utf8"),
+    validation,
+    stateSha256,
+    transactionState: transactionMessageState(state, stateSha256),
+    ...paths
+  };
+}
+function sameTransactionMessage(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function removeSlot(transaction, messageDirectory, slot) {
+  const { directory } = slotPaths(messageDirectory, slot);
+  assertContained(transaction.attemptDirectory, directory);
+  if (!existsSync7(directory)) {
+    return;
+  }
+  ensureDirectory2(directory, `Canonical message ${slot} slot`);
+  rmSync3(directory, { recursive: true, force: false });
+  flushDirectory3(messageDirectory);
+}
+function renameSlot(messageDirectory, source, destination) {
+  const sourcePath = slotPaths(messageDirectory, source).directory;
+  const destinationPath = slotPaths(messageDirectory, destination).directory;
+  if (existsSync7(destinationPath)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      `Canonical message ${destination} slot is already occupied.`
+    );
+  }
+  renameSync4(sourcePath, destinationPath);
+  flushDirectory3(messageDirectory);
+}
+function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
+  const current = readTransaction(transactionPath);
+  if (sameTransactionMessage(current.message, nextMessage)) {
+    return current;
+  }
+  if (!sameTransactionMessage(current.message, priorMessage)) {
+    fail2(
+      "MESSAGE_TRANSACTION_DRIFT",
+      "Transaction message state changed during canonical replacement."
+    );
+  }
+  if (current.phase === "message-ready") {
+    return updateTransaction(transactionPath, "message-ready", {
+      ...current,
+      phase: "message-ready",
+      status: "message-ready",
+      message: nextMessage
+    });
+  }
+  if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending"])).has(current.phase)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Canonical message replacement is not allowed in phase ${current.phase}.`
+    );
+  }
+  return advanceTransaction(transactionPath, current.phase, {
+    ...current,
+    phase: "message-ready",
+    status: "message-ready",
+    message: nextMessage
+  });
+}
+function readJournal2(transaction, journalPath) {
+  const bytes = readStablePath(journalPath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES2,
+    label: "Canonical message replacement journal",
+    allowPathReplacement: false
+  }).bytes;
+  let journal;
+  try {
+    journal = JSON.parse(STRICT_UTF8_DECODER3.decode(bytes));
+  } catch (error) {
+    fail2(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      `Canonical message replacement journal is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys2(
+    journal,
+    ["schemaVersion", "priorMessage", "nextMessage"],
+    "Canonical message replacement journal"
+  );
+  if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      "Canonical message replacement journal has invalid state references."
+    );
+  }
+  assertContained(transaction.attemptDirectory, journalPath);
+  return journal;
+}
+function safeSlot(messageDirectory, slot) {
+  try {
+    return { value: readSlot(messageDirectory, slot), error: null };
+  } catch (error) {
+    return { value: null, error };
+  }
+}
+function cleanupReplacementRemnants(transaction, messageDirectory, journalPath) {
+  removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+  removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+  if (existsSync7(journalPath)) {
+    unlinkSync3(journalPath);
+    flushDirectory3(transaction.attemptDirectory);
+  }
+}
+function steadyCanonicalMessage(transaction, messageDirectory) {
+  if (transaction.message === null) {
+    return null;
+  }
+  const current = readSlot(messageDirectory, CURRENT_SLOT);
+  if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      "The transaction does not match its fixed current message slot."
+    );
+  }
+  return current;
+}
+function recoverCanonicalMessageReplacement(transactionPath) {
+  let transaction = readTransaction(transactionPath);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (!existsSync7(journalPath)) {
+    const current2 = safeSlot(messageDirectory, CURRENT_SLOT);
+    const candidate2 = safeSlot(messageDirectory, CANDIDATE_SLOT);
+    const previous2 = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    if (candidate2.value !== null || candidate2.error !== null) {
+      removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+    }
+    if (previous2.value !== null || previous2.error !== null) {
+      if (current2.value !== null && sameTransactionMessage(
+        current2.value.transactionState,
+        transaction.message
+      )) {
+        removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+      } else {
+        fail2(
+          "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
+          "A previous canonical slot remains without a replacement journal."
+        );
+      }
+    }
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  const journal = readJournal2(transaction, journalPath);
+  let current = safeSlot(messageDirectory, CURRENT_SLOT);
+  const candidate = safeSlot(messageDirectory, CANDIDATE_SLOT);
+  let previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+  const nextMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.nextMessage);
+  const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
+  if (!nextMatches(current) && nextMatches(candidate)) {
+    if (current.value !== null && !priorMatches(current)) {
+      fail2(
+        "MESSAGE_REPLACEMENT_CORRUPT",
+        "The current message slot matches neither side of the pending replacement."
+      );
+    }
+    if (current.value !== null) {
+      if (previous.value !== null || previous.error !== null) {
+        fail2(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "Both current and previous slots are occupied during recovery."
+        );
+      }
+      renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+      previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    }
+    renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (nextMatches(current)) {
+    transaction = installTransactionMessage(
+      transactionPath,
+      journal.priorMessage,
+      journal.nextMessage
+    );
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  if (!priorMatches(current) && priorMatches(previous)) {
+    if (current.value !== null || current.error !== null) {
+      removeSlot(transaction, messageDirectory, CURRENT_SLOT);
+    }
+    renameSlot(messageDirectory, PREVIOUS_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (priorMatches(current)) {
+    if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
+      if (transaction.phase !== "message-ready") {
+        fail2(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "The transaction advanced without a recoverable canonical candidate."
+        );
+      }
+      transaction = updateTransaction(transactionPath, "message-ready", {
+        ...transaction,
+        message: journal.priorMessage
+      });
+    }
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  fail2(
+    "MESSAGE_REPLACEMENT_CORRUPT",
+    "Neither side of the pending canonical message replacement is recoverable."
+  );
+}
+function assertReplacementRoute(transaction, source) {
+  if (!MESSAGE_SOURCES2.has(source)) {
+    fail2(
+      "MESSAGE_SOURCE_INVALID",
+      `Unknown canonical message source ${JSON.stringify(source)}.`
+    );
+  }
+  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase);
+  if (!allowed || transaction.commit !== null) {
+    fail2(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
+    );
+  }
+}
+function replaceCanonicalMessage({
+  transactionPath,
+  bytes: inputBytes,
+  validation,
+  source,
+  failureInjector = () => {
+  }
+}) {
+  if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
+    fail2("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
+  }
+  const bytes = Buffer.from(inputBytes);
+  if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail2(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
+    );
+  }
+  let transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  assertValidationMatches(bytes, validation, source);
+  const prior = recoverCanonicalMessageReplacement(transactionPath);
+  transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (existsSync7(journalPath) || existsSync7(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync7(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "Canonical replacement remnants remain after recovery."
+    );
+  }
+  const candidate = writeCandidate({
+    messageDirectory,
+    bytes,
+    validation,
+    source,
+    revision: (prior?.messageRevision ?? 0) + 1,
+    failureInjector
+  });
+  const journal = {
+    schemaVersion: 1,
+    priorMessage: prior?.transactionState ?? null,
+    nextMessage: candidate.transactionState
+  };
+  failureInjector("before-journal-flush");
+  writeNewFile2(journalPath, canonicalJsonBytes(journal));
+  flushDirectory3(transaction.attemptDirectory);
+  failureInjector("after-journal-flush");
+  failureInjector("before-current-to-previous");
+  if (prior !== null) {
+    renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+  }
+  failureInjector("after-current-to-previous");
+  failureInjector("before-candidate-to-current");
+  renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+  failureInjector("after-candidate-to-current");
+  failureInjector("before-transaction-advance");
+  transaction = installTransactionMessage(
+    transactionPath,
+    journal.priorMessage,
+    journal.nextMessage
+  );
+  failureInjector("after-transaction-advance");
+  failureInjector("before-remnant-cleanup");
+  cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+  failureInjector("after-remnant-cleanup");
+  return steadyCanonicalMessage(transaction, messageDirectory);
+}
+var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES2, SHA256_PATTERN2, STRICT_UTF8_DECODER3, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2, CanonicalMessageError;
+var init_canonicalMessageState = __esm({
+  "src/committing-to-git/message/canonicalMessageState.js"() {
+    init_approvedMessage();
+    init_transactionWorkspace();
+    MESSAGE_DIRECTORY_NAME = "message";
+    CURRENT_SLOT = "current";
+    CANDIDATE_SLOT = "candidate";
+    PREVIOUS_SLOT = "previous";
+    PENDING_JOURNAL_NAME = "message-replacement.pending.json";
+    MESSAGE_FILE_NAME = "message.txt";
+    VALIDATION_FILE_NAME = "validation.json";
+    STATE_FILE_NAME = "state.json";
+    MAXIMUM_VALIDATION_BYTES = 80 * 1024;
+    MAXIMUM_JOURNAL_BYTES2 = 16 * 1024;
+    SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER3 = new TextDecoder4("utf-8", { fatal: true });
+    WINDOWS_RENAME_RETRY_CODES2 = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
+    MAXIMUM_WINDOWS_RENAME_ATTEMPTS2 = 4;
+    MESSAGE_SOURCES2 = /* @__PURE__ */ new Set([
+      "approved-subject",
+      "checked-file",
+      "finalized-extended"
+    ]);
+    CanonicalMessageError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "CanonicalMessageError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/workflow/prepareWorkflow.js
+var prepareWorkflow_exports = {};
+__export(prepareWorkflow_exports, {
+  PreparationError: () => PreparationError,
+  acquireEvidence: () => acquireEvidence,
+  assertNoGitStorageOverrides: () => assertNoGitStorageOverrides,
+  cleanupEvidenceSpools: () => cleanupEvidenceSpools,
+  manifestEnvironment: () => manifestEnvironment,
+  parsePrepareArguments: () => parsePrepareArguments,
+  preMaterializePatchPackets: () => preMaterializePatchPackets,
+  prepareWorkflow: () => prepareWorkflow,
+  routePreparedEvidence: () => routePreparedEvidence,
+  runPrepareWorkflowCommand: () => runPrepareWorkflowCommand
+});
+import { createHash as createHash8, randomUUID as randomUUID4 } from "node:crypto";
+import {
+  closeSync as closeSync6,
+  constants as fsConstants4,
+  createReadStream as createReadStream2,
+  fstatSync as fstatSync5,
+  fsyncSync as fsyncSync6,
+  existsSync as existsSync8,
+  lstatSync as lstatSync4,
+  mkdirSync as mkdirSync6,
+  openSync as openSync6,
+  readFileSync as readFileSync5,
+  unlinkSync as unlinkSync4,
+  writeFileSync as writeFileSync7
+} from "node:fs";
+import { dirname as dirname6, resolve as resolve7 } from "node:path";
+import { TextDecoder as TextDecoder5 } from "node:util";
+function fail3(code, message, options2) {
+  throw new PreparationError(code, message, options2);
+}
+function isPlainObject3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertExactKeys3(value, keys, label, code) {
+  if (!isPlainObject3(value)) {
+    fail3(code, `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail3(code, `${label} contains missing or unknown members.`);
+  }
+}
+function sha2562(bytes) {
+  return createHash8("sha256").update(bytes).digest("hex");
+}
+function canonicalJsonBytes2(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function validateRepositoryRelativePath(path, { prefix, label }) {
+  if (typeof path !== "string" || path.length === 0) {
+    fail3("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
+  }
+  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
+    fail3(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} must be a slash-separated repository-relative path.`
+    );
+  }
+  if (prefix !== path.endsWith("/")) {
+    fail3(
+      "INVALID_SCOPE_SELECTOR",
+      prefix ? `${label} must end with a slash.` : `${label} must not end with a slash.`
+    );
+  }
+  const components = path.split("/");
+  const meaningfulComponents = prefix ? components.slice(0, -1) : components;
+  if (meaningfulComponents.some(
+    (component) => component.length === 0 || component === "." || component === ".."
+  )) {
+    fail3(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} contains an invalid path component.`
+    );
+  }
+  return Buffer.from(path, "utf8");
+}
+function decodeCanonicalBase64Path(value, label) {
+  if (typeof value !== "string" || value.length === 0) {
+    fail3("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.length === 0 || bytes.toString("base64") !== value || bytes.includes(0) || bytes.includes(92) || bytes[0] === 47 || bytes[bytes.length - 1] === 47) {
+    fail3(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} must encode one canonical repository-relative exact path.`
+    );
+  }
+  const components = [];
+  let start = 0;
+  for (let index = 0; index <= bytes.length; index += 1) {
+    if (index === bytes.length || bytes[index] === 47) {
+      components.push(bytes.subarray(start, index));
+      start = index + 1;
+    }
+  }
+  if (components.some(
+    (component) => component.length === 0 || component.equals(Buffer.from(".")) || component.equals(Buffer.from(".."))
+  )) {
+    fail3(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} contains an invalid path component.`
+    );
+  }
+  return bytes;
+}
+function compareBuffers(left, right) {
+  return Buffer.compare(left, right);
+}
+function pathStartsWith(path, prefix) {
+  return path.length >= prefix.length && path.subarray(0, prefix.length).equals(prefix);
+}
+function selectorContains(include, exclude) {
+  if (include.kind === "exact") {
+    return exclude.kind === "exact" && include.bytes.equals(exclude.bytes);
+  }
+  return pathStartsWith(exclude.bytes, include.bytes);
+}
+function selectorMatches(selector, path) {
+  return selector.kind === "exact" ? selector.bytes.equals(path) : pathStartsWith(path, selector.bytes);
+}
+function normalizeScopePayload(payload) {
+  assertExactKeys3(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
+  if (payload.schemaVersion !== 2) {
+    fail3("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
+  }
+  for (const key of SCOPE_KEYS.slice(1)) {
+    if (!Array.isArray(payload[key])) {
+      fail3("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
+    }
+    if (payload[key].length > 4096) {
+      fail3("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
+    }
+  }
+  const descriptors = [];
+  function addUtf8(values, direction, kind, label) {
+    for (const value of values) {
+      descriptors.push({
+        direction,
+        kind,
+        bytes: validateRepositoryRelativePath(value, {
+          prefix: kind === "prefix",
+          label
+        })
+      });
+    }
+  }
+  addUtf8(payload.includePaths, "include", "exact", "includePaths entry");
+  addUtf8(
+    payload.includePathPrefixes,
+    "include",
+    "prefix",
+    "includePathPrefixes entry"
+  );
+  addUtf8(payload.excludePaths, "exclude", "exact", "excludePaths entry");
+  addUtf8(
+    payload.excludePathPrefixes,
+    "exclude",
+    "prefix",
+    "excludePathPrefixes entry"
+  );
+  for (const value of payload.includePathBytesBase64) {
+    descriptors.push({
+      direction: "include",
+      kind: "exact",
+      bytes: decodeCanonicalBase64Path(value, "includePathBytesBase64 entry")
+    });
+  }
+  for (const value of payload.excludePathBytesBase64) {
+    descriptors.push({
+      direction: "exclude",
+      kind: "exact",
+      bytes: decodeCanonicalBase64Path(value, "excludePathBytesBase64 entry")
+    });
+  }
+  const includes = descriptors.filter(
+    ({ direction }) => direction === "include"
+  );
+  const excludes = descriptors.filter(
+    ({ direction }) => direction === "exclude"
+  );
+  if (includes.length === 0) {
+    fail3("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const selector of descriptors) {
+    const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
+    if (seen.has(key)) {
+      fail3("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
+    }
+    seen.add(key);
+  }
+  for (const exclusion of excludes) {
+    if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
+      fail3(
+        "UNCONTAINED_SCOPE_EXCLUSION",
+        "Every exclusion must be contained by at least one inclusion."
+      );
+    }
+  }
+  const canonicalPayload = {
+    schemaVersion: 2,
+    includePaths: [...payload.includePaths],
+    includePathPrefixes: [...payload.includePathPrefixes],
+    excludePaths: [...payload.excludePaths],
+    excludePathPrefixes: [...payload.excludePathPrefixes],
+    includePathBytesBase64: [...payload.includePathBytesBase64],
+    excludePathBytesBase64: [...payload.excludePathBytesBase64]
+  };
+  return {
+    canonicalPayload,
+    canonicalBytes: canonicalJsonBytes2(canonicalPayload),
+    includes,
+    excludes,
+    descriptors
+  };
+}
+function normalizeEvidenceSelection(selection) {
+  if (!isPlainObject3(selection) || Object.keys(selection).length === 0) {
+    fail3(
+      "INVALID_EVIDENCE_PLAN",
+      "Evidence selection must be a non-empty object."
+    );
+  }
+  for (const key of Object.keys(selection)) {
+    if (!SELECTION_KEYS.has(key)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence selection contains unknown member ${JSON.stringify(key)}.`
+      );
+    }
+  }
+  if ("all" in selection && selection.all !== true) {
+    fail3("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
+  }
+  if ("remaining" in selection && selection.remaining !== true) {
+    fail3("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
+  }
+  for (const [key, value] of Object.entries(selection)) {
+    if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
+      continue;
+    }
+    if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence selection ${key} must be a non-empty string array.`
+      );
+    }
+  }
+  return structuredClone(selection);
+}
+function normalizeEvidencePlan(payload) {
+  assertExactKeys3(
+    payload,
+    EVIDENCE_PLAN_KEYS,
+    "Evidence plan",
+    "INVALID_EVIDENCE_PLAN"
+  );
+  if (payload.schemaVersion !== 1) {
+    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
+  }
+  if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
+    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
+  }
+  if (payload.groups.length > 4096) {
+    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
+  }
+  const groups = payload.groups.map((group, index) => {
+    assertExactKeys3(
+      group,
+      GROUP_KEYS,
+      `Evidence group ${index + 1}`,
+      "INVALID_EVIDENCE_PLAN"
+    );
+    assertExactKeys3(
+      group.basis,
+      BASIS_KEYS,
+      `Evidence group ${index + 1} basis`,
+      "INVALID_EVIDENCE_PLAN"
+    );
+    if (!EVIDENCE_POLICIES3.has(group.policy)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} policy is invalid.`
+      );
+    }
+    if (!BASIS_KINDS3.has(group.basis.kind)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} basis is invalid.`
+      );
+    }
+    if (group.basis.note !== null && (typeof group.basis.note !== "string" || Buffer.byteLength(group.basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} basis note exceeds ${MAXIMUM_BASIS_NOTE_BYTES} UTF-8 bytes.`
+      );
+    }
+    if (group.policy === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(group.basis.kind)) {
+      fail3(
+        "INVALID_EVIDENCE_PLAN",
+        "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
+      );
+    }
+    return {
+      selection: normalizeEvidenceSelection(group.selection),
+      policy: group.policy,
+      basis: { kind: group.basis.kind, note: group.basis.note }
+    };
+  });
+  const canonicalPlan = { schemaVersion: 1, groups };
+  return {
+    plan: canonicalPlan,
+    canonicalBytes: canonicalJsonBytes2(canonicalPlan)
+  };
+}
+function readBoundedJson(path, label) {
+  const absolutePath = resolve7(path);
+  const initialPathStat = lstatSync4(absolutePath);
+  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
+    fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
+  }
+  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
+  const descriptor = openSync6(absolutePath, fsConstants4.O_RDONLY + noFollow);
+  try {
+    const before = fstatSync5(descriptor);
+    if (!before.isFile()) {
+      fail3("INVALID_JSON_INPUT", `${label} must be a regular file.`);
+    }
+    if (before.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
+      fail3(
+        "JSON_INPUT_TOO_LARGE",
+        `${label} exceeds ${MAXIMUM_INITIAL_JSON_INPUT_BYTES} bytes.`
+      );
+    }
+    const bytes = readFileSync5(descriptor);
+    const after = fstatSync5(descriptor);
+    const finalPathStat = lstatSync4(absolutePath);
+    if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
+      fail3("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
+    }
+    let text;
+    try {
+      text = STRICT_UTF8_DECODER4.decode(bytes);
+    } catch {
+      fail3("INVALID_JSON_UTF8", `${label} is not strict UTF-8.`);
+    }
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      fail3(
+        "INVALID_JSON_INPUT",
+        `${label} is not valid JSON: ${error.message}`
+      );
+    }
+  } finally {
+    closeSync6(descriptor);
+  }
+}
+function inlineScopePayload(values) {
+  return {
+    schemaVersion: 2,
+    includePaths: values.get("path") ?? [],
+    includePathPrefixes: values.get("path-prefix") ?? [],
+    excludePaths: values.get("exclude-path") ?? [],
+    excludePathPrefixes: values.get("exclude-path-prefix") ?? [],
+    includePathBytesBase64: [],
+    excludePathBytesBase64: []
+  };
+}
+function parsePrepareArguments(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (typeof token !== "string" || !token.startsWith("--")) {
+      fail3("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+    }
+    const name = token.slice(2);
+    if (!SINGLETON_FLAGS.has(name) && !REPEATABLE_FLAGS.has(name)) {
+      fail3("UNKNOWN_ARGUMENT", `Unknown workflow prepare flag --${name}.`);
+    }
+    if (value === void 0 || value.length === 0) {
+      fail3("INVALID_ARGUMENT", `--${name} requires a non-empty value.`);
+    }
+    if (SINGLETON_FLAGS.has(name)) {
+      if (values.has(name)) {
+        fail3("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+      }
+      values.set(name, value);
+    } else {
+      values.set(name, [...values.get(name) ?? [], value]);
+    }
+  }
+  const mode = values.get("mode");
+  const scope = values.get("scope");
+  const verificationPolicy = values.get("verification") ?? "required";
+  const format = values.get("format") ?? "json";
+  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
+    fail3("INVALID_MODE", "--mode must be actual or draft.");
+  }
+  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
+    fail3("INVALID_SCOPE", "--scope must be staged, full, or paths.");
+  }
+  if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
+    fail3(
+      "INVALID_VERIFICATION_POLICY",
+      "--verification must be required, advisory, or skipped."
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+    fail3("INVALID_FORMAT", "--format must be json or text.");
+  }
+  const evidencePlanPath = values.get("evidence-plan") ?? null;
+  const evidence = values.get("evidence") ?? null;
+  const basis = values.get("basis") ?? null;
+  if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
+    fail3(
+      "CONFLICTING_EVIDENCE_INPUT",
+      "--evidence-plan is an alternative to --evidence and --basis."
+    );
+  }
+  if (evidencePlanPath === null && (evidence === null || basis === null)) {
+    fail3(
+      "MISSING_EVIDENCE_INPUT",
+      "Supply --evidence and --basis together, or supply --evidence-plan."
+    );
+  }
+  if (evidence !== null && !EVIDENCE_POLICIES3.has(evidence)) {
+    fail3(
+      "INVALID_EVIDENCE_POLICY",
+      "--evidence must be reuse, message, or review."
+    );
+  }
+  if (basis !== null && !BASIS_KINDS3.has(basis)) {
+    fail3(
+      "INVALID_EVIDENCE_BASIS",
+      "--basis is not a supported provenance kind."
+    );
+  }
+  if (evidence === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(basis)) {
+    fail3(
+      "INVALID_EVIDENCE_BASIS",
+      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
+    );
+  }
+  const allowedTypes = values.get("allowed-type") ?? [];
+  if (allowedTypes.length > 64) {
+    fail3(
+      "INVALID_ALLOWED_TYPE",
+      "At most 64 allowed commit types may be supplied."
+    );
+  }
+  if (allowedTypes.some((type) => !TYPE_TOKEN_PATTERN2.test(type)) || new Set(allowedTypes).size !== allowedTypes.length) {
+    fail3(
+      "INVALID_ALLOWED_TYPE",
+      "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters."
+    );
+  }
+  const hasInlineSelectors = INLINE_SELECTOR_FLAGS.some(
+    (name) => values.has(name)
+  );
+  const scopeFilePath = values.get("scope-file") ?? null;
+  if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
+    fail3(
+      "SELECTOR_OUTSIDE_PATH_SCOPE",
+      "Path selectors and --scope-file are valid only with --scope paths."
+    );
+  }
+  if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
+    fail3(
+      "CONFLICTING_SCOPE_INPUT",
+      "Inline selectors and --scope-file cannot be combined."
+    );
+  }
+  if (scope === "paths" && scopeFilePath === null && !(values.has("path") || values.has("path-prefix"))) {
+    fail3("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
+  }
+  return {
+    mode,
+    scope,
+    evidencePlanPath,
+    evidence,
+    basis,
+    allowedTypes: allowedTypes.length === 0 ? null : allowedTypes,
+    scopeFilePath,
+    inlineScope: scope === "paths" && scopeFilePath === null ? inlineScopePayload(values) : null,
+    verificationPolicy,
+    format
+  };
+}
+function assertNoGitStorageOverrides(environment) {
+  for (const name of STORAGE_OVERRIDE_NAMES) {
+    if (Object.prototype.hasOwnProperty.call(environment, name)) {
+      fail3(
+        "UNSUPPORTED_GIT_STORAGE_OVERRIDE",
+        `Inherited Git storage override ${name} is unsupported.`
+      );
+    }
+  }
+}
+function parseNameStatus(buffer, source) {
+  const fields = splitNul(buffer);
+  const records = [];
+  for (let index = 0; index < fields.length; ) {
+    const status = fields[index].toString("ascii");
+    const rename = status.startsWith("R") || status.startsWith("C");
+    const firstPath = fields[index + 1];
+    const secondPath = rename ? fields[index + 2] : null;
+    if (!/^[A-Z][0-9]*$/u.test(status) || !firstPath || rename && !secondPath) {
+      fail3(
+        "GIT_OUTPUT_INVALID",
+        `Git returned an invalid ${source} name-status record.`
+      );
+    }
+    records.push({
+      source,
+      status,
+      paths: rename ? [firstPath, secondPath] : [firstPath],
+      rename: rename ? [firstPath, secondPath] : null
+    });
+    index += rename ? 3 : 2;
+  }
+  return records;
+}
+function bytesAfterSpaces(field, spaceCount, label) {
+  let spaces = 0;
+  for (let index = 0; index < field.length; index += 1) {
+    if (field[index] !== 32) {
+      continue;
+    }
+    spaces += 1;
+    if (spaces === spaceCount) {
+      const value = field.subarray(index + 1);
+      if (value.length === 0) {
+        fail3("GIT_OUTPUT_INVALID", `${label} contains an empty path.`);
+      }
+      return value;
+    }
+  }
+  fail3("GIT_OUTPUT_INVALID", `${label} is missing required fields.`);
+}
+function parseStatusRenamePairs(buffer) {
+  const fields = splitNul(buffer);
+  const pairs = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (field[0] !== 50 || field[1] !== 32) {
+      continue;
+    }
+    const destination = bytesAfterSpaces(
+      field,
+      9,
+      "Git porcelain-v2 rename record"
+    );
+    const source = fields[index + 1];
+    if (!source) {
+      fail3(
+        "GIT_OUTPUT_INVALID",
+        "Git porcelain-v2 rename record is missing its source path."
+      );
+    }
+    pairs.push([source, destination]);
+    index += 1;
+  }
+  return pairs;
+}
+function parseIndexBlobOids(buffer) {
+  const entries = /* @__PURE__ */ new Map();
+  for (const field of splitNul(buffer)) {
+    const tab = field.indexOf(9);
+    if (tab < 0) {
+      fail3(
+        "GIT_OUTPUT_INVALID",
+        "Git index entry is missing its path separator."
+      );
+    }
+    const metadata = field.subarray(0, tab).toString("ascii").split(" ");
+    const [mode, oid, stage] = metadata;
+    const path = field.subarray(tab + 1);
+    if (!/^(?:100644|100755|120000|160000)$/u.test(mode) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid) || stage !== "0" || path.length === 0) {
+      fail3(
+        "GIT_OUTPUT_INVALID",
+        "Git returned an invalid stage-zero index entry."
+      );
+    }
+    entries.set(path.toString("base64"), oid);
+  }
+  return entries;
+}
+function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
+  const deletedPaths = unstaged.filter(({ status }) => status === "D").flatMap(({ paths }) => paths);
+  if (deletedPaths.length === 0 || untracked.length === 0) {
+    return [];
+  }
+  const indexBlobOids = parseIndexBlobOids(
+    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"], {
+      env: environment
+    }).stdout
+  );
+  const deletedByOid = /* @__PURE__ */ new Map();
+  for (const path of deletedPaths) {
+    const oid = indexBlobOids.get(path.toString("base64"));
+    if (oid) {
+      deletedByOid.set(oid, [...deletedByOid.get(oid) ?? [], path]);
+    }
+  }
+  const pairs = [];
+  for (const record of untracked) {
+    const path = record.paths[0];
+    let text;
+    try {
+      text = STRICT_UTF8_DECODER4.decode(path);
+    } catch {
+      continue;
+    }
+    if (!Buffer.from(text, "utf8").equals(path)) {
+      continue;
+    }
+    const oid = runReadOnlyGit(
+      root,
+      "hash-object",
+      ["--no-filters", "--", text],
+      {
+        env: environment
+      }
+    ).stdout.toString("ascii").trim();
+    for (const source of deletedByOid.get(oid) ?? []) {
+      pairs.push([source, path]);
+    }
+  }
+  return pairs;
+}
+function renamePolicyForRecords(records) {
+  return selectRenamePolicy({
+    addedCandidates: records.filter(({ status }) => status === "A").length,
+    deletedCandidates: records.filter(({ status }) => status === "D").length,
+    maximumCandidatePairs: MAXIMUM_SIMILARITY_CANDIDATE_PAIRS
+  });
+}
+function discoverTrackedChanges(root, source, prefix, environment) {
+  const initial = parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--no-renames", "--"],
+      { env: environment }
+    ).stdout,
+    source
+  );
+  const policy = renamePolicyForRecords(initial);
+  if (policy.mode !== "eager" || policy.candidatePairs === 0) {
+    return initial;
+  }
+  return parseNameStatus(
+    runReadOnlyGit(
+      root,
+      "diff",
+      [...prefix, "--name-status", "-z", "--find-renames=50%", "-l0", "--"],
+      { env: environment }
+    ).stdout,
+    source
+  );
+}
+function discoverCandidates(root) {
+  const readOnlyEnvironment = {
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_REPLACE_OBJECTS: "1"
+  };
+  const staged = discoverTrackedChanges(
+    root,
+    "staged",
+    ["--cached"],
+    readOnlyEnvironment
+  );
+  const unstaged = discoverTrackedChanges(
+    root,
+    "unstaged",
+    [],
+    readOnlyEnvironment
+  );
+  const untracked = splitNul(
+    runReadOnlyGit(
+      root,
+      "ls-files",
+      ["--others", "--exclude-standard", "-z", "--"],
+      { env: readOnlyEnvironment }
+    ).stdout
+  ).map((path) => ({
+    source: "untracked",
+    status: "A",
+    paths: [path],
+    rename: null
+  }));
+  const records = [...staged, ...unstaged, ...untracked];
+  const statusRenamePolicy = renamePolicyForRecords(records);
+  const statusRenamePairs = statusRenamePolicy.mode === "eager" && statusRenamePolicy.candidatePairs > 0 ? parseStatusRenamePairs(
+    runReadOnlyGit(
+      root,
+      "status",
+      ["--porcelain=v2", "-z", "--untracked-files=all", "--renames"],
+      { env: readOnlyEnvironment }
+    ).stdout
+  ) : [];
+  const exactRenamePairs = exactUnstagedRenamePairs(
+    root,
+    unstaged,
+    untracked,
+    readOnlyEnvironment
+  );
+  const pathsByBase64 = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    for (const path of record.paths) {
+      pathsByBase64.set(path.toString("base64"), path);
+    }
+  }
+  return {
+    records,
+    staged,
+    paths: [...pathsByBase64.values()].sort(compareBuffers),
+    renamePairs: [
+      ...records.flatMap(
+        (record) => record.rename === null ? [] : [record.rename]
+      ),
+      ...statusRenamePairs,
+      ...exactRenamePairs
+    ]
+  };
+}
+function containsUnsafeControl2(value) {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 31 || codePoint >= 127 && codePoint <= 159;
+  });
+}
+function safePathDisplay(bytes) {
+  const digest = sha2562(bytes);
+  let text;
+  try {
+    text = STRICT_UTF8_DECODER4.decode(bytes);
+  } catch {
+    text = null;
+  }
+  if (text !== null && !containsUnsafeControl2(text) && Buffer.byteLength(text, "utf8") <= 192) {
+    return text;
+  }
+  const prefix = bytes.subarray(0, 48).toString("hex");
+  const suffix = bytes.length > 48 ? bytes.subarray(-24).toString("hex") : "";
+  return `path-bytes:${prefix}${suffix ? `...${suffix}` : ""};bytes=${bytes.length};sha256=${digest}`;
+}
+function validateSelectorsAgainstCandidates(scope, candidates) {
+  for (const selector of scope.descriptors) {
+    if (!candidates.paths.some((path) => selectorMatches(selector, path))) {
+      fail3(
+        "UNMATCHED_SCOPE_SELECTOR",
+        "A literal scope selector matched no current change.",
+        {
+          details: {
+            selectorKind: `${selector.direction}-${selector.kind}`,
+            candidateSamples: candidates.paths.slice(0, 5).map(safePathDisplay)
+          }
+        }
+      );
+    }
+  }
+  const selectedPaths = candidates.paths.filter(
+    (path) => scope.includes.some((selector) => selectorMatches(selector, path)) && !scope.excludes.some((selector) => selectorMatches(selector, path))
+  );
+  const selectedKeys = new Set(
+    selectedPaths.map((path) => path.toString("base64"))
+  );
+  if (selectedPaths.length === 0) {
+    fail3(
+      "EMPTY_SCOPE",
+      "Scope exclusions remove every included current change."
+    );
+  }
+  for (const [source, destination] of candidates.renamePairs) {
+    if (selectedKeys.has(source.toString("base64")) !== selectedKeys.has(destination.toString("base64"))) {
+      fail3(
+        "RENAME_SCOPE_BOUNDARY",
+        "A rename crosses the selected scope boundary; select or exclude both endpoints."
+      );
+    }
+  }
+  return selectedPaths;
+}
+function scopeSummary(kind, normalizedScope, selectedPaths) {
+  if (kind !== "paths") {
+    return {
+      kind,
+      selectorCount: 0,
+      selectorKinds: {
+        includeExact: 0,
+        includePrefix: 0,
+        excludeExact: 0,
+        excludePrefix: 0
+      },
+      canonicalSelectorSha256: sha2562(Buffer.from(`${kind}
+`)),
+      expandedPathCount: null,
+      samples: []
+    };
+  }
+  const count = (direction, selectorKind) => normalizedScope.descriptors.filter(
+    ({ direction: candidateDirection, kind: candidateKind }) => direction === candidateDirection && selectorKind === candidateKind
+  ).length;
+  return {
+    kind,
+    selectorCount: normalizedScope.descriptors.length,
+    selectorKinds: {
+      includeExact: count("include", "exact"),
+      includePrefix: count("include", "prefix"),
+      excludeExact: count("exclude", "exact"),
+      excludePrefix: count("exclude", "prefix")
+    },
+    canonicalSelectorSha256: sha2562(normalizedScope.canonicalBytes),
+    expandedPathCount: selectedPaths.length,
+    samples: selectedPaths.slice(0, 5).map(safePathDisplay)
+  };
+}
+function writeOwnedInput(path, bytes) {
+  const descriptor = openSync6(
+    path,
+    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+    384
+  );
+  try {
+    writeFileSync7(descriptor, bytes);
+    fsyncSync6(descriptor);
+  } finally {
+    closeSync6(descriptor);
+  }
+  if (process.platform !== "win32") {
+    const directoryDescriptor = openSync6(dirname6(path), fsConstants4.O_RDONLY);
+    try {
+      fsyncSync6(directoryDescriptor);
+    } finally {
+      closeSync6(directoryDescriptor);
+    }
+  }
+}
+function assertPreallocationRepositoryState(root) {
+  const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"], {
+    env: { GIT_OPTIONAL_LOCKS: "0" }
+  }).stdout;
+  if (conflicts.length > 0) {
+    fail3(
+      "UNRESOLVED_CONFLICTS",
+      "Cannot prepare an ordinary commit while unresolved conflicts remain.",
+      { exitCode: 1 }
+    );
+  }
+  const operations = activeGitOperations(root);
+  if (operations.length > 0) {
+    fail3(
+      "ACTIVE_GIT_OPERATION",
+      `Cannot prepare an ordinary commit during an active ${operations.join(", ")} operation.`,
+      { exitCode: 1 }
+    );
+  }
+}
+function verifySnapshotScope(snapshot, scope, selectedPaths) {
+  if (scope === null) {
+    return;
+  }
+  const selected = new Set(
+    selectedPaths.map((path) => path.toString("base64"))
+  );
+  const covered = /* @__PURE__ */ new Set();
+  for (const unit of snapshot.changeUnits) {
+    const endpoints = [
+      unit.sourcePathBytesBase64,
+      unit.destinationPathBytesBase64
+    ].filter((value) => value !== null);
+    if (endpoints.some((value) => !selected.has(value))) {
+      fail3(
+        "SNAPSHOT_SCOPE_MISMATCH",
+        "The prepared snapshot contains a change outside the literal selected scope."
+      );
+    }
+    endpoints.forEach((value) => covered.add(value));
+  }
+  if ([...selected].some((value) => !covered.has(value))) {
+    fail3(
+      "SNAPSHOT_SCOPE_MISMATCH",
+      "A selected current-change path is absent from the prepared snapshot."
+    );
+  }
+}
+function manifestEnvironment(manifest) {
+  if (!manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
+}
+function patchUnitsForGroup(manifest, group) {
+  const selectedIds = new Set(group.changeUnitIds);
+  return manifest.changeUnits.filter(
+    (unit) => selectedIds.has(unit.id) && unit.newMode !== "000000" && unit.oldMode !== "160000" && unit.newMode !== "160000" && unit.binary !== true
+  );
+}
+function patchArguments(manifest, units) {
+  const paths = units.map(({ destinationPath }) => destinationPath);
+  if (paths.some((path) => typeof path !== "string" || path.length === 0)) {
+    throw new Error(
+      "Selected patch evidence contains a path that cannot be represented as strict UTF-8."
+    );
+  }
+  return [
+    "--cached",
+    "--no-renames",
+    "--diff-filter=d",
+    ...manifest.headOid ? [manifest.headOid] : ["--root"],
+    "--",
+    ...paths
+  ];
+}
+async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
+  const units = patchUnitsForGroup(manifest, group);
+  const path = resolve7(
+    attemptDirectory,
+    `.evidence-${group.id}-${randomUUID4()}.tmp`
+  );
+  if (units.length === 0) {
+    return { group, units, path: null, byteCount: 0, empty: true };
+  }
+  try {
+    const descriptor = openSync6(
+      path,
+      fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+      384
+    );
+    let result;
+    try {
+      result = await streamGit("diff-paths", patchArguments(manifest, units), {
+        cwd: root,
+        env: manifestEnvironment(manifest),
+        onStdout(chunk) {
+          writeFileSync7(descriptor, chunk);
+        }
+      });
+      fsyncSync6(descriptor);
+    } finally {
+      closeSync6(descriptor);
+    }
+    if (result.aborted || result.timedOut || result.status !== 0) {
+      throw new Error(
+        `Patch evidence stream for ${group.id} did not complete.`
+      );
+    }
+    return {
+      group,
+      units,
+      path,
+      byteCount: result.stdoutByteCount,
+      empty: false
+    };
+  } catch (error) {
+    if (existsSync8(path)) {
+      unlinkSync4(path);
+    }
+    throw error;
+  }
+}
+async function acquireEvidence({
+  root,
+  manifest,
+  evidencePlan,
+  attemptDirectory
+}) {
+  const records = [];
+  for (const group of evidencePlan.groups) {
+    if (!(/* @__PURE__ */ new Set(["message", "review"])).has(group.policy)) {
+      continue;
+    }
+    records.push(
+      await spoolEvidenceGroup({
+        root,
+        manifest,
+        group,
+        attemptDirectory
+      })
+    );
+  }
+  return records;
+}
+function inlineEvidenceManifest(manifest, records, evidencePlan) {
+  const totalBytes = records.reduce(
+    (total, record) => total + record.byteCount,
+    0
+  );
+  if (totalBytes > MAXIMUM_CONCISE_RESULT_BYTES) {
+    return null;
+  }
+  return {
+    ...manifest,
+    manifestSha256: evidencePlan.manifestSha256,
+    evidenceByGroupId: Object.fromEntries(
+      records.map((record) => [
+        record.group.id,
+        record.empty ? Buffer.alloc(0) : readFileSync5(record.path)
+      ])
+    )
+  };
+}
+async function preMaterializePatchPackets({ reviewDirectory, records }) {
+  const packetsByGroupId = {};
+  let nextOrdinal = 1;
+  for (const record of records) {
+    if (record.empty) {
+      continue;
+    }
+    const written = await writePacketStream({
+      outputDirectory: reviewDirectory,
+      source: createReadStream2(record.path, { highWaterMark: 16 * 1024 }),
+      idPrefix: "P",
+      startingOrdinal: nextOrdinal,
+      kind: "text-patch",
+      changeUnitRanges: record.group.changeUnitRanges,
+      changeUnitCount: record.units.length,
+      pathIdentity: record.group.id,
+      context: `evidence-group=${record.group.id}`
+    });
+    packetsByGroupId[record.group.id] = written.packets;
+    nextOrdinal += written.packets.length;
+  }
+  return packetsByGroupId;
+}
+function cleanupEvidenceSpools(records) {
+  for (const { path } of records) {
+    if (path && existsSync8(path)) {
+      unlinkSync4(path);
+    }
+  }
+}
+function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
+  const path = resolve7(attemptDirectory, "evidence-plan.json");
+  const bytes = stableJsonBytes(evidencePlan);
+  if (existsSync8(path)) {
+    if (!readFileSync5(path).equals(bytes)) {
+      throw new Error(
+        "Canonical evidence-plan artifact has conflicting bytes."
+      );
+    }
+  } else {
+    writeOwnedInput(path, bytes);
+  }
+  return path;
+}
+async function routePreparedEvidence({
+  transactionPath,
+  transaction,
+  manifest,
+  root
+}) {
+  const anchoredManifest = {
+    ...manifest,
+    manifestSha256: transaction.snapshot.sha256
+  };
+  const evidencePlan = canonicalizeEvidencePlan({
+    manifest: anchoredManifest,
+    groups: transaction.initialEvidencePlan.groups
+  });
+  const evidencePlanPath = writeCanonicalEvidencePlan(
+    transaction.attemptDirectory,
+    evidencePlan
+  );
+  const records = await acquireEvidence({
+    root,
+    manifest: anchoredManifest,
+    evidencePlan,
+    attemptDirectory: transaction.attemptDirectory
+  });
+  let routing;
+  try {
+    const inlineManifest = inlineEvidenceManifest(
+      anchoredManifest,
+      records,
+      evidencePlan
+    );
+    routing = evidencePlan.groups.some(({ policy }) => policy === "review") ? { route: "extended", capsule: null, extendedReason: "review-policy" } : inlineManifest === null ? {
+      route: "extended",
+      capsule: null,
+      extendedReason: "required-evidence-over-budget"
+    } : createInlineEvidenceCapsule({
+      manifest: inlineManifest,
+      evidencePlan
+    });
+    const common = {
+      ...transaction,
+      initialEvidencePlan: {
+        ...transaction.initialEvidencePlan,
+        inputSha256: transaction.initialEvidencePlan.sha256,
+        sha256: evidencePlan.evidencePlanSha256,
+        manifestSha256: evidencePlan.manifestSha256,
+        groups: evidencePlan.groups,
+        path: evidencePlanPath
+      }
+    };
+    if (routing.route === "concise") {
+      let measuredByteCount = routing.capsule.byteCount;
+      let preview;
+      for (; ; ) {
+        routing.capsule.byteCount = measuredByteCount;
+        preview = {
+          ...common,
+          phase: "evidence-ready",
+          status: "prepared",
+          route: "concise",
+          inlineEvidence: {
+            capsuleSha256: "0".repeat(64),
+            manifestSha256: evidencePlan.manifestSha256,
+            evidencePlanSha256: evidencePlan.evidencePlanSha256,
+            capsule: routing.capsule
+          },
+          review: null
+        };
+        const nextByteCount = Buffer.byteLength(
+          JSON.stringify(successEnvelope(preview, transaction.scope.summary)),
+          "utf8"
+        );
+        if (nextByteCount === measuredByteCount) {
+          break;
+        }
+        measuredByteCount = nextByteCount;
+      }
+      if (measuredByteCount > MAXIMUM_CONCISE_RESULT_BYTES) {
+        routing = {
+          route: "extended",
+          capsule: null,
+          extendedReason: routing.capsule.evidence.some(
+            ({ patchText }) => patchText !== null
+          ) ? "required-evidence-over-budget" : "scope-synopsis-over-budget"
+        };
+      }
+    }
+    if (routing.route === "concise") {
+      const capsuleSha256 = sha256Bytes(stableJsonBytes(routing.capsule));
+      const completed2 = advanceTransaction(
+        transactionPath,
+        "snapshot-created",
+        {
+          ...common,
+          phase: "evidence-ready",
+          status: "prepared",
+          route: "concise",
+          inlineEvidence: {
+            capsuleSha256,
+            manifestSha256: evidencePlan.manifestSha256,
+            evidencePlanSha256: evidencePlan.evidencePlanSha256,
+            capsule: routing.capsule
+          },
+          review: null
+        }
+      );
+      return completed2;
+    }
+    const reviewDirectory = resolve7(transaction.attemptDirectory, "review");
+    if (records.some(({ empty }) => !empty) && !existsSync8(reviewDirectory)) {
+      mkdirSync6(reviewDirectory);
+    }
+    const packetsByGroupId = await preMaterializePatchPackets({
+      reviewDirectory,
+      records
+    });
+    const extendedManifest = {
+      ...anchoredManifest,
+      manifestSha256: evidencePlan.manifestSha256,
+      preMaterializedPacketsByGroupId: packetsByGroupId,
+      evidenceByGroupId: Object.fromEntries(
+        records.filter(({ empty }) => empty).map(({ group }) => [group.id, Buffer.alloc(0)])
+      )
+    };
+    const catalog = createReviewCatalog({
+      manifest: extendedManifest,
+      outputDirectory: reviewDirectory,
+      evidencePlan
+    });
+    const packetIds = [
+      .../* @__PURE__ */ new Set([
+        ...catalog.requiredSynopsisPacketIds,
+        ...catalog.exactInventoryPacketIds,
+        ...catalog.fullPatchPacketIds
+      ])
+    ];
+    const reviewQueue = writeReviewPacketQueue({
+      catalog,
+      packetIds,
+      queueKind: "initial",
+      outputDirectory: reviewDirectory
+    });
+    ensureTransactionOwnedJson({
+      transactionPath,
+      artifactName: "content.json",
+      value: scaffoldContent(anchoredManifest, catalog, evidencePlan)
+    });
+    const completed = advanceTransaction(transactionPath, "snapshot-created", {
+      ...common,
+      phase: "review-pending",
+      status: "review-pending",
+      route: "extended",
+      inlineEvidence: null,
+      review: {
+        catalogPath: catalog.catalogPath,
+        catalogSha256: catalog.catalogSha256,
+        evidencePlanPath,
+        evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        extendedReason: routing.extendedReason,
+        queue: reviewQueue,
+        receipt: null,
+        semanticStructureRequired: false
+      }
+    });
+    return completed;
+  } finally {
+    cleanupEvidenceSpools(records);
+  }
+}
+function successEnvelope(transaction, summary) {
+  return {
+    schemaVersion: 1,
+    status: "prepared",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve7(transaction.attemptDirectory, "transaction.json"),
+    route: transaction.route,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    mode: transaction.mode,
+    scope: summary,
+    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    headAnchor: transaction.headAnchor,
+    indexTreeOid: transaction.snapshot.indexTreeOid,
+    changeUnitCount: transaction.snapshot.changeUnitCount,
+    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
+      extendedReason: transaction.review.extendedReason,
+      reviewQueue: transaction.review.queue
+    }
+  };
+}
+function interruptionError(error, transactionPath, summary) {
+  let recovery = null;
+  try {
+    recovery = recoverIndexInstallation({
+      root: readTransaction(transactionPath).repositoryRoot,
+      transactionPath
+    });
+  } catch {
+  }
+  return new PreparationError(
+    "INDEX_INSTALLATION_INTERRUPTED",
+    `Prepared index installation did not finish: ${error.message}`,
+    {
+      exitCode: 1,
+      details: {
+        transaction: transactionPath,
+        phase: "allocated",
+        recoveryRequired: true,
+        resumeAllowed: recovery?.resumeAllowed ?? true,
+        recoveryStatus: recovery?.status ?? "not-started",
+        scope: summary
+      }
+    }
+  );
+}
+function stopAllocatedPreparation(error, transactionPath, summary) {
+  try {
+    const current = readTransaction(transactionPath);
+    const stopped = advanceTransaction(transactionPath, "allocated", {
+      ...current,
+      phase: "stopped",
+      status: "stopped",
+      terminalDisposition: "no-commit-stopped"
+    });
+    const stoppedError = new PreparationError(
+      "PREPARATION_STOPPED",
+      `Preparation stopped before index installation: ${error.message}`,
+      {
+        exitCode: 1,
+        details: {
+          transaction: transactionPath,
+          phase: stopped.phase,
+          terminalDisposition: stopped.terminalDisposition,
+          recoveryRequired: false,
+          scope: summary
+        }
+      }
+    );
+    stoppedError.cause = error;
+    return stoppedError;
+  } catch (checkpointError) {
+    const interrupted = new PreparationError(
+      "PREPARATION_CHECKPOINT_INTERRUPTED",
+      `Preparation checkpoint could not be completed: ${checkpointError.message}`,
+      {
+        exitCode: 1,
+        details: {
+          transaction: transactionPath,
+          phase: "allocated",
+          recoveryRequired: true,
+          resumeAllowed: true,
+          scope: summary
+        }
+      }
+    );
+    interrupted.cause = checkpointError;
+    return interrupted;
+  }
+}
+async function prepareWorkflow({
+  options: options2,
+  cwd = process.cwd(),
+  environment = process.env,
+  temporaryRoot,
+  indexFailureInjector
+}) {
+  const parsed = options2 ?? fail3("INVALID_ARGUMENT", "Preparation options are required.");
+  let normalizedScope = null;
+  let normalizedEvidence;
+  if (parsed.scope === "paths") {
+    const payload = parsed.scopeFilePath ? readBoundedJson(resolve7(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
+    normalizedScope = normalizeScopePayload(payload);
+  }
+  if (parsed.evidencePlanPath) {
+    normalizedEvidence = normalizeEvidencePlan(
+      readBoundedJson(resolve7(cwd, parsed.evidencePlanPath), "Evidence plan")
+    );
+  } else {
+    normalizedEvidence = normalizeEvidencePlan({
+      schemaVersion: 1,
+      groups: [
+        {
+          selection: { all: true },
+          policy: parsed.evidence,
+          basis: { kind: parsed.basis, note: null }
+        }
+      ]
+    });
+  }
+  assertNoGitStorageOverrides(environment);
+  const root = repositoryRoot(cwd);
+  assertPreallocationRepositoryState(root);
+  const candidates = discoverCandidates(root);
+  let selectedPaths = [];
+  if (parsed.scope === "staged") {
+    if (candidates.staged.length === 0) {
+      fail3("EMPTY_SCOPE", "The staged scope is empty.");
+    }
+  } else if (parsed.scope === "full") {
+    if (candidates.paths.length === 0) {
+      fail3("EMPTY_SCOPE", "The full workspace scope is empty.");
+    }
+  } else {
+    selectedPaths = validateSelectorsAgainstCandidates(
+      normalizedScope,
+      candidates
+    );
+    if (parsed.mode === "actual" && candidates.staged.length > 0) {
+      fail3(
+        "PREEXISTING_STAGED_CHANGES",
+        "Actual path scope requires an initially clean staged index.",
+        {
+          exitCode: 1,
+          details: {
+            stagedChangeUnitCount: candidates.staged.length,
+            stagedSamples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
+          }
+        }
+      );
+    }
+    if (parsed.mode === "draft" && candidates.staged.length > 0) {
+      const stagedKeys = new Set(
+        candidates.staged.flatMap(({ paths }) => paths).map((path) => path.toString("base64"))
+      );
+      const overlap = selectedPaths.filter(
+        (path) => stagedKeys.has(path.toString("base64"))
+      );
+      if (overlap.length > 0) {
+        fail3(
+          "DRAFT_SCOPE_OVERLAPS_STAGED",
+          "Draft path scope overlaps existing staged work.",
+          {
+            exitCode: 1,
+            details: {
+              overlapSamples: overlap.slice(0, 5).map(safePathDisplay)
+            }
+          }
+        );
+      }
+    }
+  }
+  const summary = scopeSummary(parsed.scope, normalizedScope, selectedPaths);
+  const workspace = createTransactionWorkspace({
+    repositoryRoot: root,
+    ...temporaryRoot ? { temporaryRoot } : {}
+  });
+  const evidenceSha256 = sha2562(normalizedEvidence.canonicalBytes);
+  if (parsed.evidencePlanPath) {
+    writeOwnedInput(
+      getEvidencePlanInputPath(workspace.transactionPath),
+      normalizedEvidence.canonicalBytes
+    );
+  }
+  const initialScope = {
+    schemaVersion: 1,
+    kind: parsed.scope,
+    selectors: normalizedScope?.canonicalPayload ?? null,
+    selectorDigest: summary.canonicalSelectorSha256,
+    expandedPathBytesBase64: parsed.scope === "paths" ? selectedPaths.map((path) => path.toString("base64")) : [],
+    summary
+  };
+  const allocated = updateTransaction(workspace.transactionPath, "allocated", {
+    ...workspace.transaction,
+    mode: parsed.mode,
+    scope: initialScope,
+    repositoryTypePolicy: { allowedTypes: parsed.allowedTypes },
+    initialEvidencePlan: {
+      source: parsed.evidencePlanPath ? "file" : "uniform",
+      sha256: evidenceSha256,
+      groups: normalizedEvidence.plan.groups
+    },
+    verificationPolicy: parsed.verificationPolicy
+  });
+  const snapshotPath = resolve7(workspace.attemptDirectory, "snapshot.json");
+  let snapshotResult;
+  let prepared;
+  try {
+    snapshotResult = createSnapshot({
+      root,
+      mode: parsed.mode,
+      scope: parsed.scope,
+      scopePaths: selectedPaths,
+      outputPath: snapshotPath,
+      preparedIndexPath: parsed.scope === "staged" ? null : resolve7(
+        workspace.attemptDirectory,
+        parsed.mode === "draft" ? "temporary-index" : "preparation-index"
+      ),
+      deferIndexInstallation: parsed.mode === "actual" && parsed.scope !== "staged",
+      stagedPromotionSummary: parsed.mode === "draft" && parsed.scope === "paths" && candidates.staged.length > 0 ? {
+        stagedChangeUnitCount: candidates.staged.length,
+        samples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
+      } : null
+    });
+    verifySnapshotScope(
+      snapshotResult.snapshot,
+      normalizedScope,
+      selectedPaths
+    );
+    const snapshotBytes = readFileSync5(snapshotPath);
+    prepared = updateTransaction(workspace.transactionPath, "allocated", {
+      ...allocated,
+      scope: {
+        ...allocated.scope,
+        promotionBlocker: snapshotResult.promotionBlocker
+      },
+      headAnchor: snapshotResult.headAnchor,
+      snapshot: {
+        path: snapshotPath,
+        sha256: sha2562(snapshotBytes),
+        indexTreeOid: snapshotResult.snapshot.indexTreeOid,
+        changeUnitCount: snapshotResult.snapshot.changeUnitCount,
+        preparedIndexPath: snapshotResult.preparedIndexPath,
+        originalIndexIdentity: snapshotResult.originalIndexIdentity,
+        preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
+        temporaryObjectDirectory: snapshotResult.temporaryObjectDirectory,
+        promotionBlocker: snapshotResult.promotionBlocker,
+        indexInstallationRequired: snapshotResult.indexInstallationRequired
+      }
+    });
+  } catch (error) {
+    throw stopAllocatedPreparation(error, workspace.transactionPath, summary);
+  }
+  if (snapshotResult.indexInstallationRequired) {
+    try {
+      const installation = installPreparedIndex({
+        root,
+        transactionPath: workspace.transactionPath,
+        originalIndexIdentity: snapshotResult.originalIndexIdentity,
+        preparedIndexPath: snapshotResult.preparedIndexPath,
+        preparedIndexIdentity: snapshotResult.preparedIndexIdentity,
+        ...indexFailureInjector ? { failureInjector: indexFailureInjector } : {}
+      });
+      if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshotResult.snapshot.indexTreeOid || JSON.stringify(installation.headAnchor) !== JSON.stringify(snapshotResult.headAnchor)) {
+        throw new Error(
+          "Prepared index installation did not preserve the snapshot anchors."
+        );
+      }
+    } catch (error) {
+      throw interruptionError(error, workspace.transactionPath, summary);
+    }
+  }
+  let completed;
+  try {
+    completed = advanceTransaction(workspace.transactionPath, "allocated", {
+      ...prepared,
+      phase: "snapshot-created"
+    });
+  } catch (error) {
+    throw interruptionError(error, workspace.transactionPath, summary);
+  }
+  completed = await routePreparedEvidence({
+    transactionPath: workspace.transactionPath,
+    transaction: completed,
+    manifest: snapshotResult.snapshot,
+    root
+  });
+  const evidencePlanInputPath = getEvidencePlanInputPath(
+    workspace.transactionPath
+  );
+  if (existsSync8(evidencePlanInputPath)) {
+    unlinkSync4(evidencePlanInputPath);
+  }
+  return successEnvelope(completed, summary);
+}
+function errorEnvelope(error) {
+  return {
+    status: error.exitCode === 1 ? "stopped" : "invalid",
+    phase: error.details.phase ?? null,
+    terminalDisposition: error.details.terminalDisposition ?? null,
+    transaction: error.details.transaction ?? null,
+    route: null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: error.details.recoveryRequired ?? false,
+    code: error.code,
+    message: error.message,
+    ...Object.fromEntries(
+      Object.entries(error.details).filter(
+        ([key]) => !(/* @__PURE__ */ new Set([
+          "phase",
+          "terminalDisposition",
+          "transaction",
+          "recoveryRequired"
+        ])).has(key)
+      )
+    )
+  };
+}
+function textResult(result) {
+  const lines = [`Status: ${result.status}`];
+  if (result.code) {
+    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
+  }
+  if (result.transaction) {
+    lines.push(`Transaction: ${result.transaction}`);
+  }
+  if (result.indexTreeOid) {
+    lines.push(`Index tree: ${result.indexTreeOid}`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+async function runPrepareWorkflowCommand(argv, {
+  cwd = process.cwd(),
+  environment = process.env,
+  stdout = process.stdout,
+  stderr = process.stderr
+} = {}) {
+  let format = "json";
+  try {
+    const options2 = parsePrepareArguments(argv);
+    format = options2.format;
+    const result = await prepareWorkflow({ options: options2, cwd, environment });
+    stdout.write(
+      format === "text" ? textResult(result) : `${JSON.stringify(result)}
+`
+    );
+    return 0;
+  } catch (caught) {
+    const error = caught instanceof PreparationError ? caught : new PreparationError("PREPARATION_FAILED", caught.message);
+    const result = errorEnvelope(error);
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      format === "text" ? textResult(result) : `${JSON.stringify(result)}
+`
+    );
+    return error.exitCode;
+  }
+}
+var STORAGE_OVERRIDE_NAMES, EVIDENCE_POLICIES3, BASIS_KINDS3, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, SINGLETON_FLAGS, REPEATABLE_FLAGS, INLINE_SELECTOR_FLAGS, SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS, SELECTION_KEYS, STRICT_UTF8_DECODER4, PreparationError;
+var init_prepareWorkflow = __esm({
+  "src/committing-to-git/workflow/prepareWorkflow.js"() {
+    init_gitRepository();
+    init_gitPath();
+    init_inlineEvidenceCapsule();
+    init_reviewCatalog();
+    init_commitMessageRenderer();
+    init_canonicalMessageState();
+    init_streamingPacketWriter();
+    init_commitSnapshot();
+    init_createSnapshot();
+    init_createSnapshot();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    STORAGE_OVERRIDE_NAMES = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_QUARANTINE_PATH",
+      "GIT_NAMESPACE"
+    ];
+    EVIDENCE_POLICIES3 = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
+    BASIS_KINDS3 = /* @__PURE__ */ new Set([
+      "authored-current-task",
+      "read-current-task",
+      "task-lineage",
+      "user-grounded",
+      "generated-derived",
+      "unknown-preexisting"
+    ]);
+    VERIFICATION_POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    TYPE_TOKEN_PATTERN2 = /^[a-z][a-z0-9-]{0,31}$/u;
+    SINGLETON_FLAGS = /* @__PURE__ */ new Set([
+      "mode",
+      "scope",
+      "evidence",
+      "basis",
+      "evidence-plan",
+      "scope-file",
+      "verification",
+      "format"
+    ]);
+    REPEATABLE_FLAGS = /* @__PURE__ */ new Set([
+      "allowed-type",
+      "path",
+      "path-prefix",
+      "exclude-path",
+      "exclude-path-prefix"
+    ]);
+    INLINE_SELECTOR_FLAGS = [
+      "path",
+      "path-prefix",
+      "exclude-path",
+      "exclude-path-prefix"
+    ];
+    SCOPE_KEYS = [
+      "schemaVersion",
+      "includePaths",
+      "includePathPrefixes",
+      "excludePaths",
+      "excludePathPrefixes",
+      "includePathBytesBase64",
+      "excludePathBytesBase64"
+    ];
+    EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
+    GROUP_KEYS = ["selection", "policy", "basis"];
+    BASIS_KEYS = ["kind", "note"];
+    SELECTION_KEYS = /* @__PURE__ */ new Set([
+      "all",
+      "remaining",
+      "ids",
+      "destinationPaths",
+      "sourcePaths",
+      "destinationPathPrefixes",
+      "sourcePathPrefixes",
+      "kinds"
+    ]);
+    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
+    PreparationError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "PreparationError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/workflow/extendReviewWorkflow.js
+var extendReviewWorkflow_exports = {};
+__export(extendReviewWorkflow_exports, {
+  extendReviewWorkflow: () => extendReviewWorkflow,
+  parseExtendReviewArguments: () => parseExtendReviewArguments,
+  runExtendReviewCommand: () => runExtendReviewCommand
+});
+import {
+  closeSync as closeSync7,
+  constants as fsConstants5,
+  existsSync as existsSync9,
+  fstatSync as fstatSync6,
+  lstatSync as lstatSync5,
+  mkdirSync as mkdirSync7,
+  openSync as openSync7,
+  readFileSync as readFileSync6,
+  unlinkSync as unlinkSync5,
+  writeFileSync as writeFileSync8
+} from "node:fs";
+import { resolve as resolve8 } from "node:path";
+import { TextDecoder as TextDecoder6 } from "node:util";
+function fail4(code, message, { exitCode = 2, details = {} } = {}) {
+  throw new PreparationError(code, message, { exitCode, details });
+}
+function readFixedEvidencePlan(path) {
+  const initialPathStat = lstatSync5(path);
+  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile() || initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
+    fail4(
+      "INVALID_EVIDENCE_PLAN_INPUT",
+      "The fixed evidence-plan input must be a bounded non-symbolic regular file."
+    );
+  }
+  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
+  const descriptor = openSync7(path, fsConstants5.O_RDONLY + noFollow);
+  try {
+    const before = fstatSync6(descriptor);
+    const bytes = readFileSync6(descriptor);
+    const after = fstatSync6(descriptor);
+    const finalPathStat = lstatSync5(path);
+    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
+      fail4(
+        "EVIDENCE_PLAN_INPUT_CHANGED",
+        "The fixed evidence-plan input changed while it was read."
+      );
+    }
+    let text;
+    try {
+      text = STRICT_UTF8_DECODER5.decode(bytes);
+    } catch {
+      fail4(
+        "INVALID_EVIDENCE_PLAN_INPUT",
+        "The fixed evidence-plan input is not strict UTF-8."
+      );
+    }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      fail4(
+        "INVALID_EVIDENCE_PLAN_INPUT",
+        `The fixed evidence-plan input is invalid JSON: ${error.message}`
+      );
+    }
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.groups) || JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(["groups", "schemaVersion"])) {
+      fail4(
+        "INVALID_EVIDENCE_PLAN_INPUT",
+        "The fixed evidence-plan input must contain only schemaVersion and groups."
+      );
+    }
+    return payload.groups;
+  } finally {
+    closeSync7(descriptor);
+  }
+}
+function readExactSnapshot(transaction) {
+  const bytes = readFileSync6(transaction.snapshot.path);
+  if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
+    fail4(
+      "SNAPSHOT_CHANGED",
+      "The transaction snapshot changed after preparation.",
+      {
+        exitCode: 1,
+        details: {
+          transaction: resolve8(
+            transaction.snapshot.path,
+            "..",
+            "transaction.json"
+          )
+        }
+      }
+    );
+  }
+  const manifest = JSON.parse(STRICT_UTF8_DECODER5.decode(bytes));
+  if (manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount) {
+    fail4("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
+      exitCode: 1
+    });
+  }
+  return { ...manifest, manifestSha256: transaction.snapshot.sha256 };
+}
+function assertUnchangedAnchor(transaction, manifest) {
+  if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
+    fail4("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
+      exitCode: 1
+    });
+  }
+  const operations = activeGitOperations(transaction.repositoryRoot);
+  if (operations.length > 0) {
+    fail4(
+      "ACTIVE_GIT_OPERATION",
+      `Review cannot be extended during an active ${operations.join(", ")} operation.`,
+      { exitCode: 1 }
+    );
+  }
+  if (!indexMatchesTree(
+    transaction.repositoryRoot,
+    manifest.indexTreeOid,
+    manifestEnvironment(manifest)
+  )) {
+    fail4(
+      "INDEX_DRIFT",
+      "The prepared index tree changed before review extension.",
+      {
+        exitCode: 1
+      }
+    );
+  }
+}
+function initialGroups(transaction) {
+  return transaction.initialEvidencePlan.groups.map(
+    ({ selection, policy, basis }) => ({ selection, policy, basis })
+  );
+}
+function writeEvidencePlanRevision(transaction, evidencePlan) {
+  const path = resolve8(
+    transaction.attemptDirectory,
+    `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
+  );
+  const bytes = stableJsonBytes(evidencePlan);
+  if (existsSync9(path)) {
+    if (!readFileSync6(path).equals(bytes)) {
+      fail4(
+        "EVIDENCE_PLAN_COLLISION",
+        "An immutable evidence-plan revision has conflicting bytes."
+      );
+    }
+    return path;
+  }
+  writeFileSync8(path, bytes, { flag: "wx", mode: 384 });
+  return path;
+}
+function extensionResult(transaction) {
+  return {
+    schemaVersion: 1,
+    status: transaction.status,
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve8(transaction.attemptDirectory, "transaction.json"),
+    route: transaction.route,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    mode: transaction.mode,
+    headAnchor: transaction.headAnchor,
+    indexTreeOid: transaction.snapshot.indexTreeOid,
+    changeUnitCount: transaction.snapshot.changeUnitCount,
+    evidencePlanSha256: transaction.review.evidencePlanSha256,
+    capsuleSha256: transaction.review.coveredCapsuleSha256,
+    extendedReason: transaction.review.extendedReason,
+    reviewQueue: transaction.review.queue
+  };
+}
+async function extendReviewWorkflow({ transactionPath, reason }) {
+  if (!EXTENSION_REASONS.has(reason)) {
+    fail4(
+      "INVALID_EXTENSION_REASON",
+      "Review extension reason must be evidence-uncertainty or semantic-structure-required."
+    );
+  }
+  const transaction = readTransaction(transactionPath);
+  if (transaction.phase !== "evidence-ready" || transaction.route !== "concise") {
+    fail4(
+      "EXTENSION_NOT_ALLOWED",
+      `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
+      { exitCode: 1, details: { transaction: resolve8(transactionPath) } }
+    );
+  }
+  const inputPath = getEvidencePlanInputPath(transactionPath);
+  if (reason === "semantic-structure-required" && existsSync9(inputPath)) {
+    fail4(
+      "UNEXPECTED_EVIDENCE_PLAN_INPUT",
+      "Semantic-structure extension forbids an evidence-plan input.",
+      { details: { transaction: resolve8(transactionPath) } }
+    );
+  }
+  if (reason === "evidence-uncertainty" && !existsSync9(inputPath)) {
+    fail4(
+      "MISSING_EVIDENCE_PLAN_INPUT",
+      "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
+      { details: { transaction: resolve8(transactionPath) } }
+    );
+  }
+  const manifest = readExactSnapshot(transaction);
+  assertUnchangedAnchor(transaction, manifest);
+  const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
+  const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
+  const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
+  const reviewDirectory = resolve8(transaction.attemptDirectory, "review");
+  let records = [];
+  try {
+    if (reason === "evidence-uncertainty") {
+      records = await acquireEvidence({
+        root: transaction.repositoryRoot,
+        manifest,
+        evidencePlan,
+        attemptDirectory: transaction.attemptDirectory
+      });
+    }
+    if (records.some(({ empty }) => !empty) && !existsSync9(reviewDirectory)) {
+      mkdirSync7(reviewDirectory);
+    }
+    const packetsByGroupId = await preMaterializePatchPackets({
+      reviewDirectory,
+      records
+    });
+    const extendedManifest = {
+      ...manifest,
+      manifestSha256: evidencePlan.manifestSha256,
+      coveredSynopsis: true,
+      coveredEvidenceGroupIds: reason === "semantic-structure-required" ? evidencePlan.groups.map(({ id }) => id) : [],
+      preMaterializedPacketsByGroupId: packetsByGroupId,
+      evidenceByGroupId: Object.fromEntries(
+        records.filter(({ empty }) => empty).map(({ group }) => [group.id, Buffer.alloc(0)])
+      )
+    };
+    const catalog = createReviewCatalog({
+      manifest: extendedManifest,
+      outputDirectory: reviewDirectory,
+      evidencePlan
+    });
+    const packetIds = [
+      .../* @__PURE__ */ new Set([
+        ...catalog.requiredSynopsisPacketIds,
+        ...catalog.exactInventoryPacketIds,
+        ...catalog.fullPatchPacketIds
+      ])
+    ];
+    const queue = packetIds.length === 0 ? null : writeReviewPacketQueue({
+      catalog,
+      packetIds,
+      queueKind: "delta",
+      outputDirectory: reviewDirectory
+    });
+    ensureTransactionOwnedJson({
+      transactionPath,
+      artifactName: "content.json",
+      value: scaffoldContent(manifest, catalog, evidencePlan)
+    });
+    const completed = advanceTransaction(transactionPath, "evidence-ready", {
+      ...transaction,
+      phase: "review-pending",
+      status: "review-pending",
+      route: "extended",
+      inlineEvidence: null,
+      review: {
+        catalogPath: catalog.catalogPath,
+        catalogSha256: catalog.catalogSha256,
+        evidencePlanPath,
+        evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        coveredCapsuleSha256: transaction.inlineEvidence.capsuleSha256,
+        extendedReason: reason,
+        queue,
+        receipt: null,
+        semanticStructureRequired: reason === "semantic-structure-required"
+      }
+    });
+    if (reason === "evidence-uncertainty") {
+      unlinkSync5(inputPath);
+    }
+    return extensionResult(completed);
+  } finally {
+    cleanupEvidenceSpools(records);
+  }
+}
+function parseExtendReviewArguments(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (!(/* @__PURE__ */ new Set(["--transaction", "--reason", "--format"])).has(token)) {
+      fail4("UNKNOWN_ARGUMENT", `Unknown workflow extend flag ${token}.`);
+    }
+    if (value === void 0 || value.length === 0) {
+      fail4("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+    }
+    if (values.has(token)) {
+      fail4("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+    }
+    values.set(token, value);
+  }
+  if (!values.has("--transaction") || !values.has("--reason")) {
+    fail4(
+      "MISSING_ARGUMENT",
+      "--transaction and --reason are required for workflow extend."
+    );
+  }
+  const format = values.get("--format") ?? "json";
+  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+    fail4("INVALID_FORMAT", "--format must be json or text.");
+  }
+  return {
+    transactionPath: values.get("--transaction"),
+    reason: values.get("--reason"),
+    format
+  };
+}
+function errorResult(error) {
+  return {
+    schemaVersion: 1,
+    status: error.exitCode === 1 ? "stopped" : "invalid",
+    phase: null,
+    terminalDisposition: null,
+    transaction: error.details.transaction ?? null,
+    route: null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    code: error.code,
+    message: error.message
+  };
+}
+function textResult2(result) {
+  return [
+    `Status: ${result.status}`,
+    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
+    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
+    ...result.indexTreeOid ? [`Index tree: ${result.indexTreeOid}`] : [],
+    ""
+  ].join("\n");
+}
+async function runExtendReviewCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const options2 = parseExtendReviewArguments(argv);
+    format = options2.format;
+    const result = await extendReviewWorkflow(options2);
+    stdout.write(
+      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
+`
+    );
+    return 0;
+  } catch (caught) {
+    const error = caught instanceof PreparationError ? caught : new PreparationError("EXTENSION_FAILED", caught.message);
+    const result = errorResult(error);
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
+`
+    );
+    return error.exitCode;
+  }
+}
+var STRICT_UTF8_DECODER5, EXTENSION_REASONS;
+var init_extendReviewWorkflow = __esm({
+  "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
+    init_gitRepository();
+    init_reviewCatalog();
+    init_inlineEvidenceCapsule();
+    init_commitMessageRenderer();
+    init_canonicalMessageState();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+    STRICT_UTF8_DECODER5 = new TextDecoder6("utf-8", { fatal: true });
+    EXTENSION_REASONS = /* @__PURE__ */ new Set([
+      "evidence-uncertainty",
+      "semantic-structure-required"
+    ]);
+  }
+});
+
+// src/committing-to-git/workflow/resumePreparationWorkflow.js
+var resumePreparationWorkflow_exports = {};
+__export(resumePreparationWorkflow_exports, {
+  parseResumeArguments: () => parseResumeArguments,
+  resumePreparationWorkflow: () => resumePreparationWorkflow,
+  runResumePreparationCommand: () => runResumePreparationCommand
+});
+import { createHash as createHash9 } from "node:crypto";
+import { existsSync as existsSync10, lstatSync as lstatSync6, readFileSync as readFileSync7, unlinkSync as unlinkSync6 } from "node:fs";
+import { join as join7, relative as relative5, resolve as resolve9 } from "node:path";
+function fail5(code, message, { exitCode = 2, details = {} } = {}) {
+  throw new PreparationError(code, message, { exitCode, details });
+}
+function sha2563(bytes) {
+  return createHash9("sha256").update(bytes).digest("hex");
+}
+function assertContainedExactPath(attemptDirectory, path, name) {
+  const expected = resolve9(attemptDirectory, name);
+  const relation = relative5(attemptDirectory, path);
+  if (resolve9(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      `${name} has an invalid recorded path.`
+    );
+  }
+  const stat = lstatSync6(path);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      `${name} was replaced or is not a file.`
+    );
+  }
+}
+function validatePersistedSnapshot(transaction) {
+  const snapshot = transaction.snapshot;
+  if (snapshot === null || typeof snapshot.path !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.sha256) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(snapshot.indexTreeOid) || !Number.isSafeInteger(snapshot.changeUnitCount) || snapshot.changeUnitCount < 1 || typeof snapshot.indexInstallationRequired !== "boolean") {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      "Transaction snapshot facts are invalid."
+    );
+  }
+  assertContainedExactPath(
+    transaction.attemptDirectory,
+    snapshot.path,
+    "snapshot.json"
+  );
+  const bytes = readFileSync7(snapshot.path);
+  if (sha2563(bytes) !== snapshot.sha256) {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      "snapshot.json digest does not match."
+    );
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      `snapshot.json is invalid JSON: ${error.message}`
+    );
+  }
+  if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
+    fail5(
+      "INVALID_TRANSACTION_ARTIFACT",
+      "snapshot.json does not match the persisted transaction facts."
+    );
+  }
+  return manifest;
+}
+function assertRepositoryResumePreconditions(transaction) {
+  const operations = activeGitOperations(transaction.repositoryRoot);
+  if (operations.length > 0) {
+    fail5(
+      "ACTIVE_GIT_OPERATION",
+      `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
+      { exitCode: 1 }
+    );
+  }
+  const conflicts = runReadOnlyGit(
+    transaction.repositoryRoot,
+    "ls-files",
+    ["-u", "-z"],
+    {
+      env: { GIT_OPTIONAL_LOCKS: "0" }
+    }
+  ).stdout;
+  if (conflicts.length > 0) {
+    fail5(
+      "UNRESOLVED_CONFLICTS",
+      "Preparation cannot resume while unresolved conflicts remain.",
+      { exitCode: 1 }
+    );
+  }
+  const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
+  if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
+    fail5("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
+      exitCode: 1
+    });
+  }
+}
+function resultEnvelope(transaction) {
+  return {
+    schemaVersion: 1,
+    status: transaction.status ?? "prepared",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve9(transaction.attemptDirectory, "transaction.json"),
+    route: transaction.route,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    mode: transaction.mode,
+    scope: transaction.scope.summary,
+    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    headAnchor: transaction.headAnchor,
+    indexTreeOid: transaction.snapshot.indexTreeOid,
+    changeUnitCount: transaction.snapshot.changeUnitCount,
+    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : transaction.route === "extended" ? {
+      extendedReason: transaction.review.extendedReason,
+      reviewQueue: transaction.review.queue
+    } : {}
+  };
+}
+function assertSnapshotIndexState(transaction, manifest) {
+  const snapshot = transaction.snapshot;
+  if (snapshot.preparedIndexPath) {
+    const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
+    if (!indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)) {
+      fail5(
+        "PREPARED_INDEX_DRIFT",
+        "The transaction-local prepared index changed before resume.",
+        { exitCode: 1 }
+      );
+    }
+    if (!indexMatchesTree(
+      transaction.repositoryRoot,
+      snapshot.indexTreeOid,
+      manifestEnvironment(manifest)
+    )) {
+      fail5(
+        "PREPARED_INDEX_DRIFT",
+        "The transaction-local prepared index no longer matches the snapshot tree.",
+        { exitCode: 1 }
+      );
+    }
+  }
+  if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
+    fail5("INDEX_DRIFT", "The real index changed after snapshot creation.", {
+      exitCode: 1
+    });
+  }
+}
+function removeConsumedEvidencePlanInput(transactionPath) {
+  const evidencePlanInputPath = getEvidencePlanInputPath(transactionPath);
+  if (existsSync10(evidencePlanInputPath)) {
+    unlinkSync6(evidencePlanInputPath);
+  }
+}
+async function finishEvidenceRouting({
+  transactionPath,
+  transaction,
+  manifest
+}) {
+  const completed = await routePreparedEvidence({
+    transactionPath,
+    transaction,
+    manifest,
+    root: transaction.repositoryRoot
+  });
+  removeConsumedEvidencePlanInput(transactionPath);
+  return resultEnvelope(completed);
+}
+async function resumePreparationWorkflow({ transactionPath }) {
+  if (typeof transactionPath !== "string" || transactionPath.length === 0 || Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
+    fail5(
+      "INVALID_TRANSACTION_PATH",
+      `Transaction path must be at most ${MAXIMUM_TRANSACTION_PATH_BYTES} UTF-8 bytes.`
+    );
+  }
+  let transaction = readTransaction(transactionPath);
+  if ((/* @__PURE__ */ new Set(["evidence-ready", "review-pending"])).has(transaction.phase)) {
+    validatePersistedSnapshot(transaction);
+    removeConsumedEvidencePlanInput(transactionPath);
+    return resultEnvelope(transaction);
+  }
+  if (transaction.phase === "snapshot-created") {
+    const manifest2 = validatePersistedSnapshot(transaction);
+    assertRepositoryResumePreconditions(transaction);
+    assertSnapshotIndexState(transaction, manifest2);
+    return finishEvidenceRouting({ transactionPath, transaction, manifest: manifest2 });
+  }
+  if (transaction.phase !== "allocated") {
+    fail5(
+      "RESUME_NOT_ALLOWED",
+      `Preparation cannot resume from phase ${transaction.phase}.`,
+      { exitCode: 1, details: { transaction: resolve9(transactionPath) } }
+    );
+  }
+  const manifest = validatePersistedSnapshot(transaction);
+  assertRepositoryResumePreconditions(transaction);
+  const snapshot = transaction.snapshot;
+  if (snapshot.indexInstallationRequired) {
+    let installation;
+    try {
+      const journalPath = join7(
+        transaction.attemptDirectory,
+        "index-installation.json"
+      );
+      if (existsSync10(journalPath)) {
+        installation = resumePreparedIndexInstallation({
+          root: transaction.repositoryRoot,
+          transactionPath
+        });
+      } else {
+        installation = installPreparedIndex({
+          root: transaction.repositoryRoot,
+          transactionPath,
+          originalIndexIdentity: snapshot.originalIndexIdentity,
+          preparedIndexPath: snapshot.preparedIndexPath,
+          preparedIndexIdentity: snapshot.preparedIndexIdentity
+        });
+      }
+    } catch (error) {
+      fail5(
+        "INDEX_INSTALLATION_INTERRUPTED",
+        `Prepared index installation resume failed: ${error.message}`,
+        {
+          exitCode: 1,
+          details: {
+            transaction: resolve9(transactionPath),
+            phase: "allocated",
+            recoveryRequired: true
+          }
+        }
+      );
+    }
+    if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshot.indexTreeOid) {
+      fail5(
+        "INDEX_INSTALLATION_MISMATCH",
+        "Resumed index installation does not match the persisted snapshot.",
+        { exitCode: 1 }
+      );
+    }
+  }
+  assertSnapshotIndexState(transaction, manifest);
+  transaction = advanceTransaction(transactionPath, "allocated", {
+    ...transaction,
+    phase: "snapshot-created"
+  });
+  return finishEvidenceRouting({ transactionPath, transaction, manifest });
+}
+function parseResumeArguments(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
+      fail5("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
+    }
+    if (value === void 0 || value.length === 0) {
+      fail5("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+    }
+    if (values.has(token)) {
+      fail5("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+    }
+    values.set(token, value);
+  }
+  if (!values.has("--transaction")) {
+    fail5("MISSING_TRANSACTION", "--transaction is required.");
+  }
+  const format = values.get("--format") ?? "json";
+  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+    fail5("INVALID_FORMAT", "--format must be json or text.");
+  }
+  return { transactionPath: values.get("--transaction"), format };
+}
+function errorEnvelope2(error) {
+  return {
+    status: error.exitCode === 1 ? "stopped" : "invalid",
+    phase: error.details.phase ?? null,
+    terminalDisposition: null,
+    transaction: error.details.transaction ?? null,
+    route: null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: error.details.recoveryRequired ?? false,
+    code: error.code,
+    message: error.message
+  };
+}
+function textResult3(result) {
+  return [
+    `Status: ${result.status}`,
+    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
+    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
+    ""
+  ].join("\n");
+}
+async function runResumePreparationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const options2 = parseResumeArguments(argv);
+    format = options2.format;
+    const result = await resumePreparationWorkflow(options2);
+    stdout.write(
+      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+`
+    );
+    return 0;
+  } catch (caught) {
+    const error = caught instanceof PreparationError ? caught : new PreparationError("RESUME_FAILED", caught.message);
+    const result = errorEnvelope2(error);
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+`
+    );
+    return error.exitCode;
+  }
+}
+var init_resumePreparationWorkflow = __esm({
+  "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
+    init_gitRepository();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+  }
+});
+
+// src/committing-to-git/command/snapshotCommand.js
+var snapshotCommand_exports = {};
+import { readFileSync as readFileSync8 } from "node:fs";
+import { resolve as resolve10 } from "node:path";
+function usageError(message) {
+  console.error(message);
+  console.error(
+    "Usage: node commitWorkflow.mjs snapshot create --mode actual|draft --scope staged|full|paths [--scope-file <scope.json>] --output <snapshot.json>"
+  );
+  process.exit(2);
+}
+function parseArguments(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key?.startsWith("--") || value === void 0) {
+      usageError(`Invalid argument near ${JSON.stringify(key)}.`);
+    }
+    values.set(key.slice(2), value);
+  }
+  const mode = values.get("mode");
+  const scope = values.get("scope");
+  const scopeFile = values.get("scope-file");
+  const output = values.get("output");
+  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
+    usageError("--mode must be actual or draft.");
+  }
+  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
+    usageError("--scope must be staged, full, or paths.");
+  }
+  if (!output) {
+    usageError("--output is required.");
+  }
+  if (scope === "paths" && !scopeFile) {
+    usageError("--scope-file is required for path scope.");
+  }
+  return {
+    mode,
+    scope,
+    scopeFile: scopeFile ? resolve10(scopeFile) : null,
+    output: resolve10(output)
+  };
+}
+function readScopePaths(path) {
+  const payload = JSON.parse(readFileSync8(path, "utf8"));
+  if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.some(
+    (entry) => typeof entry !== "string" || entry.length === 0
+  )) {
+    throw new Error(
+      "Scope file must contain a non-empty string array named paths."
+    );
+  }
+  if (payload.paths.some((entry) => entry.includes("\0"))) {
+    throw new Error("Scope paths cannot contain NUL bytes.");
+  }
+  return payload.paths;
+}
+var options;
+var init_snapshotCommand = __esm({
+  "src/committing-to-git/command/snapshotCommand.js"() {
+    init_gitRepository();
+    init_createSnapshot();
+    options = parseArguments(process.argv.slice(2));
+    try {
+      const result = createSnapshot({
+        root: repositoryRoot(),
+        mode: options.mode,
+        scope: options.scope,
+        scopePaths: options.scopeFile ? readScopePaths(options.scopeFile) : [],
+        outputPath: options.output
+      });
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            snapshot: options.output,
+            indexTreeOid: result.snapshot.indexTreeOid,
+            changeUnitCount: result.snapshot.changeUnitCount
+          },
+          null,
+          2
+        )}
+`
+      );
+    } catch (error) {
+      console.error(`Commit scope preparation failed: ${error.message}`);
+      process.exit(2);
+    }
+  }
+});
+
+// src/committing-to-git/command/snapshotVerificationCommand.js
+var snapshotVerificationCommand_exports = {};
+import { readFileSync as readFileSync9 } from "node:fs";
+import { resolve as resolve11 } from "node:path";
+function usageError2(message) {
+  console.error(message);
+  console.error(
+    "Usage: node commitWorkflow.mjs snapshot verify --manifest <snapshot.json>"
+  );
+  process.exit(2);
+}
+function parseArguments2(argv) {
+  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
+    usageError2("--manifest is required.");
+  }
+  return resolve11(argv[1]);
+}
+function samePath2(left, right) {
+  const normalizedLeft = resolve11(left);
+  const normalizedRight = resolve11(right);
+  return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
+}
+function manifestEnvironment2(manifest) {
+  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
+}
+var init_snapshotVerificationCommand = __esm({
+  "src/committing-to-git/command/snapshotVerificationCommand.js"() {
+    init_gitRepository();
+    init_createSnapshot();
+    try {
+      const manifestPath2 = parseArguments2(process.argv.slice(2));
+      const manifest = JSON.parse(readFileSync9(manifestPath2, "utf8"));
+      const root = repositoryRoot();
+      const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath2(root, manifest.repositoryRoot);
+      const env = manifestEnvironment2(manifest);
+      const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
+      const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
+      const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
+      const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
+      const result = {
+        schemaVersion: 1,
+        valid: repositoryMatches && actualHeadOid === manifest.headOid && treeMatches && activeOperations.length === 0,
+        repositoryMatches,
+        headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
+        treeMatches,
+        operationClear: repositoryMatches && activeOperations.length === 0,
+        expectedHeadOid: manifest.headOid ?? null,
+        actualHeadOid,
+        expectedTreeOid: manifest.indexTreeOid ?? null,
+        actualTreeOid,
+        activeOperations
+      };
+      process.stdout.write(`${JSON.stringify(result, null, 2)}
+`);
+      process.exit(result.valid ? 0 : 1);
+    } catch (error) {
+      console.error(`Commit snapshot verification failed: ${error.message}`);
+      process.exit(2);
+    }
+  }
+});
+
+// src/committing-to-git/inspection/changeInspection.js
+import { createHash as createHash10 } from "node:crypto";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync10, writeFileSync as writeFileSync9 } from "node:fs";
+import { dirname as dirname7, join as join8 } from "node:path";
+function sha2564(buffer) {
+  return createHash10("sha256").update(buffer).digest("hex");
+}
+function utf8SafeBoundary(buffer, start, end) {
+  const isContinuation = (byte) => byte >= 128 && byte <= 191;
+  if (end >= buffer.length || end <= start || !isContinuation(buffer[end])) {
+    return end;
+  }
+  let boundary = end;
+  while (boundary > start && isContinuation(buffer[boundary])) {
+    boundary -= 1;
+  }
+  return boundary > start ? boundary : end;
+}
+function splitPatch(buffer) {
+  const chunks = [];
+  for (let start = 0; start < buffer.length; ) {
+    let end = start;
+    let newlineCount = 0;
+    while (end < buffer.length && end - start < MAX_CHUNK_BYTES) {
+      if (buffer[end] === 10) {
+        newlineCount += 1;
+      }
+      end += 1;
+      if (newlineCount === MAX_CHUNK_LINES) {
+        break;
+      }
+    }
+    const lastNewline = buffer.lastIndexOf(10, end - 1);
+    if (lastNewline >= start) {
+      end = lastNewline + 1;
+    } else {
+      end = utf8SafeBoundary(buffer, start, end);
+    }
+    const payload = buffer.subarray(start, end);
+    newlineCount = 0;
+    for (const byte of payload) {
+      if (byte === 10) {
+        newlineCount += 1;
+      }
+    }
+    const endsWithNewline = payload[payload.length - 1] === 10;
+    const lineCount2 = newlineCount + (endsWithNewline ? 0 : 1);
+    chunks.push({ payload, start, end, lineCount: lineCount2 });
+    start = end;
+  }
+  return chunks;
+}
+function isWholeDeletion(unit) {
+  return unit?.oldMode !== "000000" && unit?.newMode === "000000";
+}
+function writeInspection({ outputDir, manifest, patch }) {
+  const chunksDir = join8(outputDir, "chunks");
+  const deletionsDir = join8(outputDir, "deletions");
+  const inventoryDir = join8(outputDir, "inventory");
+  const metadataDir = join8(outputDir, "metadata");
+  const chunks = splitPatch(patch);
+  const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
+  const summarizedTextDeletionLines = summarizedDeletions.reduce(
+    (total, unit) => total + (!unit.binary && unit.oldMode !== "160000" && Number.isInteger(unit.deletions) ? unit.deletions : 0),
+    0
+  );
+  mkdirSync8(outputDir);
+  mkdirSync8(chunksDir);
+  mkdirSync8(deletionsDir);
+  mkdirSync8(inventoryDir);
+  mkdirSync8(metadataDir);
+  const inventoryPayload = Buffer.from(
+    [
+      "# Commit snapshot change inventory",
+      "",
+      ...manifest.changeUnits.map((unit) => {
+        const statistics = unit.binary ? "binary/unavailable" : `+${unit.additions}/-${unit.deletions}`;
+        const deletionSummary = isWholeDeletion(unit) ? `; historical body summarized; old object ${unit.oldOid}; mode ${unit.oldMode}` : "";
+        return `- \`${unit.id}\` ${unit.kind}: ${unit.displayPath} -- ${statistics}${deletionSummary}`;
+      }),
+      ""
+    ].join("\n")
+  );
+  const inventoryUnits = splitPatch(inventoryPayload).map(
+    ({ payload, start, end, lineCount: lineCount2 }, index) => {
+      const id = `I${String(index + 1).padStart(6, "0")}`;
+      const artifact = `inventory/${id}.md`;
+      writeFileSync9(join8(outputDir, artifact), payload);
+      return {
+        id,
+        kind: "inventory-page",
+        artifact,
+        byteStart: start,
+        byteEnd: end,
+        byteCount: payload.length,
+        lineCount: lineCount2,
+        sha256: sha2564(payload),
+        status: "pending"
+      };
+    }
+  );
+  const textUnits = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
+    const id = `C${String(index + 1).padStart(6, "0")}`;
+    const artifact = `chunks/${id}.patch`;
+    writeFileSync9(join8(outputDir, artifact), payload);
+    return {
+      id,
+      kind: "text-patch",
+      artifact,
+      byteStart: start,
+      byteEnd: end,
+      byteCount: payload.length,
+      lineCount: lineCount2,
+      sha256: sha2564(payload),
+      status: "pending"
+    };
+  });
+  const metadataUnits = manifest.changeUnits.filter((unit) => unit.binary || unit.kind === "submodule-changed").map((unit, index) => {
+    const id = `M${String(index + 1).padStart(6, "0")}`;
+    const kind = unit.binary ? "binary" : "submodule";
+    const artifact = `metadata/${id}.json`;
+    const metadata = unit.binary ? {
+      changeUnitId: unit.id,
+      kind,
+      path: unit.destinationPath,
+      additions: null,
+      deletions: null
+    } : {
+      changeUnitId: unit.id,
+      kind,
+      path: unit.destinationPath,
+      oldOid: unit.oldOid,
+      newOid: unit.newOid
+    };
+    const payload = Buffer.from(`${JSON.stringify(metadata, null, 2)}
+`);
+    writeFileSync9(join8(outputDir, artifact), payload);
+    return {
+      id,
+      kind: unit.binary ? "binary-metadata" : "submodule-metadata",
+      artifact,
+      byteStart: 0,
+      byteEnd: payload.length,
+      byteCount: payload.length,
+      lineCount: payload.toString("utf8").split("\n").length - 1,
+      sha256: sha2564(payload),
+      status: "pending"
+    };
+  });
+  const units = [...inventoryUnits, ...textUnits, ...metadataUnits];
+  const ledger = {
+    schemaVersion: 2,
+    indexTreeOid: manifest.indexTreeOid,
+    reviewPatchSha256: sha2564(patch),
+    reviewPatchBytes: patch.length,
+    summarizedDeletionCount: summarizedDeletions.length,
+    summarizedTextDeletionLines,
+    expandedDeletions: [],
+    unitCount: units.length,
+    reviewedCount: 0,
+    complete: units.length === 0,
+    units
+  };
+  const inventory = [
+    "# Commit snapshot inventory",
+    "",
+    `- Index tree: \`${manifest.indexTreeOid}\``,
+    `- File change units: ${manifest.changeUnitCount}`,
+    `- Required patch bytes: ${patch.length}`,
+    `- Inventory pages: ${inventoryUnits.length}`,
+    `- Required text chunks: ${textUnits.length}`,
+    `- Summarized whole-file deletions: ${summarizedDeletions.length} (${summarizedTextDeletionLines} text lines)`,
+    `- Metadata units: ${metadataUnits.length}`,
+    "",
+    "Process one pending artifact at a time:",
+    "1. Read exactly one pending artifact in a dedicated tool action.",
+    "2. Confirm that the complete artifact was returned without truncation.",
+    "3. Then acknowledge its recorded ID and SHA-256 before reading the next artifact.",
+    "Tool output limits apply to the combined response, so batching or parallel reads can truncate evidence before review.",
+    "",
+    "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
+    ""
+  ].join("\n");
+  writeFileSync9(join8(outputDir, "inventory.md"), inventory);
+  writeFileSync9(
+    join8(outputDir, "ledger.json"),
+    `${JSON.stringify(ledger, null, 2)}
+`
+  );
+  return ledger;
+}
+function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content }) {
+  const ledger = JSON.parse(readFileSync10(ledgerPath2, "utf8"));
+  if (ledger.schemaVersion !== 2) {
+    throw new Error(
+      "Deletion expansion requires an inspection ledger version 2."
+    );
+  }
+  if (ledger.expandedDeletions.some(
+    ({ changeUnitId }) => changeUnitId === changeUnit.id
+  )) {
+    throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
+  }
+  const inspectionDir = dirname7(ledgerPath2);
+  const deletionDir = join8(inspectionDir, "deletions", changeUnit.id);
+  const chunks = splitPatch(content);
+  mkdirSync8(deletionDir);
+  const units = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
+    const ordinal = `D${String(index + 1).padStart(6, "0")}`;
+    const id = `${changeUnit.id}-${ordinal}`;
+    const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
+    writeFileSync9(join8(inspectionDir, artifact), payload);
+    return {
+      id,
+      kind: "deleted-content",
+      changeUnitId: changeUnit.id,
+      artifact,
+      byteStart: start,
+      byteEnd: end,
+      byteCount: payload.length,
+      lineCount: lineCount2,
+      sha256: sha2564(payload),
+      status: "pending"
+    };
+  });
+  const expansion = {
+    changeUnitId: changeUnit.id,
+    oldOid: changeUnit.oldOid,
+    byteCount: content.length,
+    sha256: sha2564(content),
+    unitIds: units.map(({ id }) => id)
+  };
+  ledger.expandedDeletions.push(expansion);
+  ledger.units.push(...units);
+  ledger.unitCount = ledger.units.length;
+  ledger.reviewedCount = ledger.units.filter(
+    ({ status }) => status === "reviewed"
+  ).length;
+  ledger.complete = ledger.reviewedCount === ledger.unitCount;
+  writeFileSync9(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+`);
+  return { ledger, expansion, units };
+}
+function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) {
+  const ledger = JSON.parse(readFileSync10(ledgerPath2, "utf8"));
+  const unit = ledger.units.find((candidate) => candidate.id === id);
+  if (!unit) {
+    throw new Error(`Unknown inspection unit ${id}.`);
+  }
+  const artifactPath2 = join8(dirname7(ledgerPath2), unit.artifact);
+  const actualSha256 = sha2564(readFileSync10(artifactPath2));
+  if (actualSha256 !== unit.sha256 || actualSha256 !== expectedSha256) {
+    throw new Error(`Inspection unit ${id} changed after it was generated.`);
+  }
+  unit.status = "reviewed";
+  ledger.reviewedCount = ledger.units.filter(
+    ({ status }) => status === "reviewed"
+  ).length;
+  ledger.complete = ledger.reviewedCount === ledger.unitCount;
+  writeFileSync9(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+`);
+  return ledger;
+}
+var MAX_CHUNK_LINES, MAX_CHUNK_BYTES;
+var init_changeInspection = __esm({
+  "src/committing-to-git/inspection/changeInspection.js"() {
+    MAX_CHUNK_LINES = 200;
+    MAX_CHUNK_BYTES = 16 * 1024;
+  }
+});
+
+// src/committing-to-git/command/inspectionCommand.js
+var inspectionCommand_exports = {};
+import { readFileSync as readFileSync11 } from "node:fs";
+import { resolve as resolve12 } from "node:path";
+function usageError3(message) {
+  console.error(message);
+  console.error(
+    "Usage: node commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory> | inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001> | inspection acknowledge --ledger <ledger.json> --id <id> --sha256 <hash> | inspection status --ledger <ledger.json>"
+  );
+  process.exit(2);
+}
+function parseFlags(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
+      usageError3(`Invalid argument near ${JSON.stringify(argv[index])}.`);
+    }
+    values.set(argv[index].slice(2), argv[index + 1]);
+  }
+  return values;
+}
+function required(values, name) {
+  const value = values.get(name);
+  if (!value) {
+    usageError3(`--${name} is required.`);
+  }
+  return value;
+}
+function patchForManifest(manifest, root) {
+  const env = manifestEnvironment3(manifest);
+  if (!indexMatchesTree(root, manifest.indexTreeOid, env)) {
+    throw new Error(
+      `Index tree drifted from manifest tree ${manifest.indexTreeOid}.`
+    );
+  }
+  const base = manifest.headOid ? [manifest.headOid] : [];
+  return runReadOnlyGit(
+    root,
+    "diff",
+    ["--cached", "--no-renames", "--diff-filter=d", ...base, "--"],
+    { env }
+  ).stdout;
+}
+function manifestEnvironment3(manifest) {
+  if (!manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
+}
+var command, flagArguments, flags;
+var init_inspectionCommand = __esm({
+  "src/committing-to-git/command/inspectionCommand.js"() {
+    init_changeInspection();
+    init_gitRepository();
+    init_createSnapshot();
+    [command, ...flagArguments] = process.argv.slice(2);
+    flags = parseFlags(flagArguments);
+    try {
+      if (command === "prepare") {
+        const manifestPath2 = resolve12(required(flags, "manifest"));
+        const outputDir = resolve12(required(flags, "output-dir"));
+        const manifest = JSON.parse(readFileSync11(manifestPath2, "utf8"));
+        const root = repositoryRoot();
+        if (resolve12(manifest.repositoryRoot) !== resolve12(root)) {
+          throw new Error("Snapshot manifest belongs to a different repository.");
+        }
+        const ledger = writeInspection({
+          outputDir,
+          manifest,
+          patch: patchForManifest(manifest, root)
+        });
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              ledger: resolve12(outputDir, "ledger.json"),
+              unitCount: ledger.unitCount,
+              requiredTextChunkCount: ledger.units.filter(
+                ({ kind }) => kind === "text-patch"
+              ).length,
+              summarizedDeletionCount: ledger.summarizedDeletionCount,
+              complete: ledger.complete
+            },
+            null,
+            2
+          )}
+`
+        );
+      } else if (command === "expand-deletion") {
+        const manifestPath2 = resolve12(required(flags, "manifest"));
+        const ledgerPath2 = resolve12(required(flags, "ledger"));
+        const changeUnitId = required(flags, "change-unit");
+        const manifest = JSON.parse(readFileSync11(manifestPath2, "utf8"));
+        const ledger = JSON.parse(readFileSync11(ledgerPath2, "utf8"));
+        const root = repositoryRoot();
+        if (resolve12(manifest.repositoryRoot) !== resolve12(root)) {
+          throw new Error("Snapshot manifest belongs to a different repository.");
+        }
+        if (ledger.indexTreeOid !== manifest.indexTreeOid) {
+          throw new Error("Inspection ledger belongs to a different index tree.");
+        }
+        const changeUnit = manifest.changeUnits.find(
+          ({ id }) => id === changeUnitId
+        );
+        if (!changeUnit) {
+          throw new Error(`Unknown change unit ${changeUnitId}.`);
+        }
+        if (!isWholeDeletion(changeUnit)) {
+          throw new Error(
+            `Change unit ${changeUnitId} is not a whole-file deletion.`
+          );
+        }
+        if (changeUnit.binary) {
+          throw new Error(
+            `Change unit ${changeUnitId} is binary; inspect its content separately.`
+          );
+        }
+        if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(changeUnit.oldOid)) {
+          throw new Error(
+            `Change unit ${changeUnitId} has an invalid full old object ID.`
+          );
+        }
+        const readOnlyEnv = manifestEnvironment3(manifest);
+        const objectType = readOnlyGitText(
+          root,
+          "cat-file",
+          ["-t", changeUnit.oldOid],
+          { env: readOnlyEnv }
+        ).trim();
+        if (objectType !== "blob") {
+          throw new Error(
+            `Old object ${changeUnit.oldOid} must identify a blob object, not ${objectType}.`
+          );
+        }
+        const content = runReadOnlyGit(
+          root,
+          "cat-file",
+          ["blob", changeUnit.oldOid],
+          {
+            env: readOnlyEnv
+          }
+        ).stdout;
+        const expansion = expandDeletionInspection({
+          ledgerPath: ledgerPath2,
+          changeUnit,
+          content
+        });
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              ledger: ledgerPath2,
+              changeUnitId,
+              oldOid: changeUnit.oldOid,
+              byteCount: expansion.expansion.byteCount,
+              unitIds: expansion.expansion.unitIds,
+              complete: expansion.ledger.complete
+            },
+            null,
+            2
+          )}
+`
+        );
+      } else if (command === "ack") {
+        const ledger = acknowledgeInspection({
+          ledgerPath: resolve12(required(flags, "ledger")),
+          id: required(flags, "id"),
+          expectedSha256: required(flags, "sha256")
+        });
+        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
+`);
+      } else if (command === "status") {
+        const ledger = JSON.parse(
+          readFileSync11(resolve12(required(flags, "ledger")), "utf8")
+        );
+        process.stdout.write(`${JSON.stringify(ledger, null, 2)}
+`);
+      } else {
+        usageError3("Expected prepare, expand-deletion, ack, or status command.");
+      }
+    } catch (error) {
+      console.error(`Commit scope inspection failed: ${error.message}`);
+      process.exit(2);
+    }
+  }
+});
+
 // src/committing-to-git/command/messageCommand.js
 var messageCommand_exports = {};
-import { existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync11, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname7, resolve as resolve12 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync9, readFileSync as readFileSync12, writeFileSync as writeFileSync10 } from "node:fs";
+import { dirname as dirname8, resolve as resolve13 } from "node:path";
 function usageError4(message) {
   console.error(message);
   console.error(
@@ -8004,18 +10629,18 @@ function required2(flags4, name) {
   if (!value) {
     usageError4(`--${name} is required.`);
   }
-  return resolve12(value);
+  return resolve13(value);
 }
 function readJson(path) {
-  return JSON.parse(readFileSync11(path, "utf8"));
+  return JSON.parse(readFileSync12(path, "utf8"));
 }
 function writeText(path, text) {
-  mkdirSync8(dirname7(path), { recursive: true });
-  writeFileSync9(path, text);
+  mkdirSync9(dirname8(path), { recursive: true });
+  writeFileSync10(path, text);
 }
 function writeNewText(path, text) {
-  mkdirSync8(dirname7(path), { recursive: true });
-  writeFileSync9(path, text, { flag: "wx" });
+  mkdirSync9(dirname8(path), { recursive: true });
+  writeFileSync10(path, text, { flag: "wx" });
 }
 function containsScaffoldPlaceholder(value) {
   if (typeof value === "string") {
@@ -8046,7 +10671,7 @@ var init_messageCommand = __esm({
         const output = required2(flags2, "output");
         const template = required2(flags2, "template");
         const content = scaffoldLegacyContent(manifest);
-        if (existsSync10(output) || existsSync10(template)) {
+        if (existsSync11(output) || existsSync11(template)) {
           throw new Error(
             "A scaffold output already exists; start a new attempt instead of replacing it."
           );
@@ -8089,7 +10714,7 @@ __export(commitMessageValidator_exports, {
   RECOMMENDED_COMMIT_TYPES: () => RECOMMENDED_COMMIT_TYPES2
 });
 import { execFileSync } from "node:child_process";
-import { readFileSync as readFileSync12 } from "node:fs";
+import { readFileSync as readFileSync13 } from "node:fs";
 function characterLength2(text) {
   let length = 0;
   for (const _ of text) {
@@ -8149,7 +10774,7 @@ function compareBinary(a, b) {
   }
   return 0;
 }
-function isCapitalizedDescription2(description) {
+function isCapitalizedDescription3(description) {
   const [first = ""] = description;
   return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
 }
@@ -8191,7 +10816,7 @@ function validateMessage(text, expectedFiles, fileScope) {
     if (TYPE_PATTERN.test(type)) {
       normalizedType = type;
     }
-    if (!isCapitalizedDescription2(description)) {
+    if (!isCapitalizedDescription3(description)) {
       issues.push(
         issue(
           "error",
@@ -8733,12 +11358,12 @@ var init_commitMessageValidator = __esm({
     ({ messagePath, requestedScope, manifestPath, contentPath, ledgerPath } = parseArguments3(process.argv.slice(2)));
     try {
       const root = repositoryRoot2();
-      const message = readFileSync12(messagePath, "utf8");
+      const message = readFileSync13(messagePath, "utf8");
       let result;
       if (manifestPath) {
-        const manifest = JSON.parse(readFileSync12(manifestPath, "utf8"));
-        const content = JSON.parse(readFileSync12(contentPath, "utf8"));
-        const ledger = JSON.parse(readFileSync12(ledgerPath, "utf8"));
+        const manifest = JSON.parse(readFileSync13(manifestPath, "utf8"));
+        const content = JSON.parse(readFileSync13(contentPath, "utf8"));
+        const ledger = JSON.parse(readFileSync13(ledgerPath, "utf8"));
         result = validateManifestMessage(message, manifest, content, ledger);
       } else {
         const { resolved, files } = resolveScope(root, requestedScope);
@@ -8755,6 +11380,990 @@ var init_commitMessageValidator = __esm({
       console.error(`Commit-message validation could not run: ${detail}`);
       process.exit(2);
     }
+  }
+});
+
+// src/committing-to-git/workflow/checkMessageWorkflow.js
+var checkMessageWorkflow_exports = {};
+__export(checkMessageWorkflow_exports, {
+  MAXIMUM_MESSAGE_RESULT_BYTES: () => MAXIMUM_MESSAGE_RESULT_BYTES,
+  MessageWorkflowError: () => MessageWorkflowError,
+  asMessageWorkflowError: () => asMessageWorkflowError,
+  assertMessageResultBudget: () => assertMessageResultBudget,
+  checkMessageWorkflow: () => checkMessageWorkflow,
+  messageErrorResult: () => messageErrorResult,
+  parseMessageWorkflowArguments: () => parseMessageWorkflowArguments,
+  readExactRecordedSnapshot: () => readExactRecordedSnapshot,
+  runCheckMessageCommand: () => runCheckMessageCommand
+});
+import { createHash as createHash11 } from "node:crypto";
+import { resolve as resolve14 } from "node:path";
+import { TextDecoder as TextDecoder7 } from "node:util";
+function fail6(code, message, options2) {
+  throw new MessageWorkflowError(code, message, options2);
+}
+function sha2565(bytes) {
+  return createHash11("sha256").update(bytes).digest("hex");
+}
+function decodeJson(bytes, label) {
+  let text;
+  try {
+    text = STRICT_UTF8_DECODER6.decode(bytes);
+  } catch {
+    fail6("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    fail6("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+  }
+}
+function sameHeadAnchor(manifest, headAnchor) {
+  if (headAnchor.headKind === "unborn") {
+    return manifest.headOid === null && headAnchor.expectedParentOids.length === 0;
+  }
+  return typeof manifest.headOid === "string" && headAnchor.expectedParentOids.length === 1 && headAnchor.expectedParentOids[0] === manifest.headOid;
+}
+function readExactRecordedSnapshot(transactionPath) {
+  const opened = readTransactionOwnedFile({
+    transactionPath,
+    artifactName: SNAPSHOT_NAME,
+    maximumBytes: MAXIMUM_INITIAL_JSON_INPUT_BYTES,
+    label: "Recorded snapshot",
+    allowPathReplacement: false
+  });
+  const { transaction, bytes } = opened;
+  const expectedPath = resolve14(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve14(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail6(
+      "SNAPSHOT_PATH_MISMATCH",
+      "The transaction snapshot does not use its fixed transaction-local path."
+    );
+  }
+  if (sha2565(bytes) !== transaction.snapshot.sha256) {
+    fail6(
+      "SNAPSHOT_CHANGED",
+      "The recorded snapshot bytes changed after preparation."
+    );
+  }
+  const manifest = decodeJson(bytes, "Recorded snapshot");
+  if (resolve14(manifest.repositoryRoot) !== resolve14(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+    fail6(
+      "SNAPSHOT_ANCHOR_MISMATCH",
+      "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
+    );
+  }
+  return {
+    transaction,
+    manifest: { ...manifest, manifestSha256: transaction.snapshot.sha256 },
+    bytes
+  };
+}
+function resultBytes(result) {
+  return Buffer.byteLength(`${JSON.stringify(result)}
+`, "utf8");
+}
+function assertMessageResultBudget(result) {
+  const byteCount = resultBytes(result);
+  if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
+    fail6(
+      "MESSAGE_RESULT_BUDGET_EXCEEDED",
+      `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
+      { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
+    );
+  }
+  return result;
+}
+function commonResult(transactionPath, route, status, phase) {
+  return {
+    schemaVersion: 1,
+    status,
+    phase,
+    terminalDisposition: null,
+    route,
+    transaction: resolve14(transactionPath),
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false
+  };
+}
+function checkedResult({ transactionPath, canonical, validation, warnings }) {
+  return {
+    ...commonResult(
+      transactionPath,
+      "concise",
+      "message-ready",
+      "message-ready"
+    ),
+    messageSource: "checked-file",
+    messageRevision: canonical.messageRevision,
+    messageSha256: canonical.messageSha256,
+    presentationWarnings: validation.presentationWarnings,
+    ...warnings.length === 0 ? {} : { cleanupWarnings: warnings },
+    displayText: canonical.displayText
+  };
+}
+function prospectiveCheckedResult({
+  transactionPath,
+  revision,
+  validation,
+  displayText,
+  inputPath
+}) {
+  return checkedResult({
+    transactionPath,
+    canonical: {
+      messageRevision: revision,
+      messageSha256: validation.messageSha256,
+      displayText
+    },
+    validation,
+    warnings: [
+      {
+        code: "MESSAGE_INPUT_CLEANUP_FAILED",
+        message: "The fixed input was retained because cleanup could not prove safe same-object removal.",
+        path: inputPath
+      }
+    ]
+  });
+}
+function assertCheckTransaction(transaction, transactionPath) {
+  if (transaction.route !== "concise" || !(/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
+    fail6(
+      "MESSAGE_CHECK_NOT_ALLOWED",
+      `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
+      { details: { transaction: resolve14(transactionPath) } }
+    );
+  }
+}
+function checkMessageWorkflow({
+  transactionPath,
+  afterInputOpen,
+  forceCleanupIdentityUnavailable = false
+} = {}) {
+  if (typeof transactionPath !== "string" || transactionPath.length === 0) {
+    fail6("MISSING_ARGUMENT", "--transaction is required for message check.");
+  }
+  const opened = readTransactionOwnedFile({
+    transactionPath,
+    artifactName: MESSAGE_INPUT_NAME,
+    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    label: "Fixed canonical message input",
+    afterOpen: afterInputOpen,
+    allowPathReplacement: true
+  });
+  assertCheckTransaction(opened.transaction, transactionPath);
+  const { transaction, manifest } = readExactRecordedSnapshot(transactionPath);
+  assertCheckTransaction(transaction, transactionPath);
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "concise",
+    bytes: opened.bytes,
+    repositoryTypePolicy: transaction.repositoryTypePolicy,
+    messageSource: "checked-file"
+  });
+  const nextRevision = (transaction.message?.revision ?? 0) + 1;
+  assertMessageResultBudget(
+    prospectiveCheckedResult({
+      transactionPath,
+      revision: nextRevision,
+      validation,
+      displayText: validation.displayText,
+      inputPath: opened.path
+    })
+  );
+  const canonical = replaceCanonicalMessage({
+    transactionPath,
+    bytes: opened.bytes,
+    validation,
+    source: "checked-file"
+  });
+  const cleanup = cleanupTransactionOwnedInput({
+    path: opened.path,
+    identity: opened.identity,
+    forceIdentityUnavailable: forceCleanupIdentityUnavailable
+  });
+  const result = checkedResult({
+    transactionPath,
+    canonical,
+    validation,
+    warnings: cleanup.warning === null ? [] : [cleanup.warning]
+  });
+  return assertMessageResultBudget(result);
+}
+function parseMessageWorkflowArguments(argv, command4) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
+      fail6("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
+    }
+    if (value === void 0 || value.length === 0) {
+      fail6("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+    }
+    if (values.has(token)) {
+      fail6("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+    }
+    values.set(token, value);
+  }
+  if (!values.has("--transaction")) {
+    fail6(
+      "MISSING_ARGUMENT",
+      `--transaction is required for message ${command4}.`
+    );
+  }
+  const format = values.get("--format") ?? "json";
+  if (!FORMATS.has(format)) {
+    fail6("INVALID_FORMAT", "--format must be json or text.");
+  }
+  return { transactionPath: values.get("--transaction"), format };
+}
+function messageErrorResult(error, transactionPath = null) {
+  return {
+    schemaVersion: 1,
+    status: error.exitCode === 1 ? "evidence-required" : "invalid",
+    phase: error.details?.phase ?? null,
+    terminalDisposition: null,
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve14(transactionPath) : null),
+    route: error.details?.route ?? null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: error.details?.recoveryRequired ?? false,
+    code: error.code,
+    message: error.message,
+    ...Object.fromEntries(
+      Object.entries(error.details ?? {}).filter(
+        ([key]) => !(/* @__PURE__ */ new Set(["phase", "transaction", "route", "recoveryRequired"])).has(
+          key
+        )
+      )
+    )
+  };
+}
+function asMessageWorkflowError(caught, fallbackCode) {
+  if (caught instanceof MessageWorkflowError) {
+    return caught;
+  }
+  if (caught instanceof CanonicalMessageError || typeof caught?.code === "string" && caught.code.length > 0) {
+    return new MessageWorkflowError(caught.code, caught.message, {
+      exitCode: caught.exitCode ?? 2,
+      details: caught.details ?? {}
+    });
+  }
+  return new MessageWorkflowError(fallbackCode, caught.message);
+}
+async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
+  let options2 = null;
+  try {
+    options2 = parseMessageWorkflowArguments(argv, "check");
+    const result = checkMessageWorkflow(options2);
+    stdout.write(
+      options2.format === "text" ? result.displayText : `${JSON.stringify(result)}
+`
+    );
+    return 0;
+  } catch (caught) {
+    const error = asMessageWorkflowError(caught, "MESSAGE_CHECK_FAILED");
+    const result = assertMessageResultBudget(
+      messageErrorResult(error, options2?.transactionPath)
+    );
+    stdout.write(`${JSON.stringify(result)}
+`);
+    return error.exitCode;
+  }
+}
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER6, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
+var init_checkMessageWorkflow = __esm({
+  "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
+    init_approvedMessage();
+    init_canonicalMessageState();
+    init_transactionWorkspace();
+    MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
+    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    MESSAGE_INPUT_NAME = "message-input.txt";
+    SNAPSHOT_NAME = "snapshot.json";
+    FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
+    MessageWorkflowError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "MessageWorkflowError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/workflow/finalizeMessageWorkflow.js
+var finalizeMessageWorkflow_exports = {};
+__export(finalizeMessageWorkflow_exports, {
+  finalizeMessageWorkflow: () => finalizeMessageWorkflow,
+  runFinalizeMessageCommand: () => runFinalizeMessageCommand
+});
+import {
+  existsSync as existsSync12,
+  lstatSync as lstatSync7,
+  readFileSync as readFileSync14,
+  realpathSync as realpathSync4,
+  writeFileSync as writeFileSync11
+} from "node:fs";
+import { basename as basename2, isAbsolute as isAbsolute6, join as join9, relative as relative6, resolve as resolve15, sep as sep3 } from "node:path";
+import { TextDecoder as TextDecoder8 } from "node:util";
+function fail7(code, message, { exitCode = 2, details = {} } = {}) {
+  throw new MessageWorkflowError(code, message, { exitCode, details });
+}
+function isPlainObject4(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertExactKeys4(value, keys, label) {
+  if (!isPlainObject4(value)) {
+    fail7("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail7(
+      "INVALID_MESSAGE_CONTENT",
+      `${label} contains missing or unknown members.`,
+      { details: { label, expected, actual } }
+    );
+  }
+}
+function decodeContent(bytes) {
+  let text;
+  try {
+    text = STRICT_UTF8_DECODER7.decode(bytes);
+  } catch {
+    fail7("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    fail7(
+      "INVALID_MESSAGE_CONTENT",
+      `The fixed content.json is invalid JSON: ${error.message}`
+    );
+  }
+}
+function assertSelectionContainer(entry, label, extraKeys = []) {
+  assertExactKeys4(entry, ["selection", ...extraKeys], label);
+}
+function assertCompleteContentShape(content) {
+  if (!isPlainObject4(content) || content.schemaVersion !== 2) {
+    fail7(
+      "INVALID_MESSAGE_CONTENT",
+      "Extended finalization requires schema-version-2 semantic content."
+    );
+  }
+  if (content.authoringState !== "complete") {
+    fail7(
+      "INCOMPLETE_SEMANTIC_CONTENT",
+      "Set authoringState to complete only after every semantic decision and required review is complete."
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(content.mode)) {
+    fail7(
+      "INVALID_MESSAGE_CONTENT",
+      "Semantic message mode must be detailed or bulk."
+    );
+  }
+  assertExactKeys4(
+    content,
+    [
+      ...COMPLETE_COMMON_KEYS,
+      content.mode === "bulk" ? "domains" : "fileNotes"
+    ],
+    "Complete semantic content"
+  );
+  assertExactKeys4(
+    content.review,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "evidencePlanSha256",
+      "requiredPacketsReviewed",
+      "additionalPacketIds"
+    ],
+    "Review receipt"
+  );
+  if (content.review.schemaVersion !== 1 || !SHA256_PATTERN3.test(content.review.catalogSha256) || !SHA256_PATTERN3.test(content.review.evidencePlanSha256) || typeof content.review.requiredPacketsReviewed !== "boolean" || !Array.isArray(content.review.additionalPacketIds) || new Set(content.review.additionalPacketIds).size !== content.review.additionalPacketIds.length) {
+    fail7("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
+  }
+  assertExactKeys4(
+    content.subject,
+    ["type", "scope", "description"],
+    "Commit subject"
+  );
+  if (!Array.isArray(content.evidenceGroups) || content.evidenceGroups.length === 0) {
+    fail7(
+      "INVALID_MESSAGE_CONTENT",
+      "Evidence groups must be a nonempty array."
+    );
+  }
+  for (const [index, group] of content.evidenceGroups.entries()) {
+    assertExactKeys4(
+      group,
+      ["selection", "policy", "basis"],
+      `Evidence group ${index + 1}`
+    );
+    assertExactKeys4(
+      group.basis,
+      ["kind", "note"],
+      `Evidence group ${index + 1} basis`
+    );
+  }
+  for (const [field, entries] of [
+    ["sharedRationales", content.sharedRationales],
+    ["fileNotes", content.mode === "detailed" ? content.fileNotes : []]
+  ]) {
+    if (!Array.isArray(entries)) {
+      fail7("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
+    }
+    entries.forEach(
+      (entry, index) => assertSelectionContainer(entry, `${field} entry ${index + 1}`, [
+        "reasons"
+      ])
+    );
+  }
+  if (!Array.isArray(content.userExperienceChanges)) {
+    fail7("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
+  }
+  if (content.mode === "bulk") {
+    if (!Array.isArray(content.domains) || content.domains.length === 0) {
+      fail7(
+        "MISSING_SEMANTIC_DECISIONS",
+        "Complete bulk content requires at least one semantic domain."
+      );
+    }
+    content.domains.forEach(
+      (domain, index) => assertSelectionContainer(domain, `Domain ${index + 1}`, [
+        "title",
+        "reasons"
+      ])
+    );
+  }
+}
+function containedPath(attemptDirectory, path, label) {
+  const absolute = resolve15(path);
+  const contained = relative6(attemptDirectory, absolute);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute6(contained)) {
+    fail7(
+      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
+      `${label} escapes its transaction.`
+    );
+  }
+  return absolute;
+}
+function assertStableRecordedPath(attemptDirectory, path, label) {
+  const absolute = containedPath(attemptDirectory, path, label);
+  const stat = lstatSync7(absolute);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail7(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} must be a non-link regular file.`
+    );
+  }
+  if (realpathSync4(absolute) !== absolute) {
+    fail7(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} no longer resolves to its recorded path.`
+    );
+  }
+  return absolute;
+}
+function assertFinalizeTransaction(transaction, transactionPath) {
+  if (transaction.route !== "extended") {
+    fail7(
+      "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
+      "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
+      {
+        details: {
+          transaction: resolve15(transactionPath),
+          route: transaction.route
+        }
+      }
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
+    fail7(
+      "MESSAGE_FINALIZE_NOT_ALLOWED",
+      `Structured finalization is unavailable in phase ${transaction.phase}.`,
+      {
+        details: {
+          transaction: resolve15(transactionPath),
+          route: transaction.route
+        }
+      }
+    );
+  }
+}
+function readCurrentCatalog(transaction) {
+  const expectedReviewDirectory = resolve15(
+    transaction.attemptDirectory,
+    "review"
+  );
+  const catalogPath = assertStableRecordedPath(
+    transaction.attemptDirectory,
+    transaction.review.catalogPath,
+    "Current review catalog"
+  );
+  if (relative6(expectedReviewDirectory, catalogPath).startsWith(`..${sep3}`) || isAbsolute6(relative6(expectedReviewDirectory, catalogPath))) {
+    fail7(
+      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
+      "Review catalog is outside the fixed review directory."
+    );
+  }
+  const catalog = readReviewCatalog(catalogPath);
+  if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
+    fail7(
+      "REVIEW_CATALOG_MISMATCH",
+      "The current review catalog does not match the transaction snapshot and evidence plan."
+    );
+  }
+  return catalog;
+}
+function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
+  const recordedPath = assertStableRecordedPath(
+    transaction.attemptDirectory,
+    transaction.review.evidencePlanPath,
+    "Current evidence plan"
+  );
+  const name = basename2(recordedPath);
+  const opened = readTransactionOwnedFile({
+    transactionPath,
+    artifactName: name,
+    maximumBytes: MAXIMUM_INITIAL_JSON_INPUT_BYTES,
+    label: "Current evidence plan",
+    allowPathReplacement: false
+  });
+  let stored;
+  try {
+    stored = JSON.parse(STRICT_UTF8_DECODER7.decode(opened.bytes));
+  } catch (error) {
+    fail7(
+      "INVALID_EVIDENCE_PLAN",
+      `Current evidence plan is invalid JSON: ${error.message}`
+    );
+  }
+  const canonical = canonicalizeEvidencePlan({
+    manifest,
+    groups: stored.groups
+  });
+  if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
+    fail7(
+      "EVIDENCE_PLAN_MISMATCH",
+      "The current evidence plan artifact is not canonical for this snapshot."
+    );
+  }
+  return canonical;
+}
+function receiptCoverage(transaction, content, catalog) {
+  const candidates = [
+    content.review.requiredPacketsReviewed === true ? content.review : null,
+    transaction.review.receipt?.requiredPacketsReviewed === true ? transaction.review.receipt : null
+  ].filter(Boolean);
+  const receipt = candidates.find(
+    (candidate) => findReviewCatalogRevisionPath(catalog.catalogPath, candidate.catalogSha256)
+  );
+  if (!receipt) {
+    return { receipt: null, coverage: null };
+  }
+  const revisionPath = findReviewCatalogRevisionPath(
+    catalog.catalogPath,
+    receipt.catalogSha256
+  );
+  try {
+    return {
+      receipt,
+      coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
+    };
+  } catch (error) {
+    fail7(
+      "REVIEW_RECEIPT_INVALID",
+      `Review receipt is invalid: ${error.message}`
+    );
+  }
+}
+function assertLiveSnapshotAnchor(transaction, manifest) {
+  if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
+    fail7("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+      exitCode: 1
+    });
+  }
+  const operations = activeGitOperations(transaction.repositoryRoot);
+  if (operations.length > 0) {
+    fail7(
+      "ACTIVE_GIT_OPERATION",
+      `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
+      { exitCode: 1 }
+    );
+  }
+  if (!indexMatchesTree(
+    transaction.repositoryRoot,
+    manifest.indexTreeOid,
+    manifestEnvironment(manifest)
+  )) {
+    fail7(
+      "INDEX_DRIFT",
+      "The prepared index tree changed before evidence revision.",
+      {
+        exitCode: 1
+      }
+    );
+  }
+}
+function writeEvidencePlanRevision2(transaction, evidencePlan) {
+  const path = join9(
+    transaction.attemptDirectory,
+    `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
+  );
+  const bytes = stableJsonBytes(evidencePlan);
+  if (existsSync12(path)) {
+    if (!readFileSync14(path).equals(bytes)) {
+      fail7(
+        "EVIDENCE_PLAN_COLLISION",
+        "An immutable evidence-plan revision has conflicting bytes."
+      );
+    }
+  } else {
+    writeFileSync11(path, bytes, { flag: "wx", mode: 384 });
+  }
+  return path;
+}
+function canonicalContentGroups(evidencePlan) {
+  return evidencePlan.groups.map(({ selection, policy, basis }) => ({
+    selection,
+    policy,
+    basis
+  }));
+}
+function canonicalSelection(selection) {
+  return Object.fromEntries(
+    Object.entries(selection).sort(
+      ([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right))
+    ).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? [...value].sort(
+        (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
+      ) : value
+    ])
+  );
+}
+function normalizeSemanticSelections(content) {
+  for (const field of ["sharedRationales", "fileNotes", "domains"]) {
+    if (!Array.isArray(content[field])) {
+      continue;
+    }
+    content[field] = content[field].map((entry) => ({
+      ...entry,
+      selection: canonicalSelection(entry.selection)
+    }));
+  }
+  return content;
+}
+function carryForwardReceipt(catalog) {
+  return {
+    schemaVersion: 1,
+    catalogSha256: catalog.catalogSha256,
+    evidencePlanSha256: catalog.evidencePlanSha256,
+    requiredPacketsReviewed: true,
+    additionalPacketIds: []
+  };
+}
+function updateReviewTransaction(transactionPath, review, status) {
+  const transaction = readTransaction(transactionPath);
+  assertFinalizeTransaction(transaction, transactionPath);
+  return updateTransaction(transactionPath, transaction.phase, {
+    ...transaction,
+    phase: transaction.phase,
+    status,
+    review
+  });
+}
+function requireEvidence(transactionPath, transaction, review, content, opened, evidenceDelta) {
+  replaceTransactionOwnedJson({
+    transactionPath,
+    artifactName: CONTENT_NAME,
+    value: content,
+    expectedIdentity: opened.identity
+  });
+  const latest = readTransaction(transactionPath);
+  const next = {
+    ...latest,
+    phase: "review-pending",
+    status: "evidence-required",
+    review
+  };
+  if (latest.phase === "message-ready") {
+    advanceTransaction(transactionPath, "message-ready", next);
+  } else {
+    updateTransaction(transactionPath, "review-pending", next);
+  }
+  const firstPage = evidenceDelta.queue?.firstPage ?? null;
+  const result = {
+    schemaVersion: 1,
+    status: "evidence-required",
+    phase: "review-pending",
+    terminalDisposition: null,
+    route: "extended",
+    transaction: resolve15(transactionPath),
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    canonical: false,
+    evidenceDelta: {
+      newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
+      firstQueuePage: firstPage === null ? null : resolve15(transaction.attemptDirectory, "review", firstPage.artifact),
+      firstQueuePageSha256: firstPage?.sha256 ?? null
+    },
+    displayText: null
+  };
+  return assertMessageResultBudget(result);
+}
+function validationSummary(validation) {
+  return {
+    valid: validation.valid,
+    subject: validation.subject,
+    sections: validation.sections,
+    files: validation.files
+  };
+}
+function finalizedResult({ transactionPath, rendered, canonical }) {
+  return {
+    schemaVersion: 1,
+    status: "message-ready",
+    phase: "message-ready",
+    terminalDisposition: null,
+    route: "extended",
+    transaction: resolve15(transactionPath),
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    canonical: true,
+    messageSource: "finalized-extended",
+    messageRevision: canonical.messageRevision,
+    presentationWarnings: rendered.presentationWarnings,
+    messageSha256: canonical.messageSha256,
+    validation: validationSummary(rendered.validation),
+    displayText: canonical.displayText
+  };
+}
+async function finalizeMessageWorkflow({
+  transactionPath,
+  afterContentOpen
+} = {}) {
+  if (typeof transactionPath !== "string" || transactionPath.length === 0) {
+    fail7("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+  }
+  let transaction = readTransaction(transactionPath);
+  assertFinalizeTransaction(transaction, transactionPath);
+  const opened = readTransactionOwnedFile({
+    transactionPath,
+    artifactName: CONTENT_NAME,
+    maximumBytes: MAXIMUM_INITIAL_JSON_INPUT_BYTES,
+    label: "Fixed semantic message content",
+    afterOpen: afterContentOpen,
+    allowPathReplacement: true
+  });
+  const content = decodeContent(opened.bytes);
+  assertCompleteContentShape(content);
+  const snapshot = readExactRecordedSnapshot(transactionPath);
+  transaction = snapshot.transaction;
+  assertFinalizeTransaction(transaction, transactionPath);
+  const manifest = snapshot.manifest;
+  const currentCatalog = readCurrentCatalog(transaction);
+  const recordedPlan = readCurrentEvidencePlan(
+    transactionPath,
+    transaction,
+    manifest
+  );
+  const authoredPlan = canonicalizeEvidencePlan({
+    manifest,
+    groups: content.evidenceGroups
+  });
+  const planChanged = authoredPlan.evidencePlanSha256 !== recordedPlan.evidencePlanSha256;
+  const prior = receiptCoverage(transaction, content, currentCatalog);
+  let catalog = currentCatalog;
+  let evidencePlan = recordedPlan;
+  let review = transaction.review;
+  const normalized = normalizeSemanticSelections(structuredClone(content));
+  if (planChanged) {
+    assertLiveSnapshotAnchor(transaction, manifest);
+    let records = [];
+    try {
+      records = await acquireEvidence({
+        root: transaction.repositoryRoot,
+        manifest,
+        evidencePlan: authoredPlan,
+        attemptDirectory: transaction.attemptDirectory
+      });
+      const evidenceManifest = {
+        ...manifest,
+        manifestSha256: authoredPlan.manifestSha256,
+        evidenceByGroupId: Object.fromEntries(
+          records.map(({ group, empty, path }) => [
+            group.id,
+            empty ? Buffer.alloc(0) : readFileSync14(path)
+          ])
+        )
+      };
+      const coveredCatalog = prior.coverage ? bindReviewCoverage(currentCatalog, prior.coverage) : currentCatalog;
+      const revision = reviseReviewCatalog({
+        manifest: evidenceManifest,
+        priorCatalog: coveredCatalog,
+        evidencePlan: authoredPlan
+      });
+      catalog = revision.catalog;
+      evidencePlan = authoredPlan;
+      const evidencePlanPath = writeEvidencePlanRevision2(
+        transaction,
+        evidencePlan
+      );
+      review = {
+        ...transaction.review,
+        catalogPath: catalog.catalogPath,
+        catalogSha256: catalog.catalogSha256,
+        evidencePlanPath,
+        evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        queue: revision.evidenceDelta.queue,
+        receipt: prior.receipt
+      };
+      normalized.evidenceGroups = canonicalContentGroups(evidencePlan);
+      if (revision.evidenceDelta.requiredPacketCount > 0) {
+        normalized.review = {
+          ...carryForwardReceipt(catalog),
+          requiredPacketsReviewed: false
+        };
+        return requireEvidence(
+          transactionPath,
+          transaction,
+          review,
+          normalized,
+          opened,
+          revision.evidenceDelta
+        );
+      }
+      normalized.review = carryForwardReceipt(catalog);
+      verifyReviewReceipt({
+        catalogPath: catalog.catalogPath,
+        receipt: normalized.review
+      });
+    } finally {
+      cleanupEvidenceSpools(records);
+    }
+  } else {
+    if (content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== currentCatalog.catalogSha256 || content.review.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
+      fail7(
+        "CURRENT_REVIEW_RECEIPT_REQUIRED",
+        "Finalization requires a reviewed receipt for the current catalog and evidence plan."
+      );
+    }
+    try {
+      verifyReviewReceipt({
+        catalogPath: currentCatalog.catalogPath,
+        receipt: content.review
+      });
+    } catch (error) {
+      fail7(
+        "REVIEW_RECEIPT_INVALID",
+        `Review receipt is invalid: ${error.message}`
+      );
+    }
+    normalized.evidenceGroups = canonicalContentGroups(recordedPlan);
+  }
+  const rendered = renderCommitMessage({
+    manifest,
+    content: normalized,
+    reviewCatalog: catalog,
+    evidencePlan,
+    repositoryTypePolicy: transaction.repositoryTypePolicy
+  });
+  const nextRevision = (transaction.message?.revision ?? 0) + 1;
+  const prospective = finalizedResult({
+    transactionPath,
+    rendered,
+    canonical: {
+      messageRevision: nextRevision,
+      messageSha256: rendered.validation.messageSha256,
+      displayText: rendered.displayText
+    }
+  });
+  assertMessageResultBudget(prospective);
+  replaceTransactionOwnedJson({
+    transactionPath,
+    artifactName: CONTENT_NAME,
+    value: normalized,
+    expectedIdentity: opened.identity
+  });
+  review = {
+    ...review,
+    queue: null,
+    receipt: normalized.review
+  };
+  updateReviewTransaction(transactionPath, review, transaction.status);
+  const canonical = replaceCanonicalMessage({
+    transactionPath,
+    bytes: rendered.bytes,
+    validation: rendered.validation,
+    source: "finalized-extended"
+  });
+  return assertMessageResultBudget(
+    finalizedResult({ transactionPath, rendered, canonical })
+  );
+}
+async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {}) {
+  let options2 = null;
+  try {
+    options2 = parseMessageWorkflowArguments(argv, "finalize");
+    const result = await finalizeMessageWorkflow(options2);
+    if (options2.format === "text" && result.displayText !== null) {
+      stdout.write(result.displayText);
+    } else {
+      stdout.write(`${JSON.stringify(result)}
+`);
+    }
+    return result.status === "evidence-required" ? 1 : 0;
+  } catch (caught) {
+    const error = asMessageWorkflowError(caught, "MESSAGE_FINALIZE_FAILED");
+    const result = assertMessageResultBudget(
+      messageErrorResult(error, options2?.transactionPath)
+    );
+    stdout.write(`${JSON.stringify(result)}
+`);
+    return error.exitCode;
+  }
+}
+var CONTENT_NAME, STRICT_UTF8_DECODER7, SHA256_PATTERN3, COMPLETE_COMMON_KEYS;
+var init_finalizeMessageWorkflow = __esm({
+  "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
+    init_gitRepository();
+    init_reviewCatalog();
+    init_inlineEvidenceCapsule();
+    init_commitMessageRenderer();
+    init_canonicalMessageState();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+    init_checkMessageWorkflow();
+    CONTENT_NAME = "content.json";
+    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
+    COMPLETE_COMMON_KEYS = [
+      "schemaVersion",
+      "authoringState",
+      "review",
+      "evidenceGroups",
+      "subject",
+      "sharedRationales",
+      "userExperienceChanges",
+      "mode"
+    ];
   }
 });
 
@@ -9284,8 +12893,8 @@ var init_commitSignature = __esm({
 
 // src/committing-to-git/command/postCommitCommand.js
 var postCommitCommand_exports = {};
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync13, writeFileSync as writeFileSync10 } from "node:fs";
-import { dirname as dirname8, resolve as resolve13 } from "node:path";
+import { mkdirSync as mkdirSync10, readFileSync as readFileSync15, writeFileSync as writeFileSync12 } from "node:fs";
+import { dirname as dirname9, resolve as resolve16 } from "node:path";
 function usageError6(message) {
   console.error(message);
   console.error(
@@ -9311,12 +12920,12 @@ function required3(flags4, name) {
   return value;
 }
 function readJson2(path) {
-  return JSON.parse(readFileSync13(resolve13(path), "utf8"));
+  return JSON.parse(readFileSync15(resolve16(path), "utf8"));
 }
 function write(path, contents) {
-  const resolved = resolve13(path);
-  mkdirSync9(dirname8(resolved), { recursive: true });
-  writeFileSync10(resolved, contents);
+  const resolved = resolve16(path);
+  mkdirSync10(dirname9(resolved), { recursive: true });
+  writeFileSync12(resolved, contents);
   return resolved;
 }
 var command3, flagArguments3, flags3;
@@ -9371,8 +12980,8 @@ var init_postCommitCommand = __esm({
           root,
           commitOid: required3(flags3, "commit"),
           manifest: readJson2(required3(flags3, "manifest")),
-          approvedMessage: readFileSync13(
-            resolve13(required3(flags3, "approved-message")),
+          approvedMessage: readFileSync15(
+            resolve16(required3(flags3, "approved-message")),
             "utf8"
           ),
           verification: readJson2(required3(flags3, "verification")),
@@ -9407,8 +13016,8 @@ var init_postCommitCommand = __esm({
 
 // src/committing-to-git/command/publicationCommand.js
 var publicationCommand_exports = {};
-import { existsSync as existsSync11, mkdirSync as mkdirSync10, unlinkSync as unlinkSync6, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname9, resolve as resolve14 } from "node:path";
+import { existsSync as existsSync13, mkdirSync as mkdirSync11, unlinkSync as unlinkSync7, writeFileSync as writeFileSync13 } from "node:fs";
+import { dirname as dirname10, resolve as resolve17 } from "node:path";
 function usageError7(message) {
   console.error(message);
   console.error(
@@ -9433,7 +13042,7 @@ function parseFlags4(argv) {
     commit: values.get("commit"),
     remote: values.get("remote"),
     destination: values.get("destination"),
-    output: resolve14(values.get("output"))
+    output: resolve17(values.get("output"))
   };
 }
 function validateInputs(root, options2) {
@@ -9475,13 +13084,13 @@ var init_publicationCommand = __esm({
       const commitOid = validateInputs(root, options2);
       const refspec = `${commitOid}:${options2.destination}`;
       pendingPath = `${options2.output}.pending`;
-      if (existsSync11(options2.output) || existsSync11(pendingPath)) {
+      if (existsSync13(options2.output) || existsSync13(pendingPath)) {
         throw new Error(
           "--output and its .pending journal path must not already exist."
         );
       }
-      mkdirSync10(dirname9(options2.output), { recursive: true });
-      writeFileSync11(
+      mkdirSync11(dirname10(options2.output), { recursive: true });
+      writeFileSync13(
         pendingPath,
         `${JSON.stringify(
           {
@@ -9516,12 +13125,12 @@ var init_publicationCommand = __esm({
         stdout: push.stdout.toString("utf8"),
         stderr: push.stderr.toString("utf8")
       };
-      writeFileSync11(options2.output, `${JSON.stringify(publication, null, 2)}
+      writeFileSync13(options2.output, `${JSON.stringify(publication, null, 2)}
 `, {
         flag: "wx"
       });
       try {
-        unlinkSync6(pendingPath);
+        unlinkSync7(pendingPath);
       } catch {
       }
       process.stdout.write(`${JSON.stringify(publication, null, 2)}
@@ -9529,7 +13138,7 @@ var init_publicationCommand = __esm({
       process.exit(push.status === 0 ? 0 : 1);
     } catch (error) {
       console.error(`Commit publication failed: ${error.message}`);
-      if (pendingPath && existsSync11(pendingPath)) {
+      if (pendingPath && existsSync13(pendingPath)) {
         console.error(
           `Remote outcome is unknown; preserve and inspect ${pendingPath}. Do not infer failure or retry automatically.`
         );
@@ -9594,6 +13203,22 @@ var COMMANDS = /* @__PURE__ */ new Map([
   [
     "message validate",
     [() => Promise.resolve().then(() => (init_commitMessageValidator(), commitMessageValidator_exports)), null]
+  ],
+  [
+    "message check",
+    [
+      () => Promise.resolve().then(() => (init_checkMessageWorkflow(), checkMessageWorkflow_exports)),
+      null,
+      "runCheckMessageCommand"
+    ]
+  ],
+  [
+    "message finalize",
+    [
+      () => Promise.resolve().then(() => (init_finalizeMessageWorkflow(), finalizeMessageWorkflow_exports)),
+      null,
+      "runFinalizeMessageCommand"
+    ]
   ],
   [
     "signature verify",
@@ -9767,6 +13392,33 @@ Exit status:
 `
   ],
   [
+    "message check",
+    `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
+
+Validates the exact fixed transaction-local message-input.txt for a concise
+precommit transaction, persists those unchanged bytes as the sole canonical
+message revision, and removes the input only when same-object cleanup is safe.
+
+Exit status:
+  0  The exact checked bytes reached message-ready.
+  2  Usage, transaction, input, snapshot, validation, or persistence failure.
+`
+  ],
+  [
+    "message finalize",
+    `Usage: commitWorkflow.mjs message finalize --transaction <transaction.json> [--format <json|text>]
+
+Finalizes only the fixed transaction-local content.json for an extended
+precommit transaction. A changed evidence plan may return a bounded delta queue
+before the exact structured message can be persisted.
+
+Exit status:
+  0  Structured content reached one canonical message-ready revision.
+  1  Newly required evidence was materialized for review.
+  2  Usage, transaction, content, review, validation, or persistence failure.
+`
+  ],
+  [
     "signature verify",
     `Usage: commitWorkflow.mjs signature verify --commit <full-oid> --initial-policy <policy> --policy <policy> --output <verification.json>
 
@@ -9829,6 +13481,8 @@ Usage:
   commitWorkflow.mjs message scaffold [options]
   commitWorkflow.mjs message render [options]
   commitWorkflow.mjs message validate [options] <message-file>
+  commitWorkflow.mjs message check [options]
+  commitWorkflow.mjs message finalize [options]
   commitWorkflow.mjs signature verify [options]
   commitWorkflow.mjs report create [options]
   commitWorkflow.mjs publication push [options]

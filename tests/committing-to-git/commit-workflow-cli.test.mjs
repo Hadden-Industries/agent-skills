@@ -68,11 +68,35 @@ test("unified workflow help exposes the domain command groups", () => {
   assert.match(result.stdout, /inspection prepare/u);
   assert.match(result.stdout, /inspection expand-deletion/u);
   assert.match(result.stdout, /message validate/u);
+  assert.match(result.stdout, /message check/u);
+  assert.match(result.stdout, /message finalize/u);
   assert.match(result.stdout, /signature verify/u);
   assert.match(result.stdout, /report create/u);
   assert.match(result.stdout, /publication push/u);
   assert.match(result.stdout, /workflow prepare/u);
   assert.match(result.stdout, /workflow resume/u);
+});
+
+test("message commands expose only the fixed transaction-local inputs", () => {
+  const checked = runNodeScript(
+    COMMIT_WORKFLOW,
+    ["message", "check", "--help"],
+    REPO_ROOT,
+  );
+  const finalized = runNodeScript(
+    COMMIT_WORKFLOW,
+    ["message", "finalize", "--help"],
+    REPO_ROOT,
+  );
+
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.match(checked.stdout, /--transaction <transaction\.json>/u);
+  assert.doesNotMatch(checked.stdout, /--message-file|<message\.txt>/u);
+  assert.match(checked.stdout, /message-input\.txt/u);
+  assert.equal(finalized.status, 0, finalized.stderr);
+  assert.match(finalized.stdout, /--transaction <transaction\.json>/u);
+  assert.doesNotMatch(finalized.stdout, /--content|<content\.json>/u);
+  assert.match(finalized.stdout, /content\.json/u);
 });
 
 test("workflow preparation owns one transaction and returns its bounded snapshot envelope", (t) => {

@@ -580,9 +580,10 @@ function presentationWarnings(lines) {
     });
   });
 
-  const sha256 = createHash("sha256")
-    .update(JSON.stringify(warnings))
-    .digest("hex");
+  const sha256 =
+    warnings.length === 0
+      ? null
+      : createHash("sha256").update(JSON.stringify(warnings)).digest("hex");
 
   return {
     count: warnings.length,

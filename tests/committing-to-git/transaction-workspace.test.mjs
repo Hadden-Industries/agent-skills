@@ -400,7 +400,21 @@ test("transaction validation accepts canonical state families and rejects imposs
                 semanticStructureRequired: false,
               },
             }
-          : {};
+          : phase === "message-ready"
+            ? {
+                route: "concise",
+                message: {
+                  schemaVersion: 1,
+                  revision: 1,
+                  sha256: "d".repeat(64),
+                  source: "checked-file",
+                  byteCount: 32,
+                  stateSha256: "e".repeat(64),
+                  validationSha256: "f".repeat(64),
+                  slot: "message/current",
+                },
+              }
+            : {};
 
     assert.doesNotThrow(() =>
       validateTransaction({

@@ -1,120 +1,100 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Commit Message Validation Result",
-  "description": "Structured result of validating a commit message against its approved snapshot.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "valid",
-    "manualReviewRequired",
-    "canonical",
-    "mode",
-    "inspection",
-    "scope",
-    "manifest",
-    "subject",
-    "sections",
-    "files",
-    "summary",
-    "issues"
+  "description": "Exact validation for canonical workflow messages, with the pre-cutover validator result retained until the legacy routes are removed.",
+  "oneOf": [
+    { "$ref": "#/$defs/approvedResult" },
+    { "$ref": "#/$defs/legacyResult" }
   ],
-  "properties": {
-    "schemaVersion": {
-      "const": 2
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
-    "valid": {
-      "type": "boolean"
-    },
-    "manualReviewRequired": {
-      "type": "boolean"
-    },
-    "canonical": {
-      "type": ["boolean", "null"]
-    },
-    "mode": {
-      "enum": ["detailed", "bulk", "legacy"]
-    },
-    "inspection": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "required": ["complete", "treeMatches"],
-      "properties": {
-        "complete": {
-          "type": "boolean"
-        },
-        "treeMatches": {
-          "type": "boolean"
-        }
-      }
-    },
-    "scope": {
+    "approvedResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requested", "resolved", "indexTreeOid"],
+      "required": [
+        "schemaVersion",
+        "valid",
+        "route",
+        "messageSource",
+        "byteCount",
+        "messageSha256",
+        "displayText",
+        "subject",
+        "sections",
+        "files",
+        "presentationWarnings"
+      ],
       "properties": {
-        "requested": {
-          "enum": ["auto", "staged", "worktree", "manifest"]
+        "schemaVersion": { "const": 1 },
+        "valid": { "const": true },
+        "route": { "enum": ["concise", "extended"] },
+        "messageSource": {
+          "enum": ["approved-subject", "checked-file", "structured-finalizer"]
         },
-        "resolved": {
-          "enum": ["staged", "worktree", "snapshot"]
+        "byteCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32768
         },
-        "indexTreeOid": {
-          "type": ["string", "null"]
+        "messageSha256": { "$ref": "#/$defs/sha256" },
+        "displayText": { "type": "string", "minLength": 1 },
+        "subject": { "$ref": "#/$defs/approvedSubject" },
+        "sections": { "$ref": "#/$defs/approvedSections" },
+        "files": { "$ref": "#/$defs/files" },
+        "presentationWarnings": { "$ref": "#/$defs/presentationWarnings" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "route": { "const": "extended" },
+            "messageSource": { "const": "structured-finalizer" }
+          }
+        },
+        {
+          "properties": {
+            "route": { "const": "concise" },
+            "messageSource": {
+              "enum": ["approved-subject", "checked-file"]
+            }
+          }
         }
-      }
+      ]
     },
-    "manifest": {
+    "approvedSubject": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "indexTreeOid"],
+      "required": ["text", "type", "scope", "description", "scalarLength"],
       "properties": {
-        "schemaVersion": {
-          "type": ["integer", "null"]
-        },
-        "indexTreeOid": {
-          "type": ["string", "null"]
-        }
-      }
-    },
-    "subject": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "scope", "length", "target", "maximum"],
-      "properties": {
+        "text": { "type": "string", "minLength": 1 },
         "type": {
-          "type": ["string", "null"],
+          "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$"
         },
-        "scope": {
-          "type": ["string", "null"]
-        },
-        "length": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "target": {
-          "const": 50
-        },
-        "maximum": {
-          "const": 72
-        }
+        "scope": { "type": ["string", "null"] },
+        "description": { "type": "string", "minLength": 1 },
+        "scalarLength": { "type": "integer", "minimum": 1, "maximum": 72 }
       }
     },
-    "sections": {
+    "approvedSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "entryCount"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "entryCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "approvedSections": {
       "type": "object",
       "additionalProperties": false,
       "required": ["rationale", "userExperience", "fileChanges"],
       "properties": {
-        "rationale": {
-          "$ref": "#/$defs/sectionStatus"
-        },
-        "userExperience": {
-          "$ref": "#/$defs/sectionStatus"
-        },
-        "fileChanges": {
-          "$ref": "#/$defs/sectionStatus"
-        }
+        "rationale": { "$ref": "#/$defs/approvedSection" },
+        "userExperience": { "$ref": "#/$defs/approvedSection" },
+        "fileChanges": { "$ref": "#/$defs/approvedSection" }
       }
     },
     "files": {
@@ -128,58 +108,97 @@
         "unique"
       ],
       "properties": {
-        "expectedCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "listedCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "setMatches": {
-          "type": "boolean"
-        },
-        "orderValid": {
-          "type": "boolean"
-        },
-        "unique": {
-          "type": "boolean"
-        }
+        "expectedCount": { "type": "integer", "minimum": 0 },
+        "listedCount": { "type": "integer", "minimum": 0 },
+        "setMatches": { "type": "boolean" },
+        "orderValid": { "type": "boolean" },
+        "unique": { "type": "boolean" }
       }
     },
-    "summary": {
+    "presentationWarning": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["errors", "reviews"],
+      "required": ["lineNumber", "scalarLength", "reason"],
       "properties": {
-        "errors": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "reviews": {
-          "type": "integer",
-          "minimum": 0
-        }
+        "lineNumber": { "type": "integer", "minimum": 2 },
+        "scalarLength": { "type": "integer", "minimum": 73 },
+        "reason": { "enum": ["formatted-path-identity", "indivisible-token"] }
       }
     },
-    "issues": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/issue"
-      }
-    }
-  },
-  "$defs": {
-    "sectionStatus": {
+    "presentationWarnings": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["present", "structureValid"],
+      "required": ["count", "samples", "sha256"],
       "properties": {
-        "present": {
-          "type": "boolean"
+        "count": { "type": "integer", "minimum": 0 },
+        "samples": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/presentationWarning" }
         },
-        "structureValid": {
-          "type": "boolean"
+        "sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "const": null }]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "count": { "const": 0 },
+            "samples": { "maxItems": 0 },
+            "sha256": { "const": null }
+          }
+        },
+        {
+          "properties": {
+            "count": { "type": "integer", "minimum": 1 },
+            "samples": { "minItems": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    },
+    "legacyResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "valid",
+        "manualReviewRequired",
+        "canonical",
+        "mode",
+        "inspection",
+        "scope",
+        "manifest",
+        "subject",
+        "sections",
+        "files",
+        "summary",
+        "issues"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "valid": { "type": "boolean" },
+        "manualReviewRequired": { "type": "boolean" },
+        "canonical": { "type": ["boolean", "null"] },
+        "mode": { "enum": ["detailed", "bulk", "legacy"] },
+        "inspection": { "type": ["object", "null"] },
+        "scope": { "type": "object" },
+        "manifest": { "type": "object" },
+        "subject": { "type": "object" },
+        "sections": { "type": "object" },
+        "files": { "$ref": "#/$defs/files" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["errors", "reviews"],
+          "properties": {
+            "errors": { "type": "integer", "minimum": 0 },
+            "reviews": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/issue" }
         }
       }
     },
@@ -188,9 +207,7 @@
       "additionalProperties": false,
       "required": ["severity", "code", "message"],
       "properties": {
-        "severity": {
-          "enum": ["error", "review"]
-        },
+        "severity": { "enum": ["error", "review"] },
         "code": {
           "enum": [
             "SUBJECT_FORMAT_INVALID",
@@ -218,18 +235,9 @@
             "BODY_LINE_OVER_LIMIT"
           ]
         },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "line": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1
-        }
+        "message": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "path": { "type": "string", "minLength": 1 }
       }
     }
   }

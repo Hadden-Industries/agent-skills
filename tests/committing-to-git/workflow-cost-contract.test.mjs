@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { createInlineEvidenceCapsule } from "../../src/committing-to-git/inspect
 import { canonicalizeEvidencePlan } from "../../src/committing-to-git/inspection/reviewCatalog.js";
 
 import {
+  commitAll,
   createRepositoryFixture,
   runCommitWorkflow,
   runRecordedWorkflow,
@@ -310,4 +311,71 @@ test("the proportional route contract never uses change-unit count as an evidenc
 
   assert.equal(routeForCount(1).route, "concise");
   assert.equal(routeForCount(1_000).route, "concise");
+});
+
+test("concise preapproval action budgets distinguish direct subjects from checked exact text", (t) => {
+  const fixture = createRepositoryFixture(t, "workflow-cost-concise-");
+  writeRepositoryFile(fixture.repo, "parser.js", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "parser.js", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparation = JSON.parse(prepared.stdout);
+  const direct = {
+    agentVisiblePhases: ["workflow prepare"],
+    agentArtifactReads: 0,
+    agentArtifactWrites: 0,
+  };
+
+  assert.equal(preparation.route, "concise");
+  assert.equal(preparation.capsule.unresolved.length, 0);
+  assert.deepEqual(direct.agentVisiblePhases, ["workflow prepare"]);
+  assert.equal(direct.agentArtifactReads, 0);
+  assert.equal(direct.agentArtifactWrites, 0);
+
+  const inputPath = join(dirname(preparation.transaction), "message-input.txt");
+  writeFileSync(
+    inputPath,
+    "fix(parser): Preserve parser behavior\n\nRationale:\n  - Keep existing callers stable\n",
+  );
+  const trace2File = join(fixture.scratch, "message-check-trace.json");
+  const checked = runRecordedWorkflow(
+    "message check",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+    { trace2File, env: { GIT_TRACE2_EVENT: trace2File } },
+  );
+  const exactFile = {
+    agentVisiblePhases: [
+      "workflow prepare",
+      "write exact message-input.txt",
+      "message check",
+    ],
+    semanticWorksheetWrites: 0,
+    reviewReceiptWrites: 0,
+  };
+
+  assert.equal(checked.result.status, 0, checked.result.stderr);
+  assert.equal(checked.invocation.gitProcesses, 0);
+  assert.deepEqual(exactFile.agentVisiblePhases, [
+    "workflow prepare",
+    "write exact message-input.txt",
+    "message check",
+  ]);
+  assert.equal(exactFile.semanticWorksheetWrites, 0);
+  assert.equal(exactFile.reviewReceiptWrites, 0);
 });

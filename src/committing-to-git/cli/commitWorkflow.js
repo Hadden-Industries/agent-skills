@@ -54,6 +54,22 @@ const COMMANDS = new Map([
     [() => import("../message/commitMessageValidator.js"), null],
   ],
   [
+    "message check",
+    [
+      () => import("../workflow/checkMessageWorkflow.js"),
+      null,
+      "runCheckMessageCommand",
+    ],
+  ],
+  [
+    "message finalize",
+    [
+      () => import("../workflow/finalizeMessageWorkflow.js"),
+      null,
+      "runFinalizeMessageCommand",
+    ],
+  ],
+  [
     "signature verify",
     [() => import("../command/postCommitCommand.js"), "verify"],
   ],
@@ -226,6 +242,33 @@ Exit status:
 `,
   ],
   [
+    "message check",
+    `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
+
+Validates the exact fixed transaction-local message-input.txt for a concise
+precommit transaction, persists those unchanged bytes as the sole canonical
+message revision, and removes the input only when same-object cleanup is safe.
+
+Exit status:
+  0  The exact checked bytes reached message-ready.
+  2  Usage, transaction, input, snapshot, validation, or persistence failure.
+`,
+  ],
+  [
+    "message finalize",
+    `Usage: commitWorkflow.mjs message finalize --transaction <transaction.json> [--format <json|text>]
+
+Finalizes only the fixed transaction-local content.json for an extended
+precommit transaction. A changed evidence plan may return a bounded delta queue
+before the exact structured message can be persisted.
+
+Exit status:
+  0  Structured content reached one canonical message-ready revision.
+  1  Newly required evidence was materialized for review.
+  2  Usage, transaction, content, review, validation, or persistence failure.
+`,
+  ],
+  [
     "signature verify",
     `Usage: commitWorkflow.mjs signature verify --commit <full-oid> --initial-policy <policy> --policy <policy> --output <verification.json>
 
@@ -289,6 +332,8 @@ Usage:
   commitWorkflow.mjs message scaffold [options]
   commitWorkflow.mjs message render [options]
   commitWorkflow.mjs message validate [options] <message-file>
+  commitWorkflow.mjs message check [options]
+  commitWorkflow.mjs message finalize [options]
   commitWorkflow.mjs signature verify [options]
   commitWorkflow.mjs report create [options]
   commitWorkflow.mjs publication push [options]

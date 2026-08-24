@@ -52,9 +52,31 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
 
   const transactionSchema = schema("commitTransaction.schema.json");
   const scopeSchema = schema("commitScope.schema.json");
+  const messageState = {
+    schemaVersion: 1,
+    revision: 2,
+    sha256: "a".repeat(64),
+    source: "checked-file",
+    byteCount: 40,
+    stateSha256: "b".repeat(64),
+    validationSha256: "c".repeat(64),
+    slot: "message/current",
+  };
 
   assert.deepEqual(schemaErrors(transaction, transactionSchema), []);
   assert.deepEqual(schemaErrors(scope, scopeSchema), []);
+  assert.deepEqual(
+    schemaErrors(messageState, transactionSchema.$defs.messageState),
+    [],
+  );
+
+  const historicalSlot = { ...messageState, slot: "message/revision-2" };
+  assert.match(
+    schemaErrors(historicalSlot, transactionSchema.$defs.messageState).join(
+      "\n",
+    ),
+    /slot|oneOf/u,
+  );
 
   const unknownPhase = structuredClone(transaction);
   unknownPhase.phase = "invented";
@@ -317,6 +339,35 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     stdout: "To example.invalid/repository\n",
     stderr: "",
   };
+  const approvedValidation = {
+    schemaVersion: 1,
+    valid: true,
+    route: "concise",
+    messageSource: "checked-file",
+    byteCount: 35,
+    messageSha256: "9".repeat(64),
+    displayText: "fix(parser): Prevent invalid input\n",
+    subject: {
+      text: "fix(parser): Prevent invalid input",
+      type: "fix",
+      scope: "parser",
+      description: "Prevent invalid input",
+      scalarLength: 34,
+    },
+    sections: {
+      rationale: { present: false, entryCount: 0 },
+      userExperience: { present: false, entryCount: 0 },
+      fileChanges: { present: false, entryCount: 0 },
+    },
+    files: {
+      expectedCount: 1,
+      listedCount: 0,
+      setMatches: true,
+      orderValid: true,
+      unique: true,
+    },
+    presentationWarnings: { count: 0, samples: [], sha256: null },
+  };
 
   assert.deepEqual(
     schemaErrors(snapshot, schema("commitSnapshot.schema.json")),
@@ -346,6 +397,13 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   );
   assert.deepEqual(
     schemaErrors(content, schema("commitMessageContent.schema.json")),
+    [],
+  );
+  assert.deepEqual(
+    schemaErrors(
+      approvedValidation,
+      schema("commitMessageValidation.schema.json"),
+    ),
     [],
   );
 

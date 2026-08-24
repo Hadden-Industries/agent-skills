@@ -62,6 +62,11 @@ test("subject-only concise messages are valid for one, twelve, and one thousand 
     assert.equal(result.valid, true);
     assert.equal(result.sections.fileChanges.present, false);
     assert.equal(result.byteCount, 44);
+    assert.deepEqual(result.presentationWarnings, {
+      count: 0,
+      samples: [],
+      sha256: null,
+    });
   }
 });
 

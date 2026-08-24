@@ -23,6 +23,8 @@ import {
   sha256Bytes,
   stableJsonBytes,
 } from "../inspection/inlineEvidenceCapsule.js";
+import { scaffoldContent } from "../message/commitMessageRenderer.js";
+import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
 import { captureHeadAnchor } from "../transaction/indexInstallation.js";
 import {
   MAXIMUM_INITIAL_JSON_INPUT_BYTES,
@@ -355,6 +357,11 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
             queueKind: "delta",
             outputDirectory: reviewDirectory,
           });
+    ensureTransactionOwnedJson({
+      transactionPath,
+      artifactName: "content.json",
+      value: scaffoldContent(manifest, catalog, evidencePlan),
+    });
     const completed = advanceTransaction(transactionPath, "evidence-ready", {
       ...transaction,
       phase: "review-pending",

@@ -87,7 +87,7 @@
     "snapshot": { "type": ["object", "null"] },
     "inlineEvidence": { "$ref": "#/$defs/inlineEvidenceState" },
     "review": { "$ref": "#/$defs/reviewState" },
-    "message": { "type": ["object", "null"] },
+    "message": { "$ref": "#/$defs/messageState" },
     "commit": { "type": ["object", "null"] },
     "verification": { "type": ["object", "null"] },
     "report": { "type": ["object", "null"] },
@@ -272,18 +272,64 @@
         "semanticStructureRequired": { "type": "boolean" }
       }
     },
+    "messageState": {
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "revision",
+            "sha256",
+            "source",
+            "byteCount",
+            "stateSha256",
+            "validationSha256",
+            "slot"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "revision": { "type": "integer", "minimum": 1 },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "source": {
+              "enum": ["approved-subject", "checked-file", "finalized-extended"]
+            },
+            "byteCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            },
+            "stateSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "validationSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "slot": { "const": "message/current" }
+          }
+        }
+      ]
+    },
     "allocatedState": {
       "properties": {
         "phase": { "const": "allocated" },
         "status": { "const": null },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "message": { "const": null }
       }
     },
     "snapshotCreatedState": {
       "properties": {
         "phase": { "const": "snapshot-created" },
         "status": { "const": null },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "message": { "const": null }
       }
     },
     "evidencePreparedState": {
@@ -293,7 +339,8 @@
         "terminalDisposition": { "const": null },
         "route": { "const": "concise" },
         "inlineEvidence": { "type": "object" },
-        "review": { "const": null }
+        "review": { "const": null },
+        "message": { "const": null }
       }
     },
     "evidencePromotedState": {
@@ -303,7 +350,8 @@
         "terminalDisposition": { "const": null },
         "route": { "const": "concise" },
         "inlineEvidence": { "type": "object" },
-        "review": { "const": null }
+        "review": { "const": null },
+        "message": { "const": null }
       }
     },
     "reviewPendingState": {
@@ -330,14 +378,16 @@
       "properties": {
         "phase": { "const": "message-ready" },
         "status": { "const": "message-ready" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "message": { "type": "object" }
       }
     },
     "messagePromotedState": {
       "properties": {
         "phase": { "const": "message-ready" },
         "status": { "const": "promoted" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "message": { "type": "object" }
       }
     },
     "commitPendingState": {

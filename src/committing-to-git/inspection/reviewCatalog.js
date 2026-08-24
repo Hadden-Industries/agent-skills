@@ -1298,6 +1298,47 @@ function loadCatalogDocument(catalogPath, visited = new Set()) {
   return withCatalogIdentity(catalog, absolutePath);
 }
 
+export function readReviewCatalog(catalogPath) {
+  return loadCatalogDocument(catalogPath);
+}
+
+export function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
+  let currentPath = resolve(catalogPath);
+  const visited = new Set();
+
+  while (true) {
+    if (visited.has(currentPath)) {
+      throw new Error("Catalog revision chain contains a cycle.");
+    }
+    visited.add(currentPath);
+    const document = JSON.parse(readFileSync(currentPath, "utf8"));
+
+    if (document.catalogSha256 === catalogSha256) {
+      // Reconstructing the selected revision also validates every link and
+      // digest between that revision and its immutable base catalog.
+      loadCatalogDocument(currentPath);
+      return currentPath;
+    }
+
+    if (document.revisionRecordVersion !== 1) {
+      return null;
+    }
+
+    const outputDirectory = dirname(dirname(currentPath));
+    currentPath = resolve(outputDirectory, document.priorCatalogArtifact);
+  }
+}
+
+export function requiredReviewPacketIds(catalog) {
+  return requiredPacketIds(catalog);
+}
+
+export function bindReviewCoverage(catalog, coverage) {
+  const covered = { ...catalog, priorCoverage: coverage };
+
+  return withCatalogIdentity(covered, catalog.catalogPath);
+}
+
 function packetById(catalog, id) {
   const packet = catalog.packets.find((candidate) => candidate.id === id);
 
