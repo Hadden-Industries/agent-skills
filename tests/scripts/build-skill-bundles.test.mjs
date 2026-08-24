@@ -22,13 +22,60 @@ const COMMIT_WORKFLOW = join(
   "scripts",
   "commitWorkflow.mjs",
 );
+const VALID_EVALUATION = {
+  id: 1,
+  prompt: "Evaluate the example skill.",
+  expected_output: "The example skill produces the requested result.",
+  files: [],
+  expectations: ["The output contains the requested result."],
+};
+const VALID_TRIGGERS = [
+  { query: "Use the example skill for this task.", should_trigger: true },
+  { query: "Handle this adjacent task another way.", should_trigger: false },
+];
+
+function writeTriggerEvaluations(directory, triggers = VALID_TRIGGERS) {
+  writeFileSync(
+    join(directory, "trigger-evals.json"),
+    JSON.stringify(triggers),
+  );
+}
+
+function createEvaluationLayout(
+  t,
+  { definition, triggers = VALID_TRIGGERS, triggerSource },
+) {
+  const root = mkdtempSync(join(tmpdir(), "skill-evaluation-contract-"));
+  const skillsRoot = join(root, "skills");
+  const evaluationsRoot = join(root, "evals");
+  const skill = join(skillsRoot, "example-skill");
+  const evaluationSuite = join(evaluationsRoot, "example-skill");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(evaluationSuite, "fixtures"), { recursive: true });
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
+  writeFileSync(join(evaluationSuite, "fixtures", "sample.txt"), "fixture\n");
+  writeFileSync(
+    join(evaluationSuite, "evals.json"),
+    JSON.stringify(definition),
+  );
+
+  if (triggerSource !== undefined) {
+    writeFileSync(join(evaluationSuite, "trigger-evals.json"), triggerSource);
+  } else if (triggers !== null) {
+    writeTriggerEvaluations(evaluationSuite, triggers);
+  }
+
+  return { evaluationsRoot, skillsRoot };
+}
 
 test("build check accepts the committed repository-level skill bundles", async () => {
   const result = await skillBuild.buildSkillBundles({ checkOnly: true });
 
   assert.deepEqual(result.staleBundles, []);
   assert.equal(result.deployableSkillsValidated, 3);
-  assert.equal(result.evaluationSuitesValidated, 2);
+  assert.equal(result.evaluationSuitesValidated, 3);
   assert.equal(result.evaluationFileReferencesValidated, 5);
   assert.ok(result.skillFilesValidated > 0);
 });
@@ -93,12 +140,15 @@ test("repository evaluation suites resolve beside rather than inside deployable 
       evals: [
         {
           id: 1,
+          prompt: "Read the supplied fixture.",
+          expected_output: "The output includes the fixture content.",
           files: ["fixtures/sample.txt"],
           expectations: ["The output includes the fixture content."],
         },
       ],
     }),
   );
+  writeTriggerEvaluations(evaluation);
 
   assert.deepEqual(
     skillBuild.validateRepositoryEvaluationLayout({
@@ -112,6 +162,195 @@ test("repository evaluation suites resolve beside rather than inside deployable 
     },
   );
 });
+
+for (const [label, definition, expectedMessage] of [
+  [
+    "a non-object behavioral root",
+    null,
+    /evals\.json must contain a JSON object/u,
+  ],
+  [
+    "an empty behavioral case array",
+    { skill_name: "example-skill", evals: [] },
+    /evals\.json must contain a non-empty evals array/u,
+  ],
+  [
+    "a non-object behavioral case",
+    { skill_name: "example-skill", evals: [null] },
+    /evals\.json eval at index 0 must be a JSON object/u,
+  ],
+  [
+    "a non-positive behavioral case id",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, id: 0 }],
+    },
+    /evals\.json eval at index 0 must have a positive integer id/u,
+  ],
+  [
+    "duplicate behavioral case ids",
+    {
+      skill_name: "example-skill",
+      evals: [VALID_EVALUATION, { ...VALID_EVALUATION }],
+    },
+    /evals\.json contains duplicate evaluation id 1/u,
+  ],
+  [
+    "a blank behavioral prompt",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, prompt: "  " }],
+    },
+    /evals\.json eval 1 must contain a non-empty prompt/u,
+  ],
+  [
+    "a blank behavioral expected output",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, expected_output: "\t" }],
+    },
+    /evals\.json eval 1 must contain a non-empty expected_output/u,
+  ],
+  [
+    "duplicate behavioral expectations",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          expectations: ["A grounded result.", " A grounded result. "],
+        },
+      ],
+    },
+    /evals\.json eval 1 contains duplicate expectation/u,
+  ],
+  [
+    "duplicate behavioral file references",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          files: ["fixtures/sample.txt", "fixtures/sample.txt"],
+        },
+      ],
+    },
+    /evals\.json eval 1 contains duplicate file reference/u,
+  ],
+]) {
+  test(`repository evaluation layout rejects ${label}`, (t) => {
+    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+      definition,
+    });
+
+    assert.throws(
+      () =>
+        skillBuild.validateRepositoryEvaluationLayout({
+          skillsRoot,
+          evaluationsRoot,
+        }),
+      expectedMessage,
+    );
+  });
+}
+
+for (const [label, triggerOptions, expectedMessage] of [
+  [
+    "a missing trigger manifest",
+    { triggers: null },
+    /trigger-evals\.json is required/u,
+  ],
+  [
+    "malformed trigger JSON",
+    { triggerSource: "{" },
+    /trigger-evals\.json is not valid JSON/u,
+  ],
+  [
+    "a non-array trigger root",
+    { triggerSource: "{}" },
+    /trigger-evals\.json must contain a non-empty array/u,
+  ],
+  [
+    "an empty trigger array",
+    { triggers: [] },
+    /trigger-evals\.json must contain a non-empty array/u,
+  ],
+  [
+    "a non-object trigger case",
+    { triggers: [null, ...VALID_TRIGGERS] },
+    /trigger-evals\.json entry at index 0 must be a JSON object/u,
+  ],
+  [
+    "an unknown trigger field",
+    {
+      triggers: [
+        { ...VALID_TRIGGERS[0], note: "unexpected" },
+        VALID_TRIGGERS[1],
+      ],
+    },
+    /trigger-evals\.json entry at index 0 must contain exactly query and should_trigger/u,
+  ],
+  [
+    "a blank trigger query",
+    {
+      triggers: [{ query: "  ", should_trigger: true }, VALID_TRIGGERS[1]],
+    },
+    /trigger-evals\.json entry at index 0 must contain a non-empty query/u,
+  ],
+  [
+    "a non-boolean trigger decision",
+    {
+      triggers: [
+        { query: "Use the example skill.", should_trigger: "true" },
+        VALID_TRIGGERS[1],
+      ],
+    },
+    /trigger-evals\.json entry at index 0 must contain a boolean should_trigger/u,
+  ],
+  [
+    "normalized duplicate trigger queries",
+    {
+      triggers: [
+        { query: " Define this concept ", should_trigger: true },
+        { query: "define THIS concept", should_trigger: false },
+      ],
+    },
+    /trigger-evals\.json contains duplicate query/u,
+  ],
+  [
+    "a positive-only trigger set",
+    {
+      triggers: [{ query: "Use the example skill.", should_trigger: true }],
+    },
+    /trigger-evals\.json must contain at least one should-trigger and one should-not-trigger case/u,
+  ],
+  [
+    "a negative-only trigger set",
+    {
+      triggers: [{ query: "Use another skill.", should_trigger: false }],
+    },
+    /trigger-evals\.json must contain at least one should-trigger and one should-not-trigger case/u,
+  ],
+]) {
+  test(`repository evaluation layout rejects ${label}`, (t) => {
+    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+      definition: {
+        skill_name: "example-skill",
+        evals: [VALID_EVALUATION],
+      },
+      ...triggerOptions,
+    });
+
+    assert.throws(
+      () =>
+        skillBuild.validateRepositoryEvaluationLayout({
+          skillsRoot,
+          evaluationsRoot,
+        }),
+      expectedMessage,
+    );
+  });
+}
 
 for (const [label, evaluation, expectedMessage] of [
   [
@@ -147,8 +386,18 @@ for (const [label, evaluation, expectedMessage] of [
     writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
     writeFileSync(
       join(evaluationSuite, "evals.json"),
-      JSON.stringify({ skill_name: "example-skill", evals: [evaluation] }),
+      JSON.stringify({
+        skill_name: "example-skill",
+        evals: [
+          {
+            prompt: "Evaluate the example skill.",
+            expected_output: "The example skill produces the requested result.",
+            ...evaluation,
+          },
+        ],
+      }),
     );
+    writeTriggerEvaluations(evaluationSuite);
 
     assert.throws(
       () =>
@@ -200,8 +449,12 @@ test("repository evaluation layout rejects a suite without its canonical skill",
   mkdirSync(evaluation, { recursive: true });
   writeFileSync(
     join(evaluation, "evals.json"),
-    JSON.stringify({ skill_name: "missing-skill", evals: [] }),
+    JSON.stringify({
+      skill_name: "missing-skill",
+      evals: [VALID_EVALUATION],
+    }),
   );
+  writeTriggerEvaluations(evaluation);
 
   assert.throws(
     () =>
@@ -229,9 +482,15 @@ test("repository evaluation layout rejects mismatched suites and escaped fixture
     join(evaluation, "evals.json"),
     JSON.stringify({
       skill_name: "different-skill",
-      evals: [{ id: 1, files: ["../outside.txt"] }],
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          files: ["../outside.txt"],
+        },
+      ],
     }),
   );
+  writeTriggerEvaluations(evaluation);
 
   assert.throws(
     () =>

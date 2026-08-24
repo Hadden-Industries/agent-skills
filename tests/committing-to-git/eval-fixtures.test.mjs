@@ -243,7 +243,6 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
   assert.equal(behavior.skill_name, "committing-to-git");
   assert.ok(behavior.notes.includes("Text-only success is not evidence"));
   assert.deepEqual(behavior.metrics, METRICS);
-  assert.equal(new Set(ids).size, ids.length);
   assert.equal(new Set(caseKeys).size, caseKeys.length);
   assert.deepEqual(ids, ACTIVE_IDS);
   assert.deepEqual(
@@ -265,18 +264,9 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
         typeof evaluation.cost_profile === "string",
       true,
     );
-    assert.equal(typeof evaluation.prompt, "string");
-    assert.ok(evaluation.prompt.length > 0);
-    assert.equal(typeof evaluation.expected_output, "string");
-    assert.ok(Array.isArray(evaluation.files));
-    assert.ok(Array.isArray(evaluation.expectations));
-    assert.ok(evaluation.expectations.length > 0);
-    assert.equal("assertions" in evaluation, false);
 
     for (const expectation of evaluation.expectations) {
-      assert.equal(typeof expectation, "string");
       assert.equal(expectation, expectation.trim());
-      assert.ok(expectation.length > 0);
       assert.doesNotMatch(expectation, REMOVED_COMMAND);
     }
   }
@@ -301,12 +291,6 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
       .length,
     12,
   );
-
-  for (const trigger of triggers) {
-    assert.deepEqual(Object.keys(trigger).sort(), ["query", "should_trigger"]);
-    assert.equal(typeof trigger.query, "string");
-    assert.equal(typeof trigger.should_trigger, "boolean");
-  }
 });
 
 test("evaluation configuration rejects ambiguous or stale identities", () => {

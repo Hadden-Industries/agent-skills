@@ -52,6 +52,240 @@ function pathEscapes(directory, candidate) {
   );
 }
 
+function isJsonObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function readJson(path, displayPath, violations) {
+  try {
+    return { parsed: true, value: JSON.parse(readFileSync(path, "utf8")) };
+  } catch (error) {
+    violations.push(`${displayPath} is not valid JSON: ${error.message}`);
+    return { parsed: false };
+  }
+}
+
+function validateBehavioralEvaluations({
+  definition,
+  displayPath,
+  evaluationSuite,
+  realEvaluationSuite,
+  skillName,
+  violations,
+}) {
+  if (!isJsonObject(definition)) {
+    violations.push(`${displayPath} must contain a JSON object`);
+    return 0;
+  }
+
+  if (definition.skill_name !== skillName) {
+    violations.push(
+      `${displayPath} declares skill_name ${JSON.stringify(definition.skill_name)} instead of ${JSON.stringify(skillName)}`,
+    );
+  }
+
+  if (!Array.isArray(definition.evals) || definition.evals.length === 0) {
+    violations.push(`${displayPath} must contain a non-empty evals array`);
+    return 0;
+  }
+
+  const evaluationIds = new Set();
+  let fileReferencesValidated = 0;
+
+  for (const [index, evaluation] of definition.evals.entries()) {
+    if (!isJsonObject(evaluation)) {
+      violations.push(
+        `${displayPath} eval at index ${index} must be a JSON object`,
+      );
+      continue;
+    }
+
+    const hasValidId = Number.isInteger(evaluation.id) && evaluation.id > 0;
+    const evaluationLabel = hasValidId
+      ? `eval ${evaluation.id}`
+      : `eval at index ${index}`;
+
+    if (!hasValidId) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must have a positive integer id`,
+      );
+    } else if (evaluationIds.has(evaluation.id)) {
+      violations.push(
+        `${displayPath} contains duplicate evaluation id ${evaluation.id}`,
+      );
+    } else {
+      evaluationIds.add(evaluation.id);
+    }
+
+    if (!isNonEmptyString(evaluation.prompt)) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must contain a non-empty prompt`,
+      );
+    }
+
+    if (!isNonEmptyString(evaluation.expected_output)) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must contain a non-empty expected_output`,
+      );
+    }
+
+    if (Object.hasOwn(evaluation, "assertions")) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must use expectations instead of assertions`,
+      );
+    }
+
+    if (
+      !Array.isArray(evaluation.expectations) ||
+      evaluation.expectations.length === 0
+    ) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must contain a non-empty expectations array`,
+      );
+    } else {
+      const expectations = new Set();
+
+      for (const expectation of evaluation.expectations) {
+        if (!isNonEmptyString(expectation)) {
+          violations.push(
+            `${displayPath} ${evaluationLabel} contains an expectation that is not a non-empty string`,
+          );
+          continue;
+        }
+
+        const normalizedExpectation = expectation.trim();
+
+        if (expectations.has(normalizedExpectation)) {
+          violations.push(
+            `${displayPath} ${evaluationLabel} contains duplicate expectation ${JSON.stringify(normalizedExpectation)}`,
+          );
+        } else {
+          expectations.add(normalizedExpectation);
+        }
+      }
+    }
+
+    if (!Array.isArray(evaluation.files)) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} must contain a files array`,
+      );
+      continue;
+    }
+
+    const fileReferences = new Set();
+
+    for (const fileReference of evaluation.files) {
+      if (typeof fileReference !== "string" || fileReference.length === 0) {
+        violations.push(
+          `${displayPath} ${evaluationLabel} contains an invalid file reference`,
+        );
+        continue;
+      }
+
+      if (fileReferences.has(fileReference)) {
+        violations.push(
+          `${displayPath} ${evaluationLabel} contains duplicate file reference ${JSON.stringify(fileReference)}`,
+        );
+        continue;
+      }
+
+      fileReferences.add(fileReference);
+      const referencedPath = resolve(evaluationSuite, fileReference);
+
+      if (
+        pathEscapes(evaluationSuite, referencedPath) ||
+        !existsSync(referencedPath)
+      ) {
+        violations.push(
+          `${displayPath} ${evaluationLabel} references missing or out-of-suite file ${JSON.stringify(fileReference)}`,
+        );
+        continue;
+      }
+
+      const realReferencedPath = realpathSync(referencedPath);
+
+      if (pathEscapes(realEvaluationSuite, realReferencedPath)) {
+        violations.push(
+          `${displayPath} ${evaluationLabel} references file outside its suite through ${JSON.stringify(fileReference)}`,
+        );
+        continue;
+      }
+
+      fileReferencesValidated += 1;
+    }
+  }
+
+  return fileReferencesValidated;
+}
+
+function validateTriggerEvaluations({ definition, displayPath, violations }) {
+  if (!Array.isArray(definition) || definition.length === 0) {
+    violations.push(`${displayPath} must contain a non-empty array`);
+    return;
+  }
+
+  const normalizedQueries = new Set();
+  let hasShouldTrigger = false;
+  let hasShouldNotTrigger = false;
+
+  for (const [index, trigger] of definition.entries()) {
+    if (!isJsonObject(trigger)) {
+      violations.push(
+        `${displayPath} entry at index ${index} must be a JSON object`,
+      );
+      continue;
+    }
+
+    const fields = Object.keys(trigger).sort();
+
+    if (
+      fields.length !== 2 ||
+      fields[0] !== "query" ||
+      fields[1] !== "should_trigger"
+    ) {
+      violations.push(
+        `${displayPath} entry at index ${index} must contain exactly query and should_trigger`,
+      );
+    }
+
+    if (!isNonEmptyString(trigger.query)) {
+      violations.push(
+        `${displayPath} entry at index ${index} must contain a non-empty query`,
+      );
+    } else {
+      const normalizedQuery = trigger.query.trim().toLocaleLowerCase("en-US");
+
+      if (normalizedQueries.has(normalizedQuery)) {
+        violations.push(
+          `${displayPath} contains duplicate query ${JSON.stringify(trigger.query.trim())}`,
+        );
+      } else {
+        normalizedQueries.add(normalizedQuery);
+      }
+    }
+
+    if (typeof trigger.should_trigger !== "boolean") {
+      violations.push(
+        `${displayPath} entry at index ${index} must contain a boolean should_trigger`,
+      );
+    } else if (trigger.should_trigger) {
+      hasShouldTrigger = true;
+    } else {
+      hasShouldNotTrigger = true;
+    }
+  }
+
+  if (!hasShouldTrigger || !hasShouldNotTrigger) {
+    violations.push(
+      `${displayPath} must contain at least one should-trigger and one should-not-trigger case`,
+    );
+  }
+}
+
 export function validateRepositoryEvaluationLayout({
   skillsRoot,
   evaluationsRoot,
@@ -87,6 +321,12 @@ export function validateRepositoryEvaluationLayout({
     const realEvaluationSuite = realpathSync(evaluationSuite);
     const canonicalSkill = join(resolvedSkillsRoot, skillName, "SKILL.md");
     const evaluationDefinition = join(evaluationSuite, "evals.json");
+    const triggerDefinition = join(evaluationSuite, "trigger-evals.json");
+    const evaluationDisplayPath = relative(
+      repositoryRoot,
+      evaluationDefinition,
+    );
+    const triggerDisplayPath = relative(repositoryRoot, triggerDefinition);
 
     if (!existsSync(canonicalSkill)) {
       violations.push(
@@ -98,97 +338,40 @@ export function validateRepositoryEvaluationLayout({
       violations.push(
         `${relative(repositoryRoot, evaluationSuite)} has no evals.json`,
       );
-      continue;
-    }
-
-    let definition;
-
-    try {
-      definition = JSON.parse(readFileSync(evaluationDefinition, "utf8"));
-    } catch (error) {
-      violations.push(
-        `${relative(repositoryRoot, evaluationDefinition)} is not valid JSON: ${error.message}`,
+    } else {
+      const parsedEvaluation = readJson(
+        evaluationDefinition,
+        evaluationDisplayPath,
+        violations,
       );
-      continue;
+
+      if (parsedEvaluation.parsed) {
+        evaluationFileReferencesValidated += validateBehavioralEvaluations({
+          definition: parsedEvaluation.value,
+          displayPath: evaluationDisplayPath,
+          evaluationSuite,
+          realEvaluationSuite,
+          skillName,
+          violations,
+        });
+      }
     }
 
-    if (definition.skill_name !== skillName) {
-      violations.push(
-        `${relative(repositoryRoot, evaluationDefinition)} declares skill_name ${JSON.stringify(definition.skill_name)} instead of ${JSON.stringify(skillName)}`,
+    if (!existsSync(triggerDefinition)) {
+      violations.push(`${triggerDisplayPath} is required`);
+    } else {
+      const parsedTriggers = readJson(
+        triggerDefinition,
+        triggerDisplayPath,
+        violations,
       );
-    }
 
-    if (!Array.isArray(definition.evals)) {
-      violations.push(
-        `${relative(repositoryRoot, evaluationDefinition)} must contain an evals array`,
-      );
-      continue;
-    }
-
-    for (const evaluation of definition.evals) {
-      if (Object.hasOwn(evaluation, "assertions")) {
-        violations.push(
-          `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must use expectations instead of assertions`,
-        );
-      }
-
-      if (
-        !Array.isArray(evaluation.expectations) ||
-        evaluation.expectations.length === 0
-      ) {
-        violations.push(
-          `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must contain a non-empty expectations array`,
-        );
-      } else {
-        for (const expectation of evaluation.expectations) {
-          if (
-            typeof expectation !== "string" ||
-            expectation.trim().length === 0
-          ) {
-            violations.push(
-              `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} contains an expectation that is not a non-empty string`,
-            );
-          }
-        }
-      }
-
-      if (!Array.isArray(evaluation.files)) {
-        violations.push(
-          `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} must contain a files array`,
-        );
-        continue;
-      }
-
-      for (const fileReference of evaluation.files) {
-        if (typeof fileReference !== "string" || fileReference.length === 0) {
-          violations.push(
-            `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} contains an invalid file reference`,
-          );
-          continue;
-        }
-
-        const referencedPath = resolve(evaluationSuite, fileReference);
-
-        if (
-          pathEscapes(evaluationSuite, referencedPath) ||
-          !existsSync(referencedPath)
-        ) {
-          violations.push(
-            `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} references missing or out-of-suite file ${JSON.stringify(fileReference)}`,
-          );
-          continue;
-        }
-
-        const realReferencedPath = realpathSync(referencedPath);
-
-        if (pathEscapes(realEvaluationSuite, realReferencedPath)) {
-          violations.push(
-            `${relative(repositoryRoot, evaluationDefinition)} eval ${JSON.stringify(evaluation.id)} references file outside its suite through ${JSON.stringify(fileReference)}`,
-          );
-          continue;
-        }
-
-        evaluationFileReferencesValidated += 1;
+      if (parsedTriggers.parsed) {
+        validateTriggerEvaluations({
+          definition: parsedTriggers.value,
+          displayPath: triggerDisplayPath,
+          violations,
+        });
       }
     }
   }
