@@ -42,6 +42,11 @@ const CANONICAL_SKILL = join(
   "committing-to-git",
   "SKILL.md",
 );
+const MESSAGE_FORMAT_REFERENCE = join(
+  dirname(CANONICAL_SKILL),
+  "references",
+  "message-format.md",
+);
 
 const REMOVED_COMMANDS = [
   "snapshot create",
@@ -138,6 +143,36 @@ test("canonical skill teaches the proportional happy path and bounded decisions"
   assert.doesNotMatch(source, /inspection acknowledge/iu);
   assert.doesNotMatch(source, /--message-file/iu);
   assert.doesNotMatch(source, /manualReviewRequired/u);
+});
+
+test("canonical guidance requires capitalized descriptions before approval", () => {
+  const skill = readFileSync(CANONICAL_SKILL, "utf8");
+  const reference = readFileSync(MESSAGE_FORMAT_REFERENCE, "utf8");
+
+  for (const source of [skill, reference]) {
+    assert.match(
+      source,
+      /description immediately after `: ` must begin with an uppercase Unicode cased letter/u,
+    );
+    assert.match(source, /valid: `fix: Tolerate unreachable imports`/u);
+    assert.match(
+      source,
+      /valid: `fix\(owl2vowl\): Tolerate unreachable imports`/u,
+    );
+    assert.match(source, /invalid: `fix: tolerate unreachable imports`/u);
+    assert.match(
+      source,
+      /invalid: `fix\(owl2vowl\): tolerate unreachable imports`/u,
+    );
+  }
+
+  assert.match(skill, /optional scope does not change this rule/iu);
+  assert.match(skill, /while authoring the first proposal/iu);
+  assert.match(skill, /before presenting any subject for approval/iu);
+  assert.match(skill, /`SUBJECT_DESCRIPTION_NOT_CAPITALIZED`/u);
+  assert.match(skill, /correct it before showing the message to the user/iu);
+  assert.match(skill, /supported skill message policy/iu);
+  assert.match(skill, /capitalization-only second approval/iu);
 });
 
 test("canonical skill routes exceptions to the five focused references", () => {

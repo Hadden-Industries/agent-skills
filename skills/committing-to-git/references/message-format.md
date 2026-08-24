@@ -4,7 +4,7 @@ Read this reference after the extended route requests structured authorship, or 
 
 ## Canonical text
 
-Every message is strict UTF-8 and ends in exactly one LF. It contains no CR, C0/C1 or Unicode format controls, invalid byte sequence, placeholder, or normalized substitute for the approved bytes. The subject is `<type>: <Capitalized outcome>` or `<type>(<scope>): <Capitalized outcome>`, has at most 72 Unicode scalar values, and has no terminal period. Loaded repository type policy takes precedence.
+Every message is strict UTF-8 and ends in exactly one LF. It contains no CR, C0/C1 or Unicode format controls, invalid byte sequence, placeholder, or normalized substitute for the approved bytes. Before presenting any subject for approval, apply the supported skill message policy while authoring the first proposal: the description immediately after `: ` must begin with an uppercase Unicode cased letter; optional scope does not change this rule. Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`. The subject has at most 72 Unicode scalar values and no terminal period. Loaded repository type policy takes precedence.
 
 A body is optional. Include only sections that add durable information, in this exact order, separated by one blank line:
 
