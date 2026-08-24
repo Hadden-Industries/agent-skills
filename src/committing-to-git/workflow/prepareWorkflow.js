@@ -36,6 +36,7 @@ import {
 } from "../inspection/reviewCatalog.js";
 import { scaffoldContent } from "../message/commitMessageRenderer.js";
 import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
+import { inspectSignatureRequirements } from "../signature/signaturePreflight.js";
 import { writePacketStream } from "../inspection/streamingPacketWriter.js";
 import {
   MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
@@ -1799,6 +1800,37 @@ export async function prepareWorkflow({
   assertNoGitStorageOverrides(environment);
   const root = repositoryRoot(cwd);
   assertPreallocationRepositoryState(root);
+  let signaturePreflight = null;
+
+  if (parsed.mode === "actual") {
+    signaturePreflight =
+      parsed.verificationPolicy === "skipped"
+        ? { backend: null, trustSource: null }
+        : inspectSignatureRequirements(root);
+
+    if (
+      parsed.verificationPolicy === "required" &&
+      signaturePreflight.backend === "ssh" &&
+      signaturePreflight.trustSource?.readable !== true
+    ) {
+      fail(
+        "SIGNATURE_TRUST_ACCESS_REQUIRED",
+        "Required SSH verification cannot read Git's configured allowed-signers file.",
+        {
+          exitCode: 1,
+          details: {
+            capability: {
+              kind: "read-file",
+              path: signaturePreflight.trustSource?.path ?? null,
+              origin: signaturePreflight.trustSource?.origin ?? null,
+            },
+            verificationPolicy: parsed.verificationPolicy,
+          },
+        },
+      );
+    }
+  }
+
   const candidates = discoverCandidates(root);
   let selectedPaths = [];
 
@@ -1895,6 +1927,7 @@ export async function prepareWorkflow({
       groups: normalizedEvidence.plan.groups,
     },
     verificationPolicy: parsed.verificationPolicy,
+    signaturePreflight,
   });
   const snapshotPath = resolve(workspace.attemptDirectory, "snapshot.json");
   let snapshotResult;

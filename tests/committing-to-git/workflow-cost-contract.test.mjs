@@ -9,6 +9,7 @@ import { canonicalizeEvidencePlan } from "../../src/committing-to-git/inspection
 
 import {
   commitAll,
+  configureSshSigning,
   createRepositoryFixture,
   runCommitWorkflow,
   runRecordedWorkflow,
@@ -379,3 +380,72 @@ test("concise preapproval action budgets distinguish direct subjects from checke
   assert.equal(exactFile.semanticWorksheetWrites, 0);
   assert.equal(exactFile.reviewReceiptWrites, 0);
 });
+
+for (const changeUnitCount of [1, 12, 1_000]) {
+  test(`known-context ${changeUnitCount}-unit fixture uses one postapproval commit command`, (t) => {
+    const fixture = createRepositoryFixture(
+      t,
+      `workflow-cost-postapproval-${changeUnitCount}-`,
+    );
+    writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+    commitAll(fixture.repo);
+
+    if (!configureSshSigning(t, fixture)) {
+      return;
+    }
+
+    for (let index = 0; index < changeUnitCount; index += 1) {
+      writeRepositoryFile(
+        fixture.repo,
+        `generated/unit-${String(index + 1).padStart(4, "0")}.txt`,
+        `unit ${index + 1}\n`,
+      );
+    }
+
+    const preparation = runCommitWorkflow(
+      "workflow prepare",
+      [
+        "--mode",
+        "actual",
+        "--scope",
+        "full",
+        "--evidence",
+        "reuse",
+        "--basis",
+        "generated-derived",
+        "--verification",
+        "skipped",
+      ],
+      fixture.repo,
+      { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+    );
+
+    assert.equal(preparation.status, 0, preparation.stderr);
+    const prepared = JSON.parse(preparation.stdout);
+
+    assert.equal(prepared.route, "concise");
+    assert.equal(prepared.changeUnitCount, changeUnitCount);
+    const trace2File = join(fixture.scratch, "postapproval-trace.json");
+    const committed = runRecordedWorkflow(
+      "workflow commit",
+      [
+        "--transaction",
+        prepared.transaction,
+        "--message",
+        "chore(fixtures): Record generated unit set",
+      ],
+      fixture.repo,
+      { trace2File, env: { GIT_TRACE2_EVENT: trace2File } },
+    );
+
+    assert.equal(committed.result.status, 0, committed.result.stderr);
+    assert.equal(committed.invocation.command, "workflow commit");
+    assert.ok(committed.invocation.stdoutBytes <= 80 * 1024);
+    assert.equal(JSON.parse(committed.result.stdout).commitState, "created");
+    assert.deepEqual(
+      [committed.invocation.command],
+      ["workflow commit"],
+      "postapproval flow must not add a finalizer call",
+    );
+  });
+}

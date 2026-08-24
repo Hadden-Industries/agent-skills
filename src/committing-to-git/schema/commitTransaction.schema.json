@@ -83,14 +83,14 @@
     "initialEvidencePlan": { "type": ["object", "null"] },
     "route": { "enum": ["concise", "extended", null] },
     "verificationPolicy": { "enum": ["required", "advisory", "skipped"] },
-    "signaturePreflight": { "type": ["object", "null"] },
+    "signaturePreflight": { "$ref": "#/$defs/signaturePreflight" },
     "snapshot": { "type": ["object", "null"] },
     "inlineEvidence": { "$ref": "#/$defs/inlineEvidenceState" },
     "review": { "$ref": "#/$defs/reviewState" },
     "message": { "$ref": "#/$defs/messageState" },
-    "commit": { "type": ["object", "null"] },
-    "verification": { "type": ["object", "null"] },
-    "report": { "type": ["object", "null"] },
+    "commit": { "$ref": "#/$defs/commitJournal" },
+    "verification": { "$ref": "#/$defs/verificationHistory" },
+    "report": { "$ref": "#/$defs/reportState" },
     "publicationAttempts": {
       "type": "array",
       "items": { "type": "object" }
@@ -316,6 +316,201 @@
         }
       ]
     },
+    "signaturePreflight": {
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["backend", "trustSource"],
+          "properties": {
+            "backend": { "enum": ["openpgp", null] },
+            "trustSource": { "const": null }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["backend", "trustSource"],
+          "properties": {
+            "backend": { "const": "ssh" },
+            "trustSource": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["configured", "origin", "path", "readable"],
+              "properties": {
+                "configured": { "type": "boolean" },
+                "origin": { "type": ["string", "null"] },
+                "path": { "type": ["string", "null"] },
+                "readable": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "commitJournal": {
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "launchState",
+            "childIdentity",
+            "headAnchor",
+            "expectedTreeOid",
+            "messageSha256",
+            "messageByteCount",
+            "checks",
+            "startedAt",
+            "completion",
+            "transcript",
+            "commitOid",
+            "comparison",
+            "observationProvenance",
+            "recoveryObservations",
+            "recoveryResolution"
+          ],
+          "properties": {
+            "status": { "enum": ["pending", "created"] },
+            "launchState": {
+              "enum": ["not-started", "launching", "running", "completed"]
+            },
+            "childIdentity": {
+              "oneOf": [
+                { "const": null },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["pid", "startIdentity"],
+                  "properties": {
+                    "pid": { "type": "integer", "minimum": 1 },
+                    "startIdentity": { "type": ["string", "null"] }
+                  }
+                }
+              ]
+            },
+            "headAnchor": { "$ref": "#/$defs/nullableHeadAnchor" },
+            "expectedTreeOid": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "messageSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "messageByteCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            },
+            "checks": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "sha256", "externalPath"],
+              "properties": {
+                "value": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schemaVersion", "checks"],
+                  "properties": {
+                    "schemaVersion": { "const": 1 },
+                    "checks": { "type": "array" }
+                  }
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "externalPath": { "type": ["string", "null"] }
+              }
+            },
+            "startedAt": { "type": "string", "minLength": 20 },
+            "completion": { "type": ["object", "null"] },
+            "transcript": { "type": ["object", "null"] },
+            "commitOid": {
+              "type": ["string", "null"],
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "comparison": { "type": ["object", "null"] },
+            "observationProvenance": {
+              "enum": ["witnessed", "recovered", null]
+            },
+            "recoveryObservations": { "type": ["object", "null"] },
+            "recoveryResolution": { "type": ["object", "null"] }
+          }
+        }
+      ]
+    },
+    "verificationHistory": {
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "commitOid",
+            "initialPolicy",
+            "finalPolicy",
+            "attempts",
+            "effectiveAttempt",
+            "blocksPush"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "commitOid": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "initialPolicy": {
+              "enum": ["required", "advisory", "skipped"]
+            },
+            "finalPolicy": {
+              "enum": ["required", "advisory", "skipped"]
+            },
+            "attempts": { "type": "array", "minItems": 1 },
+            "effectiveAttempt": { "type": "integer", "minimum": 0 },
+            "blocksPush": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "reportState": {
+      "oneOf": [
+        { "const": null },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "jsonPath",
+            "jsonSha256",
+            "textPath",
+            "textSha256",
+            "comparisonMatches",
+            "publicationAllowed"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "jsonPath": { "type": "string", "minLength": 1 },
+            "jsonSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "textPath": { "type": "string", "minLength": 1 },
+            "textSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "comparisonMatches": { "type": "boolean" },
+            "publicationAllowed": { "type": "boolean" }
+          }
+        }
+      ]
+    },
     "allocatedState": {
       "properties": {
         "phase": { "const": "allocated" },
@@ -394,28 +589,38 @@
       "properties": {
         "phase": { "const": "commit-pending" },
         "status": { "const": "outcome-unknown" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "commit": { "type": "object" }
       }
     },
     "reportedState": {
       "properties": {
         "phase": { "const": "reported" },
         "status": { "const": "reported" },
-        "terminalDisposition": { "const": "local-commit-recorded" }
+        "terminalDisposition": { "const": "local-commit-recorded" },
+        "commit": { "type": "object" },
+        "verification": { "type": "object" },
+        "report": { "type": "object" }
       }
     },
     "commitBlockedState": {
       "properties": {
         "phase": { "const": "reported" },
         "status": { "const": "commit-blocked" },
-        "terminalDisposition": { "const": "local-commit-recorded" }
+        "terminalDisposition": { "const": "local-commit-recorded" },
+        "commit": { "type": "object" },
+        "verification": { "type": "object" },
+        "report": { "type": "object" }
       }
     },
     "reportedRecoveredState": {
       "properties": {
         "phase": { "const": "reported" },
         "status": { "const": "recovered" },
-        "terminalDisposition": { "const": "local-commit-recorded" }
+        "terminalDisposition": { "const": "local-commit-recorded" },
+        "commit": { "type": "object" },
+        "verification": { "type": "object" },
+        "report": { "type": "object" }
       }
     },
     "publicationPendingState": {

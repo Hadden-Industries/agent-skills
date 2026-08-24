@@ -23,10 +23,46 @@ const COMMANDS = new Map([
       "runResumePreparationCommand",
     ],
   ],
+  [
+    "workflow commit",
+    [
+      () => import("../workflow/createCommitWorkflow.js"),
+      null,
+      "runCreateCommitCommand",
+    ],
+  ],
+  [
+    "workflow verify",
+    [
+      () => import("../workflow/createCommitWorkflow.js"),
+      null,
+      "runRetryVerificationCommand",
+    ],
+  ],
+  [
+    "workflow recover",
+    [
+      () => import("../workflow/recoverTransactionWorkflow.js"),
+      null,
+      "runRecoverTransactionCommand",
+    ],
+  ],
+  [
+    "workflow cleanup",
+    [
+      () => import("../workflow/recoverTransactionWorkflow.js"),
+      null,
+      "runCleanupTransactionCommand",
+    ],
+  ],
   ["snapshot create", [() => import("../command/snapshotCommand.js"), null]],
   [
     "snapshot verify",
-    [() => import("../command/snapshotVerificationCommand.js"), null],
+    [
+      () => import("../command/snapshotVerificationCommand.js"),
+      null,
+      "runSnapshotVerificationCommand",
+    ],
   ],
   [
     "inspection prepare",
@@ -84,6 +120,48 @@ const COMMANDS = new Map([
 ]);
 
 const COMMAND_HELP = new Map([
+  [
+    "workflow commit",
+    `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--checks <checks.json>] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
+
+Creates at most one signed commit from the recorded tree and canonical message.
+The irreversible child is journaled before launch; rerun recovery, never commit,
+when the returned outcome is unknown.
+
+Exit status:
+  0  Matching signed commit and policy-permitted local report completed.
+  1  Git durably did not create a commit or repository state stopped safely.
+  2  Usage, message, checks, snapshot, or pre-journal helper failure.
+  3  A known commit is blocked by comparison, verification, or reporting.
+  4  Commit child or ref outcome is indeterminate and requires recovery.
+`,
+  ],
+  [
+    "workflow verify",
+    `Usage: commitWorkflow.mjs workflow verify --transaction <transaction.json> [--verification <required|advisory|skipped>] [--format <json|text>]
+
+Retries or reclassifies signature verification only for the already recorded
+commit OID. This command never invokes commit creation.
+`,
+  ],
+  [
+    "workflow recover",
+    `Usage: commitWorkflow.mjs workflow recover --transaction <transaction.json> [--resolution <confirmed-no-live-child>] [--format <json|text>]
+
+Observes only the exact journaled transaction and never replays commit or push.
+The exceptional resolution requires explicit confirmation that the relevant
+Git, signing, and hook process has ended or the host restarted.
+`,
+  ],
+  [
+    "workflow cleanup",
+    `Usage: commitWorkflow.mjs workflow cleanup --transaction <transaction.json> [--purge] [--format <json|text>]
+
+Compacts only known-safe helper-owned artifacts beneath the exact transaction.
+--purge abandons an active precommit transaction or removes a terminal attempt.
+Pending or unknown mutations are never removed.
+`,
+  ],
   [
     "workflow extend",
     `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
@@ -323,6 +401,10 @@ Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
+  commitWorkflow.mjs workflow commit [options]
+  commitWorkflow.mjs workflow verify [options]
+  commitWorkflow.mjs workflow recover [options]
+  commitWorkflow.mjs workflow cleanup [options]
   commitWorkflow.mjs snapshot create [options]
   commitWorkflow.mjs snapshot verify [options]
   commitWorkflow.mjs inspection prepare [options]

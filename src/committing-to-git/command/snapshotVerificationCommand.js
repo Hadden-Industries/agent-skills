@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -8,24 +6,9 @@ import {
   indexMatchesTree,
   repositoryRoot,
   resolveHead,
+  runReadOnlyGit,
 } from "../git/gitRepository.js";
 import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
-
-function usageError(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs snapshot verify --manifest <snapshot.json>",
-  );
-  process.exit(2);
-}
-
-function parseArguments(argv) {
-  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
-    usageError("--manifest is required.");
-  }
-
-  return resolve(argv[1]);
-}
 
 function samePath(left, right) {
   const normalizedLeft = resolve(left);
@@ -57,41 +40,119 @@ function manifestEnvironment(manifest) {
   };
 }
 
-try {
-  const manifestPath = parseArguments(process.argv.slice(2));
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const root = repositoryRoot();
+function symbolicHead(root, env) {
+  const result = runReadOnlyGit(root, "symbolic-head", [], {
+    env,
+    allowFailure: true,
+  });
+
+  return result.status === 0 ? result.stdout.toString("utf8").trim() : null;
+}
+
+function headAnchorMatches(root, headAnchor, env) {
+  const actualHeadOid = resolveHead(root, env);
+  const actualTargetRef = symbolicHead(root, env);
+
+  if (headAnchor === undefined) {
+    return { matches: true, actualHeadOid, actualTargetRef };
+  }
+
+  if (headAnchor === null) {
+    return {
+      matches: actualHeadOid === null,
+      actualHeadOid,
+      actualTargetRef,
+    };
+  }
+
+  const expectedParentOid = headAnchor.expectedParentOids[0] ?? null;
+  let matches;
+
+  if (headAnchor.headKind === "unborn") {
+    matches =
+      actualHeadOid === null && actualTargetRef === headAnchor.targetRef;
+  } else if (headAnchor.headKind === "attached") {
+    matches =
+      actualHeadOid === expectedParentOid &&
+      actualTargetRef === headAnchor.targetRef;
+  } else {
+    matches = actualHeadOid === expectedParentOid && actualTargetRef === null;
+  }
+
+  return { matches, actualHeadOid, actualTargetRef };
+}
+
+export function verifySnapshotAgainstRepository({
+  root,
+  manifest,
+  headAnchor = undefined,
+}) {
   const repositoryMatches =
     typeof manifest.repositoryRoot === "string" &&
     samePath(root, manifest.repositoryRoot);
   const env = manifestEnvironment(manifest);
-  const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
+  const head = repositoryMatches
+    ? headAnchorMatches(root, headAnchor, env)
+    : { matches: false, actualHeadOid: null, actualTargetRef: null };
   const treeMatches = repositoryMatches
     ? indexMatchesTree(root, manifest.indexTreeOid, env)
     : false;
-  const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
   const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
-  const result = {
+  const legacyExpectedHead = manifest.headOid ?? null;
+  const legacyHeadMatches = head.actualHeadOid === legacyExpectedHead;
+
+  return {
     schemaVersion: 1,
     valid:
       repositoryMatches &&
-      actualHeadOid === manifest.headOid &&
+      head.matches &&
+      legacyHeadMatches &&
       treeMatches &&
       activeOperations.length === 0,
     repositoryMatches,
-    headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
+    headMatches: head.matches && legacyHeadMatches,
+    headAnchorMatches: head.matches,
     treeMatches,
     operationClear: repositoryMatches && activeOperations.length === 0,
-    expectedHeadOid: manifest.headOid ?? null,
-    actualHeadOid,
+    expectedHeadOid: legacyExpectedHead,
+    actualHeadOid: head.actualHeadOid,
+    expectedTargetRef: headAnchor?.targetRef ?? null,
+    actualTargetRef: head.actualTargetRef,
     expectedTreeOid: manifest.indexTreeOid ?? null,
-    actualTreeOid,
+    actualTreeOid: treeMatches ? manifest.indexTreeOid : null,
     activeOperations,
   };
+}
 
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  process.exit(result.valid ? 0 : 1);
-} catch (error) {
-  console.error(`Commit snapshot verification failed: ${error.message}`);
-  process.exit(2);
+function parseArguments(argv) {
+  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
+    throw new Error("--manifest is required.");
+  }
+
+  return resolve(argv[1]);
+}
+
+export function runSnapshotVerificationCommand(
+  argv,
+  {
+    cwd = process.cwd(),
+    stdout = process.stdout,
+    stderr = process.stderr,
+  } = {},
+) {
+  try {
+    const manifestPath = parseArguments(argv);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const root = repositoryRoot(cwd);
+    const result = verifySnapshotAgainstRepository({
+      root,
+      manifest,
+    });
+
+    stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return result.valid ? 0 : 1;
+  } catch (error) {
+    stderr.write(`Commit snapshot verification failed: ${error.message}\n`);
+    return 2;
+  }
 }

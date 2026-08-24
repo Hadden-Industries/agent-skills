@@ -26,7 +26,9 @@
         "committer",
         "subject",
         "message",
+        "messageSha256",
         "signed",
+        "signatureHeaders",
         "branch",
         "shortOid",
         "treeMatches",
@@ -34,14 +36,36 @@
         "parentMatches"
       ],
       "properties": {
-        "oid": { "type": "string" },
-        "parents": { "type": "array", "items": { "type": "string" } },
-        "treeOid": { "type": "string" },
+        "oid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "parents": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          }
+        },
+        "treeOid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
         "author": { "$ref": "#/$defs/identity" },
         "committer": { "$ref": "#/$defs/identity" },
         "subject": { "type": "string" },
         "message": { "type": "string" },
+        "messageSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "signed": { "type": "boolean" },
+        "signatureHeaders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["gpgsig", "gpgsig-sha256"] }
+        },
         "branch": { "type": ["string", "null"] },
         "shortOid": { "type": "string" },
         "treeMatches": { "type": "boolean" },

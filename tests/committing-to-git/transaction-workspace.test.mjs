@@ -53,6 +53,69 @@ const PRECOMMIT_TEMPLATE = {
   publicationAttempts: [],
 };
 
+function commitJournal(overrides = {}) {
+  return {
+    status: "pending",
+    launchState: "launching",
+    childIdentity: null,
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: [FULL_OID],
+    },
+    expectedTreeOid: FULL_OID,
+    messageSha256: "b".repeat(64),
+    messageByteCount: 32,
+    checks: {
+      value: { schemaVersion: 1, checks: [] },
+      sha256: "c".repeat(64),
+      externalPath: null,
+    },
+    startedAt: "2026-08-23T12:00:00.000Z",
+    completion: null,
+    transcript: null,
+    commitOid: null,
+    comparison: null,
+    observationProvenance: null,
+    recoveryObservations: null,
+    recoveryResolution: null,
+    ...overrides,
+  };
+}
+
+function reportedState() {
+  return {
+    commit: commitJournal({
+      status: "created",
+      launchState: "completed",
+      commitOid: FULL_OID,
+      comparison: { matches: true },
+      observationProvenance: "witnessed",
+    }),
+    verification: {
+      schemaVersion: 2,
+      commitOid: FULL_OID,
+      initialPolicy: "required",
+      finalPolicy: "required",
+      attempts: [
+        {
+          status: "verified",
+          reason: null,
+          backend: "ssh",
+          identity: {
+            principal: "signer@example.invalid",
+            keyFingerprint: "SHA256:example",
+          },
+          timestamp: "2026-08-23T12:01:00.000Z",
+        },
+      ],
+      effectiveAttempt: 0,
+      blocksPush: false,
+    },
+    report: { schemaVersion: 1 },
+  };
+}
+
 function snapshotState(headAnchor) {
   return {
     phase: "snapshot-created",
@@ -415,6 +478,12 @@ test("transaction validation accepts canonical state families and rejects imposs
                 },
               }
             : {};
+    const commitState =
+      phase === "commit-pending"
+        ? { commit: commitJournal() }
+        : phase === "reported"
+          ? reportedState()
+          : {};
 
     assert.doesNotThrow(() =>
       validateTransaction({
@@ -423,6 +492,7 @@ test("transaction validation accepts canonical state families and rejects imposs
         status,
         terminalDisposition,
         ...evidenceState,
+        ...commitState,
       }),
     );
   }
@@ -448,6 +518,58 @@ test("transaction validation accepts canonical state families and rejects imposs
         },
       }),
     /detached head anchor/u,
+  );
+});
+
+test("transaction validation enforces backend-specific verification identities", () => {
+  const transaction = {
+    ...structuredClone(PRECOMMIT_TEMPLATE),
+    phase: "reported",
+    status: "reported",
+    terminalDisposition: "local-commit-recorded",
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: [FULL_OID],
+    },
+    ...reportedState(),
+  };
+
+  transaction.verification.attempts = [
+    {
+      status: "verified",
+      reason: null,
+      backend: "ssh",
+      identity: {
+        signer: "Test Signer <test@example.invalid>",
+        primaryKeyFingerprint: "d".repeat(40),
+        signingSubkeyFingerprint: null,
+      },
+      timestamp: "2026-08-23T12:01:00.000Z",
+    },
+  ];
+
+  assert.throws(
+    () => validateTransaction(transaction),
+    /backend-specific identity/u,
+  );
+});
+
+test("reported transactions cannot omit their commit journal", () => {
+  const terminal = reportedState();
+
+  assert.throws(
+    () =>
+      validateTransaction({
+        ...structuredClone(PRECOMMIT_TEMPLATE),
+        phase: "reported",
+        status: "reported",
+        terminalDisposition: "local-commit-recorded",
+        commit: null,
+        verification: terminal.verification,
+        report: terminal.report,
+      }),
+    /requires commit, comparison, verification, and report facts/u,
   );
 });
 

@@ -89,20 +89,12 @@ try {
     const initialPolicy = required(flags, "initial-policy");
     const finalPolicy = required(flags, "policy");
     const verificationAttempt =
-      finalPolicy === "skipped"
-        ? {
-            status: "skipped",
-            reason: "user-policy",
-            signer: null,
-            fingerprint: null,
-          }
-        : verifyCommitSignature(root, commitOid);
+      finalPolicy === "skipped" ? null : verifyCommitSignature(root, commitOid);
     const verification = applyVerificationPolicy({
       commitOid,
       initialPolicy,
       finalPolicy,
       verificationAttempt,
-      integrityOnlyAttempt: { status: "not-run" },
     });
 
     write(

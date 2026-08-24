@@ -67,19 +67,20 @@ test("publication artifacts distinguish not-requested, pushed, and failed", () =
 test("verification artifacts are structurally bound to one commit", () => {
   const commitOid = "1".repeat(40);
   const artifact = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commitOid,
     initialPolicy: "required",
     finalPolicy: "advisory",
-    overridden: true,
-    signature: {
-      status: "unavailable",
-      reason: "trust-store-unreadable",
-      signer: null,
-      fingerprint: null,
-    },
-    integrityOnly: { status: "not-run" },
-    signatureVerified: false,
+    attempts: [
+      {
+        status: "unavailable",
+        reason: "trust-store-unreadable",
+        backend: "ssh",
+        identity: null,
+        timestamp: "2026-08-23T12:00:00.000Z",
+      },
+    ],
+    effectiveAttempt: 0,
     blocksPush: false,
   };
 
@@ -92,6 +93,29 @@ test("verification artifacts are structurally bound to one commit", () => {
     () =>
       validateVerificationArtifact(
         { ...artifact, finalPolicy: "sometimes" },
+        commitOid,
+      ),
+    /verification artifact/iu,
+  );
+  assert.throws(
+    () =>
+      validateVerificationArtifact(
+        {
+          ...artifact,
+          attempts: [
+            {
+              status: "verified",
+              reason: null,
+              backend: "ssh",
+              identity: {
+                signer: "Test Signer <test@example.invalid>",
+                primaryKeyFingerprint: "3".repeat(40),
+                signingSubkeyFingerprint: null,
+              },
+              timestamp: "2026-08-23T12:01:00.000Z",
+            },
+          ],
+        },
         commitOid,
       ),
     /verification artifact/iu,

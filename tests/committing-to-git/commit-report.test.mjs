@@ -23,6 +23,26 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function skippedVerification(commitOid = "1".repeat(40)) {
+  return {
+    schemaVersion: 2,
+    commitOid,
+    initialPolicy: "skipped",
+    finalPolicy: "skipped",
+    attempts: [
+      {
+        status: "skipped",
+        reason: "user-policy",
+        backend: null,
+        identity: null,
+        timestamp: "2026-08-23T12:00:00.000Z",
+      },
+    ],
+    effectiveAttempt: 0,
+    blocksPush: false,
+  };
+}
+
 test("report labels binary line statistics as unavailable", () => {
   const text = renderCommitReport({
     commit: {
@@ -43,11 +63,7 @@ test("report labels binary line statistics as unavailable", () => {
       binaryFiles: 1,
       kinds: { modified: 1 },
     },
-    verification: {
-      finalPolicy: "skipped",
-      overridden: false,
-      signature: { status: "skipped" },
-    },
+    verification: skippedVerification(),
     checks: { checks: [] },
     publication: { status: "not-requested" },
     workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
@@ -77,11 +93,7 @@ test("report discloses line statistics deferred by the snapshot budget", () => {
       binaryFiles: null,
       kinds: { modified: 1 },
     },
-    verification: {
-      finalPolicy: "skipped",
-      overridden: false,
-      signature: { status: "skipped" },
-    },
+    verification: skippedVerification(),
     checks: { checks: [] },
     publication: { status: "not-requested" },
     workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
@@ -115,14 +127,25 @@ test("report does not overclaim OpenPGP identity authorization", () => {
       kinds: { added: 1 },
     },
     verification: {
+      schemaVersion: 2,
+      commitOid: "1".repeat(40),
+      initialPolicy: "required",
       finalPolicy: "required",
-      overridden: false,
-      signature: {
-        status: "verified",
-        signer: "Test Signer <test@example.invalid>",
-        fingerprint: "1".repeat(40),
-        keyType: "OpenPGP",
-      },
+      attempts: [
+        {
+          status: "verified",
+          reason: null,
+          backend: "openpgp",
+          identity: {
+            signer: "Test Signer <test@example.invalid>",
+            primaryKeyFingerprint: "1".repeat(40),
+            signingSubkeyFingerprint: null,
+          },
+          timestamp: "2026-08-23T12:00:00.000Z",
+        },
+      ],
+      effectiveAttempt: 0,
+      blocksPush: false,
     },
     checks: { checks: [] },
     publication: { status: "not-requested" },
@@ -185,22 +208,7 @@ test("report preserves normalized Git change kinds", (t) => {
     commitOid,
     manifest: { headOid: parentOid, indexTreeOid: approvedTree },
     approvedMessage: message,
-    verification: {
-      schemaVersion: 1,
-      commitOid,
-      initialPolicy: "skipped",
-      finalPolicy: "skipped",
-      overridden: false,
-      signature: {
-        status: "skipped",
-        reason: "user-policy",
-        signer: null,
-        fingerprint: null,
-      },
-      integrityOnly: { status: "not-run" },
-      signatureVerified: false,
-      blocksPush: false,
-    },
+    verification: skippedVerification(commitOid),
     checks: { schemaVersion: 1, checks: [] },
   });
 
@@ -250,22 +258,7 @@ test("report counts a similar destination with a retained source as added", (t) 
     commitOid,
     manifest: { headOid: parentOid, indexTreeOid: approvedTree },
     approvedMessage: message,
-    verification: {
-      schemaVersion: 1,
-      commitOid,
-      initialPolicy: "skipped",
-      finalPolicy: "skipped",
-      overridden: false,
-      signature: {
-        status: "skipped",
-        reason: "user-policy",
-        signer: null,
-        fingerprint: null,
-      },
-      integrityOnly: { status: "not-run" },
-      signatureVerified: false,
-      blocksPush: false,
-    },
+    verification: skippedVerification(commitOid),
     checks: { schemaVersion: 1, checks: [] },
   });
 
@@ -320,22 +313,7 @@ test("normal report uses actual commit facts and groups remaining workspace stat
       binaryFiles: 0,
     },
   });
-  writeJson(verificationPath, {
-    schemaVersion: 1,
-    commitOid,
-    initialPolicy: "skipped",
-    finalPolicy: "skipped",
-    overridden: false,
-    signature: {
-      status: "skipped",
-      reason: "user-policy",
-      signer: null,
-      fingerprint: null,
-    },
-    integrityOnly: { status: "not-run" },
-    signatureVerified: false,
-    blocksPush: false,
-  });
+  writeJson(verificationPath, skippedVerification(commitOid));
   writeJson(checksPath, { schemaVersion: 1, checks: [] });
 
   writeRepositoryFile(fixture.repo, "seed.txt", "remaining change\n");
@@ -430,22 +408,7 @@ test("report renders an explicitly recorded publication result", (t) => {
     changeUnitCount: 1,
     changeUnits: [],
   });
-  writeJson(verificationPath, {
-    schemaVersion: 1,
-    commitOid,
-    initialPolicy: "skipped",
-    finalPolicy: "skipped",
-    overridden: false,
-    signature: {
-      status: "skipped",
-      reason: "user-policy",
-      signer: null,
-      fingerprint: null,
-    },
-    integrityOnly: { status: "not-run" },
-    signatureVerified: false,
-    blocksPush: false,
-  });
+  writeJson(verificationPath, skippedVerification(commitOid));
   writeJson(checksPath, { schemaVersion: 1, checks: [] });
   writeJson(publicationPath, {
     schemaVersion: 1,
@@ -538,22 +501,7 @@ test("report rejects a merge commit even when its first parent matches", (t) => 
     changeUnitCount: 1,
     changeUnits: [],
   });
-  writeJson(verificationPath, {
-    schemaVersion: 1,
-    commitOid,
-    initialPolicy: "skipped",
-    finalPolicy: "skipped",
-    overridden: false,
-    signature: {
-      status: "skipped",
-      reason: "user-policy",
-      signer: null,
-      fingerprint: null,
-    },
-    integrityOnly: { status: "not-run" },
-    signatureVerified: false,
-    blocksPush: false,
-  });
+  writeJson(verificationPath, skippedVerification(commitOid));
   writeJson(checksPath, { schemaVersion: 1, checks: [] });
 
   const result = runCommitWorkflow(

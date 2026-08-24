@@ -63,6 +63,24 @@ export function createRepositoryFixture(t, prefix = "committing-to-git-") {
   return { base, repo, scratch };
 }
 
+export function configureSshSigning(t, fixture) {
+  const keyPath = join(fixture.scratch, "signing-key");
+  const result = spawnSync(
+    "ssh-keygen",
+    ["-q", "-t", "ed25519", "-N", "", "-f", keyPath],
+    { cwd: fixture.repo, encoding: "utf8", windowsHide: true },
+  );
+
+  if (result.status !== 0) {
+    t.skip(`ssh-keygen is unavailable: ${result.stderr || result.error}`);
+    return false;
+  }
+
+  git(["config", "gpg.format", "ssh"], fixture.repo);
+  git(["config", "user.signingkey", keyPath], fixture.repo);
+  return true;
+}
+
 export function writeRepositoryFile(repo, relativePath, contents) {
   const target = join(repo, relativePath);
 

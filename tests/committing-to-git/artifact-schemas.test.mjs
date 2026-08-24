@@ -78,6 +78,54 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
     /slot|oneOf/u,
   );
 
+  const pendingCommit = {
+    ...structuredClone(transaction),
+    phase: "commit-pending",
+    mode: "actual",
+    status: "outcome-unknown",
+    route: "concise",
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: ["1".repeat(40)],
+    },
+    message: messageState,
+    commit: {
+      status: "pending",
+      launchState: "launching",
+      childIdentity: null,
+      headAnchor: {
+        headKind: "attached",
+        targetRef: "refs/heads/main",
+        expectedParentOids: ["1".repeat(40)],
+      },
+      expectedTreeOid: "2".repeat(40),
+      messageSha256: "a".repeat(64),
+      messageByteCount: 40,
+      checks: {
+        value: { schemaVersion: 1, checks: [] },
+        sha256: "b".repeat(64),
+        externalPath: null,
+      },
+      startedAt: "2026-08-23T12:00:00.000Z",
+      completion: null,
+      transcript: null,
+      commitOid: null,
+      comparison: null,
+      observationProvenance: null,
+      recoveryObservations: null,
+      recoveryResolution: null,
+    },
+  };
+
+  assert.deepEqual(schemaErrors(pendingCommit, transactionSchema), []);
+  const sha256PendingCommit = structuredClone(pendingCommit);
+
+  sha256PendingCommit.headAnchor.expectedParentOids = ["1".repeat(64)];
+  sha256PendingCommit.commit.headAnchor.expectedParentOids = ["1".repeat(64)];
+  sha256PendingCommit.commit.expectedTreeOid = "2".repeat(64);
+  assert.deepEqual(schemaErrors(sha256PendingCommit, transactionSchema), []);
+
   const unknownPhase = structuredClone(transaction);
   unknownPhase.phase = "invented";
   assert.match(
@@ -284,19 +332,20 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     ],
   };
   const verification = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commitOid: "6".repeat(40),
     initialPolicy: "required",
     finalPolicy: "advisory",
-    overridden: true,
-    signature: {
-      status: "unavailable",
-      reason: "trust-store-unreadable",
-      signer: null,
-      fingerprint: null,
-    },
-    integrityOnly: { status: "not-run" },
-    signatureVerified: false,
+    attempts: [
+      {
+        status: "unavailable",
+        reason: "trust-store-unreadable",
+        backend: "ssh",
+        identity: null,
+        timestamp: "2026-08-23T12:00:00.000Z",
+      },
+    ],
+    effectiveAttempt: 0,
     blocksPush: false,
   };
   const report = {
@@ -309,7 +358,9 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
       committer: { name: "Test", email: "test@example.invalid" },
       subject: "fix(parser): Prevent invalid input",
       message: "fix(parser): Prevent invalid input\n",
+      messageSha256: "9".repeat(64),
       signed: true,
+      signatureHeaders: ["gpgsig"],
       branch: "main",
       shortOid: "6".repeat(12),
       treeMatches: true,
@@ -459,6 +510,28 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   assert.deepEqual(
     schemaErrors(verification, schema("signatureVerification.schema.json")),
     [],
+  );
+  const mismatchedVerificationIdentity = structuredClone(verification);
+
+  mismatchedVerificationIdentity.attempts = [
+    {
+      status: "verified",
+      reason: null,
+      backend: "ssh",
+      identity: {
+        signer: "Test Signer <test@example.invalid>",
+        primaryKeyFingerprint: "7".repeat(40),
+        signingSubkeyFingerprint: null,
+      },
+      timestamp: "2026-08-23T12:01:00.000Z",
+    },
+  ];
+  assert.match(
+    schemaErrors(
+      mismatchedVerificationIdentity,
+      schema("signatureVerification.schema.json"),
+    ).join("\n"),
+    /oneOf|identity|backend/u,
   );
   assert.deepEqual(
     schemaErrors(report, schema("postCommitReport.schema.json")),

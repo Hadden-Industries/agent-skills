@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { readOnlyGitText, runReadOnlyGit } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
 
@@ -9,18 +11,14 @@ const SIGNATURE_STATUSES = new Set([
   "unavailable",
   "skipped",
 ]);
-const INTEGRITY_STATUSES = new Set([
-  "not-run",
-  "passed",
-  "failed",
-  "unavailable",
-]);
 const CHECK_CONTEXTS = new Set([
   "approved staged snapshot",
   "current working tree",
   "isolated worktree/container",
   "external environment",
 ]);
+const SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+const OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 
 function hasExactKeys(value, keys) {
   return (
@@ -31,18 +29,46 @@ function hasExactKeys(value, keys) {
   );
 }
 
-function hasAllowedKeys(value, required, optional = []) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
+function signatureIdentityMatchesBackend(attempt) {
+  if (attempt.status !== "verified") {
+    return (
+      attempt.identity === null &&
+      (attempt.status !== "skipped" || attempt.backend === null)
+    );
   }
 
-  const actual = Object.keys(value);
-  const allowed = new Set([...required, ...optional]);
+  if (attempt.backend === "ssh") {
+    return (
+      hasExactKeys(attempt.identity, ["principal", "keyFingerprint"]) &&
+      typeof attempt.identity.principal === "string" &&
+      attempt.identity.principal.length > 0 &&
+      typeof attempt.identity.keyFingerprint === "string" &&
+      SSH_FINGERPRINT_PATTERN.test(attempt.identity.keyFingerprint)
+    );
+  }
 
-  return (
-    required.every((key) => Object.hasOwn(value, key)) &&
-    actual.every((key) => allowed.has(key))
-  );
+  if (attempt.backend === "openpgp") {
+    return (
+      hasExactKeys(attempt.identity, [
+        "signer",
+        "primaryKeyFingerprint",
+        "signingSubkeyFingerprint",
+      ]) &&
+      typeof attempt.identity.signer === "string" &&
+      attempt.identity.signer.length > 0 &&
+      typeof attempt.identity.primaryKeyFingerprint === "string" &&
+      OPENPGP_FINGERPRINT_PATTERN.test(
+        attempt.identity.primaryKeyFingerprint,
+      ) &&
+      (attempt.identity.signingSubkeyFingerprint === null ||
+        (typeof attempt.identity.signingSubkeyFingerprint === "string" &&
+          OPENPGP_FINGERPRINT_PATTERN.test(
+            attempt.identity.signingSubkeyFingerprint,
+          )))
+    );
+  }
+
+  return false;
 }
 
 export function validateChecksArtifact(checks) {
@@ -128,50 +154,50 @@ export function validateVerificationArtifact(verification, commitOid) {
     "commitOid",
     "initialPolicy",
     "finalPolicy",
-    "overridden",
-    "signature",
-    "integrityOnly",
-    "signatureVerified",
+    "attempts",
+    "effectiveAttempt",
     "blocksPush",
   ];
-  const signatureKeys = ["status", "reason", "signer", "fingerprint"];
-  const validSignature =
-    hasAllowedKeys(verification?.signature, signatureKeys, [
-      "keyType",
-      "verifierOutput",
-    ]) &&
-    SIGNATURE_STATUSES.has(verification.signature.status) &&
-    ["reason", "signer", "fingerprint", "keyType"].every(
-      (key) =>
-        verification.signature[key] === undefined ||
-        verification.signature[key] === null ||
-        typeof verification.signature[key] === "string",
-    ) &&
-    (verification.signature.verifierOutput === undefined ||
-      typeof verification.signature.verifierOutput === "string");
-  const validIntegrity =
-    hasAllowedKeys(verification?.integrityOnly, ["status"], ["reason"]) &&
-    INTEGRITY_STATUSES.has(verification.integrityOnly.status) &&
-    (verification.integrityOnly.reason === undefined ||
-      verification.integrityOnly.reason === null ||
-      typeof verification.integrityOnly.reason === "string");
-  const signatureVerified = verification?.signature?.status === "verified";
+  const attemptsValid =
+    Array.isArray(verification?.attempts) &&
+    verification.attempts.length > 0 &&
+    verification.attempts.every(
+      (attempt) =>
+        hasExactKeys(attempt, [
+          "status",
+          "reason",
+          "backend",
+          "identity",
+          "timestamp",
+        ]) &&
+        SIGNATURE_STATUSES.has(attempt.status) &&
+        new Set(["ssh", "openpgp", null]).has(attempt.backend) &&
+        (attempt.reason === null || typeof attempt.reason === "string") &&
+        (attempt.identity === null ||
+          (typeof attempt.identity === "object" &&
+            !Array.isArray(attempt.identity))) &&
+        typeof attempt.timestamp === "string" &&
+        Number.isFinite(Date.parse(attempt.timestamp)) &&
+        signatureIdentityMatchesBackend(attempt),
+    );
+  const effective = attemptsValid
+    ? verification.attempts[verification.effectiveAttempt]
+    : null;
 
   if (
     !hasExactKeys(verification, topLevelKeys) ||
-    verification.schemaVersion !== 1 ||
+    verification.schemaVersion !== 2 ||
     !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(verification.commitOid) ||
     !VERIFICATION_POLICIES.has(verification.initialPolicy) ||
     !VERIFICATION_POLICIES.has(verification.finalPolicy) ||
-    verification.overridden !==
-      (verification.initialPolicy !== verification.finalPolicy) ||
-    !validSignature ||
-    !validIntegrity ||
-    verification.signatureVerified !== signatureVerified ||
+    !attemptsValid ||
+    !Number.isSafeInteger(verification.effectiveAttempt) ||
+    verification.effectiveAttempt < 0 ||
+    verification.effectiveAttempt >= verification.attempts.length ||
     verification.blocksPush !==
-      (verification.finalPolicy === "required" && !signatureVerified) ||
-    (verification.finalPolicy === "skipped" &&
-      verification.signature.status !== "skipped")
+      (verification.finalPolicy === "required" &&
+        effective?.status !== "verified") ||
+    (verification.finalPolicy === "skipped" && effective?.status !== "skipped")
   ) {
     throw new Error(
       "Verification artifact does not match the workflow contract.",
@@ -185,8 +211,43 @@ export function validateVerificationArtifact(verification, commitOid) {
   return verification;
 }
 
-function normalizeMessage(text) {
-  return `${text.replace(/\r\n?/gu, "\n").replace(/\n+$/u, "")}\n`;
+export function parseRawCommitObject(rawCommit, oid = null) {
+  const raw = Buffer.isBuffer(rawCommit) ? rawCommit : Buffer.from(rawCommit);
+  const separator = raw.indexOf(Buffer.from("\n\n", "ascii"));
+
+  if (separator < 0) {
+    throw new Error(
+      "Commit object does not contain a header/message boundary.",
+    );
+  }
+
+  const headerText = raw.subarray(0, separator).toString("utf8");
+  const lines = headerText.split("\n");
+  const treeLine = lines.find((line) => line.startsWith("tree "));
+  const parents = lines
+    .filter((line) => line.startsWith("parent "))
+    .map((line) => line.slice("parent ".length));
+  const signatureHeaders = lines
+    .filter((line) => /^gpgsig(?:-sha256)? /u.test(line))
+    .map((line) => line.slice(0, line.indexOf(" ")));
+
+  if (!treeLine) {
+    throw new Error("Commit object does not record a tree.");
+  }
+
+  return {
+    oid,
+    treeOid: treeLine.slice("tree ".length),
+    parents,
+    messageBytes: Buffer.from(raw.subarray(separator + 2)),
+    signed: signatureHeaders.length > 0,
+    signatureHeaders,
+  };
+}
+
+export function inspectCommitObject(root, commitOid) {
+  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
+  return parseRawCommitObject(raw, commitOid);
 }
 
 function commitFacts(root, commitOid) {
@@ -196,21 +257,24 @@ function commitFacts(root, commitOid) {
   ])
     .replace(/\r?\n$/u, "")
     .split("\0");
-  const message = readOnlyGitText(root, "show-message", [commitOid]);
-  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
+  const object = inspectCommitObject(root, commitOid);
   const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
     allowFailure: true,
   });
 
   return {
     oid: fields[0],
-    parents: fields[1] ? fields[1].split(" ") : [],
-    treeOid: fields[2],
+    parents: object.parents,
+    treeOid: object.treeOid,
     author: { name: fields[3], email: fields[4] },
     committer: { name: fields[5], email: fields[6] },
     subject: fields[7],
-    message: normalizeMessage(message),
-    signed: raw.includes(Buffer.from("\ngpgsig ")),
+    message: object.messageBytes.toString("utf8"),
+    messageSha256: createHash("sha256")
+      .update(object.messageBytes)
+      .digest("hex"),
+    signed: object.signed,
+    signatureHeaders: object.signatureHeaders,
     branch:
       branchResult.status === 0
         ? branchResult.stdout.toString("utf8").trim()
@@ -446,6 +510,9 @@ export function collectCommitReport({
   publication = { status: "not-requested" },
 }) {
   const commit = commitFacts(root, commitOid);
+  const approvedMessageBytes = Buffer.isBuffer(approvedMessage)
+    ? approvedMessage
+    : Buffer.from(approvedMessage, "utf8");
 
   validateChecksArtifact(checks);
   validatePublicationArtifact(publication);
@@ -459,7 +526,9 @@ export function collectCommitReport({
   }
 
   commit.treeMatches = commit.treeOid === manifest.indexTreeOid;
-  commit.messageMatches = commit.message === normalizeMessage(approvedMessage);
+  commit.messageMatches = Buffer.from(commit.message, "utf8").equals(
+    approvedMessageBytes,
+  );
 
   if (manifest.headOid) {
     commit.parentMatches =
@@ -494,33 +563,41 @@ function renderKinds(kinds) {
 }
 
 function verificationText(verification) {
-  switch (verification.signature.status) {
-    case "verified": {
-      const identity = `${
-        verification.signature.signer
-          ? ` for ${verification.signature.signer}`
-          : ""
-      }${
-        verification.signature.fingerprint
-          ? ` (${verification.signature.fingerprint})`
-          : ""
-      }`;
+  const attempt = verification.attempts[verification.effectiveAttempt];
 
-      if (verification.signature.keyType === "OpenPGP") {
+  switch (attempt.status) {
+    case "verified": {
+      if (attempt.backend === "openpgp") {
+        const identity = attempt.identity;
         return (
-          `OpenPGP signature is cryptographically valid${identity}; ` +
-          "identity authorization was not assessed"
+          "OpenPGP signature is cryptographically valid" +
+          `${identity?.signer ? ` for ${identity.signer}` : ""}` +
+          `${
+            identity?.primaryKeyFingerprint
+              ? ` (${identity.primaryKeyFingerprint})`
+              : ""
+          }; identity authorization was not assessed`
         );
       }
 
-      return verification.signature.keyType
-        ? `SSH signature verification succeeded${identity}`
-        : `Signature verification succeeded${identity}`;
+      if (attempt.backend === "ssh") {
+        return (
+          "SSH signature verification succeeded" +
+          `${attempt.identity?.principal ? ` for ${attempt.identity.principal}` : ""}` +
+          `${
+            attempt.identity?.keyFingerprint
+              ? ` (${attempt.identity.keyFingerprint})`
+              : ""
+          }`
+        );
+      }
+
+      return "Signature verification succeeded";
     }
     case "skipped":
       return "Skipped by user policy";
     case "unavailable":
-      return verification.signature.reason === "trust-store-unreadable"
+      return attempt.reason === "trust-store-unreadable"
         ? "Unavailable because the configured trust store could not be read"
         : "Signature verification unavailable";
     default:
@@ -602,7 +679,7 @@ export function renderCommitReport(report) {
     "",
     "Signature:",
     `- Policy: ${verification.finalPolicy}${
-      verification.overridden
+      verification.initialPolicy !== verification.finalPolicy
         ? ` (overridden from ${verification.initialPolicy})`
         : ""
     }`,

@@ -104,7 +104,7 @@ function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
     "--root",
     "--"
   ]);
-  const invalid = optionArguments.find(
+  const invalid2 = optionArguments.find(
     (argument) => !allowedArguments.has(argument) && !FULL_OBJECT_ID.test(argument)
   );
   const outputModes = optionArguments.filter(
@@ -116,11 +116,11 @@ function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
       "--quiet"
     ])).has(argument)
   );
-  if (invalid || separatorIndex < 0 || !literalPaths && args.at(-1) !== "--" || literalPaths && pathArguments.length === 0 || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || literalPaths && pathArguments.some(
+  if (invalid2 || separatorIndex < 0 || !literalPaths && args.at(-1) !== "--" || literalPaths && pathArguments.length === 0 || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || literalPaths && pathArguments.some(
     (path) => isAbsolute(path) || path.includes("\0") || path.split(/[\\/]/u).some((component) => component === "..")
   )) {
     throw new Error(
-      `Arguments are not permitted for read-only Git operation diff${invalid ? `: ${invalid}` : ""}.`
+      `Arguments are not permitted for read-only Git operation diff${invalid2 ? `: ${invalid2}` : ""}.`
     );
   }
   return [
@@ -2019,6 +2019,164 @@ function validateMessageState(message) {
     throw new Error("Canonical message state is invalid.");
   }
 }
+function validateSignaturePreflight(preflight) {
+  if (preflight === null) {
+    return;
+  }
+  assertExactKeys(preflight, ["backend", "trustSource"], "Signature preflight");
+  if (!(/* @__PURE__ */ new Set([null, "ssh", "openpgp"])).has(preflight.backend)) {
+    throw new Error("Signature preflight backend is invalid.");
+  }
+  if (preflight.backend !== "ssh") {
+    if (preflight.trustSource !== null) {
+      throw new Error(
+        "Only SSH preflight may record an allowed-signers source."
+      );
+    }
+    return;
+  }
+  assertExactKeys(
+    preflight.trustSource,
+    ["configured", "origin", "path", "readable"],
+    "SSH trust source"
+  );
+  if (typeof preflight.trustSource.configured !== "boolean" || typeof preflight.trustSource.readable !== "boolean" || preflight.trustSource.origin !== null && typeof preflight.trustSource.origin !== "string" || preflight.trustSource.path !== null && typeof preflight.trustSource.path !== "string" || preflight.trustSource.configured && (!preflight.trustSource.origin || !preflight.trustSource.path) || !preflight.trustSource.configured && (preflight.trustSource.origin !== null || preflight.trustSource.path !== null || preflight.trustSource.readable)) {
+    throw new Error("SSH trust-source preflight is invalid.");
+  }
+}
+function validateCommitJournal(commit) {
+  if (commit === null) {
+    return;
+  }
+  assertExactKeys(
+    commit,
+    [
+      "status",
+      "launchState",
+      "childIdentity",
+      "headAnchor",
+      "expectedTreeOid",
+      "messageSha256",
+      "messageByteCount",
+      "checks",
+      "startedAt",
+      "completion",
+      "transcript",
+      "commitOid",
+      "comparison",
+      "observationProvenance",
+      "recoveryObservations",
+      "recoveryResolution"
+    ],
+    "Commit journal"
+  );
+  validateHeadAnchor(commit.headAnchor);
+  if (!(/* @__PURE__ */ new Set(["pending", "created"])).has(commit.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
+    commit.launchState
+  ) || !FULL_OID_PATTERN.test(commit.expectedTreeOid) || !SHA256_PATTERN.test(commit.messageSha256) || !Number.isSafeInteger(commit.messageByteCount) || commit.messageByteCount < 1 || typeof commit.startedAt !== "string" || !Number.isFinite(Date.parse(commit.startedAt)) || commit.commitOid !== null && !FULL_OID_PATTERN.test(commit.commitOid) || !(/* @__PURE__ */ new Set([null, "witnessed", "recovered"])).has(commit.observationProvenance)) {
+    throw new Error(
+      "Commit journal contains invalid identity or launch facts."
+    );
+  }
+  if (commit.childIdentity !== null) {
+    assertExactKeys(
+      commit.childIdentity,
+      ["pid", "startIdentity"],
+      "Commit child identity"
+    );
+    if (!Number.isSafeInteger(commit.childIdentity.pid) || commit.childIdentity.pid < 1 || commit.childIdentity.startIdentity !== null && typeof commit.childIdentity.startIdentity !== "string") {
+      throw new Error("Commit child identity is invalid.");
+    }
+  }
+  assertExactKeys(
+    commit.checks,
+    ["value", "sha256", "externalPath"],
+    "Commit checks capsule"
+  );
+  if (!SHA256_PATTERN.test(commit.checks.sha256) || commit.checks.externalPath !== null && !isAbsolute2(commit.checks.externalPath) || commit.checks.value?.schemaVersion !== 1 || !Array.isArray(commit.checks.value?.checks)) {
+    throw new Error("Commit checks capsule is invalid.");
+  }
+  if (commit.completion !== null) {
+    assertExactKeys(
+      commit.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError"
+      ],
+      "Commit completion"
+    );
+    if (commit.completion.exitCode !== null && !Number.isInteger(commit.completion.exitCode) || commit.completion.signal !== null && typeof commit.completion.signal !== "string" || commit.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN.test(commit.completion.transcriptCompletionSha256) || typeof commit.completion.nonLaunchGuaranteed !== "boolean" || commit.completion.launchError !== null && (typeof commit.completion.launchError !== "object" || Array.isArray(commit.completion.launchError))) {
+      throw new Error("Commit completion is invalid.");
+    }
+  }
+  for (const field of [
+    "transcript",
+    "comparison",
+    "recoveryObservations",
+    "recoveryResolution"
+  ]) {
+    if (commit[field] !== null && (typeof commit[field] !== "object" || Array.isArray(commit[field]))) {
+      throw new Error(`Commit journal ${field} must be an object or null.`);
+    }
+  }
+}
+function validateVerificationHistory(verification) {
+  if (verification === null) {
+    return;
+  }
+  assertExactKeys(
+    verification,
+    [
+      "schemaVersion",
+      "commitOid",
+      "initialPolicy",
+      "finalPolicy",
+      "attempts",
+      "effectiveAttempt",
+      "blocksPush"
+    ],
+    "Verification history"
+  );
+  if (verification.schemaVersion !== 2 || !FULL_OID_PATTERN.test(verification.commitOid) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    verification.initialPolicy
+  ) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    verification.finalPolicy
+  ) || !Array.isArray(verification.attempts) || verification.attempts.length < 1 || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || typeof verification.blocksPush !== "boolean") {
+    throw new Error("Verification history is invalid.");
+  }
+  for (const attempt of verification.attempts) {
+    assertExactKeys(
+      attempt,
+      ["status", "reason", "backend", "identity", "timestamp"],
+      "Signature verification attempt"
+    );
+    if (!(/* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"])).has(
+      attempt.status
+    ) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
+      throw new Error("Signature verification attempt is invalid.");
+    }
+    if (attempt.status !== "verified") {
+      if (attempt.identity !== null || attempt.status === "skipped" && attempt.backend !== null) {
+        throw new Error("Signature verification attempt is invalid.");
+      }
+      continue;
+    }
+    const sshIdentity2 = attempt.backend === "ssh" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 2 && Object.hasOwn(attempt.identity, "principal") && Object.hasOwn(attempt.identity, "keyFingerprint") && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN.test(attempt.identity.keyFingerprint);
+    const openPgpIdentity2 = attempt.backend === "openpgp" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 3 && Object.hasOwn(attempt.identity, "signer") && Object.hasOwn(attempt.identity, "primaryKeyFingerprint") && Object.hasOwn(attempt.identity, "signingSubkeyFingerprint") && typeof attempt.identity.signer === "string" && attempt.identity.signer.length > 0 && typeof attempt.identity.primaryKeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
+      attempt.identity.primaryKeyFingerprint
+    ) && (attempt.identity.signingSubkeyFingerprint === null || typeof attempt.identity.signingSubkeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
+      attempt.identity.signingSubkeyFingerprint
+    ));
+    if (!sshIdentity2 && !openPgpIdentity2) {
+      throw new Error(
+        "Verified signature attempts require a backend-specific identity."
+      );
+    }
+  }
+}
 function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
   if (transaction.schemaVersion !== 1) {
@@ -2070,6 +2228,9 @@ function validateTransaction(transaction) {
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
   validateMessageState(transaction.message);
+  validateSignaturePreflight(transaction.signaturePreflight);
+  validateCommitJournal(transaction.commit);
+  validateVerificationHistory(transaction.verification);
   if (transaction.phase === "evidence-ready" && (transaction.route !== "concise" || transaction.inlineEvidence === null || transaction.review !== null)) {
     throw new Error(
       "An evidence-ready transaction requires concise inline evidence only."
@@ -2104,6 +2265,16 @@ function validateTransaction(transaction) {
   }
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");
+  }
+  if (transaction.phase === "commit-pending" && transaction.commit === null) {
+    throw new Error(
+      "A commit-pending transaction requires its commit journal."
+    );
+  }
+  if (transaction.phase === "reported" && (transaction.commit === null || transaction.commit.commitOid === null || transaction.commit.comparison === null || transaction.verification === null || transaction.report === null)) {
+    throw new Error(
+      "A reported transaction requires commit, comparison, verification, and report facts."
+    );
   }
   for (const field of [
     "scope",
@@ -2405,7 +2576,7 @@ function updateTransaction(transactionPath, expectedPhase, nextState) {
   replaceJsonAtomically(absoluteTransactionPath, candidate);
   return readTransaction(absoluteTransactionPath);
 }
-var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
+var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
 var init_transactionWorkspace = __esm({
   "src/committing-to-git/transaction/transactionWorkspace.js"() {
     MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
@@ -2419,6 +2590,8 @@ var init_transactionWorkspace = __esm({
     TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
     WINDOWS_RENAME_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
     SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+    SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+    OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
     MESSAGE_SOURCES = /* @__PURE__ */ new Set([
       "approved-subject",
       "checked-file",
@@ -4881,7 +5054,7 @@ function writeReviewPacketQueue({
   if (packetIds.length === 0) {
     return null;
   }
-  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha2566 }) => ({ id, artifact, sha256: sha2566 })).sort(
+  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha2568 }) => ({ id, artifact, sha256: sha2568 })).sort(
     (left, right) => Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact))
   );
   const partitions = partitionQueueRecords(
@@ -4975,7 +5148,7 @@ function supersedePriorQueue({
   }
   const pageSetSha256 = sha256Bytes(
     stableJsonBytes(
-      pages.map(({ artifact, sha256: sha2566 }) => ({ artifact, sha256: sha2566 }))
+      pages.map(({ artifact, sha256: sha2568 }) => ({ artifact, sha256: sha2568 }))
     )
   );
   const marker = {
@@ -5992,11 +6165,11 @@ function presentationWarnings(lines) {
       reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
     });
   });
-  const sha2566 = warnings.length === 0 ? null : createHash6("sha256").update(JSON.stringify(warnings)).digest("hex");
+  const sha2568 = warnings.length === 0 ? null : createHash6("sha256").update(JSON.stringify(warnings)).digest("hex");
   return {
     count: warnings.length,
     samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
-    sha256: sha2566
+    sha256: sha2568
   };
 }
 function canUseDirectSubjectTransport(subject) {
@@ -7445,6 +7618,9 @@ function recoverCanonicalMessageReplacement(transactionPath) {
     "Neither side of the pending canonical message replacement is recoverable."
   );
 }
+function readCanonicalMessage(transactionPath) {
+  return recoverCanonicalMessageReplacement(transactionPath);
+}
 function assertReplacementRoute(transaction, source) {
   if (!MESSAGE_SOURCES2.has(source)) {
     fail2(
@@ -7565,6 +7741,99 @@ var init_canonicalMessageState = __esm({
   }
 });
 
+// src/committing-to-git/signature/signaturePreflight.js
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { accessSync, constants as fsConstants4 } from "node:fs";
+function runGitConfig(root, args) {
+  return spawnSync2("git", args, {
+    cwd: root,
+    encoding: null,
+    env: process.env,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024
+  });
+}
+function configText(result, label) {
+  if (result?.error) {
+    throw new Error(`${label} could not run: ${result.error.message}`);
+  }
+  if (result?.status !== 0 && result?.status !== 1) {
+    const diagnostic = Buffer.from(result?.stderr ?? Buffer.alloc(0)).toString("utf8").trim();
+    throw new Error(
+      `${label} failed${diagnostic ? `: ${diagnostic}` : ` with exit ${result?.status}`}.`
+    );
+  }
+  return result.status === 0 ? Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8").replace(/\r?\n$/u, "") : null;
+}
+function defaultReadableProbe(path) {
+  try {
+    accessSync(path, fsConstants4.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function inspectSignatureRequirements(root, {
+  runConfig = (args) => runGitConfig(root, args),
+  probeReadable = defaultReadableProbe
+} = {}) {
+  const format = configText(
+    runConfig(["config", "--get", "gpg.format"]),
+    "Git signature backend discovery"
+  );
+  const backend = format === null || format === "" || format === "openpgp" ? "openpgp" : format.toLowerCase();
+  if (!(/* @__PURE__ */ new Set(["openpgp", "ssh"])).has(backend)) {
+    throw new Error(
+      `Unsupported Git signature backend ${JSON.stringify(backend)}.`
+    );
+  }
+  if (backend !== "ssh") {
+    return { backend, trustSource: null };
+  }
+  const configured = configText(
+    runConfig([
+      "config",
+      "--show-origin",
+      "--path",
+      "--get",
+      "gpg.ssh.allowedSignersFile"
+    ]),
+    "SSH allowed-signers discovery"
+  );
+  if (configured === null) {
+    return {
+      backend: "ssh",
+      trustSource: {
+        configured: false,
+        origin: null,
+        path: null,
+        readable: false
+      }
+    };
+  }
+  const separator = configured.indexOf("	");
+  if (separator < 1 || separator === configured.length - 1) {
+    throw new Error(
+      "Git returned an invalid origin/path record for gpg.ssh.allowedSignersFile."
+    );
+  }
+  const origin = configured.slice(0, separator);
+  const path = configured.slice(separator + 1);
+  return {
+    backend: "ssh",
+    trustSource: {
+      configured: true,
+      origin,
+      path,
+      readable: probeReadable(path)
+    }
+  };
+}
+var init_signaturePreflight = __esm({
+  "src/committing-to-git/signature/signaturePreflight.js"() {
+  }
+});
+
 // src/committing-to-git/workflow/prepareWorkflow.js
 var prepareWorkflow_exports = {};
 __export(prepareWorkflow_exports, {
@@ -7582,7 +7851,7 @@ __export(prepareWorkflow_exports, {
 import { createHash as createHash8, randomUUID as randomUUID4 } from "node:crypto";
 import {
   closeSync as closeSync6,
-  constants as fsConstants4,
+  constants as fsConstants5,
   createReadStream as createReadStream2,
   fstatSync as fstatSync5,
   fsyncSync as fsyncSync6,
@@ -7892,8 +8161,8 @@ function readBoundedJson(path, label) {
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
     fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
-  const descriptor = openSync6(absolutePath, fsConstants4.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
+  const descriptor = openSync6(absolutePath, fsConstants5.O_RDONLY + noFollow);
   try {
     const before = fstatSync5(descriptor);
     if (!before.isFile()) {
@@ -8394,7 +8663,7 @@ function scopeSummary(kind, normalizedScope, selectedPaths) {
 function writeOwnedInput(path, bytes) {
   const descriptor = openSync6(
     path,
-    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+    fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
     384
   );
   try {
@@ -8404,7 +8673,7 @@ function writeOwnedInput(path, bytes) {
     closeSync6(descriptor);
   }
   if (process.platform !== "win32") {
-    const directoryDescriptor = openSync6(dirname6(path), fsConstants4.O_RDONLY);
+    const directoryDescriptor = openSync6(dirname6(path), fsConstants5.O_RDONLY);
     try {
       fsyncSync6(directoryDescriptor);
     } finally {
@@ -8508,7 +8777,7 @@ async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
   try {
     const descriptor = openSync6(
       path,
-      fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+      fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
       384
     );
     let result;
@@ -8924,6 +9193,27 @@ async function prepareWorkflow({
   assertNoGitStorageOverrides(environment);
   const root = repositoryRoot(cwd);
   assertPreallocationRepositoryState(root);
+  let signaturePreflight = null;
+  if (parsed.mode === "actual") {
+    signaturePreflight = parsed.verificationPolicy === "skipped" ? { backend: null, trustSource: null } : inspectSignatureRequirements(root);
+    if (parsed.verificationPolicy === "required" && signaturePreflight.backend === "ssh" && signaturePreflight.trustSource?.readable !== true) {
+      fail3(
+        "SIGNATURE_TRUST_ACCESS_REQUIRED",
+        "Required SSH verification cannot read Git's configured allowed-signers file.",
+        {
+          exitCode: 1,
+          details: {
+            capability: {
+              kind: "read-file",
+              path: signaturePreflight.trustSource?.path ?? null,
+              origin: signaturePreflight.trustSource?.origin ?? null
+            },
+            verificationPolicy: parsed.verificationPolicy
+          }
+        }
+      );
+    }
+  }
   const candidates = discoverCandidates(root);
   let selectedPaths = [];
   if (parsed.scope === "staged") {
@@ -9003,7 +9293,8 @@ async function prepareWorkflow({
       sha256: evidenceSha256,
       groups: normalizedEvidence.plan.groups
     },
-    verificationPolicy: parsed.verificationPolicy
+    verificationPolicy: parsed.verificationPolicy,
+    signaturePreflight
   });
   const snapshotPath = resolve7(workspace.attemptDirectory, "snapshot.json");
   let snapshotResult;
@@ -9172,6 +9463,7 @@ var init_prepareWorkflow = __esm({
     init_reviewCatalog();
     init_commitMessageRenderer();
     init_canonicalMessageState();
+    init_signaturePreflight();
     init_streamingPacketWriter();
     init_commitSnapshot();
     init_createSnapshot();
@@ -9266,7 +9558,7 @@ __export(extendReviewWorkflow_exports, {
 });
 import {
   closeSync as closeSync7,
-  constants as fsConstants5,
+  constants as fsConstants6,
   existsSync as existsSync9,
   fstatSync as fstatSync6,
   lstatSync as lstatSync5,
@@ -9289,8 +9581,8 @@ function readFixedEvidencePlan(path) {
       "The fixed evidence-plan input must be a bounded non-symbolic regular file."
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  const descriptor = openSync7(path, fsConstants5.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants6.O_NOFOLLOW;
+  const descriptor = openSync7(path, fsConstants6.O_RDONLY + noFollow);
   try {
     const before = fstatSync6(descriptor);
     const bytes = readFileSync6(descriptor);
@@ -9975,10 +10267,2615 @@ var init_resumePreparationWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/command/snapshotCommand.js
-var snapshotCommand_exports = {};
+// src/committing-to-git/command/snapshotVerificationCommand.js
+var snapshotVerificationCommand_exports = {};
+__export(snapshotVerificationCommand_exports, {
+  runSnapshotVerificationCommand: () => runSnapshotVerificationCommand,
+  verifySnapshotAgainstRepository: () => verifySnapshotAgainstRepository
+});
 import { readFileSync as readFileSync8 } from "node:fs";
 import { resolve as resolve10 } from "node:path";
+function samePath2(left, right) {
+  const normalizedLeft = resolve10(left);
+  const normalizedRight = resolve10(right);
+  return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
+}
+function manifestEnvironment2(manifest) {
+  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
+    return void 0;
+  }
+  return {
+    GIT_INDEX_FILE: manifest.indexFile,
+    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
+    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
+        manifest.objectAlternates
+      )
+    } : {}
+  };
+}
+function symbolicHead(root, env) {
+  const result = runReadOnlyGit(root, "symbolic-head", [], {
+    env,
+    allowFailure: true
+  });
+  return result.status === 0 ? result.stdout.toString("utf8").trim() : null;
+}
+function headAnchorMatches(root, headAnchor, env) {
+  const actualHeadOid = resolveHead(root, env);
+  const actualTargetRef = symbolicHead(root, env);
+  if (headAnchor === void 0) {
+    return { matches: true, actualHeadOid, actualTargetRef };
+  }
+  if (headAnchor === null) {
+    return {
+      matches: actualHeadOid === null,
+      actualHeadOid,
+      actualTargetRef
+    };
+  }
+  const expectedParentOid = headAnchor.expectedParentOids[0] ?? null;
+  let matches;
+  if (headAnchor.headKind === "unborn") {
+    matches = actualHeadOid === null && actualTargetRef === headAnchor.targetRef;
+  } else if (headAnchor.headKind === "attached") {
+    matches = actualHeadOid === expectedParentOid && actualTargetRef === headAnchor.targetRef;
+  } else {
+    matches = actualHeadOid === expectedParentOid && actualTargetRef === null;
+  }
+  return { matches, actualHeadOid, actualTargetRef };
+}
+function verifySnapshotAgainstRepository({
+  root,
+  manifest,
+  headAnchor = void 0
+}) {
+  const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath2(root, manifest.repositoryRoot);
+  const env = manifestEnvironment2(manifest);
+  const head = repositoryMatches ? headAnchorMatches(root, headAnchor, env) : { matches: false, actualHeadOid: null, actualTargetRef: null };
+  const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
+  const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
+  const legacyExpectedHead = manifest.headOid ?? null;
+  const legacyHeadMatches = head.actualHeadOid === legacyExpectedHead;
+  return {
+    schemaVersion: 1,
+    valid: repositoryMatches && head.matches && legacyHeadMatches && treeMatches && activeOperations.length === 0,
+    repositoryMatches,
+    headMatches: head.matches && legacyHeadMatches,
+    headAnchorMatches: head.matches,
+    treeMatches,
+    operationClear: repositoryMatches && activeOperations.length === 0,
+    expectedHeadOid: legacyExpectedHead,
+    actualHeadOid: head.actualHeadOid,
+    expectedTargetRef: headAnchor?.targetRef ?? null,
+    actualTargetRef: head.actualTargetRef,
+    expectedTreeOid: manifest.indexTreeOid ?? null,
+    actualTreeOid: treeMatches ? manifest.indexTreeOid : null,
+    activeOperations
+  };
+}
+function parseArguments(argv) {
+  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
+    throw new Error("--manifest is required.");
+  }
+  return resolve10(argv[1]);
+}
+function runSnapshotVerificationCommand(argv, {
+  cwd = process.cwd(),
+  stdout = process.stdout,
+  stderr = process.stderr
+} = {}) {
+  try {
+    const manifestPath2 = parseArguments(argv);
+    const manifest = JSON.parse(readFileSync8(manifestPath2, "utf8"));
+    const root = repositoryRoot(cwd);
+    const result = verifySnapshotAgainstRepository({
+      root,
+      manifest
+    });
+    stdout.write(`${JSON.stringify(result, null, 2)}
+`);
+    return result.valid ? 0 : 1;
+  } catch (error) {
+    stderr.write(`Commit snapshot verification failed: ${error.message}
+`);
+    return 2;
+  }
+}
+var init_snapshotVerificationCommand = __esm({
+  "src/committing-to-git/command/snapshotVerificationCommand.js"() {
+    init_gitRepository();
+    init_createSnapshot();
+  }
+});
+
+// src/committing-to-git/git/gitProcessTranscript.js
+import { createHash as createHash10 } from "node:crypto";
+import {
+  closeSync as closeSync8,
+  existsSync as existsSync11,
+  fsyncSync as fsyncSync7,
+  lstatSync as lstatSync7,
+  mkdirSync as mkdirSync8,
+  openSync as openSync8,
+  readFileSync as readFileSync9,
+  realpathSync as realpathSync4,
+  writeSync
+} from "node:fs";
+import { dirname as dirname7, join as join8, relative as relative6, resolve as resolve11 } from "node:path";
+function assertContained2(parent, child) {
+  const path = relative6(parent, child);
+  if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error(
+      `Process transcript path escapes its transaction: ${child}`
+    );
+  }
+}
+function ensureDirectory3(path, label) {
+  const stat = lstatSync7(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`${label} is replaced or is not a directory: ${path}`);
+  }
+  if (realpathSync4(path) !== resolve11(path)) {
+    throw new Error(`${label} does not resolve to its recorded path: ${path}`);
+  }
+}
+function openTranscript(attemptDirectory, operation) {
+  const normalizedAttempt = resolve11(attemptDirectory);
+  ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
+  const directory = join8(normalizedAttempt, "process-logs");
+  assertContained2(normalizedAttempt, directory);
+  if (!existsSync11(directory)) {
+    mkdirSync8(directory, { mode: 448 });
+  }
+  ensureDirectory3(directory, "Process-log directory");
+  if (!/^[a-z][a-z0-9-]{0,31}$/u.test(operation)) {
+    throw new Error("Transcript operation must be a bounded lowercase token.");
+  }
+  const path = join8(directory, `${operation}.transcript.bin`);
+  assertContained2(normalizedAttempt, path);
+  const descriptor = openSync8(path, "wx", 384);
+  return { descriptor, path };
+}
+function frameBytes(sequence, channel, bytes) {
+  const header = Buffer.alloc(FRAME_HEADER_BYTES);
+  header.writeBigUInt64BE(BigInt(sequence), 0);
+  header.writeUInt8(CHANNEL_IDS[channel], 8);
+  header.writeUInt32BE(bytes.length, 9);
+  return { header, bytes };
+}
+function appendTail(current, chunk, maximumBytes) {
+  if (maximumBytes === 0 || chunk.length === 0) {
+    return Buffer.alloc(0);
+  }
+  const combined = Buffer.concat([current, chunk]);
+  return combined.length <= maximumBytes ? combined : combined.subarray(combined.length - maximumBytes);
+}
+function completionDigest(value) {
+  return createHash10("sha256").update(`${JSON.stringify(value)}
+`, "utf8").digest("hex");
+}
+function captureGitProcessTranscript({
+  transactionPath,
+  attemptDirectory = dirname7(resolve11(transactionPath)),
+  operation,
+  child,
+  diagnosticBudget = 32 * 1024,
+  diagnosticWriter = process.stderr
+}) {
+  if (!Number.isSafeInteger(diagnosticBudget) || diagnosticBudget < 1024) {
+    throw new Error(
+      "Git diagnostic budget must be a safe integer of at least 1 KiB."
+    );
+  }
+  if (child === null || typeof child !== "object" || typeof child.once !== "function" || child.stdout === null || child.stderr === null) {
+    throw new Error(
+      "Git transcript capture requires one streaming child process."
+    );
+  }
+  const normalizedAttempt = resolve11(attemptDirectory);
+  const normalizedTransactionPath = resolve11(transactionPath);
+  if (dirname7(normalizedTransactionPath) !== normalizedAttempt) {
+    throw new Error("Transaction handle and attempt directory do not match.");
+  }
+  const { descriptor, path } = openTranscript(normalizedAttempt, operation);
+  const transcriptHash = createHash10("sha256");
+  const channelHashes = {
+    stdout: createHash10("sha256"),
+    stderr: createHash10("sha256")
+  };
+  const channelByteCounts = { stdout: 0, stderr: 0 };
+  const headLimit = Math.min(16 * 1024, diagnosticBudget);
+  const tailLimit = Math.max(
+    0,
+    Math.min(
+      16 * 1024,
+      diagnosticBudget - headLimit - SUPPRESSION_MARKER.length
+    )
+  );
+  let sequence = 0;
+  let totalByteCount = 0;
+  let mirroredHeadBytes = 0;
+  let tail = Buffer.alloc(0);
+  let suppressionWritten = false;
+  let launchError = null;
+  let closed = false;
+  writeSync(descriptor, MAGIC);
+  transcriptHash.update(MAGIC);
+  function mirror(chunk) {
+    const remainingHead = Math.max(0, headLimit - mirroredHeadBytes);
+    const head = chunk.subarray(0, remainingHead);
+    if (head.length > 0) {
+      diagnosticWriter.write(head);
+      mirroredHeadBytes += head.length;
+    }
+    const remainder = chunk.subarray(head.length);
+    if (remainder.length > 0) {
+      if (!suppressionWritten) {
+        diagnosticWriter.write(SUPPRESSION_MARKER);
+        suppressionWritten = true;
+      }
+      tail = appendTail(tail, remainder, tailLimit);
+    }
+  }
+  function record(channel, value) {
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    if (bytes.length === 0) {
+      return;
+    }
+    const frame = frameBytes(sequence, channel, bytes);
+    writeSync(descriptor, frame.header);
+    writeSync(descriptor, frame.bytes);
+    transcriptHash.update(frame.header);
+    transcriptHash.update(frame.bytes);
+    channelHashes[channel].update(bytes);
+    channelByteCounts[channel] += bytes.length;
+    totalByteCount += bytes.length;
+    sequence += 1;
+    mirror(bytes);
+  }
+  child.stdout.on("data", (chunk) => record("stdout", chunk));
+  child.stderr.on("data", (chunk) => record("stderr", chunk));
+  return new Promise((resolveCompletion, rejectCompletion) => {
+    child.once("error", (error) => {
+      launchError = {
+        code: typeof error.code === "string" ? error.code : null,
+        message: error.message
+      };
+    });
+    child.once("close", (status, signal) => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      try {
+        if ((status !== 0 || signal !== null || launchError !== null) && tail.length > 0) {
+          diagnosticWriter.write(tail);
+        }
+        fsyncSync7(descriptor);
+        closeSync8(descriptor);
+        const facts = {
+          status,
+          signal,
+          launchError,
+          recordCount: sequence,
+          totalByteCount,
+          stdoutByteCount: channelByteCounts.stdout,
+          stderrByteCount: channelByteCounts.stderr,
+          stdoutSha256: channelHashes.stdout.digest("hex"),
+          stderrSha256: channelHashes.stderr.digest("hex")
+        };
+        resolveCompletion({
+          schemaVersion: 1,
+          path,
+          ...facts,
+          sha256: transcriptHash.digest("hex"),
+          completionSha256: completionDigest(facts),
+          suppressionMarkerCount: suppressionWritten ? 1 : 0,
+          mirroredHeadByteCount: mirroredHeadBytes,
+          mirroredTailByteCount: status !== 0 || signal !== null || launchError !== null ? tail.length : 0,
+          retainRecommended: status !== 0 || signal !== null || launchError !== null
+        });
+      } catch (error) {
+        try {
+          closeSync8(descriptor);
+        } catch {
+        }
+        rejectCompletion(error);
+      }
+    });
+  });
+}
+var MAGIC, FRAME_HEADER_BYTES, CHANNEL_IDS, ID_CHANNELS, SUPPRESSION_MARKER;
+var init_gitProcessTranscript = __esm({
+  "src/committing-to-git/git/gitProcessTranscript.js"() {
+    MAGIC = Buffer.from("CTG-GIT-TRANSCRIPT-1\n", "ascii");
+    FRAME_HEADER_BYTES = 13;
+    CHANNEL_IDS = Object.freeze({ stdout: 1, stderr: 2 });
+    ID_CHANNELS = Object.freeze({ 1: "stdout", 2: "stderr" });
+    SUPPRESSION_MARKER = Buffer.from(
+      "\n...[output suppressed]...\n",
+      "ascii"
+    );
+  }
+});
+
+// src/committing-to-git/report/commitReport.js
+import { createHash as createHash11 } from "node:crypto";
+function hasExactKeys(value, keys) {
+  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+function signatureIdentityMatchesBackend(attempt) {
+  if (attempt.status !== "verified") {
+    return attempt.identity === null && (attempt.status !== "skipped" || attempt.backend === null);
+  }
+  if (attempt.backend === "ssh") {
+    return hasExactKeys(attempt.identity, ["principal", "keyFingerprint"]) && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN2.test(attempt.identity.keyFingerprint);
+  }
+  if (attempt.backend === "openpgp") {
+    return hasExactKeys(attempt.identity, [
+      "signer",
+      "primaryKeyFingerprint",
+      "signingSubkeyFingerprint"
+    ]) && typeof attempt.identity.signer === "string" && attempt.identity.signer.length > 0 && typeof attempt.identity.primaryKeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN2.test(
+      attempt.identity.primaryKeyFingerprint
+    ) && (attempt.identity.signingSubkeyFingerprint === null || typeof attempt.identity.signingSubkeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN2.test(
+      attempt.identity.signingSubkeyFingerprint
+    ));
+  }
+  return false;
+}
+function validateChecksArtifact(checks) {
+  if (!hasExactKeys(checks, ["schemaVersion", "checks"]) || checks.schemaVersion !== 1 || !Array.isArray(checks.checks)) {
+    throw new Error(
+      "Checks artifact must use schema version 1 and a checks array."
+    );
+  }
+  for (const check of checks.checks) {
+    if (!hasExactKeys(check, ["label", "status", "context"]) || typeof check.label !== "string" || check.label.trim() === "" || check.label !== check.label.trim() || !CHECK_STATUSES.has(check.status) || !CHECK_CONTEXTS.has(check.context)) {
+      throw new Error(
+        "Each check requires a trimmed label, passed or failed status, and a supported context."
+      );
+    }
+  }
+  return checks;
+}
+function validatePublicationArtifact(publication) {
+  if (hasExactKeys(publication, ["status"]) && publication.status === "not-requested") {
+    return publication;
+  }
+  const keys = [
+    "schemaVersion",
+    "status",
+    "commitOid",
+    "remote",
+    "destination",
+    "refspec",
+    "exitCode",
+    "stdout",
+    "stderr"
+  ];
+  const validStatus = publication?.status === "pushed" || publication?.status === "failed";
+  const validExit = publication?.status === "pushed" && publication?.exitCode === 0 || publication?.status === "failed" && publication?.exitCode > 0;
+  if (!hasExactKeys(publication, keys) || publication.schemaVersion !== 1 || !validStatus || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote === "" || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || !validExit || typeof publication.stdout !== "string" || typeof publication.stderr !== "string") {
+    throw new Error(
+      "Publication artifact does not match the workflow contract."
+    );
+  }
+  return publication;
+}
+function validateVerificationArtifact(verification, commitOid) {
+  const topLevelKeys = [
+    "schemaVersion",
+    "commitOid",
+    "initialPolicy",
+    "finalPolicy",
+    "attempts",
+    "effectiveAttempt",
+    "blocksPush"
+  ];
+  const attemptsValid = Array.isArray(verification?.attempts) && verification.attempts.length > 0 && verification.attempts.every(
+    (attempt) => hasExactKeys(attempt, [
+      "status",
+      "reason",
+      "backend",
+      "identity",
+      "timestamp"
+    ]) && SIGNATURE_STATUSES.has(attempt.status) && (/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) && (attempt.reason === null || typeof attempt.reason === "string") && (attempt.identity === null || typeof attempt.identity === "object" && !Array.isArray(attempt.identity)) && typeof attempt.timestamp === "string" && Number.isFinite(Date.parse(attempt.timestamp)) && signatureIdentityMatchesBackend(attempt)
+  );
+  const effective = attemptsValid ? verification.attempts[verification.effectiveAttempt] : null;
+  if (!hasExactKeys(verification, topLevelKeys) || verification.schemaVersion !== 2 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(verification.commitOid) || !VERIFICATION_POLICIES2.has(verification.initialPolicy) || !VERIFICATION_POLICIES2.has(verification.finalPolicy) || !attemptsValid || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || verification.blocksPush !== (verification.finalPolicy === "required" && effective?.status !== "verified") || verification.finalPolicy === "skipped" && effective?.status !== "skipped") {
+    throw new Error(
+      "Verification artifact does not match the workflow contract."
+    );
+  }
+  if (verification.commitOid.toLowerCase() !== commitOid.toLowerCase()) {
+    throw new Error("Verification artifact belongs to a different commit.");
+  }
+  return verification;
+}
+function parseRawCommitObject(rawCommit, oid = null) {
+  const raw = Buffer.isBuffer(rawCommit) ? rawCommit : Buffer.from(rawCommit);
+  const separator = raw.indexOf(Buffer.from("\n\n", "ascii"));
+  if (separator < 0) {
+    throw new Error(
+      "Commit object does not contain a header/message boundary."
+    );
+  }
+  const headerText = raw.subarray(0, separator).toString("utf8");
+  const lines = headerText.split("\n");
+  const treeLine = lines.find((line) => line.startsWith("tree "));
+  const parents = lines.filter((line) => line.startsWith("parent ")).map((line) => line.slice("parent ".length));
+  const signatureHeaders = lines.filter((line) => /^gpgsig(?:-sha256)? /u.test(line)).map((line) => line.slice(0, line.indexOf(" ")));
+  if (!treeLine) {
+    throw new Error("Commit object does not record a tree.");
+  }
+  return {
+    oid,
+    treeOid: treeLine.slice("tree ".length),
+    parents,
+    messageBytes: Buffer.from(raw.subarray(separator + 2)),
+    signed: signatureHeaders.length > 0,
+    signatureHeaders
+  };
+}
+function inspectCommitObject(root, commitOid) {
+  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
+  return parseRawCommitObject(raw, commitOid);
+}
+function commitFacts(root, commitOid) {
+  const fields = readOnlyGitText(root, "show-commit-fields", [
+    "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
+    commitOid
+  ]).replace(/\r?\n$/u, "").split("\0");
+  const object = inspectCommitObject(root, commitOid);
+  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
+    allowFailure: true
+  });
+  return {
+    oid: fields[0],
+    parents: object.parents,
+    treeOid: object.treeOid,
+    author: { name: fields[3], email: fields[4] },
+    committer: { name: fields[5], email: fields[6] },
+    subject: fields[7],
+    message: object.messageBytes.toString("utf8"),
+    messageSha256: createHash11("sha256").update(object.messageBytes).digest("hex"),
+    signed: object.signed,
+    signatureHeaders: object.signatureHeaders,
+    branch: branchResult.status === 0 ? branchResult.stdout.toString("utf8").trim() : null,
+    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim()
+  };
+}
+function kindName(status) {
+  switch (status[0]) {
+    case "A":
+      return "added";
+    case "M":
+      return "modified";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "added";
+    case "T":
+      return "type-changed";
+    default:
+      return "modified";
+  }
+}
+function normalizedKind({ oldMode, newMode, status }) {
+  const kind = kindName(status);
+  if (oldMode === "160000" || newMode === "160000") {
+    return "submodule-changed";
+  }
+  if (oldMode === "120000" || newMode === "120000") {
+    return oldMode === newMode ? "symlink-changed" : "type-changed";
+  }
+  if (oldMode !== newMode && kind === "modified") {
+    return "mode-changed";
+  }
+  return kind;
+}
+function commitStatistics(root, commitOid) {
+  const common = ["--root", "--no-commit-id", "-r", "-z", "--no-renames"];
+  const numstatFields = splitNul(
+    runReadOnlyGit(root, "diff-tree", [...common, "--numstat", commitOid]).stdout
+  );
+  let additions = 0;
+  let deletions = 0;
+  let binaryFiles = 0;
+  let files = 0;
+  for (let index = 0; index < numstatFields.length; ) {
+    const field = numstatFields[index].toString("utf8");
+    const [added, deleted, path = ""] = field.split("	");
+    files += 1;
+    if (added === "-" || deleted === "-") {
+      binaryFiles += 1;
+    } else {
+      additions += Number(added);
+      deletions += Number(deleted);
+    }
+    index += path === "" ? 3 : 1;
+  }
+  const rawFields = splitNul(
+    runReadOnlyGit(root, "diff-tree", [...common, "--raw", commitOid]).stdout
+  );
+  const kinds = {};
+  for (let index = 0; index < rawFields.length; ) {
+    const header = rawFields[index].toString("ascii");
+    if (!header.startsWith(":")) {
+      throw new Error(`Unexpected raw diff field: ${JSON.stringify(header)}`);
+    }
+    const [oldMode, newMode, , , status] = header.slice(1).split(" ");
+    const renamedOrCopied = status.startsWith("R") || status.startsWith("C");
+    const expectedFields = renamedOrCopied ? 3 : 2;
+    if (rawFields.length < index + expectedFields) {
+      throw new Error(`Incomplete raw diff record for ${status}`);
+    }
+    const kind = normalizedKind({ oldMode, newMode, status });
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
+    index += expectedFields;
+  }
+  return { files, additions, deletions, binaryFiles, kinds };
+}
+function manifestStatistics(manifest) {
+  if (manifest?.schemaVersion !== 2) {
+    return null;
+  }
+  const values = [
+    manifest?.statistics?.files,
+    manifest?.statistics?.additions,
+    manifest?.statistics?.deletions,
+    manifest?.statistics?.binaryFiles
+  ];
+  if (!Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.statistics?.files !== manifest.changeUnits.length || !Number.isSafeInteger(values[0]) || values[0] < 0 || values.slice(1).some(
+    (value) => value !== null && (!Number.isSafeInteger(value) || value < 0)
+  ) || manifest.changeUnits.some(
+    (unit) => unit === null || typeof unit !== "object" || typeof unit.kind !== "string" || unit.kind.length === 0
+  )) {
+    throw new Error(
+      "Matching snapshot manifest has invalid reusable statistics."
+    );
+  }
+  const kinds = {};
+  for (const unit of manifest.changeUnits) {
+    kinds[unit.kind] = (kinds[unit.kind] ?? 0) + 1;
+  }
+  return {
+    files: manifest.statistics.files,
+    additions: manifest.statistics.additions,
+    deletions: manifest.statistics.deletions,
+    binaryFiles: manifest.statistics.binaryFiles,
+    kinds
+  };
+}
+function statusLabel(code) {
+  const labels = {
+    A: "added",
+    M: "modified",
+    D: "deleted",
+    R: "renamed",
+    C: "added",
+    T: "type changed",
+    U: "unmerged"
+  };
+  return labels[code] ?? "changed";
+}
+function workspaceState(root) {
+  const fields = splitNul(
+    runReadOnlyGit(root, "status", [
+      "--porcelain=v2",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames"
+    ]).stdout
+  );
+  const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index].toString("utf8");
+    if (record.startsWith("? ")) {
+      workspace.untracked.push({ path: record.slice(2), status: "untracked" });
+      continue;
+    }
+    if (record.startsWith("u ")) {
+      const path2 = record.split(" ").slice(10).join(" ");
+      workspace.conflicted.push({ path: path2, status: "unmerged" });
+      continue;
+    }
+    const match = /^(?<recordType>[12]) (?<xy>..) \S+ \S+ \S+ \S+ \S+ \S+ (?<path>.*)$/u.exec(
+      record
+    );
+    if (!match) {
+      continue;
+    }
+    const { recordType, xy, path } = match.groups;
+    if (xy[0] !== ".") {
+      workspace.staged.push({ path, status: statusLabel(xy[0]) });
+    }
+    if (xy[1] !== ".") {
+      workspace.unstaged.push({ path, status: statusLabel(xy[1]) });
+    }
+    if (recordType === "2") {
+      index += 1;
+    }
+  }
+  for (const entries of Object.values(workspace)) {
+    entries.sort(
+      (left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path))
+    );
+  }
+  return workspace;
+}
+function collectCommitReport({
+  root,
+  commitOid,
+  manifest,
+  approvedMessage,
+  verification,
+  checks,
+  publication = { status: "not-requested" }
+}) {
+  const commit = commitFacts(root, commitOid);
+  const approvedMessageBytes = Buffer.isBuffer(approvedMessage) ? approvedMessage : Buffer.from(approvedMessage, "utf8");
+  validateChecksArtifact(checks);
+  validatePublicationArtifact(publication);
+  validateVerificationArtifact(verification, commit.oid);
+  if (publication.status !== "not-requested" && publication.commitOid !== commit.oid) {
+    throw new Error("Publication artifact belongs to a different commit.");
+  }
+  commit.treeMatches = commit.treeOid === manifest.indexTreeOid;
+  commit.messageMatches = Buffer.from(commit.message, "utf8").equals(
+    approvedMessageBytes
+  );
+  if (manifest.headOid) {
+    commit.parentMatches = commit.parents.length === 1 && commit.parents[0] === manifest.headOid;
+  } else {
+    commit.parentMatches = commit.parents.length === 0;
+  }
+  const approvedStatistics = commit.treeMatches ? manifestStatistics(manifest) : null;
+  return {
+    schemaVersion: 1,
+    commit,
+    statistics: approvedStatistics ?? commitStatistics(root, commitOid),
+    verification,
+    checks,
+    publication,
+    workspace: workspaceState(root)
+  };
+}
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+function renderKinds(kinds) {
+  return Object.entries(kinds).map(([kind, count]) => `${count} ${kind}`).join(", ");
+}
+function verificationText(verification) {
+  const attempt = verification.attempts[verification.effectiveAttempt];
+  switch (attempt.status) {
+    case "verified": {
+      if (attempt.backend === "openpgp") {
+        const identity = attempt.identity;
+        return `OpenPGP signature is cryptographically valid${identity?.signer ? ` for ${identity.signer}` : ""}${identity?.primaryKeyFingerprint ? ` (${identity.primaryKeyFingerprint})` : ""}; identity authorization was not assessed`;
+      }
+      if (attempt.backend === "ssh") {
+        return `SSH signature verification succeeded${attempt.identity?.principal ? ` for ${attempt.identity.principal}` : ""}${attempt.identity?.keyFingerprint ? ` (${attempt.identity.keyFingerprint})` : ""}`;
+      }
+      return "Signature verification succeeded";
+    }
+    case "skipped":
+      return "Skipped by user policy";
+    case "unavailable":
+      return attempt.reason === "trust-store-unreadable" ? "Unavailable because the configured trust store could not be read" : "Signature verification unavailable";
+    default:
+      return "Signature verification failed";
+  }
+}
+function renderWorkspace(workspace) {
+  const groups = [
+    ["Staged", workspace.staged],
+    ["Unstaged", workspace.unstaged],
+    ["Untracked", workspace.untracked],
+    ["Conflicted", workspace.conflicted]
+  ].filter(([, entries]) => entries.length > 0);
+  if (groups.length === 0) {
+    return ["- Clean"];
+  }
+  return groups.flatMap(([heading, entries]) => [
+    `- ${heading}:`,
+    ...entries.slice(0, 49).map(({ path, status }) => `  - \`${path}\` (${status})`),
+    ...entries.length >= 50 ? [
+      `  - ${entries.length} paths; see the machine-readable report for the full inventory`
+    ] : []
+  ]);
+}
+function renderCommitReport(report) {
+  const { commit, statistics, verification, checks, publication, workspace } = report;
+  const lines = [
+    `Created ${commit.signed ? "signed " : ""}commit \`${commit.shortOid}\` on \`${commit.branch ?? "detached HEAD"}\`:`,
+    `\`${commit.subject}\``,
+    "",
+    "Commit:",
+    `- Author: ${commit.author.name} <${commit.author.email}>`
+  ];
+  if (commit.author.name !== commit.committer.name || commit.author.email !== commit.committer.email) {
+    lines.push(
+      `- Committer: ${commit.committer.name} <${commit.committer.email}>`
+    );
+  }
+  lines.push(
+    `- Snapshot: ${commit.treeMatches ? "Matches the approved staged tree" : "DIFFERS from the approved staged tree"}`,
+    `- Message: ${commit.messageMatches ? "Matches the approved message" : "DIFFERS from the approved message"}`,
+    `- Parent: ${commit.parentMatches ? "Matches the approved one-parent contract" : "DIFFERS from the approved one-parent contract"}`,
+    `- Changes: ${plural(statistics.files, "file")}` + (statistics.additions === null || statistics.deletions === null ? "; line statistics deferred by the approved snapshot budget" : `, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : "")),
+    `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
+    "",
+    "Signature:",
+    `- Policy: ${verification.finalPolicy}${verification.initialPolicy !== verification.finalPolicy ? ` (overridden from ${verification.initialPolicy})` : ""}`,
+    `- Result: ${verificationText(verification)}`,
+    "",
+    "Checks:"
+  );
+  if ((checks.checks ?? []).length === 0) {
+    lines.push("- No checks were run in this workflow");
+  } else {
+    for (const check of checks.checks) {
+      lines.push(`- ${check.label}: ${check.status} (${check.context})`);
+    }
+  }
+  lines.push("", "Publication:");
+  if (publication.status === "not-requested") {
+    lines.push("- Not requested; not attempted by this workflow");
+  } else if (publication.status === "pushed") {
+    lines.push(
+      `- Pushed \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\``
+    );
+  } else {
+    lines.push(
+      `- Push failed for \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\` (exit ${publication.exitCode}); see publication.json for Git output`
+    );
+  }
+  lines.push("", "Workspace:", ...renderWorkspace(workspace), "");
+  return lines.join("\n");
+}
+var CHECK_STATUSES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, CHECK_CONTEXTS, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2;
+var init_commitReport = __esm({
+  "src/committing-to-git/report/commitReport.js"() {
+    init_gitRepository();
+    init_gitPath();
+    CHECK_STATUSES = /* @__PURE__ */ new Set(["passed", "failed"]);
+    VERIFICATION_POLICIES2 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    SIGNATURE_STATUSES = /* @__PURE__ */ new Set([
+      "verified",
+      "failed",
+      "unavailable",
+      "skipped"
+    ]);
+    CHECK_CONTEXTS = /* @__PURE__ */ new Set([
+      "approved staged snapshot",
+      "current working tree",
+      "isolated worktree/container",
+      "external environment"
+    ]);
+    SSH_FINGERPRINT_PATTERN2 = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+    OPENPGP_FINGERPRINT_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+  }
+});
+
+// src/committing-to-git/signature/commitSignature.js
+function assertPolicy(policy, label) {
+  if (!POLICIES.has(policy)) {
+    throw new Error(`${label} must be required, advisory, or skipped.`);
+  }
+}
+function sshIdentity(output2) {
+  const match = /Good "git" signature for (?<principal>.+?) with \S+ key (?<keyFingerprint>SHA256:\S+)/u.exec(
+    output2
+  );
+  return match ? {
+    principal: match.groups.principal,
+    keyFingerprint: match.groups.keyFingerprint
+  } : null;
+}
+function openPgpIdentity(output2) {
+  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output2);
+  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output2);
+  if (!goodSignature || !validSignature) {
+    return null;
+  }
+  const fields = validSignature.groups.fields.trim().split(/\s+/u);
+  const signingFingerprint = fields[0] ?? null;
+  const reportedPrimary = fields.length >= 10 ? fields.at(-1) : null;
+  const primaryKeyFingerprint = reportedPrimary && FULL_OPENPGP_FINGERPRINT.test(reportedPrimary) ? reportedPrimary : signingFingerprint;
+  if (!primaryKeyFingerprint || !FULL_OPENPGP_FINGERPRINT.test(primaryKeyFingerprint)) {
+    return null;
+  }
+  return {
+    signer: goodSignature.groups.signer,
+    primaryKeyFingerprint,
+    signingSubkeyFingerprint: signingFingerprint && FULL_OPENPGP_FINGERPRINT.test(signingFingerprint) && signingFingerprint.toLowerCase() !== primaryKeyFingerprint.toLowerCase() ? signingFingerprint : null
+  };
+}
+function hasExactKeys2(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+function identityMatchesBackend(backend, identity) {
+  if (backend === "ssh") {
+    return hasExactKeys2(identity, ["principal", "keyFingerprint"]) && typeof identity.principal === "string" && identity.principal.length > 0 && typeof identity.keyFingerprint === "string" && FULL_SSH_FINGERPRINT.test(identity.keyFingerprint);
+  }
+  if (backend === "openpgp") {
+    return hasExactKeys2(identity, [
+      "signer",
+      "primaryKeyFingerprint",
+      "signingSubkeyFingerprint"
+    ]) && typeof identity.signer === "string" && identity.signer.length > 0 && typeof identity.primaryKeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.primaryKeyFingerprint) && (identity.signingSubkeyFingerprint === null || typeof identity.signingSubkeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.signingSubkeyFingerprint));
+  }
+  return false;
+}
+function trustStoreIsUnreadable(output2) {
+  return /allowed[ -]?(?:signers|keys)|allowedSignersFile/iu.test(output2) && /permission denied|access is denied|could not open|cannot open|unable to open|no such file|not found/iu.test(
+    output2
+  );
+}
+function classifySignatureVerification(result, { backend = null, timestamp = (/* @__PURE__ */ new Date()).toISOString() } = {}) {
+  const stdout = Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8");
+  const stderr = Buffer.from(result.stderr ?? Buffer.alloc(0)).toString("utf8");
+  const output2 = `${stdout}
+${stderr}`.trim();
+  const observedSshIdentity = sshIdentity(output2);
+  const observedOpenPgpIdentity = openPgpIdentity(output2);
+  const observedBackend = observedSshIdentity ? "ssh" : observedOpenPgpIdentity ? "openpgp" : backend;
+  const identity = observedSshIdentity ?? observedOpenPgpIdentity;
+  if (result.status === 0 && identity !== null) {
+    return {
+      status: "verified",
+      reason: null,
+      backend: observedBackend,
+      identity,
+      timestamp
+    };
+  }
+  const unavailable = trustStoreIsUnreadable(output2);
+  return {
+    status: unavailable ? "unavailable" : "failed",
+    reason: unavailable ? "trust-store-unreadable" : "verification-failed",
+    backend: unavailable ? "ssh" : observedBackend,
+    identity: null,
+    timestamp
+  };
+}
+function validateAttempt(attempt) {
+  if (attempt === null || typeof attempt !== "object" || Array.isArray(attempt) || !STATUSES2.has(attempt.status) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || attempt.identity !== null && (typeof attempt.identity !== "object" || Array.isArray(attempt.identity)) || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
+    throw new Error("Signature verification attempt is invalid.");
+  }
+  if (attempt.status === "verified" && !identityMatchesBackend(attempt.backend, attempt.identity)) {
+    throw new Error(
+      "Verified signature attempts require a backend-specific identity."
+    );
+  }
+  if (attempt.status !== "verified" && attempt.identity !== null) {
+    throw new Error("Unverified signature attempts cannot retain an identity.");
+  }
+  if (attempt.status === "skipped" && (attempt.backend !== null || attempt.identity !== null)) {
+    throw new Error("Skipped signature attempts cannot name a backend.");
+  }
+  return {
+    status: attempt.status,
+    reason: attempt.reason,
+    backend: attempt.backend,
+    identity: attempt.identity === null ? null : structuredClone(attempt.identity),
+    timestamp: attempt.timestamp
+  };
+}
+function applyVerificationPolicy({
+  commitOid,
+  initialPolicy,
+  finalPolicy,
+  verificationAttempt,
+  previousVerification = null,
+  timestamp = (/* @__PURE__ */ new Date()).toISOString()
+}) {
+  if (!FULL_OID_PATTERN3.test(commitOid)) {
+    throw new Error("Verified commit must be a full 40- or 64-hex object ID.");
+  }
+  assertPolicy(initialPolicy, "Initial verification policy");
+  assertPolicy(finalPolicy, "Final verification policy");
+  let attempts = [];
+  if (previousVerification !== null) {
+    if (previousVerification.schemaVersion !== 2 || previousVerification.commitOid.toLowerCase() !== commitOid.toLowerCase() || previousVerification.initialPolicy !== initialPolicy || !Array.isArray(previousVerification.attempts)) {
+      throw new Error(
+        "Previous verification does not belong to this commit policy."
+      );
+    }
+    attempts = previousVerification.attempts.map(validateAttempt);
+  }
+  const selectedAttempt = finalPolicy === "skipped" ? {
+    status: "skipped",
+    reason: "user-policy",
+    backend: null,
+    identity: null,
+    timestamp
+  } : verificationAttempt;
+  if (selectedAttempt?.commitOid !== void 0 && (typeof selectedAttempt.commitOid !== "string" || selectedAttempt.commitOid.toLowerCase() !== commitOid.toLowerCase())) {
+    throw new Error("Verifier result belongs to a different commit.");
+  }
+  const attemptWithoutBinding = selectedAttempt?.commitOid === void 0 ? selectedAttempt : Object.fromEntries(
+    Object.entries(selectedAttempt).filter(
+      ([key]) => key !== "commitOid"
+    )
+  );
+  attempts.push(validateAttempt(attemptWithoutBinding));
+  const effectiveAttempt = attempts.length - 1;
+  const effective = attempts[effectiveAttempt];
+  return {
+    schemaVersion: 2,
+    commitOid,
+    initialPolicy,
+    finalPolicy,
+    attempts,
+    effectiveAttempt,
+    blocksPush: finalPolicy === "required" && effective.status !== "verified"
+  };
+}
+function verifyCommitSignature(root, commitOid, {
+  backend = null,
+  timestamp = (/* @__PURE__ */ new Date()).toISOString(),
+  invoke = runGit
+} = {}) {
+  if (!FULL_OID_PATTERN3.test(commitOid)) {
+    throw new Error(
+      "Signature verification requires an exact full commit OID."
+    );
+  }
+  const result = invoke(["verify-commit", "--raw", commitOid], {
+    cwd: root,
+    allowFailure: true
+  });
+  return classifySignatureVerification(result, { backend, timestamp });
+}
+var POLICIES, STATUSES2, FULL_OID_PATTERN3, FULL_OPENPGP_FINGERPRINT, FULL_SSH_FINGERPRINT;
+var init_commitSignature = __esm({
+  "src/committing-to-git/signature/commitSignature.js"() {
+    init_gitRepository();
+    POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    STATUSES2 = /* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"]);
+    FULL_OID_PATTERN3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    FULL_OPENPGP_FINGERPRINT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    FULL_SSH_FINGERPRINT = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+  }
+});
+
+// src/committing-to-git/transaction/transactionRecovery.js
+import { createHash as createHash12 } from "node:crypto";
+import {
+  existsSync as existsSync12,
+  lstatSync as lstatSync8,
+  readFileSync as readFileSync10,
+  readdirSync as readdirSync3,
+  realpathSync as realpathSync5,
+  rmSync as rmSync4
+} from "node:fs";
+import { basename as basename2, isAbsolute as isAbsolute6, join as join9, relative as relative7, resolve as resolve12 } from "node:path";
+function sha2564(bytes) {
+  return createHash12("sha256").update(bytes).digest("hex");
+}
+function samePath3(left, right) {
+  const normalizedLeft = resolve12(left);
+  const normalizedRight = resolve12(right);
+  return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
+}
+function assertContained3(parent, child, { allowSame = false } = {}) {
+  const path = relative7(parent, child);
+  if (!allowSame && path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute6(path)) {
+    throw new Error(`Recovery target escapes its transaction: ${child}`);
+  }
+}
+function validateAttemptDirectory(transaction) {
+  const attempt = resolve12(transaction.attemptDirectory);
+  if (!ATTEMPT_PATTERN.test(basename2(attempt))) {
+    throw new Error(
+      "Transaction attempt directory does not contain its UUID handle."
+    );
+  }
+  const stat = lstatSync8(attempt);
+  if (stat.isSymbolicLink() || !stat.isDirectory() || !samePath3(realpathSync5(attempt), attempt)) {
+    throw new Error("Transaction attempt directory was replaced.");
+  }
+  return attempt;
+}
+function observeRef(root, headAnchor) {
+  const observationPoint = headAnchor.headKind === "detached" ? "HEAD" : headAnchor.targetRef;
+  const result = runGit(["rev-parse", "--verify", observationPoint], {
+    cwd: root,
+    allowFailure: true,
+    env: {
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_OPTIONAL_LOCKS: "0"
+    }
+  });
+  if (result.status !== 0) {
+    return {
+      observationPoint,
+      oid: null,
+      status: result.status
+    };
+  }
+  const oid = result.stdout.toString("utf8").trim();
+  if (!FULL_OID_PATTERN4.test(oid)) {
+    throw new Error(
+      "Git returned a non-full object ID while observing recovery."
+    );
+  }
+  return { observationPoint, oid, status: 0 };
+}
+function stableObservation(left, right) {
+  return left.observationPoint === right.observationPoint && left.oid === right.oid && left.status === right.status;
+}
+function baselineOid(headAnchor) {
+  return headAnchor.expectedParentOids[0] ?? null;
+}
+function compareCandidate({ root, oid, commit, message }) {
+  const object = inspectCommitObject(root, oid);
+  const comparison = {
+    parentMatches: JSON.stringify(object.parents) === JSON.stringify(commit.headAnchor.expectedParentOids),
+    treeMatches: object.treeOid === commit.expectedTreeOid,
+    messageMatches: object.messageBytes.equals(message.bytes),
+    signatureHeaderPresent: object.signed,
+    actualParents: object.parents,
+    actualTreeOid: object.treeOid,
+    actualMessageSha256: sha2564(object.messageBytes),
+    signatureHeaders: object.signatureHeaders
+  };
+  return {
+    object,
+    comparison,
+    structurallyMatches: comparison.parentMatches && comparison.treeMatches && comparison.messageMatches
+  };
+}
+function processStartIdentity(pid) {
+  if (process.platform === "win32") {
+    return null;
+  }
+  try {
+    const stat = readFileSync10(`/proc/${pid}/stat`, "utf8");
+    const closingName = stat.lastIndexOf(") ");
+    const fields = stat.slice(closingName + 2).split(" ");
+    return fields[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+function captureChildIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) {
+    return null;
+  }
+  return { pid, startIdentity: processStartIdentity(pid) };
+}
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+}
+function indexLockPath(root) {
+  const result = runGit(
+    ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"],
+    {
+      cwd: root,
+      allowFailure: true
+    }
+  );
+  return result.status === 0 ? result.stdout.toString("utf8").trim() : join9(root, ".git", "index.lock");
+}
+function assertConfirmedNoLiveChild(transaction, before, after, { processInspector, indexLockInspector }) {
+  if (!stableObservation(before, after)) {
+    throw new Error(
+      "The observed ref changed while confirming child termination."
+    );
+  }
+  const childIdentity = transaction.commit.childIdentity;
+  if (childIdentity && processInspector.exists(childIdentity.pid)) {
+    const currentIdentity = processInspector.startIdentity(childIdentity.pid);
+    const reused = childIdentity.startIdentity !== null && currentIdentity !== null && currentIdentity !== childIdentity.startIdentity;
+    throw new Error(
+      reused ? "The recorded process ID has been reused; recovery remains conservative." : "The recorded Git/signing/hook child is still live."
+    );
+  }
+  if (indexLockInspector(transaction.repositoryRoot)) {
+    throw new Error("An index lock contradicts the no-live-child assertion.");
+  }
+}
+function resultEnvelope2(transaction, status, exitCode, details = {}) {
+  return {
+    schemaVersion: 1,
+    status,
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: join9(transaction.attemptDirectory, "transaction.json"),
+    route: transaction.route,
+    commitState: transaction.commit?.commitOid === null || transaction.commit === null ? "absent" : "created",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: exitCode === 4,
+    exitCode,
+    ...details
+  };
+}
+function recoverCommitOutcome({
+  transactionPath,
+  resolution = null,
+  witnessCompletedChild = false,
+  refObserver = observeRef,
+  processInspector = {
+    exists: processExists,
+    startIdentity: processStartIdentity
+  },
+  indexLockInspector = (root) => existsSync12(indexLockPath(root)),
+  now = () => (/* @__PURE__ */ new Date()).toISOString()
+}) {
+  recoverCanonicalMessageReplacement(transactionPath);
+  let transaction = readTransaction(transactionPath);
+  if (transaction.phase !== "commit-pending" || transaction.commit === null) {
+    throw new Error("Commit recovery requires one pending commit journal.");
+  }
+  const before = refObserver(
+    transaction.repositoryRoot,
+    transaction.commit.headAnchor
+  );
+  const candidateOid = transaction.commit.commitOid ?? before.oid;
+  let candidate = null;
+  if (candidateOid !== null && candidateOid !== baselineOid(transaction.commit.headAnchor)) {
+    try {
+      candidate = compareCandidate({
+        root: transaction.repositoryRoot,
+        oid: candidateOid,
+        commit: transaction.commit,
+        message: recoverCanonicalMessageReplacement(transactionPath)
+      });
+    } catch {
+      candidate = null;
+    }
+  }
+  const after = refObserver(
+    transaction.repositoryRoot,
+    transaction.commit.headAnchor
+  );
+  const observations = { before, after };
+  if (!stableObservation(before, after)) {
+    transaction = updateTransaction(transactionPath, "commit-pending", {
+      ...transaction,
+      commit: { ...transaction.commit, recoveryObservations: observations }
+    });
+    return resultEnvelope2(transaction, "outcome-unknown", 4, {
+      code: "COMMIT_REF_UNSTABLE",
+      observations
+    });
+  }
+  const witnessedCreatedCommit = witnessCompletedChild && transaction.commit.launchState === "completed" && transaction.commit.completion?.exitCode === 0;
+  if (candidate !== null && (candidate.structurallyMatches || witnessedCreatedCommit) && after.oid === candidateOid) {
+    const status = candidate.structurallyMatches ? "matching-commit-observed" : "created-commit-observed";
+    transaction = updateTransaction(transactionPath, "commit-pending", {
+      ...transaction,
+      commit: {
+        ...transaction.commit,
+        status: "created",
+        commitOid: candidateOid,
+        comparison: candidate.comparison,
+        observationProvenance: witnessCompletedChild ? "witnessed" : "recovered",
+        recoveryObservations: observations
+      }
+    });
+    return resultEnvelope2(transaction, status, 0, {
+      commitOid: candidateOid,
+      commit: {
+        treeMatches: candidate.comparison.treeMatches,
+        messageMatches: candidate.comparison.messageMatches,
+        parentMatches: candidate.comparison.parentMatches,
+        signatureHeaderPresent: candidate.comparison.signatureHeaderPresent
+      },
+      gitCommitInvocations: 0
+    });
+  }
+  const atBaseline = after.oid === baselineOid(transaction.commit.headAnchor);
+  const knownNonCreatingCompletion = transaction.commit.launchState === "completed" && (transaction.commit.completion?.nonLaunchGuaranteed === true || Number.isInteger(transaction.commit.completion?.exitCode) && transaction.commit.completion.exitCode !== 0);
+  const durableNonLaunch = transaction.commit.launchState === "not-started";
+  if (atBaseline && resolution === "confirmed-no-live-child") {
+    assertConfirmedNoLiveChild(transaction, before, after, {
+      processInspector,
+      indexLockInspector
+    });
+    updateTransaction(transactionPath, "commit-pending", {
+      ...transaction,
+      commit: {
+        ...transaction.commit,
+        recoveryResolution: {
+          resolution,
+          assertedAt: now(),
+          observations
+        }
+      }
+    });
+  } else if (resolution !== null) {
+    throw new Error(
+      "Recovery resolution is invalid or contradicts the observed ref."
+    );
+  }
+  if (atBaseline && (durableNonLaunch || knownNonCreatingCompletion || resolution === "confirmed-no-live-child")) {
+    transaction = advanceTransaction(transactionPath, "commit-pending", {
+      ...readTransaction(transactionPath),
+      phase: "stopped",
+      status: "stopped",
+      terminalDisposition: "no-commit-stopped",
+      commit: {
+        ...readTransaction(transactionPath).commit,
+        recoveryObservations: observations
+      }
+    });
+    return resultEnvelope2(transaction, "stopped", 1, {
+      code: "COMMIT_NOT_CREATED",
+      observations
+    });
+  }
+  transaction = updateTransaction(transactionPath, "commit-pending", {
+    ...readTransaction(transactionPath),
+    commit: {
+      ...readTransaction(transactionPath).commit,
+      recoveryObservations: observations
+    }
+  });
+  return resultEnvelope2(transaction, "outcome-unknown", 4, {
+    code: candidate === null ? "COMMIT_OUTCOME_UNKNOWN" : "COMMIT_OUTCOME_AMBIGUOUS",
+    observations
+  });
+}
+function validateTreeNoLinks(root, path = root) {
+  const stat = lstatSync8(path);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Cleanup refuses a link or reparse target: ${path}`);
+  }
+  if (!stat.isDirectory()) {
+    return;
+  }
+  for (const name of readdirSync3(path)) {
+    const child = join9(path, name);
+    assertContained3(root, child);
+    validateTreeNoLinks(root, child);
+  }
+}
+function cleanupIdentity(path) {
+  const stat = lstatSync8(path, { bigint: true });
+  return {
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    kind: stat.isDirectory() ? "directory" : "file"
+  };
+}
+function sameCleanupIdentity(left, right) {
+  return left.device === right.device && left.inode === right.inode && left.kind === right.kind;
+}
+function removeWithRetry(path, options2, operation = rmSync4) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      operation(path, options2);
+      return;
+    } catch (error) {
+      if (process.platform !== "win32" || !WINDOWS_RETRY_CODES.has(error.code) || attempt === 4) {
+        throw error;
+      }
+    }
+  }
+}
+function removeOwnedTarget(attempt, path, removeOperation) {
+  assertContained3(attempt, path);
+  if (!existsSync12(path)) {
+    return false;
+  }
+  const before = cleanupIdentity(path);
+  validateTreeNoLinks(path);
+  const after = cleanupIdentity(path);
+  if (!sameCleanupIdentity(before, after)) {
+    throw new Error(`Cleanup target changed before deletion: ${path}`);
+  }
+  const directory = lstatSync8(path).isDirectory();
+  removeWithRetry(
+    path,
+    directory ? { recursive: true } : void 0,
+    removeOperation
+  );
+  return true;
+}
+function compactTerminalTransaction({
+  transactionPath,
+  retainReviewArtifacts = false,
+  retainProcessLogs = false,
+  removeOperation = rmSync4
+}) {
+  const transaction = readTransaction(transactionPath);
+  const attempt = validateAttemptDirectory(transaction);
+  if (!TERMINAL_PHASES.has(transaction.phase) || transaction.status === "outcome-unknown" || transaction.phase === "publication-pending") {
+    throw new Error("Cannot compact a pending or unknown transaction.");
+  }
+  const names = [
+    "preparation-index",
+    "temporary-index",
+    "draft-objects",
+    "message-input.txt",
+    "content.json",
+    "evidence-plan-input.json"
+  ];
+  if (!retainReviewArtifacts) {
+    names.push("review", "inspection");
+  }
+  if (!retainProcessLogs && transaction.commit?.completion?.exitCode === 0 && transaction.commit?.comparison !== null) {
+    names.push("process-logs");
+  }
+  const completed = [];
+  const failed = [];
+  for (const name of names) {
+    const path = join9(attempt, name);
+    try {
+      if (removeOwnedTarget(attempt, path, removeOperation)) {
+        completed.push(path);
+      }
+    } catch (error) {
+      failed.push({
+        path,
+        code: error.code ?? "CLEANUP_FAILED",
+        message: error.message
+      });
+    }
+  }
+  return {
+    schemaVersion: 1,
+    status: failed.length === 0 ? "cleaned" : "warning",
+    completed,
+    failed
+  };
+}
+function purgeTransaction({ transactionPath }) {
+  let transaction = readTransaction(transactionPath);
+  const attempt = validateAttemptDirectory(transaction);
+  if (transaction.phase === "commit-pending" || transaction.phase === "publication-pending" || transaction.status === "outcome-unknown") {
+    throw new Error("Cannot purge a pending or unknown mutation.");
+  }
+  if (PRECOMMIT_PHASES.has(transaction.phase)) {
+    transaction = advanceTransaction(transactionPath, transaction.phase, {
+      ...transaction,
+      phase: "abandoned",
+      status: "stopped",
+      terminalDisposition: "abandoned"
+    });
+  } else if (!TERMINAL_PHASES.has(transaction.phase)) {
+    throw new Error("Transaction is not safe to purge.");
+  }
+  const capsule = Buffer.from(`${JSON.stringify(transaction)}
+`, "utf8");
+  const formerPath = attempt;
+  const before = cleanupIdentity(attempt);
+  validateTreeNoLinks(attempt);
+  const after = cleanupIdentity(attempt);
+  if (!sameCleanupIdentity(before, after)) {
+    throw new Error("Transaction attempt changed before purge.");
+  }
+  removeWithRetry(attempt, { recursive: true });
+  return {
+    schemaVersion: 1,
+    status: "purged",
+    formerPath,
+    finalCapsuleSha256: sha2564(capsule),
+    completed: [formerPath],
+    failed: []
+  };
+}
+var FULL_OID_PATTERN4, ATTEMPT_PATTERN, PRECOMMIT_PHASES, TERMINAL_PHASES, WINDOWS_RETRY_CODES;
+var init_transactionRecovery = __esm({
+  "src/committing-to-git/transaction/transactionRecovery.js"() {
+    init_gitRepository();
+    init_canonicalMessageState();
+    init_commitReport();
+    init_transactionWorkspace();
+    FULL_OID_PATTERN4 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    ATTEMPT_PATTERN = /^committing-to-git-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    PRECOMMIT_PHASES = /* @__PURE__ */ new Set([
+      "allocated",
+      "snapshot-created",
+      "evidence-ready",
+      "review-pending",
+      "message-ready"
+    ]);
+    TERMINAL_PHASES = /* @__PURE__ */ new Set([
+      "reported",
+      "published",
+      "stopped",
+      "abandoned",
+      "superseded"
+    ]);
+    WINDOWS_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
+  }
+});
+
+// src/committing-to-git/workflow/createCommitWorkflow.js
+var createCommitWorkflow_exports = {};
+__export(createCommitWorkflow_exports, {
+  CommitWorkflowError: () => CommitWorkflowError,
+  MAXIMUM_CHECKS_INPUT_BYTES: () => MAXIMUM_CHECKS_INPUT_BYTES,
+  MAXIMUM_COMMIT_RESULT_BYTES: () => MAXIMUM_COMMIT_RESULT_BYTES,
+  completeRecordedCommit: () => completeRecordedCommit,
+  createCommitWorkflow: () => createCommitWorkflow,
+  readChecksArtifact: () => readChecksArtifact,
+  readRecordedReport: () => readRecordedReport,
+  retrySignatureVerificationWorkflow: () => retrySignatureVerificationWorkflow,
+  runCreateCommitCommand: () => runCreateCommitCommand,
+  runRetryVerificationCommand: () => runRetryVerificationCommand
+});
+import { spawn as spawn2 } from "node:child_process";
+import { createHash as createHash13, randomUUID as randomUUID5 } from "node:crypto";
+import {
+  closeSync as closeSync9,
+  constants as fsConstants7,
+  fstatSync as fstatSync7,
+  fsyncSync as fsyncSync8,
+  lstatSync as lstatSync9,
+  openSync as openSync9,
+  readFileSync as readFileSync11,
+  renameSync as renameSync5,
+  writeFileSync as writeFileSync9
+} from "node:fs";
+import { dirname as dirname8, join as join10, resolve as resolve13 } from "node:path";
+import { TextDecoder as TextDecoder7 } from "node:util";
+function fail6(code, message, options2) {
+  throw new CommitWorkflowError(code, message, options2);
+}
+function sha2565(bytes) {
+  return createHash13("sha256").update(bytes).digest("hex");
+}
+function canonicalJsonBytes3(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function assertNoGitStorageOverrides2(environment) {
+  const active = STORAGE_OVERRIDE_NAMES2.filter(
+    (name) => environment[name] !== void 0 && environment[name] !== ""
+  );
+  if (active.length > 0) {
+    fail6(
+      "GIT_STORAGE_OVERRIDE_REJECTED",
+      `Commit refuses Git storage overrides: ${active.join(", ")}.`
+    );
+  }
+}
+function readSnapshot(transactionPath, transaction) {
+  const input = readTransactionOwnedFile({
+    transactionPath,
+    artifactName: "snapshot.json",
+    maximumBytes: 8 * 1024 * 1024,
+    label: "Recorded snapshot",
+    allowPathReplacement: false
+  });
+  if (resolve13(input.path) !== resolve13(transaction.snapshot.path) || sha2565(input.bytes) !== transaction.snapshot.sha256) {
+    fail6(
+      "SNAPSHOT_ARTIFACT_MISMATCH",
+      "The fixed snapshot no longer matches its transaction identity."
+    );
+  }
+  try {
+    return JSON.parse(STRICT_UTF8_DECODER6.decode(input.bytes));
+  } catch (error) {
+    fail6(
+      "SNAPSHOT_ARTIFACT_INVALID",
+      `Snapshot JSON is invalid: ${error.message}`
+    );
+  }
+}
+function directMessage(transactionPath, transaction, manifest, approvedSubject) {
+  if (typeof approvedSubject !== "string" || !canUseDirectSubjectTransport(approvedSubject)) {
+    fail6(
+      "MESSAGE_REQUIRES_CHECKED_FILE",
+      "This message must be supplied through the fixed message-input.txt check route."
+    );
+  }
+  const bytes = Buffer.from(`${approvedSubject}
+`, "utf8");
+  let validation;
+  try {
+    validation = validateApprovedMessage({
+      manifest,
+      route: "concise",
+      bytes,
+      repositoryTypePolicy: transaction.repositoryTypePolicy,
+      messageSource: "approved-subject"
+    });
+  } catch (error) {
+    fail6(error.code ?? "MESSAGE_INVALID", error.message);
+  }
+  return replaceCanonicalMessage({
+    transactionPath,
+    bytes,
+    validation,
+    source: "approved-subject"
+  });
+}
+function selectCanonicalMessage({
+  transactionPath,
+  transaction,
+  manifest,
+  approvedSubject
+}) {
+  recoverCanonicalMessageReplacement(transactionPath);
+  transaction = readTransaction(transactionPath);
+  if (transaction.phase === "evidence-ready" && transaction.route === "concise") {
+    return directMessage(
+      transactionPath,
+      transaction,
+      manifest,
+      approvedSubject
+    );
+  }
+  if (transaction.phase === "message-ready") {
+    if (approvedSubject !== null && approvedSubject !== void 0) {
+      fail6(
+        "MESSAGE_ALREADY_RECORDED",
+        "A message-ready transaction must use its recorded canonical bytes."
+      );
+    }
+    const message = readCanonicalMessage(transactionPath);
+    if (message === null) {
+      fail6("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
+    }
+    return message;
+  }
+  fail6(
+    "COMMIT_PHASE_INVALID",
+    `Transaction phase ${transaction.phase} cannot create a commit.`
+  );
+}
+function preflightCommitVerification({
+  transactionPath,
+  transaction,
+  finalPolicy,
+  signaturePreflightInspector
+}) {
+  if (finalPolicy === "skipped") {
+    return transaction;
+  }
+  if (transaction.signaturePreflight?.backend === null) {
+    const signaturePreflight = signaturePreflightInspector(
+      transaction.repositoryRoot
+    );
+    transaction = updateTransaction(transactionPath, transaction.phase, {
+      ...transaction,
+      signaturePreflight
+    });
+  }
+  if (finalPolicy === "required" && transaction.signaturePreflight?.backend === "ssh" && transaction.signaturePreflight.trustSource?.readable !== true) {
+    fail6(
+      "SIGNATURE_TRUST_ACCESS_REQUIRED",
+      "Required SSH verification cannot read Git's configured allowed-signers file.",
+      {
+        exitCode: 1,
+        details: {
+          status: "capability-required",
+          phase: transaction.phase,
+          terminalDisposition: transaction.terminalDisposition,
+          transaction: resolve13(transactionPath),
+          route: transaction.route,
+          commitState: "absent",
+          publicationState: "not-requested",
+          publicationAllowed: false,
+          recoveryRequired: false,
+          capability: {
+            kind: "read-file",
+            path: transaction.signaturePreflight.trustSource?.path ?? null,
+            origin: transaction.signaturePreflight.trustSource?.origin ?? null
+          },
+          verificationPolicy: finalPolicy
+        }
+      }
+    );
+  }
+  return transaction;
+}
+function fileIdentity2(stat) {
+  return {
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    size: Number(stat.size)
+  };
+}
+function sameIdentity2(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
+}
+function readChecksArtifact(checksPath, { afterOpen = () => {
+} } = {}) {
+  if (checksPath === null || checksPath === void 0) {
+    const value = { schemaVersion: 1, checks: [] };
+    return { value, bytes: canonicalJsonBytes3(value), externalPath: null };
+  }
+  const path = resolve13(checksPath);
+  const initial = lstatSync9(path, { bigint: true });
+  if (initial.isSymbolicLink() || !initial.isFile()) {
+    fail6(
+      "CHECKS_INPUT_INVALID",
+      "Checks input must be a non-symbolic regular file."
+    );
+  }
+  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
+  const descriptor = openSync9(path, fsConstants7.O_RDONLY + noFollow);
+  try {
+    afterOpen({ path, descriptor });
+    const before = fstatSync7(descriptor, { bigint: true });
+    if (!before.isFile() || before.size > BigInt(MAXIMUM_CHECKS_INPUT_BYTES)) {
+      fail6(
+        "CHECKS_INPUT_TOO_LARGE",
+        `Checks input exceeds ${MAXIMUM_CHECKS_INPUT_BYTES} bytes or is not regular.`
+      );
+    }
+    const bytes = readFileSync11(descriptor);
+    const after = fstatSync7(descriptor, { bigint: true });
+    const final = lstatSync9(path, { bigint: true });
+    if (final.isSymbolicLink() || !final.isFile() || !sameIdentity2(fileIdentity2(initial), fileIdentity2(before)) || !sameIdentity2(fileIdentity2(before), fileIdentity2(after)) || !sameIdentity2(fileIdentity2(after), fileIdentity2(final)) || bytes.length > MAXIMUM_CHECKS_INPUT_BYTES) {
+      fail6("CHECKS_INPUT_CHANGED", "Checks input changed while it was read.");
+    }
+    let value;
+    try {
+      value = JSON.parse(STRICT_UTF8_DECODER6.decode(bytes));
+      validateChecksArtifact(value);
+    } catch (error) {
+      fail6("CHECKS_INPUT_INVALID", `Checks input is invalid: ${error.message}`);
+    }
+    const canonicalBytes2 = canonicalJsonBytes3(value);
+    if (canonicalBytes2.length > MAXIMUM_COMMIT_RESULT_BYTES / 2) {
+      fail6(
+        "CHECKS_RESULT_BUDGET_EXCEEDED",
+        "Checks are valid but too large for one bounded commit result."
+      );
+    }
+    return { value, bytes: canonicalBytes2, externalPath: path };
+  } finally {
+    closeSync9(descriptor);
+  }
+}
+function transcriptFacts(transcript) {
+  return {
+    schemaVersion: transcript.schemaVersion,
+    path: transcript.path,
+    status: transcript.status,
+    signal: transcript.signal,
+    launchError: transcript.launchError,
+    recordCount: transcript.recordCount,
+    totalByteCount: transcript.totalByteCount,
+    stdoutByteCount: transcript.stdoutByteCount,
+    stderrByteCount: transcript.stderrByteCount,
+    stdoutSha256: transcript.stdoutSha256,
+    stderrSha256: transcript.stderrSha256,
+    sha256: transcript.sha256,
+    completionSha256: transcript.completionSha256,
+    retainRecommended: transcript.retainRecommended
+  };
+}
+function updateCommitJournal(transactionPath, transform) {
+  const current = readTransaction(transactionPath);
+  return updateTransaction(transactionPath, "commit-pending", {
+    ...current,
+    commit: transform(current.commit)
+  });
+}
+function atomicWrite(path, bytes) {
+  const candidate = join10(dirname8(path), `.report-${randomUUID5()}.tmp`);
+  const descriptor = openSync9(
+    candidate,
+    fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL,
+    384
+  );
+  try {
+    writeFileSync9(descriptor, bytes);
+    fsyncSync8(descriptor);
+  } finally {
+    closeSync9(descriptor);
+  }
+  if (lstatSafe(path)?.isSymbolicLink()) {
+    fail6(
+      "REPORT_PATH_REPLACED",
+      `Report output was replaced by a link: ${path}`
+    );
+  }
+  renameSync5(candidate, path);
+}
+function lstatSafe(path) {
+  try {
+    return lstatSync9(path);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+function verificationAttemptFor({
+  transaction,
+  finalPolicy,
+  signatureVerifier
+}) {
+  if (finalPolicy === "skipped") {
+    return null;
+  }
+  if (finalPolicy === "advisory" && transaction.signaturePreflight?.backend === "ssh" && transaction.signaturePreflight.trustSource?.readable === false) {
+    return {
+      status: "unavailable",
+      reason: "trust-store-unreadable",
+      backend: "ssh",
+      identity: null,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  return signatureVerifier(
+    transaction.repositoryRoot,
+    transaction.commit.commitOid,
+    {
+      backend: transaction.signaturePreflight?.backend ?? null
+    }
+  );
+}
+function reportResult(transactionPath, transaction, report, displayText, exitCode, cleanup) {
+  return {
+    schemaVersion: 1,
+    status: exitCode === 0 ? "reported" : "commit-blocked",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve13(transactionPath),
+    route: transaction.route,
+    commitState: "created",
+    commitOid: transaction.commit.commitOid,
+    publicationState: "not-requested",
+    publicationAllowed: transaction.report.publicationAllowed,
+    recoveryRequired: false,
+    report,
+    displayText,
+    cleanup,
+    exitCode
+  };
+}
+function readRecordedReport(transactionPath) {
+  const transaction = readTransaction(transactionPath);
+  if (transaction.phase !== "reported" || transaction.report === null) {
+    fail6(
+      "REPORT_NOT_RECORDED",
+      "Transaction does not contain a final local report."
+    );
+  }
+  const report = JSON.parse(readFileSync11(transaction.report.jsonPath, "utf8"));
+  const displayText = readFileSync11(transaction.report.textPath, "utf8");
+  const exitCode = transaction.status === "reported" ? 0 : 3;
+  return reportResult(
+    transactionPath,
+    transaction,
+    report,
+    displayText,
+    exitCode,
+    null
+  );
+}
+function completeRecordedCommit({
+  transactionPath,
+  verificationPolicyOverride = null,
+  retainReviewArtifacts = false,
+  retainProcessLogs = false,
+  signatureVerifier = verifyCommitSignature,
+  failureInjector = () => {
+  }
+}) {
+  let transaction = readTransaction(transactionPath);
+  if (transaction.phase !== "commit-pending" || transaction.commit?.commitOid === null || transaction.commit?.comparison === null) {
+    fail6(
+      "COMMIT_NOT_READY_FOR_REPORT",
+      "A matching recorded commit is required before verification and reporting.",
+      { exitCode: 3 }
+    );
+  }
+  const finalPolicy = verificationPolicyOverride ?? transaction.verification?.finalPolicy ?? transaction.verificationPolicy;
+  if (!VERIFICATION_POLICIES3.has(finalPolicy)) {
+    fail6(
+      "INVALID_VERIFICATION_POLICY",
+      "Verification override must be required, advisory, or skipped."
+    );
+  }
+  failureInjector("during-verification");
+  const attempt = verificationAttemptFor({
+    transaction,
+    finalPolicy,
+    signatureVerifier
+  });
+  const verification = applyVerificationPolicy({
+    commitOid: transaction.commit.commitOid,
+    initialPolicy: transaction.verificationPolicy,
+    finalPolicy,
+    verificationAttempt: attempt,
+    previousVerification: transaction.verification
+  });
+  transaction = updateCommitJournal(transactionPath, (commit) => commit);
+  transaction = updateTransaction(transactionPath, "commit-pending", {
+    ...transaction,
+    verification
+  });
+  failureInjector("after-verification-before-report");
+  const manifest = readSnapshot(transactionPath, transaction);
+  const message = readCanonicalMessage(transactionPath);
+  const report = collectCommitReport({
+    root: transaction.repositoryRoot,
+    commitOid: transaction.commit.commitOid,
+    manifest,
+    approvedMessage: message.bytes,
+    verification,
+    checks: transaction.commit.checks.value
+  });
+  const displayText = renderCommitReport(report);
+  const reportBytes = canonicalJsonBytes3(report);
+  const textBytes = Buffer.from(displayText, "utf8");
+  if (reportBytes.length + textBytes.length > MAXIMUM_COMMIT_RESULT_BYTES) {
+    fail6(
+      "REPORT_RESULT_BUDGET_EXCEEDED",
+      "The commit exists, but its final result exceeds the bounded report budget.",
+      { exitCode: 3 }
+    );
+  }
+  failureInjector("during-report-writing");
+  const jsonPath = join10(transaction.attemptDirectory, "report.json");
+  const textPath = join10(transaction.attemptDirectory, "report.txt");
+  atomicWrite(jsonPath, reportBytes);
+  atomicWrite(textPath, textBytes);
+  const comparisonMatches = report.commit.parentMatches && report.commit.treeMatches && report.commit.messageMatches && report.commit.signed;
+  const publicationAllowed = comparisonMatches && !verification.blocksPush;
+  const blocked = !publicationAllowed;
+  transaction = advanceTransaction(transactionPath, "commit-pending", {
+    ...transaction,
+    phase: "reported",
+    status: blocked ? "commit-blocked" : "reported",
+    terminalDisposition: "local-commit-recorded",
+    report: {
+      schemaVersion: 1,
+      jsonPath,
+      jsonSha256: sha2565(reportBytes),
+      textPath,
+      textSha256: sha2565(textBytes),
+      comparisonMatches,
+      publicationAllowed
+    }
+  });
+  let cleanup;
+  try {
+    failureInjector("after-report-writing-before-compaction");
+    cleanup = compactTerminalTransaction({
+      transactionPath,
+      retainReviewArtifacts,
+      retainProcessLogs
+    });
+  } catch (error) {
+    cleanup = {
+      schemaVersion: 1,
+      status: "warning",
+      completed: [],
+      failed: [
+        {
+          path: transaction.attemptDirectory,
+          code: error.code ?? "COMPACTION_FAILED",
+          message: error.message
+        }
+      ]
+    };
+  }
+  return reportResult(
+    transactionPath,
+    transaction,
+    report,
+    displayText,
+    blocked ? 3 : 0,
+    cleanup
+  );
+}
+function incompleteKnownCommitResult(transactionPath, error, recovery) {
+  const transaction = readTransaction(transactionPath);
+  return {
+    schemaVersion: 1,
+    status: "commit-blocked",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve13(transactionPath),
+    route: transaction.route,
+    commitState: "created",
+    commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null,
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: true,
+    code: "COMMIT_CONTINUATION_REQUIRED",
+    message: error.message,
+    exitCode: 3
+  };
+}
+async function createCommitWorkflow({
+  transactionPath,
+  approvedSubject = null,
+  checksPath = null,
+  retainReviewArtifacts = false,
+  retainProcessLogs = false,
+  verificationPolicyOverride = null,
+  environment = process.env,
+  processLauncher = spawn2,
+  diagnosticWriter = process.stderr,
+  signatureVerifier = verifyCommitSignature,
+  signaturePreflightInspector = inspectSignatureRequirements,
+  failureInjector = () => {
+  }
+}) {
+  assertNoGitStorageOverrides2(environment);
+  let transaction = readTransaction(transactionPath);
+  if (transaction.mode !== "actual") {
+    fail6(
+      "DRAFT_REQUIRES_PROMOTION",
+      "A draft transaction must be promoted before commit creation."
+    );
+  }
+  if (verificationPolicyOverride !== null && !VERIFICATION_POLICIES3.has(verificationPolicyOverride)) {
+    fail6(
+      "INVALID_VERIFICATION_POLICY",
+      "Verification override must be required, advisory, or skipped."
+    );
+  }
+  const finalPolicy = verificationPolicyOverride ?? transaction.verificationPolicy;
+  transaction = preflightCommitVerification({
+    transactionPath,
+    transaction,
+    finalPolicy,
+    signaturePreflightInspector
+  });
+  const manifest = readSnapshot(transactionPath, transaction);
+  const message = selectCanonicalMessage({
+    transactionPath,
+    transaction,
+    manifest,
+    approvedSubject
+  });
+  transaction = readTransaction(transactionPath);
+  failureInjector("before-snapshot-verification");
+  const snapshotVerification = verifySnapshotAgainstRepository({
+    root: transaction.repositoryRoot,
+    manifest,
+    headAnchor: transaction.headAnchor
+  });
+  if (!snapshotVerification.valid) {
+    const stopped = advanceTransaction(transactionPath, transaction.phase, {
+      ...transaction,
+      phase: "stopped",
+      status: "stopped",
+      terminalDisposition: "no-commit-stopped"
+    });
+    return {
+      schemaVersion: 1,
+      status: "stopped",
+      phase: stopped.phase,
+      terminalDisposition: stopped.terminalDisposition,
+      transaction: resolve13(transactionPath),
+      route: stopped.route,
+      commitState: "absent",
+      publicationState: "not-requested",
+      publicationAllowed: false,
+      recoveryRequired: false,
+      code: "SNAPSHOT_DRIFT",
+      snapshotVerification,
+      exitCode: 1
+    };
+  }
+  const checks = readChecksArtifact(checksPath);
+  const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const commit = {
+    status: "pending",
+    launchState: "not-started",
+    childIdentity: null,
+    headAnchor: transaction.headAnchor,
+    expectedTreeOid: transaction.snapshot.indexTreeOid,
+    messageSha256: message.messageSha256,
+    messageByteCount: message.byteCount,
+    checks: {
+      value: checks.value,
+      sha256: sha2565(checks.bytes),
+      externalPath: checks.externalPath
+    },
+    startedAt,
+    completion: null,
+    transcript: null,
+    commitOid: null,
+    comparison: null,
+    observationProvenance: null,
+    recoveryObservations: null,
+    recoveryResolution: null
+  };
+  advanceTransaction(transactionPath, "message-ready", {
+    ...transaction,
+    phase: "commit-pending",
+    status: "outcome-unknown",
+    terminalDisposition: null,
+    commit
+  });
+  try {
+    failureInjector("after-pending-journal-before-git");
+    transaction = updateCommitJournal(transactionPath, (journal) => ({
+      ...journal,
+      launchState: "launching"
+    }));
+    failureInjector("after-launching-before-spawn");
+    let child;
+    try {
+      child = processLauncher(
+        "git",
+        ["commit", "--cleanup=verbatim", "-S", "-F", message.messagePath],
+        {
+          cwd: transaction.repositoryRoot,
+          env: {
+            ...environment,
+            GIT_PAGER: "cat",
+            PAGER: "cat",
+            NO_COLOR: "1"
+          },
+          windowsHide: true,
+          stdio: ["inherit", "pipe", "pipe"]
+        }
+      );
+    } catch (error) {
+      updateCommitJournal(transactionPath, (journal) => ({
+        ...journal,
+        launchState: "completed",
+        completion: {
+          exitCode: null,
+          signal: null,
+          transcriptCompletionSha256: null,
+          nonLaunchGuaranteed: true,
+          launchError: { code: error.code ?? null, message: error.message }
+        }
+      }));
+      throw error;
+    }
+    const childIdentity = captureChildIdentity(child.pid);
+    if (childIdentity !== null) {
+      transaction = updateCommitJournal(transactionPath, (journal) => ({
+        ...journal,
+        launchState: "running",
+        childIdentity
+      }));
+    }
+    const transcript = await captureGitProcessTranscript({
+      transactionPath,
+      operation: "commit",
+      child,
+      diagnosticWriter
+    });
+    if (transcript.launchError !== null && childIdentity === null) {
+      throw new Error(
+        `Commit launcher emitted an asynchronous error without a child identity: ${transcript.launchError.message}`
+      );
+    }
+    transaction = updateCommitJournal(transactionPath, (journal) => ({
+      ...journal,
+      launchState: "completed",
+      transcript: transcriptFacts(transcript),
+      completion: {
+        exitCode: transcript.status,
+        signal: transcript.signal,
+        transcriptCompletionSha256: transcript.completionSha256,
+        nonLaunchGuaranteed: false,
+        launchError: transcript.launchError
+      }
+    }));
+    failureInjector("after-head-update-before-oid");
+    const recovery = recoverCommitOutcome({
+      transactionPath,
+      witnessCompletedChild: true
+    });
+    if (!(/* @__PURE__ */ new Set(["matching-commit-observed", "created-commit-observed"])).has(
+      recovery.status
+    )) {
+      return recovery;
+    }
+    transaction = updateCommitJournal(transactionPath, (journal) => ({
+      ...journal,
+      status: "created",
+      observationProvenance: "witnessed"
+    }));
+    failureInjector("after-oid-before-verification");
+    return completeRecordedCommit({
+      transactionPath,
+      verificationPolicyOverride,
+      retainReviewArtifacts,
+      retainProcessLogs,
+      signatureVerifier,
+      failureInjector
+    });
+  } catch (error) {
+    const current = readTransaction(transactionPath);
+    if (current.phase === "reported") {
+      return readRecordedReport(transactionPath);
+    }
+    let recovery;
+    try {
+      recovery = recoverCommitOutcome({ transactionPath });
+    } catch (recoveryError) {
+      return {
+        schemaVersion: 1,
+        status: "outcome-unknown",
+        phase: current.phase,
+        terminalDisposition: current.terminalDisposition,
+        transaction: resolve13(transactionPath),
+        route: current.route,
+        commitState: current.commit?.commitOid ? "created" : "unknown",
+        publicationState: "not-requested",
+        publicationAllowed: false,
+        recoveryRequired: true,
+        code: "COMMIT_RECOVERY_FAILED",
+        message: `${error.message}; recovery failed: ${recoveryError.message}`,
+        exitCode: 4
+      };
+    }
+    return recovery.status === "matching-commit-observed" ? incompleteKnownCommitResult(transactionPath, error, recovery) : recovery;
+  }
+}
+function retrySignatureVerificationWorkflow({
+  transactionPath,
+  verificationPolicyOverride = null,
+  signatureVerifier = verifyCommitSignature
+}) {
+  let transaction = readTransaction(transactionPath);
+  if (transaction.phase !== "reported" || transaction.commit?.commitOid === null) {
+    fail6(
+      "VERIFICATION_RETRY_NOT_ALLOWED",
+      "Verification retry requires one already reported commit.",
+      { exitCode: 3 }
+    );
+  }
+  const previous = transaction.verification;
+  const finalPolicy = verificationPolicyOverride ?? previous.finalPolicy ?? transaction.verificationPolicy;
+  const attempt = verificationAttemptFor({
+    transaction,
+    finalPolicy,
+    signatureVerifier
+  });
+  const verification = applyVerificationPolicy({
+    commitOid: transaction.commit.commitOid,
+    initialPolicy: transaction.verificationPolicy,
+    finalPolicy,
+    verificationAttempt: attempt,
+    previousVerification: previous
+  });
+  const manifest = readSnapshot(transactionPath, transaction);
+  const message = readCanonicalMessage(transactionPath);
+  const report = collectCommitReport({
+    root: transaction.repositoryRoot,
+    commitOid: transaction.commit.commitOid,
+    manifest,
+    approvedMessage: message.bytes,
+    verification,
+    checks: transaction.commit.checks.value
+  });
+  const displayText = renderCommitReport(report);
+  const publicationAllowed = transaction.commit.comparison.parentMatches && transaction.commit.comparison.treeMatches && transaction.commit.comparison.messageMatches && transaction.commit.comparison.signatureHeaderPresent && !verification.blocksPush;
+  const reportBytes = canonicalJsonBytes3(report);
+  const textBytes = Buffer.from(displayText, "utf8");
+  atomicWrite(transaction.report.jsonPath, reportBytes);
+  atomicWrite(transaction.report.textPath, textBytes);
+  transaction = updateTransaction(transactionPath, "reported", {
+    ...transaction,
+    status: publicationAllowed ? "reported" : "commit-blocked",
+    verification,
+    report: {
+      ...transaction.report,
+      jsonSha256: sha2565(reportBytes),
+      textSha256: sha2565(textBytes),
+      publicationAllowed
+    }
+  });
+  const effective = verification.attempts[verification.effectiveAttempt];
+  return {
+    schemaVersion: 1,
+    status: publicationAllowed ? "verified" : "commit-blocked",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve13(transactionPath),
+    route: transaction.route,
+    commitState: "created",
+    commitOid: transaction.commit.commitOid,
+    publicationState: "not-requested",
+    publicationAllowed,
+    recoveryRequired: false,
+    verification,
+    displayText: `Verification for ${transaction.commit.commitOid}: ${effective.status}${effective.reason ? ` (${effective.reason})` : ""}
+`,
+    exitCode: publicationAllowed ? 0 : 3
+  };
+}
+function parseFlags(argv) {
+  const values = /* @__PURE__ */ new Map();
+  const booleans = /* @__PURE__ */ new Set(["retain-review-artifacts", "retain-process-logs"]);
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token?.startsWith("--")) {
+      fail6("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+    }
+    const name = token.slice(2);
+    if (values.has(name)) {
+      fail6("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+    }
+    if (booleans.has(name)) {
+      values.set(name, true);
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === void 0 || value.startsWith("--")) {
+      fail6("INVALID_ARGUMENT", `--${name} requires a value.`);
+    }
+    values.set(name, value);
+    index += 1;
+  }
+  return values;
+}
+function commandOutput(result, format) {
+  return format === "text" ? result.displayText ?? `Status: ${result.status}
+Code: ${result.code ?? "none"}
+` : `${JSON.stringify(result)}
+`;
+}
+async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags(argv);
+    const allowed = /* @__PURE__ */ new Set([
+      "transaction",
+      "message",
+      "verification",
+      "checks",
+      "retain-review-artifacts",
+      "retain-process-logs",
+      "format"
+    ]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        fail6("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+      fail6("INVALID_FORMAT", "--format must be json or text.");
+    }
+    const transactionPath = flags4.get("transaction");
+    if (!transactionPath) {
+      fail6("TRANSACTION_REQUIRED", "--transaction is required.");
+    }
+    const result = await createCommitWorkflow({
+      transactionPath,
+      approvedSubject: flags4.get("message") ?? null,
+      checksPath: flags4.get("checks") ?? null,
+      retainReviewArtifacts: flags4.get("retain-review-artifacts") === true,
+      retainProcessLogs: flags4.get("retain-process-logs") === true,
+      verificationPolicyOverride: flags4.get("verification") ?? null
+    });
+    stdout.write(commandOutput(result, format));
+    return result.exitCode;
+  } catch (caught) {
+    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("COMMIT_WORKFLOW_FAILED", caught.message);
+    const result = {
+      schemaVersion: 1,
+      status: "invalid",
+      phase: null,
+      terminalDisposition: null,
+      transaction: null,
+      route: null,
+      commitState: "absent",
+      publicationState: "not-requested",
+      publicationAllowed: false,
+      recoveryRequired: false,
+      code: error.code,
+      message: error.message,
+      exitCode: error.exitCode,
+      ...error.details
+    };
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(commandOutput(result, format));
+    return error.exitCode;
+  }
+}
+async function runRetryVerificationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags(argv);
+    const allowed = /* @__PURE__ */ new Set(["transaction", "verification", "format"]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        fail6("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+      fail6("INVALID_FORMAT", "--format must be json or text.");
+    }
+    const transactionPath = flags4.get("transaction");
+    if (!transactionPath) {
+      fail6("TRANSACTION_REQUIRED", "--transaction is required.");
+    }
+    const result = retrySignatureVerificationWorkflow({
+      transactionPath,
+      verificationPolicyOverride: flags4.get("verification") ?? null
+    });
+    stdout.write(commandOutput(result, format));
+    return result.exitCode;
+  } catch (caught) {
+    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError(
+      "VERIFICATION_WORKFLOW_FAILED",
+      caught.message,
+      {
+        exitCode: 3
+      }
+    );
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      commandOutput(
+        {
+          status: "commit-blocked",
+          code: error.code,
+          message: error.message
+        },
+        format
+      )
+    );
+    return error.exitCode;
+  }
+}
+var MAXIMUM_CHECKS_INPUT_BYTES, MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER6, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
+var init_createCommitWorkflow = __esm({
+  "src/committing-to-git/workflow/createCommitWorkflow.js"() {
+    init_snapshotVerificationCommand();
+    init_gitProcessTranscript();
+    init_approvedMessage();
+    init_canonicalMessageState();
+    init_commitReport();
+    init_commitSignature();
+    init_signaturePreflight();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    MAXIMUM_CHECKS_INPUT_BYTES = 1024 * 1024;
+    MAXIMUM_COMMIT_RESULT_BYTES = 80 * 1024;
+    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    VERIFICATION_POLICIES3 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    STORAGE_OVERRIDE_NAMES2 = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_QUARANTINE_PATH",
+      "GIT_NAMESPACE"
+    ];
+    CommitWorkflowError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "CommitWorkflowError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/workflow/recoverTransactionWorkflow.js
+var recoverTransactionWorkflow_exports = {};
+__export(recoverTransactionWorkflow_exports, {
+  recoverTransactionWorkflow: () => recoverTransactionWorkflow,
+  runCleanupTransactionCommand: () => runCleanupTransactionCommand,
+  runRecoverTransactionCommand: () => runRecoverTransactionCommand
+});
+import { resolve as resolve14 } from "node:path";
+function invalid(code, message, exitCode = 2) {
+  throw new CommitWorkflowError(code, message, { exitCode });
+}
+function recoverTransactionWorkflow({
+  transactionPath,
+  resolution = null,
+  verificationPolicyOverride = null,
+  retainReviewArtifacts = false,
+  retainProcessLogs = false
+}) {
+  if (!RESOLUTIONS.has(resolution)) {
+    invalid(
+      "INVALID_RECOVERY_RESOLUTION",
+      "Recovery resolution must be confirmed-no-live-child when supplied."
+    );
+  }
+  recoverCanonicalMessageReplacement(transactionPath);
+  const transaction = readTransaction(transactionPath);
+  if (transaction.phase === "reported") {
+    return readRecordedReport(transactionPath);
+  }
+  if (transaction.phase === "commit-pending") {
+    const recovery = recoverCommitOutcome({ transactionPath, resolution });
+    if (recovery.status !== "matching-commit-observed") {
+      return recovery;
+    }
+    try {
+      return completeRecordedCommit({
+        transactionPath,
+        verificationPolicyOverride,
+        retainReviewArtifacts,
+        retainProcessLogs
+      });
+    } catch (error) {
+      const current = readTransaction(transactionPath);
+      return {
+        schemaVersion: 1,
+        status: "commit-blocked",
+        phase: current.phase,
+        terminalDisposition: current.terminalDisposition,
+        transaction: resolve14(transactionPath),
+        route: current.route,
+        commitState: "created",
+        commitOid: current.commit.commitOid,
+        publicationState: "not-requested",
+        publicationAllowed: false,
+        recoveryRequired: true,
+        code: error.code ?? "COMMIT_CONTINUATION_FAILED",
+        message: error.message,
+        exitCode: 3
+      };
+    }
+  }
+  if ((/* @__PURE__ */ new Set(["stopped", "abandoned", "superseded", "published"])).has(
+    transaction.phase
+  )) {
+    return {
+      schemaVersion: 1,
+      status: transaction.status,
+      phase: transaction.phase,
+      terminalDisposition: transaction.terminalDisposition,
+      transaction: resolve14(transactionPath),
+      route: transaction.route,
+      commitState: transaction.commit?.commitOid ? "created" : "absent",
+      commitOid: transaction.commit?.commitOid ?? null,
+      publicationState: transaction.phase === "published" ? "published" : "not-requested",
+      publicationAllowed: transaction.report?.publicationAllowed ?? false,
+      recoveryRequired: false,
+      exitCode: transaction.phase === "stopped" ? 1 : 0
+    };
+  }
+  invalid(
+    "RECOVERY_NOT_REQUIRED",
+    `Transaction phase ${transaction.phase} has no irreversible journal to recover.`,
+    1
+  );
+}
+function parseFlags2(argv, booleanFlags = /* @__PURE__ */ new Set()) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token?.startsWith("--")) {
+      invalid(
+        "INVALID_ARGUMENT",
+        `Unexpected argument ${JSON.stringify(token)}.`
+      );
+    }
+    const name = token.slice(2);
+    if (values.has(name)) {
+      invalid("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+    }
+    if (booleanFlags.has(name)) {
+      values.set(name, true);
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === void 0 || value.startsWith("--")) {
+      invalid("INVALID_ARGUMENT", `--${name} requires a value.`);
+    }
+    values.set(name, value);
+    index += 1;
+  }
+  return values;
+}
+function output(result, format) {
+  return format === "text" ? result.displayText ?? `Status: ${result.status}
+Code: ${result.code ?? "none"}
+` : `${JSON.stringify(result)}
+`;
+}
+function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags2(argv);
+    const allowed = /* @__PURE__ */ new Set(["transaction", "resolution", "format"]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        invalid("UNKNOWN_ARGUMENT", `Unknown workflow recover flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    const transactionPath = flags4.get("transaction");
+    if (!transactionPath) {
+      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
+    }
+    const result = recoverTransactionWorkflow({
+      transactionPath,
+      resolution: flags4.get("resolution") ?? null
+    });
+    stdout.write(output(result, format));
+    return result.exitCode;
+  } catch (caught) {
+    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("RECOVERY_WORKFLOW_FAILED", caught.message);
+    const result = {
+      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
+      code: error.code,
+      message: error.message,
+      exitCode: error.exitCode
+    };
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(output(result, format));
+    return error.exitCode;
+  }
+}
+function runCleanupTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags2(argv, /* @__PURE__ */ new Set(["purge"]));
+    const allowed = /* @__PURE__ */ new Set(["transaction", "purge", "format"]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        invalid("UNKNOWN_ARGUMENT", `Unknown workflow cleanup flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    const transactionPath = flags4.get("transaction");
+    if (!transactionPath) {
+      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
+    }
+    const result = flags4.get("purge") ? purgeTransaction({ transactionPath }) : compactTerminalTransaction({ transactionPath });
+    stdout.write(output({ ...result, exitCode: 0 }, format));
+    return 0;
+  } catch (caught) {
+    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("CLEANUP_WORKFLOW_FAILED", caught.message);
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      output(
+        {
+          status: "invalid",
+          code: error.code,
+          message: error.message,
+          exitCode: 2
+        },
+        format
+      )
+    );
+    return 2;
+  }
+}
+var RESOLUTIONS;
+var init_recoverTransactionWorkflow = __esm({
+  "src/committing-to-git/workflow/recoverTransactionWorkflow.js"() {
+    init_canonicalMessageState();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    init_createCommitWorkflow();
+    RESOLUTIONS = /* @__PURE__ */ new Set([null, "confirmed-no-live-child"]);
+  }
+});
+
+// src/committing-to-git/command/snapshotCommand.js
+var snapshotCommand_exports = {};
+import { readFileSync as readFileSync12 } from "node:fs";
+import { resolve as resolve15 } from "node:path";
 function usageError(message) {
   console.error(message);
   console.error(
@@ -9986,7 +12883,7 @@ function usageError(message) {
   );
   process.exit(2);
 }
-function parseArguments(argv) {
+function parseArguments2(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index];
@@ -9999,14 +12896,14 @@ function parseArguments(argv) {
   const mode = values.get("mode");
   const scope = values.get("scope");
   const scopeFile = values.get("scope-file");
-  const output = values.get("output");
+  const output2 = values.get("output");
   if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
     usageError("--mode must be actual or draft.");
   }
   if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
     usageError("--scope must be staged, full, or paths.");
   }
-  if (!output) {
+  if (!output2) {
     usageError("--output is required.");
   }
   if (scope === "paths" && !scopeFile) {
@@ -10015,12 +12912,12 @@ function parseArguments(argv) {
   return {
     mode,
     scope,
-    scopeFile: scopeFile ? resolve10(scopeFile) : null,
-    output: resolve10(output)
+    scopeFile: scopeFile ? resolve15(scopeFile) : null,
+    output: resolve15(output2)
   };
 }
 function readScopePaths(path) {
-  const payload = JSON.parse(readFileSync8(path, "utf8"));
+  const payload = JSON.parse(readFileSync12(path, "utf8"));
   if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.some(
     (entry) => typeof entry !== "string" || entry.length === 0
   )) {
@@ -10038,7 +12935,7 @@ var init_snapshotCommand = __esm({
   "src/committing-to-git/command/snapshotCommand.js"() {
     init_gitRepository();
     init_createSnapshot();
-    options = parseArguments(process.argv.slice(2));
+    options = parseArguments2(process.argv.slice(2));
     try {
       const result = createSnapshot({
         root: repositoryRoot(),
@@ -10066,85 +12963,12 @@ var init_snapshotCommand = __esm({
   }
 });
 
-// src/committing-to-git/command/snapshotVerificationCommand.js
-var snapshotVerificationCommand_exports = {};
-import { readFileSync as readFileSync9 } from "node:fs";
-import { resolve as resolve11 } from "node:path";
-function usageError2(message) {
-  console.error(message);
-  console.error(
-    "Usage: node commitWorkflow.mjs snapshot verify --manifest <snapshot.json>"
-  );
-  process.exit(2);
-}
-function parseArguments2(argv) {
-  if (argv.length !== 2 || argv[0] !== "--manifest" || !argv[1]) {
-    usageError2("--manifest is required.");
-  }
-  return resolve11(argv[1]);
-}
-function samePath2(left, right) {
-  const normalizedLeft = resolve11(left);
-  const normalizedRight = resolve11(right);
-  return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
-}
-function manifestEnvironment2(manifest) {
-  if (manifest.sourceIndex !== "temporary" || !manifest.indexFile) {
-    return void 0;
-  }
-  return {
-    GIT_INDEX_FILE: manifest.indexFile,
-    ...manifest.temporaryObjectDirectory ? { GIT_OBJECT_DIRECTORY: manifest.temporaryObjectDirectory } : {},
-    ...Array.isArray(manifest.objectAlternates) && manifest.objectAlternates.length > 0 ? {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: formatGitAlternatePaths(
-        manifest.objectAlternates
-      )
-    } : {}
-  };
-}
-var init_snapshotVerificationCommand = __esm({
-  "src/committing-to-git/command/snapshotVerificationCommand.js"() {
-    init_gitRepository();
-    init_createSnapshot();
-    try {
-      const manifestPath2 = parseArguments2(process.argv.slice(2));
-      const manifest = JSON.parse(readFileSync9(manifestPath2, "utf8"));
-      const root = repositoryRoot();
-      const repositoryMatches = typeof manifest.repositoryRoot === "string" && samePath2(root, manifest.repositoryRoot);
-      const env = manifestEnvironment2(manifest);
-      const actualHeadOid = repositoryMatches ? resolveHead(root, env) : null;
-      const treeMatches = repositoryMatches ? indexMatchesTree(root, manifest.indexTreeOid, env) : false;
-      const actualTreeOid = treeMatches ? manifest.indexTreeOid : null;
-      const activeOperations = repositoryMatches ? activeGitOperations(root) : [];
-      const result = {
-        schemaVersion: 1,
-        valid: repositoryMatches && actualHeadOid === manifest.headOid && treeMatches && activeOperations.length === 0,
-        repositoryMatches,
-        headMatches: repositoryMatches && actualHeadOid === manifest.headOid,
-        treeMatches,
-        operationClear: repositoryMatches && activeOperations.length === 0,
-        expectedHeadOid: manifest.headOid ?? null,
-        actualHeadOid,
-        expectedTreeOid: manifest.indexTreeOid ?? null,
-        actualTreeOid,
-        activeOperations
-      };
-      process.stdout.write(`${JSON.stringify(result, null, 2)}
-`);
-      process.exit(result.valid ? 0 : 1);
-    } catch (error) {
-      console.error(`Commit snapshot verification failed: ${error.message}`);
-      process.exit(2);
-    }
-  }
-});
-
 // src/committing-to-git/inspection/changeInspection.js
-import { createHash as createHash10 } from "node:crypto";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync10, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname7, join as join8 } from "node:path";
-function sha2564(buffer) {
-  return createHash10("sha256").update(buffer).digest("hex");
+import { createHash as createHash14 } from "node:crypto";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync13, writeFileSync as writeFileSync10 } from "node:fs";
+import { dirname as dirname9, join as join11 } from "node:path";
+function sha2566(buffer) {
+  return createHash14("sha256").update(buffer).digest("hex");
 }
 function utf8SafeBoundary(buffer, start, end) {
   const isContinuation = (byte) => byte >= 128 && byte <= 191;
@@ -10195,21 +13019,21 @@ function isWholeDeletion(unit) {
   return unit?.oldMode !== "000000" && unit?.newMode === "000000";
 }
 function writeInspection({ outputDir, manifest, patch }) {
-  const chunksDir = join8(outputDir, "chunks");
-  const deletionsDir = join8(outputDir, "deletions");
-  const inventoryDir = join8(outputDir, "inventory");
-  const metadataDir = join8(outputDir, "metadata");
+  const chunksDir = join11(outputDir, "chunks");
+  const deletionsDir = join11(outputDir, "deletions");
+  const inventoryDir = join11(outputDir, "inventory");
+  const metadataDir = join11(outputDir, "metadata");
   const chunks = splitPatch(patch);
   const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
   const summarizedTextDeletionLines = summarizedDeletions.reduce(
     (total, unit) => total + (!unit.binary && unit.oldMode !== "160000" && Number.isInteger(unit.deletions) ? unit.deletions : 0),
     0
   );
-  mkdirSync8(outputDir);
-  mkdirSync8(chunksDir);
-  mkdirSync8(deletionsDir);
-  mkdirSync8(inventoryDir);
-  mkdirSync8(metadataDir);
+  mkdirSync9(outputDir);
+  mkdirSync9(chunksDir);
+  mkdirSync9(deletionsDir);
+  mkdirSync9(inventoryDir);
+  mkdirSync9(metadataDir);
   const inventoryPayload = Buffer.from(
     [
       "# Commit snapshot change inventory",
@@ -10226,7 +13050,7 @@ function writeInspection({ outputDir, manifest, patch }) {
     ({ payload, start, end, lineCount: lineCount2 }, index) => {
       const id = `I${String(index + 1).padStart(6, "0")}`;
       const artifact = `inventory/${id}.md`;
-      writeFileSync9(join8(outputDir, artifact), payload);
+      writeFileSync10(join11(outputDir, artifact), payload);
       return {
         id,
         kind: "inventory-page",
@@ -10235,7 +13059,7 @@ function writeInspection({ outputDir, manifest, patch }) {
         byteEnd: end,
         byteCount: payload.length,
         lineCount: lineCount2,
-        sha256: sha2564(payload),
+        sha256: sha2566(payload),
         status: "pending"
       };
     }
@@ -10243,7 +13067,7 @@ function writeInspection({ outputDir, manifest, patch }) {
   const textUnits = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
     const id = `C${String(index + 1).padStart(6, "0")}`;
     const artifact = `chunks/${id}.patch`;
-    writeFileSync9(join8(outputDir, artifact), payload);
+    writeFileSync10(join11(outputDir, artifact), payload);
     return {
       id,
       kind: "text-patch",
@@ -10252,7 +13076,7 @@ function writeInspection({ outputDir, manifest, patch }) {
       byteEnd: end,
       byteCount: payload.length,
       lineCount: lineCount2,
-      sha256: sha2564(payload),
+      sha256: sha2566(payload),
       status: "pending"
     };
   });
@@ -10275,7 +13099,7 @@ function writeInspection({ outputDir, manifest, patch }) {
     };
     const payload = Buffer.from(`${JSON.stringify(metadata, null, 2)}
 `);
-    writeFileSync9(join8(outputDir, artifact), payload);
+    writeFileSync10(join11(outputDir, artifact), payload);
     return {
       id,
       kind: unit.binary ? "binary-metadata" : "submodule-metadata",
@@ -10284,7 +13108,7 @@ function writeInspection({ outputDir, manifest, patch }) {
       byteEnd: payload.length,
       byteCount: payload.length,
       lineCount: payload.toString("utf8").split("\n").length - 1,
-      sha256: sha2564(payload),
+      sha256: sha2566(payload),
       status: "pending"
     };
   });
@@ -10292,7 +13116,7 @@ function writeInspection({ outputDir, manifest, patch }) {
   const ledger = {
     schemaVersion: 2,
     indexTreeOid: manifest.indexTreeOid,
-    reviewPatchSha256: sha2564(patch),
+    reviewPatchSha256: sha2566(patch),
     reviewPatchBytes: patch.length,
     summarizedDeletionCount: summarizedDeletions.length,
     summarizedTextDeletionLines,
@@ -10322,16 +13146,16 @@ function writeInspection({ outputDir, manifest, patch }) {
     "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
     ""
   ].join("\n");
-  writeFileSync9(join8(outputDir, "inventory.md"), inventory);
-  writeFileSync9(
-    join8(outputDir, "ledger.json"),
+  writeFileSync10(join11(outputDir, "inventory.md"), inventory);
+  writeFileSync10(
+    join11(outputDir, "ledger.json"),
     `${JSON.stringify(ledger, null, 2)}
 `
   );
   return ledger;
 }
 function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content }) {
-  const ledger = JSON.parse(readFileSync10(ledgerPath2, "utf8"));
+  const ledger = JSON.parse(readFileSync13(ledgerPath2, "utf8"));
   if (ledger.schemaVersion !== 2) {
     throw new Error(
       "Deletion expansion requires an inspection ledger version 2."
@@ -10342,15 +13166,15 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
   )) {
     throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
   }
-  const inspectionDir = dirname7(ledgerPath2);
-  const deletionDir = join8(inspectionDir, "deletions", changeUnit.id);
+  const inspectionDir = dirname9(ledgerPath2);
+  const deletionDir = join11(inspectionDir, "deletions", changeUnit.id);
   const chunks = splitPatch(content);
-  mkdirSync8(deletionDir);
+  mkdirSync9(deletionDir);
   const units = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
     const ordinal = `D${String(index + 1).padStart(6, "0")}`;
     const id = `${changeUnit.id}-${ordinal}`;
     const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
-    writeFileSync9(join8(inspectionDir, artifact), payload);
+    writeFileSync10(join11(inspectionDir, artifact), payload);
     return {
       id,
       kind: "deleted-content",
@@ -10360,7 +13184,7 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
       byteEnd: end,
       byteCount: payload.length,
       lineCount: lineCount2,
-      sha256: sha2564(payload),
+      sha256: sha2566(payload),
       status: "pending"
     };
   });
@@ -10368,7 +13192,7 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
     changeUnitId: changeUnit.id,
     oldOid: changeUnit.oldOid,
     byteCount: content.length,
-    sha256: sha2564(content),
+    sha256: sha2566(content),
     unitIds: units.map(({ id }) => id)
   };
   ledger.expandedDeletions.push(expansion);
@@ -10378,18 +13202,18 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
     ({ status }) => status === "reviewed"
   ).length;
   ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync9(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+  writeFileSync10(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
 `);
   return { ledger, expansion, units };
 }
 function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) {
-  const ledger = JSON.parse(readFileSync10(ledgerPath2, "utf8"));
+  const ledger = JSON.parse(readFileSync13(ledgerPath2, "utf8"));
   const unit = ledger.units.find((candidate) => candidate.id === id);
   if (!unit) {
     throw new Error(`Unknown inspection unit ${id}.`);
   }
-  const artifactPath2 = join8(dirname7(ledgerPath2), unit.artifact);
-  const actualSha256 = sha2564(readFileSync10(artifactPath2));
+  const artifactPath2 = join11(dirname9(ledgerPath2), unit.artifact);
+  const actualSha256 = sha2566(readFileSync13(artifactPath2));
   if (actualSha256 !== unit.sha256 || actualSha256 !== expectedSha256) {
     throw new Error(`Inspection unit ${id} changed after it was generated.`);
   }
@@ -10398,7 +13222,7 @@ function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) 
     ({ status }) => status === "reviewed"
   ).length;
   ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync9(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+  writeFileSync10(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
 `);
   return ledger;
 }
@@ -10412,20 +13236,20 @@ var init_changeInspection = __esm({
 
 // src/committing-to-git/command/inspectionCommand.js
 var inspectionCommand_exports = {};
-import { readFileSync as readFileSync11 } from "node:fs";
-import { resolve as resolve12 } from "node:path";
-function usageError3(message) {
+import { readFileSync as readFileSync14 } from "node:fs";
+import { resolve as resolve16 } from "node:path";
+function usageError2(message) {
   console.error(message);
   console.error(
     "Usage: node commitWorkflow.mjs inspection prepare --manifest <snapshot.json> --output-dir <directory> | inspection expand-deletion --manifest <snapshot.json> --ledger <ledger.json> --change-unit <F000001> | inspection acknowledge --ledger <ledger.json> --id <id> --sha256 <hash> | inspection status --ledger <ledger.json>"
   );
   process.exit(2);
 }
-function parseFlags(argv) {
+function parseFlags3(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError3(`Invalid argument near ${JSON.stringify(argv[index])}.`);
+      usageError2(`Invalid argument near ${JSON.stringify(argv[index])}.`);
     }
     values.set(argv[index].slice(2), argv[index + 1]);
   }
@@ -10434,7 +13258,7 @@ function parseFlags(argv) {
 function required(values, name) {
   const value = values.get(name);
   if (!value) {
-    usageError3(`--${name} is required.`);
+    usageError2(`--${name} is required.`);
   }
   return value;
 }
@@ -10474,14 +13298,14 @@ var init_inspectionCommand = __esm({
     init_gitRepository();
     init_createSnapshot();
     [command, ...flagArguments] = process.argv.slice(2);
-    flags = parseFlags(flagArguments);
+    flags = parseFlags3(flagArguments);
     try {
       if (command === "prepare") {
-        const manifestPath2 = resolve12(required(flags, "manifest"));
-        const outputDir = resolve12(required(flags, "output-dir"));
-        const manifest = JSON.parse(readFileSync11(manifestPath2, "utf8"));
+        const manifestPath2 = resolve16(required(flags, "manifest"));
+        const outputDir = resolve16(required(flags, "output-dir"));
+        const manifest = JSON.parse(readFileSync14(manifestPath2, "utf8"));
         const root = repositoryRoot();
-        if (resolve12(manifest.repositoryRoot) !== resolve12(root)) {
+        if (resolve16(manifest.repositoryRoot) !== resolve16(root)) {
           throw new Error("Snapshot manifest belongs to a different repository.");
         }
         const ledger = writeInspection({
@@ -10492,7 +13316,7 @@ var init_inspectionCommand = __esm({
         process.stdout.write(
           `${JSON.stringify(
             {
-              ledger: resolve12(outputDir, "ledger.json"),
+              ledger: resolve16(outputDir, "ledger.json"),
               unitCount: ledger.unitCount,
               requiredTextChunkCount: ledger.units.filter(
                 ({ kind }) => kind === "text-patch"
@@ -10506,13 +13330,13 @@ var init_inspectionCommand = __esm({
 `
         );
       } else if (command === "expand-deletion") {
-        const manifestPath2 = resolve12(required(flags, "manifest"));
-        const ledgerPath2 = resolve12(required(flags, "ledger"));
+        const manifestPath2 = resolve16(required(flags, "manifest"));
+        const ledgerPath2 = resolve16(required(flags, "ledger"));
         const changeUnitId = required(flags, "change-unit");
-        const manifest = JSON.parse(readFileSync11(manifestPath2, "utf8"));
-        const ledger = JSON.parse(readFileSync11(ledgerPath2, "utf8"));
+        const manifest = JSON.parse(readFileSync14(manifestPath2, "utf8"));
+        const ledger = JSON.parse(readFileSync14(ledgerPath2, "utf8"));
         const root = repositoryRoot();
-        if (resolve12(manifest.repositoryRoot) !== resolve12(root)) {
+        if (resolve16(manifest.repositoryRoot) !== resolve16(root)) {
           throw new Error("Snapshot manifest belongs to a different repository.");
         }
         if (ledger.indexTreeOid !== manifest.indexTreeOid) {
@@ -10581,7 +13405,7 @@ var init_inspectionCommand = __esm({
         );
       } else if (command === "ack") {
         const ledger = acknowledgeInspection({
-          ledgerPath: resolve12(required(flags, "ledger")),
+          ledgerPath: resolve16(required(flags, "ledger")),
           id: required(flags, "id"),
           expectedSha256: required(flags, "sha256")
         });
@@ -10589,12 +13413,12 @@ var init_inspectionCommand = __esm({
 `);
       } else if (command === "status") {
         const ledger = JSON.parse(
-          readFileSync11(resolve12(required(flags, "ledger")), "utf8")
+          readFileSync14(resolve16(required(flags, "ledger")), "utf8")
         );
         process.stdout.write(`${JSON.stringify(ledger, null, 2)}
 `);
       } else {
-        usageError3("Expected prepare, expand-deletion, ack, or status command.");
+        usageError2("Expected prepare, expand-deletion, ack, or status command.");
       }
     } catch (error) {
       console.error(`Commit scope inspection failed: ${error.message}`);
@@ -10605,20 +13429,20 @@ var init_inspectionCommand = __esm({
 
 // src/committing-to-git/command/messageCommand.js
 var messageCommand_exports = {};
-import { existsSync as existsSync11, mkdirSync as mkdirSync9, readFileSync as readFileSync12, writeFileSync as writeFileSync10 } from "node:fs";
-import { dirname as dirname8, resolve as resolve13 } from "node:path";
-function usageError4(message) {
+import { existsSync as existsSync13, mkdirSync as mkdirSync10, readFileSync as readFileSync15, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname10, resolve as resolve17 } from "node:path";
+function usageError3(message) {
   console.error(message);
   console.error(
     "Usage: node commitWorkflow.mjs message scaffold --manifest <snapshot.json> --output <content.json> --template <template.txt> | message render --manifest <snapshot.json> --content <content.json> --ledger <ledger.json> --output <commit-message.txt>"
   );
   process.exit(2);
 }
-function parseFlags2(argv) {
+function parseFlags4(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError4(`Invalid argument near ${JSON.stringify(argv[index])}.`);
+      usageError3(`Invalid argument near ${JSON.stringify(argv[index])}.`);
     }
     values.set(argv[index].slice(2), argv[index + 1]);
   }
@@ -10627,20 +13451,20 @@ function parseFlags2(argv) {
 function required2(flags4, name) {
   const value = flags4.get(name);
   if (!value) {
-    usageError4(`--${name} is required.`);
+    usageError3(`--${name} is required.`);
   }
-  return resolve13(value);
+  return resolve17(value);
 }
 function readJson(path) {
-  return JSON.parse(readFileSync12(path, "utf8"));
+  return JSON.parse(readFileSync15(path, "utf8"));
 }
 function writeText(path, text) {
-  mkdirSync9(dirname8(path), { recursive: true });
-  writeFileSync10(path, text);
+  mkdirSync10(dirname10(path), { recursive: true });
+  writeFileSync11(path, text);
 }
 function writeNewText(path, text) {
-  mkdirSync9(dirname8(path), { recursive: true });
-  writeFileSync10(path, text, { flag: "wx" });
+  mkdirSync10(dirname10(path), { recursive: true });
+  writeFileSync11(path, text, { flag: "wx" });
 }
 function containsScaffoldPlaceholder(value) {
   if (typeof value === "string") {
@@ -10664,42 +13488,42 @@ var init_messageCommand = __esm({
   "src/committing-to-git/command/messageCommand.js"() {
     init_commitMessageRenderer();
     [command2, ...flagArguments2] = process.argv.slice(2);
-    flags2 = parseFlags2(flagArguments2);
+    flags2 = parseFlags4(flagArguments2);
     try {
       const manifest = readJson(required2(flags2, "manifest"));
       if (command2 === "scaffold") {
-        const output = required2(flags2, "output");
+        const output2 = required2(flags2, "output");
         const template = required2(flags2, "template");
         const content = scaffoldLegacyContent(manifest);
-        if (existsSync11(output) || existsSync11(template)) {
+        if (existsSync13(output2) || existsSync13(template)) {
           throw new Error(
             "A scaffold output already exists; start a new attempt instead of replacing it."
           );
         }
-        writeNewText(output, `${JSON.stringify(content, null, 2)}
+        writeNewText(output2, `${JSON.stringify(content, null, 2)}
 `);
         writeNewText(template, renderLegacyScaffoldTemplate(manifest, content));
         process.stdout.write(
-          `${JSON.stringify({ output, template, mode: content.mode }, null, 2)}
+          `${JSON.stringify({ output: output2, template, mode: content.mode }, null, 2)}
 `
         );
       } else if (command2 === "render") {
         const content = readJson(required2(flags2, "content"));
         const ledger = readJson(required2(flags2, "ledger"));
-        const output = required2(flags2, "output");
+        const output2 = required2(flags2, "output");
         if (!ledger.complete || ledger.indexTreeOid !== manifest.indexTreeOid) {
           throw new Error(
             "Inspection ledger is incomplete or belongs to a different index tree."
           );
         }
         rejectPlaceholders(content);
-        writeText(output, renderLegacyCommitMessage(manifest, content));
+        writeText(output2, renderLegacyCommitMessage(manifest, content));
         process.stdout.write(
-          `${JSON.stringify({ output, mode: content.mode }, null, 2)}
+          `${JSON.stringify({ output: output2, mode: content.mode }, null, 2)}
 `
         );
       } else {
-        usageError4("Expected scaffold or render command.");
+        usageError3("Expected scaffold or render command.");
       }
     } catch (error) {
       console.error(`Commit-message preparation failed: ${error.message}`);
@@ -10714,7 +13538,7 @@ __export(commitMessageValidator_exports, {
   RECOMMENDED_COMMIT_TYPES: () => RECOMMENDED_COMMIT_TYPES2
 });
 import { execFileSync } from "node:child_process";
-import { readFileSync as readFileSync13 } from "node:fs";
+import { readFileSync as readFileSync16 } from "node:fs";
 function characterLength2(text) {
   let length = 0;
   for (const _ of text) {
@@ -11271,7 +14095,7 @@ function validateManifestMessage(text, manifest, content, ledger) {
     issues
   };
 }
-function usageError5(message) {
+function usageError4(message) {
   console.error(message);
   console.error(
     "Usage: node commitWorkflow.mjs message validate [--scope auto|staged|worktree] [--manifest <snapshot.json> --content <content.json> --ledger <ledger.json>] <commit-message-file>"
@@ -11313,10 +14137,10 @@ function parseArguments3(argv) {
     positional.push(argument);
   }
   if (positional.length !== 1) {
-    usageError5("Expected exactly one commit-message file path.");
+    usageError4("Expected exactly one commit-message file path.");
   }
   if (!ALLOWED_SCOPES.includes(requestedScope2)) {
-    usageError5(
+    usageError4(
       `Unknown scope '${requestedScope2}'. Expected one of: ${ALLOWED_SCOPES.join(", ")}.`
     );
   }
@@ -11325,7 +14149,7 @@ function parseArguments3(argv) {
     (value) => value !== null
   ).length;
   if (suppliedManifestInputs !== 0 && suppliedManifestInputs !== manifestInputs.length) {
-    usageError5(
+    usageError4(
       "--manifest, --content, and --ledger must be supplied together."
     );
   }
@@ -11358,12 +14182,12 @@ var init_commitMessageValidator = __esm({
     ({ messagePath, requestedScope, manifestPath, contentPath, ledgerPath } = parseArguments3(process.argv.slice(2)));
     try {
       const root = repositoryRoot2();
-      const message = readFileSync13(messagePath, "utf8");
+      const message = readFileSync16(messagePath, "utf8");
       let result;
       if (manifestPath) {
-        const manifest = JSON.parse(readFileSync13(manifestPath, "utf8"));
-        const content = JSON.parse(readFileSync13(contentPath, "utf8"));
-        const ledger = JSON.parse(readFileSync13(ledgerPath, "utf8"));
+        const manifest = JSON.parse(readFileSync16(manifestPath, "utf8"));
+        const content = JSON.parse(readFileSync16(contentPath, "utf8"));
+        const ledger = JSON.parse(readFileSync16(ledgerPath, "utf8"));
         result = validateManifestMessage(message, manifest, content, ledger);
       } else {
         const { resolved, files } = resolveScope(root, requestedScope);
@@ -11396,26 +14220,26 @@ __export(checkMessageWorkflow_exports, {
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-import { createHash as createHash11 } from "node:crypto";
-import { resolve as resolve14 } from "node:path";
-import { TextDecoder as TextDecoder7 } from "node:util";
-function fail6(code, message, options2) {
+import { createHash as createHash15 } from "node:crypto";
+import { resolve as resolve18 } from "node:path";
+import { TextDecoder as TextDecoder8 } from "node:util";
+function fail7(code, message, options2) {
   throw new MessageWorkflowError(code, message, options2);
 }
-function sha2565(bytes) {
-  return createHash11("sha256").update(bytes).digest("hex");
+function sha2567(bytes) {
+  return createHash15("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER6.decode(bytes);
+    text = STRICT_UTF8_DECODER7.decode(bytes);
   } catch {
-    fail6("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail7("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail6("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+    fail7("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
   }
 }
 function sameHeadAnchor(manifest, headAnchor) {
@@ -11433,22 +14257,22 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve14(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve14(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail6(
+  const expectedPath = resolve18(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve18(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail7(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
-  if (sha2565(bytes) !== transaction.snapshot.sha256) {
-    fail6(
+  if (sha2567(bytes) !== transaction.snapshot.sha256) {
+    fail7(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve14(manifest.repositoryRoot) !== resolve14(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
-    fail6(
+  if (resolve18(manifest.repositoryRoot) !== resolve18(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+    fail7(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -11466,7 +14290,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail6(
+    fail7(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -11481,7 +14305,7 @@ function commonResult(transactionPath, route, status, phase) {
     phase,
     terminalDisposition: null,
     route,
-    transaction: resolve14(transactionPath),
+    transaction: resolve18(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -11530,10 +14354,10 @@ function prospectiveCheckedResult({
 }
 function assertCheckTransaction(transaction, transactionPath) {
   if (transaction.route !== "concise" || !(/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail6(
+    fail7(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve14(transactionPath) } }
+      { details: { transaction: resolve18(transactionPath) } }
     );
   }
 }
@@ -11543,7 +14367,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail6("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail7("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -11598,25 +14422,25 @@ function parseMessageWorkflowArguments(argv, command4) {
     const token = argv[index];
     const value = argv[index + 1];
     if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail6("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
+      fail7("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
     }
     if (value === void 0 || value.length === 0) {
-      fail6("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+      fail7("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
     }
     if (values.has(token)) {
-      fail6("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+      fail7("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
     }
     values.set(token, value);
   }
   if (!values.has("--transaction")) {
-    fail6(
+    fail7(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command4}.`
     );
   }
   const format = values.get("--format") ?? "json";
   if (!FORMATS.has(format)) {
-    fail6("INVALID_FORMAT", "--format must be json or text.");
+    fail7("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("--transaction"), format };
 }
@@ -11626,7 +14450,7 @@ function messageErrorResult(error, transactionPath = null) {
     status: error.exitCode === 1 ? "evidence-required" : "invalid",
     phase: error.details?.phase ?? null,
     terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve14(transactionPath) : null),
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve18(transactionPath) : null),
     route: error.details?.route ?? null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -11675,14 +14499,14 @@ async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
     return error.exitCode;
   }
 }
-var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER6, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER7, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
 var init_checkMessageWorkflow = __esm({
   "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
     init_approvedMessage();
     init_canonicalMessageState();
     init_transactionWorkspace();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
     FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
@@ -11705,15 +14529,15 @@ __export(finalizeMessageWorkflow_exports, {
   runFinalizeMessageCommand: () => runFinalizeMessageCommand
 });
 import {
-  existsSync as existsSync12,
-  lstatSync as lstatSync7,
-  readFileSync as readFileSync14,
-  realpathSync as realpathSync4,
-  writeFileSync as writeFileSync11
+  existsSync as existsSync14,
+  lstatSync as lstatSync10,
+  readFileSync as readFileSync17,
+  realpathSync as realpathSync6,
+  writeFileSync as writeFileSync12
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute6, join as join9, relative as relative6, resolve as resolve15, sep as sep3 } from "node:path";
-import { TextDecoder as TextDecoder8 } from "node:util";
-function fail7(code, message, { exitCode = 2, details = {} } = {}) {
+import { basename as basename3, isAbsolute as isAbsolute7, join as join12, relative as relative8, resolve as resolve19, sep as sep3 } from "node:path";
+import { TextDecoder as TextDecoder9 } from "node:util";
+function fail8(code, message, { exitCode = 2, details = {} } = {}) {
   throw new MessageWorkflowError(code, message, { exitCode, details });
 }
 function isPlainObject4(value) {
@@ -11721,12 +14545,12 @@ function isPlainObject4(value) {
 }
 function assertExactKeys4(value, keys, label) {
   if (!isPlainObject4(value)) {
-    fail7("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
+    fail8("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail7(
+    fail8(
       "INVALID_MESSAGE_CONTENT",
       `${label} contains missing or unknown members.`,
       { details: { label, expected, actual } }
@@ -11736,14 +14560,14 @@ function assertExactKeys4(value, keys, label) {
 function decodeContent(bytes) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER7.decode(bytes);
+    text = STRICT_UTF8_DECODER8.decode(bytes);
   } catch {
-    fail7("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail8("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail7(
+    fail8(
       "INVALID_MESSAGE_CONTENT",
       `The fixed content.json is invalid JSON: ${error.message}`
     );
@@ -11754,19 +14578,19 @@ function assertSelectionContainer(entry, label, extraKeys = []) {
 }
 function assertCompleteContentShape(content) {
   if (!isPlainObject4(content) || content.schemaVersion !== 2) {
-    fail7(
+    fail8(
       "INVALID_MESSAGE_CONTENT",
       "Extended finalization requires schema-version-2 semantic content."
     );
   }
   if (content.authoringState !== "complete") {
-    fail7(
+    fail8(
       "INCOMPLETE_SEMANTIC_CONTENT",
       "Set authoringState to complete only after every semantic decision and required review is complete."
     );
   }
   if (!(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(content.mode)) {
-    fail7(
+    fail8(
       "INVALID_MESSAGE_CONTENT",
       "Semantic message mode must be detailed or bulk."
     );
@@ -11791,7 +14615,7 @@ function assertCompleteContentShape(content) {
     "Review receipt"
   );
   if (content.review.schemaVersion !== 1 || !SHA256_PATTERN3.test(content.review.catalogSha256) || !SHA256_PATTERN3.test(content.review.evidencePlanSha256) || typeof content.review.requiredPacketsReviewed !== "boolean" || !Array.isArray(content.review.additionalPacketIds) || new Set(content.review.additionalPacketIds).size !== content.review.additionalPacketIds.length) {
-    fail7("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
+    fail8("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
   }
   assertExactKeys4(
     content.subject,
@@ -11799,7 +14623,7 @@ function assertCompleteContentShape(content) {
     "Commit subject"
   );
   if (!Array.isArray(content.evidenceGroups) || content.evidenceGroups.length === 0) {
-    fail7(
+    fail8(
       "INVALID_MESSAGE_CONTENT",
       "Evidence groups must be a nonempty array."
     );
@@ -11821,7 +14645,7 @@ function assertCompleteContentShape(content) {
     ["fileNotes", content.mode === "detailed" ? content.fileNotes : []]
   ]) {
     if (!Array.isArray(entries)) {
-      fail7("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
+      fail8("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
     }
     entries.forEach(
       (entry, index) => assertSelectionContainer(entry, `${field} entry ${index + 1}`, [
@@ -11830,11 +14654,11 @@ function assertCompleteContentShape(content) {
     );
   }
   if (!Array.isArray(content.userExperienceChanges)) {
-    fail7("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
+    fail8("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
   }
   if (content.mode === "bulk") {
     if (!Array.isArray(content.domains) || content.domains.length === 0) {
-      fail7(
+      fail8(
         "MISSING_SEMANTIC_DECISIONS",
         "Complete bulk content requires at least one semantic domain."
       );
@@ -11848,10 +14672,10 @@ function assertCompleteContentShape(content) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve15(path);
-  const contained = relative6(attemptDirectory, absolute);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute6(contained)) {
-    fail7(
+  const absolute = resolve19(path);
+  const contained = relative8(attemptDirectory, absolute);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute7(contained)) {
+    fail8(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -11860,15 +14684,15 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync7(absolute);
+  const stat = lstatSync10(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail7(
+    fail8(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
-  if (realpathSync4(absolute) !== absolute) {
-    fail7(
+  if (realpathSync6(absolute) !== absolute) {
+    fail8(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -11877,24 +14701,24 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail7(
+    fail8(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve15(transactionPath),
+          transaction: resolve19(transactionPath),
           route: transaction.route
         }
       }
     );
   }
   if (!(/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail7(
+    fail8(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve15(transactionPath),
+          transaction: resolve19(transactionPath),
           route: transaction.route
         }
       }
@@ -11902,7 +14726,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog(transaction) {
-  const expectedReviewDirectory = resolve15(
+  const expectedReviewDirectory = resolve19(
     transaction.attemptDirectory,
     "review"
   );
@@ -11911,15 +14735,15 @@ function readCurrentCatalog(transaction) {
     transaction.review.catalogPath,
     "Current review catalog"
   );
-  if (relative6(expectedReviewDirectory, catalogPath).startsWith(`..${sep3}`) || isAbsolute6(relative6(expectedReviewDirectory, catalogPath))) {
-    fail7(
+  if (relative8(expectedReviewDirectory, catalogPath).startsWith(`..${sep3}`) || isAbsolute7(relative8(expectedReviewDirectory, catalogPath))) {
+    fail8(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail7(
+    fail8(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -11932,7 +14756,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     transaction.review.evidencePlanPath,
     "Current evidence plan"
   );
-  const name = basename2(recordedPath);
+  const name = basename3(recordedPath);
   const opened = readTransactionOwnedFile({
     transactionPath,
     artifactName: name,
@@ -11942,9 +14766,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   });
   let stored;
   try {
-    stored = JSON.parse(STRICT_UTF8_DECODER7.decode(opened.bytes));
+    stored = JSON.parse(STRICT_UTF8_DECODER8.decode(opened.bytes));
   } catch (error) {
-    fail7(
+    fail8(
       "INVALID_EVIDENCE_PLAN",
       `Current evidence plan is invalid JSON: ${error.message}`
     );
@@ -11954,7 +14778,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail7(
+    fail8(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
@@ -11982,7 +14806,7 @@ function receiptCoverage(transaction, content, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail7(
+    fail8(
       "REVIEW_RECEIPT_INVALID",
       `Review receipt is invalid: ${error.message}`
     );
@@ -11990,13 +14814,13 @@ function receiptCoverage(transaction, content, catalog) {
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail7("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail8("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       exitCode: 1
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail7(
+    fail8(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { exitCode: 1 }
@@ -12007,7 +14831,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail7(
+    fail8(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -12017,20 +14841,20 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join9(
+  const path = join12(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync12(path)) {
-    if (!readFileSync14(path).equals(bytes)) {
-      fail7(
+  if (existsSync14(path)) {
+    if (!readFileSync17(path).equals(bytes)) {
+      fail8(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
       );
     }
   } else {
-    writeFileSync11(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync12(path, bytes, { flag: "wx", mode: 384 });
   }
   return path;
 }
@@ -12110,7 +14934,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     phase: "review-pending",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve15(transactionPath),
+    transaction: resolve19(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -12118,7 +14942,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     canonical: false,
     evidenceDelta: {
       newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage: firstPage === null ? null : resolve15(transaction.attemptDirectory, "review", firstPage.artifact),
+      firstQueuePage: firstPage === null ? null : resolve19(transaction.attemptDirectory, "review", firstPage.artifact),
       firstQueuePageSha256: firstPage?.sha256 ?? null
     },
     displayText: null
@@ -12140,7 +14964,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve15(transactionPath),
+    transaction: resolve19(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -12159,7 +14983,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail7("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail8("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -12209,7 +15033,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync14(path)
+            empty ? Buffer.alloc(0) : readFileSync17(path)
           ])
         )
       };
@@ -12259,7 +15083,7 @@ async function finalizeMessageWorkflow({
     }
   } else {
     if (content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== currentCatalog.catalogSha256 || content.review.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail7(
+      fail8(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -12270,7 +15094,7 @@ async function finalizeMessageWorkflow({
         receipt: content.review
       });
     } catch (error) {
-      fail7(
+      fail8(
         "REVIEW_RECEIPT_INVALID",
         `Review receipt is invalid: ${error.message}`
       );
@@ -12339,7 +15163,7 @@ async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {})
     return error.exitCode;
   }
 }
-var CONTENT_NAME, STRICT_UTF8_DECODER7, SHA256_PATTERN3, COMPLETE_COMMON_KEYS;
+var CONTENT_NAME, STRICT_UTF8_DECODER8, SHA256_PATTERN3, COMPLETE_COMMON_KEYS;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
     init_gitRepository();
@@ -12352,7 +15176,7 @@ var init_finalizeMessageWorkflow = __esm({
     init_prepareWorkflow();
     init_checkMessageWorkflow();
     CONTENT_NAME = "content.json";
-    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
     SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
     COMPLETE_COMMON_KEYS = [
       "schemaVersion",
@@ -12367,546 +15191,22 @@ var init_finalizeMessageWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/report/commitReport.js
-function hasExactKeys(value, keys) {
-  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
-}
-function hasAllowedKeys(value, required4, optional = []) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const actual = Object.keys(value);
-  const allowed = /* @__PURE__ */ new Set([...required4, ...optional]);
-  return required4.every((key) => Object.hasOwn(value, key)) && actual.every((key) => allowed.has(key));
-}
-function validateChecksArtifact(checks) {
-  if (!hasExactKeys(checks, ["schemaVersion", "checks"]) || checks.schemaVersion !== 1 || !Array.isArray(checks.checks)) {
-    throw new Error(
-      "Checks artifact must use schema version 1 and a checks array."
-    );
-  }
-  for (const check of checks.checks) {
-    if (!hasExactKeys(check, ["label", "status", "context"]) || typeof check.label !== "string" || check.label.trim() === "" || check.label !== check.label.trim() || !CHECK_STATUSES.has(check.status) || !CHECK_CONTEXTS.has(check.context)) {
-      throw new Error(
-        "Each check requires a trimmed label, passed or failed status, and a supported context."
-      );
-    }
-  }
-  return checks;
-}
-function validatePublicationArtifact(publication) {
-  if (hasExactKeys(publication, ["status"]) && publication.status === "not-requested") {
-    return publication;
-  }
-  const keys = [
-    "schemaVersion",
-    "status",
-    "commitOid",
-    "remote",
-    "destination",
-    "refspec",
-    "exitCode",
-    "stdout",
-    "stderr"
-  ];
-  const validStatus = publication?.status === "pushed" || publication?.status === "failed";
-  const validExit = publication?.status === "pushed" && publication?.exitCode === 0 || publication?.status === "failed" && publication?.exitCode > 0;
-  if (!hasExactKeys(publication, keys) || publication.schemaVersion !== 1 || !validStatus || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote === "" || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || !validExit || typeof publication.stdout !== "string" || typeof publication.stderr !== "string") {
-    throw new Error(
-      "Publication artifact does not match the workflow contract."
-    );
-  }
-  return publication;
-}
-function validateVerificationArtifact(verification, commitOid) {
-  const topLevelKeys = [
-    "schemaVersion",
-    "commitOid",
-    "initialPolicy",
-    "finalPolicy",
-    "overridden",
-    "signature",
-    "integrityOnly",
-    "signatureVerified",
-    "blocksPush"
-  ];
-  const signatureKeys = ["status", "reason", "signer", "fingerprint"];
-  const validSignature = hasAllowedKeys(verification?.signature, signatureKeys, [
-    "keyType",
-    "verifierOutput"
-  ]) && SIGNATURE_STATUSES.has(verification.signature.status) && ["reason", "signer", "fingerprint", "keyType"].every(
-    (key) => verification.signature[key] === void 0 || verification.signature[key] === null || typeof verification.signature[key] === "string"
-  ) && (verification.signature.verifierOutput === void 0 || typeof verification.signature.verifierOutput === "string");
-  const validIntegrity = hasAllowedKeys(verification?.integrityOnly, ["status"], ["reason"]) && INTEGRITY_STATUSES.has(verification.integrityOnly.status) && (verification.integrityOnly.reason === void 0 || verification.integrityOnly.reason === null || typeof verification.integrityOnly.reason === "string");
-  const signatureVerified = verification?.signature?.status === "verified";
-  if (!hasExactKeys(verification, topLevelKeys) || verification.schemaVersion !== 1 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(verification.commitOid) || !VERIFICATION_POLICIES2.has(verification.initialPolicy) || !VERIFICATION_POLICIES2.has(verification.finalPolicy) || verification.overridden !== (verification.initialPolicy !== verification.finalPolicy) || !validSignature || !validIntegrity || verification.signatureVerified !== signatureVerified || verification.blocksPush !== (verification.finalPolicy === "required" && !signatureVerified) || verification.finalPolicy === "skipped" && verification.signature.status !== "skipped") {
-    throw new Error(
-      "Verification artifact does not match the workflow contract."
-    );
-  }
-  if (verification.commitOid.toLowerCase() !== commitOid.toLowerCase()) {
-    throw new Error("Verification artifact belongs to a different commit.");
-  }
-  return verification;
-}
-function normalizeMessage2(text) {
-  return `${text.replace(/\r\n?/gu, "\n").replace(/\n+$/u, "")}
-`;
-}
-function commitFacts(root, commitOid) {
-  const fields = readOnlyGitText(root, "show-commit-fields", [
-    "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
-    commitOid
-  ]).replace(/\r?\n$/u, "").split("\0");
-  const message = readOnlyGitText(root, "show-message", [commitOid]);
-  const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
-  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
-    allowFailure: true
-  });
-  return {
-    oid: fields[0],
-    parents: fields[1] ? fields[1].split(" ") : [],
-    treeOid: fields[2],
-    author: { name: fields[3], email: fields[4] },
-    committer: { name: fields[5], email: fields[6] },
-    subject: fields[7],
-    message: normalizeMessage2(message),
-    signed: raw.includes(Buffer.from("\ngpgsig ")),
-    branch: branchResult.status === 0 ? branchResult.stdout.toString("utf8").trim() : null,
-    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim()
-  };
-}
-function kindName(status) {
-  switch (status[0]) {
-    case "A":
-      return "added";
-    case "M":
-      return "modified";
-    case "D":
-      return "deleted";
-    case "R":
-      return "renamed";
-    case "C":
-      return "added";
-    case "T":
-      return "type-changed";
-    default:
-      return "modified";
-  }
-}
-function normalizedKind({ oldMode, newMode, status }) {
-  const kind = kindName(status);
-  if (oldMode === "160000" || newMode === "160000") {
-    return "submodule-changed";
-  }
-  if (oldMode === "120000" || newMode === "120000") {
-    return oldMode === newMode ? "symlink-changed" : "type-changed";
-  }
-  if (oldMode !== newMode && kind === "modified") {
-    return "mode-changed";
-  }
-  return kind;
-}
-function commitStatistics(root, commitOid) {
-  const common = ["--root", "--no-commit-id", "-r", "-z", "--no-renames"];
-  const numstatFields = splitNul(
-    runReadOnlyGit(root, "diff-tree", [...common, "--numstat", commitOid]).stdout
-  );
-  let additions = 0;
-  let deletions = 0;
-  let binaryFiles = 0;
-  let files = 0;
-  for (let index = 0; index < numstatFields.length; ) {
-    const field = numstatFields[index].toString("utf8");
-    const [added, deleted, path = ""] = field.split("	");
-    files += 1;
-    if (added === "-" || deleted === "-") {
-      binaryFiles += 1;
-    } else {
-      additions += Number(added);
-      deletions += Number(deleted);
-    }
-    index += path === "" ? 3 : 1;
-  }
-  const rawFields = splitNul(
-    runReadOnlyGit(root, "diff-tree", [...common, "--raw", commitOid]).stdout
-  );
-  const kinds = {};
-  for (let index = 0; index < rawFields.length; ) {
-    const header = rawFields[index].toString("ascii");
-    if (!header.startsWith(":")) {
-      throw new Error(`Unexpected raw diff field: ${JSON.stringify(header)}`);
-    }
-    const [oldMode, newMode, , , status] = header.slice(1).split(" ");
-    const renamedOrCopied = status.startsWith("R") || status.startsWith("C");
-    const expectedFields = renamedOrCopied ? 3 : 2;
-    if (rawFields.length < index + expectedFields) {
-      throw new Error(`Incomplete raw diff record for ${status}`);
-    }
-    const kind = normalizedKind({ oldMode, newMode, status });
-    kinds[kind] = (kinds[kind] ?? 0) + 1;
-    index += expectedFields;
-  }
-  return { files, additions, deletions, binaryFiles, kinds };
-}
-function manifestStatistics(manifest) {
-  if (manifest?.schemaVersion !== 2) {
-    return null;
-  }
-  const values = [
-    manifest?.statistics?.files,
-    manifest?.statistics?.additions,
-    manifest?.statistics?.deletions,
-    manifest?.statistics?.binaryFiles
-  ];
-  if (!Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.statistics?.files !== manifest.changeUnits.length || !Number.isSafeInteger(values[0]) || values[0] < 0 || values.slice(1).some(
-    (value) => value !== null && (!Number.isSafeInteger(value) || value < 0)
-  ) || manifest.changeUnits.some(
-    (unit) => unit === null || typeof unit !== "object" || typeof unit.kind !== "string" || unit.kind.length === 0
-  )) {
-    throw new Error(
-      "Matching snapshot manifest has invalid reusable statistics."
-    );
-  }
-  const kinds = {};
-  for (const unit of manifest.changeUnits) {
-    kinds[unit.kind] = (kinds[unit.kind] ?? 0) + 1;
-  }
-  return {
-    files: manifest.statistics.files,
-    additions: manifest.statistics.additions,
-    deletions: manifest.statistics.deletions,
-    binaryFiles: manifest.statistics.binaryFiles,
-    kinds
-  };
-}
-function statusLabel(code) {
-  const labels = {
-    A: "added",
-    M: "modified",
-    D: "deleted",
-    R: "renamed",
-    C: "added",
-    T: "type changed",
-    U: "unmerged"
-  };
-  return labels[code] ?? "changed";
-}
-function workspaceState(root) {
-  const fields = splitNul(
-    runReadOnlyGit(root, "status", [
-      "--porcelain=v2",
-      "-z",
-      "--untracked-files=all",
-      "--no-renames"
-    ]).stdout
-  );
-  const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
-  for (let index = 0; index < fields.length; index += 1) {
-    const record = fields[index].toString("utf8");
-    if (record.startsWith("? ")) {
-      workspace.untracked.push({ path: record.slice(2), status: "untracked" });
-      continue;
-    }
-    if (record.startsWith("u ")) {
-      const path2 = record.split(" ").slice(10).join(" ");
-      workspace.conflicted.push({ path: path2, status: "unmerged" });
-      continue;
-    }
-    const match = /^(?<recordType>[12]) (?<xy>..) \S+ \S+ \S+ \S+ \S+ \S+ (?<path>.*)$/u.exec(
-      record
-    );
-    if (!match) {
-      continue;
-    }
-    const { recordType, xy, path } = match.groups;
-    if (xy[0] !== ".") {
-      workspace.staged.push({ path, status: statusLabel(xy[0]) });
-    }
-    if (xy[1] !== ".") {
-      workspace.unstaged.push({ path, status: statusLabel(xy[1]) });
-    }
-    if (recordType === "2") {
-      index += 1;
-    }
-  }
-  for (const entries of Object.values(workspace)) {
-    entries.sort(
-      (left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path))
-    );
-  }
-  return workspace;
-}
-function collectCommitReport({
-  root,
-  commitOid,
-  manifest,
-  approvedMessage,
-  verification,
-  checks,
-  publication = { status: "not-requested" }
-}) {
-  const commit = commitFacts(root, commitOid);
-  validateChecksArtifact(checks);
-  validatePublicationArtifact(publication);
-  validateVerificationArtifact(verification, commit.oid);
-  if (publication.status !== "not-requested" && publication.commitOid !== commit.oid) {
-    throw new Error("Publication artifact belongs to a different commit.");
-  }
-  commit.treeMatches = commit.treeOid === manifest.indexTreeOid;
-  commit.messageMatches = commit.message === normalizeMessage2(approvedMessage);
-  if (manifest.headOid) {
-    commit.parentMatches = commit.parents.length === 1 && commit.parents[0] === manifest.headOid;
-  } else {
-    commit.parentMatches = commit.parents.length === 0;
-  }
-  const approvedStatistics = commit.treeMatches ? manifestStatistics(manifest) : null;
-  return {
-    schemaVersion: 1,
-    commit,
-    statistics: approvedStatistics ?? commitStatistics(root, commitOid),
-    verification,
-    checks,
-    publication,
-    workspace: workspaceState(root)
-  };
-}
-function plural(count, singular, pluralForm = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : pluralForm}`;
-}
-function renderKinds(kinds) {
-  return Object.entries(kinds).map(([kind, count]) => `${count} ${kind}`).join(", ");
-}
-function verificationText(verification) {
-  switch (verification.signature.status) {
-    case "verified": {
-      const identity = `${verification.signature.signer ? ` for ${verification.signature.signer}` : ""}${verification.signature.fingerprint ? ` (${verification.signature.fingerprint})` : ""}`;
-      if (verification.signature.keyType === "OpenPGP") {
-        return `OpenPGP signature is cryptographically valid${identity}; identity authorization was not assessed`;
-      }
-      return verification.signature.keyType ? `SSH signature verification succeeded${identity}` : `Signature verification succeeded${identity}`;
-    }
-    case "skipped":
-      return "Skipped by user policy";
-    case "unavailable":
-      return verification.signature.reason === "trust-store-unreadable" ? "Unavailable because the configured trust store could not be read" : "Signature verification unavailable";
-    default:
-      return "Signature verification failed";
-  }
-}
-function renderWorkspace(workspace) {
-  const groups = [
-    ["Staged", workspace.staged],
-    ["Unstaged", workspace.unstaged],
-    ["Untracked", workspace.untracked],
-    ["Conflicted", workspace.conflicted]
-  ].filter(([, entries]) => entries.length > 0);
-  if (groups.length === 0) {
-    return ["- Clean"];
-  }
-  return groups.flatMap(([heading, entries]) => [
-    `- ${heading}:`,
-    ...entries.slice(0, 49).map(({ path, status }) => `  - \`${path}\` (${status})`),
-    ...entries.length >= 50 ? [
-      `  - ${entries.length} paths; see the machine-readable report for the full inventory`
-    ] : []
-  ]);
-}
-function renderCommitReport(report) {
-  const { commit, statistics, verification, checks, publication, workspace } = report;
-  const lines = [
-    `Created ${commit.signed ? "signed " : ""}commit \`${commit.shortOid}\` on \`${commit.branch ?? "detached HEAD"}\`:`,
-    `\`${commit.subject}\``,
-    "",
-    "Commit:",
-    `- Author: ${commit.author.name} <${commit.author.email}>`
-  ];
-  if (commit.author.name !== commit.committer.name || commit.author.email !== commit.committer.email) {
-    lines.push(
-      `- Committer: ${commit.committer.name} <${commit.committer.email}>`
-    );
-  }
-  lines.push(
-    `- Snapshot: ${commit.treeMatches ? "Matches the approved staged tree" : "DIFFERS from the approved staged tree"}`,
-    `- Message: ${commit.messageMatches ? "Matches the approved message" : "DIFFERS from the approved message"}`,
-    `- Parent: ${commit.parentMatches ? "Matches the approved one-parent contract" : "DIFFERS from the approved one-parent contract"}`,
-    `- Changes: ${plural(statistics.files, "file")}` + (statistics.additions === null || statistics.deletions === null ? "; line statistics deferred by the approved snapshot budget" : `, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : "")),
-    `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
-    "",
-    "Signature:",
-    `- Policy: ${verification.finalPolicy}${verification.overridden ? ` (overridden from ${verification.initialPolicy})` : ""}`,
-    `- Result: ${verificationText(verification)}`,
-    "",
-    "Checks:"
-  );
-  if ((checks.checks ?? []).length === 0) {
-    lines.push("- No checks were run in this workflow");
-  } else {
-    for (const check of checks.checks) {
-      lines.push(`- ${check.label}: ${check.status} (${check.context})`);
-    }
-  }
-  lines.push("", "Publication:");
-  if (publication.status === "not-requested") {
-    lines.push("- Not requested; not attempted by this workflow");
-  } else if (publication.status === "pushed") {
-    lines.push(
-      `- Pushed \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\``
-    );
-  } else {
-    lines.push(
-      `- Push failed for \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\` (exit ${publication.exitCode}); see publication.json for Git output`
-    );
-  }
-  lines.push("", "Workspace:", ...renderWorkspace(workspace), "");
-  return lines.join("\n");
-}
-var CHECK_STATUSES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, INTEGRITY_STATUSES, CHECK_CONTEXTS;
-var init_commitReport = __esm({
-  "src/committing-to-git/report/commitReport.js"() {
-    init_gitRepository();
-    init_gitPath();
-    CHECK_STATUSES = /* @__PURE__ */ new Set(["passed", "failed"]);
-    VERIFICATION_POLICIES2 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
-    SIGNATURE_STATUSES = /* @__PURE__ */ new Set([
-      "verified",
-      "failed",
-      "unavailable",
-      "skipped"
-    ]);
-    INTEGRITY_STATUSES = /* @__PURE__ */ new Set([
-      "not-run",
-      "passed",
-      "failed",
-      "unavailable"
-    ]);
-    CHECK_CONTEXTS = /* @__PURE__ */ new Set([
-      "approved staged snapshot",
-      "current working tree",
-      "isolated worktree/container",
-      "external environment"
-    ]);
-  }
-});
-
-// src/committing-to-git/signature/commitSignature.js
-function assertPolicy(policy, label) {
-  if (!POLICIES.has(policy)) {
-    throw new Error(`${label} must be required, advisory, or skipped.`);
-  }
-}
-function applyVerificationPolicy({
-  commitOid,
-  initialPolicy,
-  finalPolicy,
-  verificationAttempt,
-  integrityOnlyAttempt = { status: "not-run" }
-}) {
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(commitOid)) {
-    throw new Error("Verified commit must be a full 40- or 64-hex object ID.");
-  }
-  assertPolicy(initialPolicy, "Initial verification policy");
-  assertPolicy(finalPolicy, "Final verification policy");
-  const signature = finalPolicy === "skipped" ? {
-    status: "skipped",
-    reason: "user-policy",
-    signer: null,
-    fingerprint: null
-  } : verificationAttempt;
-  const signatureVerified = signature.status === "verified";
-  return {
-    schemaVersion: 1,
-    commitOid,
-    initialPolicy,
-    finalPolicy,
-    overridden: initialPolicy !== finalPolicy,
-    signature,
-    integrityOnly: integrityOnlyAttempt,
-    signatureVerified,
-    blocksPush: finalPolicy === "required" && !signatureVerified
-  };
-}
-function signerDetails(output) {
-  const ssh = /Good "git" signature for (?<signer>.+?) with (?<key>\S+) key (?<fingerprint>SHA256:\S+)/u.exec(
-    output
-  );
-  if (ssh) {
-    return {
-      signer: ssh.groups.signer,
-      fingerprint: ssh.groups.fingerprint,
-      keyType: ssh.groups.key
-    };
-  }
-  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output);
-  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output);
-  const validFields = validSignature?.groups.fields.trim().split(/\s+/u) ?? [];
-  const fingerprint = validFields.length >= 10 ? validFields.at(-1) : validFields[0] ?? null;
-  return goodSignature || validSignature ? {
-    signer: goodSignature?.groups.signer ?? null,
-    fingerprint,
-    keyType: "OpenPGP"
-  } : { signer: null, fingerprint: null, keyType: null };
-}
-function classifySignatureVerification(result) {
-  const stdout = result.stdout?.toString("utf8") ?? "";
-  const stderr = result.stderr?.toString("utf8") ?? "";
-  const output = `${stdout}
-${stderr}`.trim();
-  const details = signerDetails(output);
-  if (result.status === 0) {
-    return {
-      status: "verified",
-      reason: null,
-      signer: details.signer,
-      fingerprint: details.fingerprint,
-      keyType: details.keyType,
-      verifierOutput: output
-    };
-  }
-  const trustStoreUnreadable = /allowed[ -]?signers|allowedSignersFile/iu.test(output) && /permission denied|access is denied|could not open|cannot open|no such file|not found/iu.test(
-    output
-  );
-  return {
-    status: trustStoreUnreadable ? "unavailable" : "failed",
-    reason: trustStoreUnreadable ? "trust-store-unreadable" : "verification-failed",
-    signer: null,
-    fingerprint: null,
-    keyType: null,
-    verifierOutput: output
-  };
-}
-function verifyCommitSignature(root, commitOid) {
-  return classifySignatureVerification(
-    runGit(["verify-commit", "--raw", commitOid], {
-      cwd: root,
-      allowFailure: true
-    })
-  );
-}
-var POLICIES;
-var init_commitSignature = __esm({
-  "src/committing-to-git/signature/commitSignature.js"() {
-    init_gitRepository();
-    POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
-  }
-});
-
 // src/committing-to-git/command/postCommitCommand.js
 var postCommitCommand_exports = {};
-import { mkdirSync as mkdirSync10, readFileSync as readFileSync15, writeFileSync as writeFileSync12 } from "node:fs";
-import { dirname as dirname9, resolve as resolve16 } from "node:path";
-function usageError6(message) {
+import { mkdirSync as mkdirSync11, readFileSync as readFileSync18, writeFileSync as writeFileSync13 } from "node:fs";
+import { dirname as dirname11, resolve as resolve20 } from "node:path";
+function usageError5(message) {
   console.error(message);
   console.error(
     "Usage: node commitWorkflow.mjs signature verify --commit <oid> --initial-policy <policy> --policy <policy> --output <verification.json> | report create --commit <oid> --manifest <snapshot.json> --approved-message <message.txt> --verification <verification.json> --checks <checks.json> [--publication <publication.json>] --output-json <report.json> --output-text <report.txt>"
   );
   process.exit(2);
 }
-function parseFlags3(argv) {
+function parseFlags5(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError6(`Invalid argument near ${JSON.stringify(argv[index])}.`);
+      usageError5(`Invalid argument near ${JSON.stringify(argv[index])}.`);
     }
     values.set(argv[index].slice(2), argv[index + 1]);
   }
@@ -12915,17 +15215,17 @@ function parseFlags3(argv) {
 function required3(flags4, name) {
   const value = flags4.get(name);
   if (!value) {
-    usageError6(`--${name} is required.`);
+    usageError5(`--${name} is required.`);
   }
   return value;
 }
 function readJson2(path) {
-  return JSON.parse(readFileSync15(resolve16(path), "utf8"));
+  return JSON.parse(readFileSync18(resolve20(path), "utf8"));
 }
 function write(path, contents) {
-  const resolved = resolve16(path);
-  mkdirSync10(dirname9(resolved), { recursive: true });
-  writeFileSync12(resolved, contents);
+  const resolved = resolve20(path);
+  mkdirSync11(dirname11(resolved), { recursive: true });
+  writeFileSync13(resolved, contents);
   return resolved;
 }
 var command3, flagArguments3, flags3;
@@ -12935,7 +15235,7 @@ var init_postCommitCommand = __esm({
     init_commitReport();
     init_commitSignature();
     [command3, ...flagArguments3] = process.argv.slice(2);
-    flags3 = parseFlags3(flagArguments3);
+    flags3 = parseFlags5(flagArguments3);
     try {
       const root = repositoryRoot();
       if (command3 === "verify") {
@@ -12954,18 +15254,12 @@ var init_postCommitCommand = __esm({
         }
         const initialPolicy = required3(flags3, "initial-policy");
         const finalPolicy = required3(flags3, "policy");
-        const verificationAttempt = finalPolicy === "skipped" ? {
-          status: "skipped",
-          reason: "user-policy",
-          signer: null,
-          fingerprint: null
-        } : verifyCommitSignature(root, commitOid);
+        const verificationAttempt = finalPolicy === "skipped" ? null : verifyCommitSignature(root, commitOid);
         const verification = applyVerificationPolicy({
           commitOid,
           initialPolicy,
           finalPolicy,
-          verificationAttempt,
-          integrityOnlyAttempt: { status: "not-run" }
+          verificationAttempt
         });
         write(
           required3(flags3, "output"),
@@ -12980,8 +15274,8 @@ var init_postCommitCommand = __esm({
           root,
           commitOid: required3(flags3, "commit"),
           manifest: readJson2(required3(flags3, "manifest")),
-          approvedMessage: readFileSync15(
-            resolve16(required3(flags3, "approved-message")),
+          approvedMessage: readFileSync18(
+            resolve20(required3(flags3, "approved-message")),
             "utf8"
           ),
           verification: readJson2(required3(flags3, "verification")),
@@ -13005,7 +15299,7 @@ var init_postCommitCommand = __esm({
           report.commit.treeMatches && report.commit.messageMatches && report.commit.parentMatches ? 0 : 1
         );
       } else {
-        usageError6("Expected verify or report command.");
+        usageError5("Expected verify or report command.");
       }
     } catch (error) {
       console.error(`Commit-result reporting failed: ${error.message}`);
@@ -13016,33 +15310,33 @@ var init_postCommitCommand = __esm({
 
 // src/committing-to-git/command/publicationCommand.js
 var publicationCommand_exports = {};
-import { existsSync as existsSync13, mkdirSync as mkdirSync11, unlinkSync as unlinkSync7, writeFileSync as writeFileSync13 } from "node:fs";
-import { dirname as dirname10, resolve as resolve17 } from "node:path";
-function usageError7(message) {
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, unlinkSync as unlinkSync7, writeFileSync as writeFileSync14 } from "node:fs";
+import { dirname as dirname12, resolve as resolve21 } from "node:path";
+function usageError6(message) {
   console.error(message);
   console.error(
     "Usage: node commitWorkflow.mjs publication push --commit <oid> --remote <name> --destination <refs/heads/name> --output <publication.json>"
   );
   process.exit(2);
 }
-function parseFlags4(argv) {
+function parseFlags6(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
-      usageError7(`Invalid argument near ${JSON.stringify(argv[index])}.`);
+      usageError6(`Invalid argument near ${JSON.stringify(argv[index])}.`);
     }
     values.set(argv[index].slice(2), argv[index + 1]);
   }
   for (const name of ["commit", "remote", "destination", "output"]) {
     if (!values.get(name)) {
-      usageError7(`--${name} is required.`);
+      usageError6(`--${name} is required.`);
     }
   }
   return {
     commit: values.get("commit"),
     remote: values.get("remote"),
     destination: values.get("destination"),
-    output: resolve17(values.get("output"))
+    output: resolve21(values.get("output"))
   };
 }
 function validateInputs(root, options2) {
@@ -13079,18 +15373,18 @@ var init_publicationCommand = __esm({
     init_gitRepository();
     pendingPath = null;
     try {
-      const options2 = parseFlags4(process.argv.slice(2));
+      const options2 = parseFlags6(process.argv.slice(2));
       const root = repositoryRoot();
       const commitOid = validateInputs(root, options2);
       const refspec = `${commitOid}:${options2.destination}`;
       pendingPath = `${options2.output}.pending`;
-      if (existsSync13(options2.output) || existsSync13(pendingPath)) {
+      if (existsSync15(options2.output) || existsSync15(pendingPath)) {
         throw new Error(
           "--output and its .pending journal path must not already exist."
         );
       }
-      mkdirSync11(dirname10(options2.output), { recursive: true });
-      writeFileSync13(
+      mkdirSync12(dirname12(options2.output), { recursive: true });
+      writeFileSync14(
         pendingPath,
         `${JSON.stringify(
           {
@@ -13125,7 +15419,7 @@ var init_publicationCommand = __esm({
         stdout: push.stdout.toString("utf8"),
         stderr: push.stderr.toString("utf8")
       };
-      writeFileSync13(options2.output, `${JSON.stringify(publication, null, 2)}
+      writeFileSync14(options2.output, `${JSON.stringify(publication, null, 2)}
 `, {
         flag: "wx"
       });
@@ -13138,7 +15432,7 @@ var init_publicationCommand = __esm({
       process.exit(push.status === 0 ? 0 : 1);
     } catch (error) {
       console.error(`Commit publication failed: ${error.message}`);
-      if (pendingPath && existsSync13(pendingPath)) {
+      if (pendingPath && existsSync15(pendingPath)) {
         console.error(
           `Remote outcome is unknown; preserve and inspect ${pendingPath}. Do not infer failure or retry automatically.`
         );
@@ -13174,10 +15468,46 @@ var COMMANDS = /* @__PURE__ */ new Map([
       "runResumePreparationCommand"
     ]
   ],
+  [
+    "workflow commit",
+    [
+      () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
+      null,
+      "runCreateCommitCommand"
+    ]
+  ],
+  [
+    "workflow verify",
+    [
+      () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
+      null,
+      "runRetryVerificationCommand"
+    ]
+  ],
+  [
+    "workflow recover",
+    [
+      () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
+      null,
+      "runRecoverTransactionCommand"
+    ]
+  ],
+  [
+    "workflow cleanup",
+    [
+      () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
+      null,
+      "runCleanupTransactionCommand"
+    ]
+  ],
   ["snapshot create", [() => Promise.resolve().then(() => (init_snapshotCommand(), snapshotCommand_exports)), null]],
   [
     "snapshot verify",
-    [() => Promise.resolve().then(() => (init_snapshotVerificationCommand(), snapshotVerificationCommand_exports)), null]
+    [
+      () => Promise.resolve().then(() => (init_snapshotVerificationCommand(), snapshotVerificationCommand_exports)),
+      null,
+      "runSnapshotVerificationCommand"
+    ]
   ],
   [
     "inspection prepare",
@@ -13234,6 +15564,48 @@ var COMMANDS = /* @__PURE__ */ new Map([
   ]
 ]);
 var COMMAND_HELP = /* @__PURE__ */ new Map([
+  [
+    "workflow commit",
+    `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--checks <checks.json>] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
+
+Creates at most one signed commit from the recorded tree and canonical message.
+The irreversible child is journaled before launch; rerun recovery, never commit,
+when the returned outcome is unknown.
+
+Exit status:
+  0  Matching signed commit and policy-permitted local report completed.
+  1  Git durably did not create a commit or repository state stopped safely.
+  2  Usage, message, checks, snapshot, or pre-journal helper failure.
+  3  A known commit is blocked by comparison, verification, or reporting.
+  4  Commit child or ref outcome is indeterminate and requires recovery.
+`
+  ],
+  [
+    "workflow verify",
+    `Usage: commitWorkflow.mjs workflow verify --transaction <transaction.json> [--verification <required|advisory|skipped>] [--format <json|text>]
+
+Retries or reclassifies signature verification only for the already recorded
+commit OID. This command never invokes commit creation.
+`
+  ],
+  [
+    "workflow recover",
+    `Usage: commitWorkflow.mjs workflow recover --transaction <transaction.json> [--resolution <confirmed-no-live-child>] [--format <json|text>]
+
+Observes only the exact journaled transaction and never replays commit or push.
+The exceptional resolution requires explicit confirmation that the relevant
+Git, signing, and hook process has ended or the host restarted.
+`
+  ],
+  [
+    "workflow cleanup",
+    `Usage: commitWorkflow.mjs workflow cleanup --transaction <transaction.json> [--purge] [--format <json|text>]
+
+Compacts only known-safe helper-owned artifacts beneath the exact transaction.
+--purge abandons an active precommit transaction or removes a terminal attempt.
+Pending or unknown mutations are never removed.
+`
+  ],
   [
     "workflow extend",
     `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
@@ -13472,6 +15844,10 @@ Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
+  commitWorkflow.mjs workflow commit [options]
+  commitWorkflow.mjs workflow verify [options]
+  commitWorkflow.mjs workflow recover [options]
+  commitWorkflow.mjs workflow cleanup [options]
   commitWorkflow.mjs snapshot create [options]
   commitWorkflow.mjs snapshot verify [options]
   commitWorkflow.mjs inspection prepare [options]

@@ -37,6 +37,8 @@ const FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+const OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const MESSAGE_SOURCES = new Set([
   "approved-subject",
   "checked-file",
@@ -411,6 +413,285 @@ function validateMessageState(message) {
   }
 }
 
+function validateSignaturePreflight(preflight) {
+  if (preflight === null) {
+    return;
+  }
+
+  assertExactKeys(preflight, ["backend", "trustSource"], "Signature preflight");
+
+  if (!new Set([null, "ssh", "openpgp"]).has(preflight.backend)) {
+    throw new Error("Signature preflight backend is invalid.");
+  }
+
+  if (preflight.backend !== "ssh") {
+    if (preflight.trustSource !== null) {
+      throw new Error(
+        "Only SSH preflight may record an allowed-signers source.",
+      );
+    }
+
+    return;
+  }
+
+  assertExactKeys(
+    preflight.trustSource,
+    ["configured", "origin", "path", "readable"],
+    "SSH trust source",
+  );
+
+  if (
+    typeof preflight.trustSource.configured !== "boolean" ||
+    typeof preflight.trustSource.readable !== "boolean" ||
+    (preflight.trustSource.origin !== null &&
+      typeof preflight.trustSource.origin !== "string") ||
+    (preflight.trustSource.path !== null &&
+      typeof preflight.trustSource.path !== "string") ||
+    (preflight.trustSource.configured &&
+      (!preflight.trustSource.origin || !preflight.trustSource.path)) ||
+    (!preflight.trustSource.configured &&
+      (preflight.trustSource.origin !== null ||
+        preflight.trustSource.path !== null ||
+        preflight.trustSource.readable))
+  ) {
+    throw new Error("SSH trust-source preflight is invalid.");
+  }
+}
+
+function validateCommitJournal(commit) {
+  if (commit === null) {
+    return;
+  }
+
+  assertExactKeys(
+    commit,
+    [
+      "status",
+      "launchState",
+      "childIdentity",
+      "headAnchor",
+      "expectedTreeOid",
+      "messageSha256",
+      "messageByteCount",
+      "checks",
+      "startedAt",
+      "completion",
+      "transcript",
+      "commitOid",
+      "comparison",
+      "observationProvenance",
+      "recoveryObservations",
+      "recoveryResolution",
+    ],
+    "Commit journal",
+  );
+  validateHeadAnchor(commit.headAnchor);
+
+  if (
+    !new Set(["pending", "created"]).has(commit.status) ||
+    !new Set(["not-started", "launching", "running", "completed"]).has(
+      commit.launchState,
+    ) ||
+    !FULL_OID_PATTERN.test(commit.expectedTreeOid) ||
+    !SHA256_PATTERN.test(commit.messageSha256) ||
+    !Number.isSafeInteger(commit.messageByteCount) ||
+    commit.messageByteCount < 1 ||
+    typeof commit.startedAt !== "string" ||
+    !Number.isFinite(Date.parse(commit.startedAt)) ||
+    (commit.commitOid !== null && !FULL_OID_PATTERN.test(commit.commitOid)) ||
+    !new Set([null, "witnessed", "recovered"]).has(commit.observationProvenance)
+  ) {
+    throw new Error(
+      "Commit journal contains invalid identity or launch facts.",
+    );
+  }
+
+  if (commit.childIdentity !== null) {
+    assertExactKeys(
+      commit.childIdentity,
+      ["pid", "startIdentity"],
+      "Commit child identity",
+    );
+
+    if (
+      !Number.isSafeInteger(commit.childIdentity.pid) ||
+      commit.childIdentity.pid < 1 ||
+      (commit.childIdentity.startIdentity !== null &&
+        typeof commit.childIdentity.startIdentity !== "string")
+    ) {
+      throw new Error("Commit child identity is invalid.");
+    }
+  }
+
+  assertExactKeys(
+    commit.checks,
+    ["value", "sha256", "externalPath"],
+    "Commit checks capsule",
+  );
+
+  if (
+    !SHA256_PATTERN.test(commit.checks.sha256) ||
+    (commit.checks.externalPath !== null &&
+      !isAbsolute(commit.checks.externalPath)) ||
+    commit.checks.value?.schemaVersion !== 1 ||
+    !Array.isArray(commit.checks.value?.checks)
+  ) {
+    throw new Error("Commit checks capsule is invalid.");
+  }
+
+  if (commit.completion !== null) {
+    assertExactKeys(
+      commit.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError",
+      ],
+      "Commit completion",
+    );
+
+    if (
+      (commit.completion.exitCode !== null &&
+        !Number.isInteger(commit.completion.exitCode)) ||
+      (commit.completion.signal !== null &&
+        typeof commit.completion.signal !== "string") ||
+      (commit.completion.transcriptCompletionSha256 !== null &&
+        !SHA256_PATTERN.test(commit.completion.transcriptCompletionSha256)) ||
+      typeof commit.completion.nonLaunchGuaranteed !== "boolean" ||
+      (commit.completion.launchError !== null &&
+        (typeof commit.completion.launchError !== "object" ||
+          Array.isArray(commit.completion.launchError)))
+    ) {
+      throw new Error("Commit completion is invalid.");
+    }
+  }
+
+  for (const field of [
+    "transcript",
+    "comparison",
+    "recoveryObservations",
+    "recoveryResolution",
+  ]) {
+    if (
+      commit[field] !== null &&
+      (typeof commit[field] !== "object" || Array.isArray(commit[field]))
+    ) {
+      throw new Error(`Commit journal ${field} must be an object or null.`);
+    }
+  }
+}
+
+function validateVerificationHistory(verification) {
+  if (verification === null) {
+    return;
+  }
+
+  assertExactKeys(
+    verification,
+    [
+      "schemaVersion",
+      "commitOid",
+      "initialPolicy",
+      "finalPolicy",
+      "attempts",
+      "effectiveAttempt",
+      "blocksPush",
+    ],
+    "Verification history",
+  );
+
+  if (
+    verification.schemaVersion !== 2 ||
+    !FULL_OID_PATTERN.test(verification.commitOid) ||
+    !new Set(["required", "advisory", "skipped"]).has(
+      verification.initialPolicy,
+    ) ||
+    !new Set(["required", "advisory", "skipped"]).has(
+      verification.finalPolicy,
+    ) ||
+    !Array.isArray(verification.attempts) ||
+    verification.attempts.length < 1 ||
+    !Number.isSafeInteger(verification.effectiveAttempt) ||
+    verification.effectiveAttempt < 0 ||
+    verification.effectiveAttempt >= verification.attempts.length ||
+    typeof verification.blocksPush !== "boolean"
+  ) {
+    throw new Error("Verification history is invalid.");
+  }
+
+  for (const attempt of verification.attempts) {
+    assertExactKeys(
+      attempt,
+      ["status", "reason", "backend", "identity", "timestamp"],
+      "Signature verification attempt",
+    );
+
+    if (
+      !new Set(["verified", "failed", "unavailable", "skipped"]).has(
+        attempt.status,
+      ) ||
+      !new Set(["ssh", "openpgp", null]).has(attempt.backend) ||
+      (attempt.reason !== null && typeof attempt.reason !== "string") ||
+      typeof attempt.timestamp !== "string" ||
+      !Number.isFinite(Date.parse(attempt.timestamp))
+    ) {
+      throw new Error("Signature verification attempt is invalid.");
+    }
+
+    if (attempt.status !== "verified") {
+      if (
+        attempt.identity !== null ||
+        (attempt.status === "skipped" && attempt.backend !== null)
+      ) {
+        throw new Error("Signature verification attempt is invalid.");
+      }
+
+      continue;
+    }
+
+    const sshIdentity =
+      attempt.backend === "ssh" &&
+      attempt.identity !== null &&
+      typeof attempt.identity === "object" &&
+      !Array.isArray(attempt.identity) &&
+      Object.keys(attempt.identity).length === 2 &&
+      Object.hasOwn(attempt.identity, "principal") &&
+      Object.hasOwn(attempt.identity, "keyFingerprint") &&
+      typeof attempt.identity.principal === "string" &&
+      attempt.identity.principal.length > 0 &&
+      typeof attempt.identity.keyFingerprint === "string" &&
+      SSH_FINGERPRINT_PATTERN.test(attempt.identity.keyFingerprint);
+    const openPgpIdentity =
+      attempt.backend === "openpgp" &&
+      attempt.identity !== null &&
+      typeof attempt.identity === "object" &&
+      !Array.isArray(attempt.identity) &&
+      Object.keys(attempt.identity).length === 3 &&
+      Object.hasOwn(attempt.identity, "signer") &&
+      Object.hasOwn(attempt.identity, "primaryKeyFingerprint") &&
+      Object.hasOwn(attempt.identity, "signingSubkeyFingerprint") &&
+      typeof attempt.identity.signer === "string" &&
+      attempt.identity.signer.length > 0 &&
+      typeof attempt.identity.primaryKeyFingerprint === "string" &&
+      OPENPGP_FINGERPRINT_PATTERN.test(
+        attempt.identity.primaryKeyFingerprint,
+      ) &&
+      (attempt.identity.signingSubkeyFingerprint === null ||
+        (typeof attempt.identity.signingSubkeyFingerprint === "string" &&
+          OPENPGP_FINGERPRINT_PATTERN.test(
+            attempt.identity.signingSubkeyFingerprint,
+          )));
+
+    if (!sshIdentity && !openPgpIdentity) {
+      throw new Error(
+        "Verified signature attempts require a backend-specific identity.",
+      );
+    }
+  }
+}
+
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
@@ -478,6 +759,9 @@ export function validateTransaction(transaction) {
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
   validateMessageState(transaction.message);
+  validateSignaturePreflight(transaction.signaturePreflight);
+  validateCommitJournal(transaction.commit);
+  validateVerificationHistory(transaction.verification);
 
   if (
     transaction.phase === "evidence-ready" &&
@@ -536,6 +820,25 @@ export function validateTransaction(transaction) {
 
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");
+  }
+
+  if (transaction.phase === "commit-pending" && transaction.commit === null) {
+    throw new Error(
+      "A commit-pending transaction requires its commit journal.",
+    );
+  }
+
+  if (
+    transaction.phase === "reported" &&
+    (transaction.commit === null ||
+      transaction.commit.commitOid === null ||
+      transaction.commit.comparison === null ||
+      transaction.verification === null ||
+      transaction.report === null)
+  ) {
+    throw new Error(
+      "A reported transaction requires commit, comparison, verification, and report facts.",
+    );
   }
 
   for (const field of [
