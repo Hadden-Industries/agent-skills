@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -14,7 +15,12 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveSourceWorktree } from "../../evals/committing-to-git/create-fixture-repository.mjs";
+import {
+  COST_PROFILES,
+  fixtureScenarioNames,
+  resolveSourceWorktree,
+  validateEvaluationConfiguration,
+} from "../../evals/committing-to-git/create-fixture-repository.mjs";
 import { git } from "./harness.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -25,6 +31,152 @@ const FIXTURE_GENERATOR = join(
   "create-fixture-repository.mjs",
 );
 const EVAL_DIRECTORY = dirname(FIXTURE_GENERATOR);
+const EVAL_FIELDS = [
+  "case_key",
+  "cost_profile",
+  "critical_safety",
+  "execution_mode",
+  "expectations",
+  "expected_output",
+  "files",
+  "fixture",
+  "id",
+  "prompt",
+];
+const METRICS = [
+  "atomic expectation pass rate",
+  "all-or-nothing case pass rate",
+  "critical-safety pass",
+  "forbidden actions",
+  "approval round trips",
+  "permission requests",
+  "failed commands",
+  "high-level helper calls",
+  "opaque transaction-handle pass-throughs",
+  "agent-managed workflow artifact reads",
+  "agent-managed workflow artifact writes",
+  "route correctness",
+  "exact evidence coverage",
+  "hint/type/scope/outcome improvement",
+  "rationale/UX usefulness",
+  "input tokens",
+  "output tokens",
+  "total tokens",
+  "model elapsed time",
+  "wall-clock elapsed time",
+  "final Git-state correctness",
+];
+const RETIRED_IDS = new Set([20, 22, 25, 26, 27]);
+const ACTIVE_IDS = [
+  ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
+    (id) => !RETIRED_IDS.has(id),
+  ),
+  ...Array.from({ length: 32 }, (_, index) => index + 35),
+];
+const NEW_CASE_KEYS = new Map([
+  [35, "known-context-skill-inventory-hint"],
+  [36, "bounded-three-file-fix-misleading-feature-hint"],
+  [37, "known-context-twelve-file-feature"],
+  [38, "generated-many-file-migration"],
+  [39, "single-file-unknown-security-review"],
+  [40, "grounded-security-change-concise"],
+  [41, "unambiguous-six-file-scope"],
+  [42, "ambiguous-competing-scopes"],
+  [43, "hint-only-message-evidence"],
+  [44, "generated-lineage-reuse"],
+  [45, "classification-without-history-scan"],
+  [46, "repository-specific-history-exception"],
+  [47, "dominant-outcome-type-tie"],
+  [48, "material-release-semantics-tie"],
+  [49, "concise-multiline-message-check"],
+  [50, "concise-nonportable-subject-check"],
+  [51, "portable-subject-explicit-check"],
+  [52, "portable-direct-subject"],
+  [53, "wording-only-revision"],
+  [54, "new-semantic-claim-revision"],
+  [55, "changed-tree-revision"],
+  [56, "mixed-provenance-selectors"],
+  [57, "mixed-evidence-delta"],
+  [58, "reuse-after-compaction-sufficient"],
+  [59, "reuse-after-compaction-vague"],
+  [60, "draft-promotion"],
+  [61, "draft-ready-retention"],
+  [62, "high-level-json-exits"],
+  [63, "unsupported-old-attempt"],
+  [64, "noisy-child-recovery"],
+  [65, "compact-report-and-publication-reuse"],
+  [66, "resolved-publication-retry"],
+]);
+const REMOVED_COMMAND =
+  /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;
+const REQUIRED_SCALE_SCENARIOS = [
+  "known-context-skill-inventory-hint",
+  "bounded-three-file-fix-misleading-feature-hint",
+  "known-context-twelve-file-feature",
+  "generated-many-file-migration",
+  "single-file-unknown-security-review",
+  "grounded-security-change-concise",
+  "implementation-mechanics-hint",
+  "unambiguous-six-file-scope",
+  "ambiguous-competing-scopes",
+  "hint-only-message-evidence",
+  "generated-lineage-reuse",
+  "classification-without-history-scan",
+  "repository-specific-history-exception",
+  "dominant-outcome-type-tie",
+  "material-release-semantics-tie",
+  "concise-multiline-message-check",
+  "concise-nonportable-subject-check",
+  "portable-subject-explicit-check",
+  "portable-direct-subject",
+  "unicode-subject",
+  "shell-active-subjects",
+  "wording-only-revision",
+  "new-semantic-claim-revision",
+  "changed-tree-revision",
+  "checked-message-100-revisions",
+  "mixed-provenance-selectors",
+  "mixed-evidence-delta",
+  "invalid-utf8-inline-evidence",
+  "scope-synopsis-one-byte-over",
+  "partial-clone-missing-object",
+  "configured-readonly-external-drivers",
+  "reuse-after-compaction",
+  "binary-1000",
+  "bulk-domain-1000",
+  "generated-lockfile-10mb",
+  "huge-single-line",
+  "canonical-message-terminal-lf",
+  "message-result-worst-case-escaping",
+  "structured-bulk-only",
+  "minimum-git-no-lazy-fetch",
+  "head-anchor-attached",
+  "head-anchor-detached",
+  "head-anchor-unborn",
+  "draft-promotion",
+  "draft-ready-retention",
+  "draft-paths-disjoint-staged",
+  "draft-paths-overlap-staged",
+  "actual-paths-prestaged",
+  "unmatched-include-selector",
+  "unmatched-exclude-selector",
+  "signature-trust-unreadable",
+  "signature-header-required-under-skip",
+  "preparation-permission-recover-resume",
+  "commit-outcome-pending",
+  "noisy-hook-10mb",
+  "known-safe-terminal-cleanup",
+  "workspace-remaining-49",
+  "workspace-remaining-50",
+  "workspace-long-path-byte-budget",
+  "report-detail-final-page-replay",
+  "workspace-nested-submodule-disclosed-uninspected",
+  "unsupported-old-attempt",
+  "high-level-json-exits",
+  "publish-existing-report",
+  "publication-recovery-observation",
+  "resolved-publication-retry",
+];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -64,11 +216,15 @@ function generate(t, scenario) {
 
   const metadata = JSON.parse(result.stdout);
 
-  assert.equal(metadata.schemaVersion, 1);
+  assert.equal(metadata.schemaVersion, 2);
   assert.equal(metadata.scenario, scenario);
   assert.equal(metadata.repository, destination);
   assert.ok(isAbsolute(metadata.repository));
   assert.ok(existsSync(join(destination, ".git")));
+  assert.equal(typeof metadata.expected.safety, "object");
+  assert.equal(typeof metadata.expected.cost, "object");
+  assert.equal(typeof metadata.expected.cost.profile, "string");
+  assert.ok(metadata.expected.cost.profile in COST_PROFILES);
 
   return { destination, metadata };
 }
@@ -81,17 +237,34 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
   const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));
   const triggers = readJson(join(EVAL_DIRECTORY, "trigger-evals.json"));
   const ids = behavior.evals.map(({ id }) => id);
+  const caseKeys = behavior.evals.map(({ case_key: caseKey }) => caseKey);
 
+  assert.equal(behavior.schemaVersion, 2);
   assert.equal(behavior.skill_name, "committing-to-git");
   assert.ok(behavior.notes.includes("Text-only success is not evidence"));
-  assert.ok(behavior.metrics.length >= 8);
+  assert.deepEqual(behavior.metrics, METRICS);
   assert.equal(new Set(ids).size, ids.length);
+  assert.equal(new Set(caseKeys).size, caseKeys.length);
+  assert.deepEqual(ids, ACTIVE_IDS);
   assert.deepEqual(
-    ids,
-    Array.from({ length: 34 }, (_, index) => index + 1),
+    ids.filter((id) => RETIRED_IDS.has(id)),
+    [],
   );
 
   for (const evaluation of behavior.evals) {
+    assert.deepEqual(Object.keys(evaluation).sort(), EVAL_FIELDS);
+    assert.match(evaluation.case_key, /^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+    assert.ok(["policy", "executable"].includes(evaluation.execution_mode));
+    assert.equal(
+      evaluation.fixture === null || typeof evaluation.fixture === "string",
+      true,
+    );
+    assert.equal(typeof evaluation.critical_safety, "boolean");
+    assert.equal(
+      evaluation.cost_profile === null ||
+        typeof evaluation.cost_profile === "string",
+      true,
+    );
     assert.equal(typeof evaluation.prompt, "string");
     assert.ok(evaluation.prompt.length > 0);
     assert.equal(typeof evaluation.expected_output, "string");
@@ -104,8 +277,18 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
       assert.equal(typeof expectation, "string");
       assert.equal(expectation, expectation.trim());
       assert.ok(expectation.length > 0);
+      assert.doesNotMatch(expectation, REMOVED_COMMAND);
     }
   }
+
+  for (const [id, caseKey] of NEW_CASE_KEYS) {
+    assert.equal(
+      behavior.evals.find((evaluation) => evaluation.id === id)?.case_key,
+      caseKey,
+    );
+  }
+
+  assert.doesNotThrow(() => validateEvaluationConfiguration(behavior));
 
   assert.equal(triggers.length, 22);
   assert.equal(
@@ -123,6 +306,271 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
     assert.deepEqual(Object.keys(trigger).sort(), ["query", "should_trigger"]);
     assert.equal(typeof trigger.query, "string");
     assert.equal(typeof trigger.should_trigger, "boolean");
+  }
+});
+
+test("evaluation configuration rejects ambiguous or stale identities", () => {
+  const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));
+  const withUnknownField = structuredClone(behavior);
+  const withUnknownTopLevelField = structuredClone(behavior);
+  const withDuplicateId = structuredClone(behavior);
+  const withDuplicateKey = structuredClone(behavior);
+  const withRetiredId = structuredClone(behavior);
+  const withMissingFixture = structuredClone(behavior);
+  const withMissingCostProfile = structuredClone(behavior);
+  const withRemovedCommand = structuredClone(behavior);
+
+  withUnknownField.evals[0].legacy = true;
+  withUnknownTopLevelField.retired_evals = [];
+  withDuplicateId.evals[1].id = withDuplicateId.evals[0].id;
+  withDuplicateKey.evals[1].case_key = withDuplicateKey.evals[0].case_key;
+  withRetiredId.evals[0].id = 20;
+  withMissingFixture.evals[0].fixture = "not-a-fixture";
+  withMissingCostProfile.evals[0].cost_profile = "not-a-profile";
+  withRemovedCommand.evals[0].expectations[0] =
+    "Run the removed snapshot create route.";
+
+  assert.throws(
+    () => validateEvaluationConfiguration(withUnknownField),
+    /unknown evaluation field/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withUnknownTopLevelField),
+    /unknown configuration field/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withDuplicateId),
+    /duplicate evaluation id/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withDuplicateKey),
+    /duplicate case key/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withRetiredId),
+    /retired evaluation id/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withMissingFixture),
+    /unknown fixture/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withMissingCostProfile),
+    /unknown cost profile/iu,
+  );
+  assert.throws(
+    () => validateEvaluationConfiguration(withRemovedCommand),
+    /removed command/iu,
+  );
+});
+
+test("fixture registry covers every proportional scale scenario", () => {
+  const scenarios = new Set(fixtureScenarioNames());
+
+  for (const scenario of REQUIRED_SCALE_SCENARIOS) {
+    assert.equal(scenarios.has(scenario), true, `missing scenario ${scenario}`);
+  }
+
+  assert.ok(Object.keys(COST_PROFILES).length > 0);
+});
+
+test("cost profiles encode the concise and extended action budgets", () => {
+  assert.deepEqual(COST_PROFILES["known-context-direct"], {
+    route: "concise",
+    highLevelHelperCalls: 2,
+    opaqueTransactionHandlePassThroughs: 1,
+    agentManagedArtifactReads: 0,
+    agentManagedArtifactWrites: 0,
+    approvalTurns: 1,
+    minimumOldSkillTokenReductionPercent: 80,
+    maximumNoSkillTokenMultiple: 2,
+  });
+  assert.equal(COST_PROFILES["concise-checked"].highLevelHelperCalls, 3);
+  assert.equal(COST_PROFILES["concise-checked"].agentManagedArtifactWrites, 1);
+  assert.equal(COST_PROFILES["extended-review"].maximumPacketBytes, 16384);
+  assert.equal(
+    COST_PROFILES["extended-review"].maximumConcurrentPacketReads,
+    1,
+  );
+  assert.equal(
+    COST_PROFILES["publication-recovery"].maximumRemoteObservations,
+    1,
+  );
+  assert.equal(
+    COST_PROFILES["publication-recovery"].maximumAutomaticPushRetries,
+    0,
+  );
+});
+
+test("known-context fixture separates the selected scope from unrelated changes", (t) => {
+  const { destination, metadata } = generate(
+    t,
+    "known-context-skill-inventory-hint",
+  );
+  const status = git(
+    ["status", "--short", "--untracked-files=all"],
+    destination,
+  ).stdout;
+
+  assert.match(status, /^ M README\.md$/m);
+  assert.match(status, /^ M package-lock\.json$/m);
+  assert.match(status, /^ M skills-lock\.json$/m);
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], destination).stdout,
+    "",
+  );
+  assert.deepEqual(metadata.expected.safety.selectedPaths, [
+    "skills-lock.json",
+  ]);
+  assert.deepEqual(metadata.expected.safety.excludedPaths, [
+    "README.md",
+    "package-lock.json",
+  ]);
+  assert.equal(metadata.expected.cost.highLevelHelperCalls, 2);
+  assert.equal(metadata.expected.cost.agentManagedArtifactReads, 0);
+  assert.equal(metadata.expected.cost.agentManagedArtifactWrites, 0);
+});
+
+for (const [scenario, count] of [
+  ["known-context-twelve-file-feature", 12],
+  ["generated-many-file-migration", 240],
+]) {
+  test(`${scenario} remains a coherent many-file concise fixture`, (t) => {
+    const { destination, metadata } = generate(t, scenario);
+    const paths = git(
+      ["status", "--short", "--untracked-files=all"],
+      destination,
+    )
+      .stdout.trim()
+      .split(/\r?\n/u)
+      .filter(Boolean);
+
+    assert.equal(paths.length, count);
+    assert.equal(metadata.expected.safety.changeUnitCount, count);
+    assert.equal(metadata.expected.cost.route, "concise");
+    assert.equal(metadata.expected.cost.highLevelHelperCalls, 2);
+  });
+}
+
+test("one unknown security file is extended while a grounded peer is concise", (t) => {
+  const unknown = generate(t, "single-file-unknown-security-review");
+  const grounded = generate(t, "grounded-security-change-concise");
+
+  assert.equal(
+    unknown.metadata.expected.safety.path,
+    grounded.metadata.expected.safety.path,
+  );
+  assert.equal(unknown.metadata.expected.safety.expectedRoute, "extended");
+  assert.equal(grounded.metadata.expected.safety.expectedRoute, "concise");
+  assert.equal(unknown.metadata.expected.cost.route, "extended");
+  assert.equal(grounded.metadata.expected.cost.route, "concise");
+});
+
+test("binary and semantic 1,000-unit fixtures stay selector-sized", (t) => {
+  const binary = generate(t, "binary-1000");
+  const bulk = generate(t, "bulk-domain-1000");
+  const binaryPaths = git(
+    ["diff", "--cached", "--name-only"],
+    binary.destination,
+  )
+    .stdout.trim()
+    .split(/\r?\n/u)
+    .filter(Boolean);
+  const bulkPaths = git(["diff", "--cached", "--name-only"], bulk.destination)
+    .stdout.trim()
+    .split(/\r?\n/u)
+    .filter(Boolean);
+
+  assert.equal(binaryPaths.length, 1000);
+  assert.equal(bulkPaths.length, 1000);
+  assert.equal(binary.metadata.expected.safety.binaryMetadataArtifactCount, 0);
+  assert.equal(bulk.metadata.expected.safety.domains.length, 4);
+  assert.equal(bulk.metadata.expected.cost.maximumAuthoredUnitIds, 0);
+});
+
+test("large content fixtures materialize their exact deterministic boundaries", (t) => {
+  const lockfile = generate(t, "generated-lockfile-10mb");
+  const hugeLine = generate(t, "huge-single-line");
+
+  assert.equal(
+    statSync(join(lockfile.destination, lockfile.metadata.expected.safety.path))
+      .size,
+    10 * 1024 * 1024,
+  );
+  assert.equal(
+    statSync(join(hugeLine.destination, hugeLine.metadata.expected.safety.path))
+      .size,
+    2 * 1024 * 1024,
+  );
+});
+
+for (const [scenario, expectedKind] of [
+  ["head-anchor-attached", "attached"],
+  ["head-anchor-detached", "detached"],
+  ["head-anchor-unborn", "unborn"],
+]) {
+  test(`${scenario} records its complete head shape`, (t) => {
+    const { metadata } = generate(t, scenario);
+
+    assert.equal(metadata.expected.safety.headKind, expectedKind);
+    assert.equal(
+      metadata.expected.safety.expectedParentOids.length,
+      expectedKind === "unborn" ? 0 : 1,
+    );
+  });
+}
+
+test("old-attempt and publication fixtures expose bounded recovery inputs", (t) => {
+  const oldAttempt = generate(t, "unsupported-old-attempt");
+  const publication = generate(t, "publication-recovery-observation");
+  const payload = readJson(oldAttempt.metadata.expected.safety.transaction);
+
+  assert.equal(payload.schemaVersion, 0);
+  assert.equal(
+    oldAttempt.metadata.expected.safety.expectedCode,
+    "UNSUPPORTED_ATTEMPT_VERSION",
+  );
+  assert.equal(existsSync(publication.metadata.expected.safety.remote), true);
+  assert.equal(
+    publication.metadata.expected.safety.maximumRemoteObservations,
+    1,
+  );
+  assert.equal(publication.metadata.expected.safety.automaticPushRetries, 0);
+});
+
+test("every remaining registered fixture materializes independently", (t) => {
+  const alreadyExercised = new Set([
+    "active-cherry-pick",
+    "binary-1000",
+    "bulk-49",
+    "bulk-50",
+    "bulk-domain-1000",
+    "generated-lockfile-10mb",
+    "generated-many-file-migration",
+    "grounded-security-change-concise",
+    "head-anchor-attached",
+    "head-anchor-detached",
+    "head-anchor-unborn",
+    "huge-single-line",
+    "known-context-skill-inventory-hint",
+    "known-context-twelve-file-feature",
+    "literal-path",
+    "publication-recovery-observation",
+    "single-file-unknown-security-review",
+    "staged-rename",
+    "stale-head",
+    "unsupported-old-attempt",
+  ]);
+
+  for (const scenario of fixtureScenarioNames()) {
+    if (alreadyExercised.has(scenario)) {
+      continue;
+    }
+
+    const { metadata } = generate(t, scenario);
+
+    assert.equal(metadata.scenario, scenario);
+    assert.ok(metadata.expected.cost.profile in COST_PROFILES);
   }
 });
 
@@ -211,7 +659,7 @@ test("staged-rename preserves rename identity and excludes unstaged lockfiles", 
   assert.match(unstaged, /^skills-lock\.json$/m);
   assert.equal(existsSync(join(destination, "vite.config.js")), false);
   assert.equal(existsSync(join(destination, "vite.config.mjs")), true);
-  assert.deepEqual(metadata.expected.excludedPaths, [
+  assert.deepEqual(metadata.expected.safety.excludedPaths, [
     "package-lock.json",
     "skills-lock.json",
   ]);
@@ -232,7 +680,7 @@ test("literal-path leaves a wildcard-like sibling untracked", (t) => {
     readFileSync(join(destination, "-literal[1].txt"), "utf8"),
     "target update\n",
   );
-  assert.equal(metadata.expected.literalPath, "-literal[1].txt");
+  assert.equal(metadata.expected.safety.literalPath, "-literal[1].txt");
 });
 
 for (const count of [49, 50]) {
@@ -244,9 +692,9 @@ for (const count of [49, 50]) {
       .filter(Boolean);
 
     assert.equal(stagedPaths.length, count);
-    assert.equal(metadata.expected.changeUnitCount, count);
+    assert.equal(metadata.expected.safety.changeUnitCount, count);
     assert.equal(
-      metadata.expected.messageMode,
+      metadata.expected.safety.messageMode,
       count === 49 ? "detailed" : "bulk",
     );
   });
@@ -257,13 +705,13 @@ test("stale-head changes the parent without changing the approved index tree", (
   const currentHead = git(["rev-parse", "HEAD"], destination).stdout.trim();
   const currentIndexTree = git(["write-tree"], destination).stdout.trim();
 
-  assert.notEqual(metadata.expected.approvedHead, currentHead);
-  assert.equal(metadata.expected.currentHead, currentHead);
-  assert.equal(metadata.expected.approvedIndexTree, currentIndexTree);
-  assert.equal(metadata.expected.currentIndexTree, currentIndexTree);
+  assert.notEqual(metadata.expected.safety.approvedHead, currentHead);
+  assert.equal(metadata.expected.safety.currentHead, currentHead);
+  assert.equal(metadata.expected.safety.approvedIndexTree, currentIndexTree);
+  assert.equal(metadata.expected.safety.currentIndexTree, currentIndexTree);
   assert.notEqual(
-    metadata.expected.approvedIndexTree,
-    metadata.expected.currentHeadTree,
+    metadata.expected.safety.approvedIndexTree,
+    metadata.expected.safety.currentHeadTree,
   );
 });
 
@@ -280,6 +728,6 @@ test("active-cherry-pick stops with an unresolved sequencer state", (t) => {
 
   assert.equal(existsSync(join(gitDirectory, "CHERRY_PICK_HEAD")), true);
   assert.equal(unmerged, "shared.txt");
-  assert.equal(metadata.expected.operation, "cherry-pick");
-  assert.equal(metadata.expected.unmergedPath, "shared.txt");
+  assert.equal(metadata.expected.safety.operation, "cherry-pick");
+  assert.equal(metadata.expected.safety.unmergedPath, "shared.txt");
 });
