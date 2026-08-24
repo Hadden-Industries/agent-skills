@@ -251,12 +251,26 @@ form, abbreviations, and embedded definitions directly.
 
 ### External service authorization
 
-Before launching a hosted model, obtain authorization to send the exact
-evaluation payload to the named provider. Record the provider, canonical skill
-byte count and SHA-256 digest, prompt-file digests, selected cases, arms, model,
-and enabled web capability. A failed local launcher that sends no request does
-not consume a model repetition, but it must still be retained as a failed
-launch attempt.
+Prepare the session before requesting authorization. Preparation inspects the
+selected local toolchain, freezes every harness-controlled input, and writes a
+canonical `packet.json` whose `transmissionSha256` binds the provider, model,
+effort, capabilities, isolation, exact prompt and instruction bytes, runtime
+fingerprints, and one-turn continuation policy. Preparation never performs a
+provider model turn.
+
+The maintainer must authorize that exact digest, provider, model, and effort in
+an authorization JSON file. Execution accepts only:
+
+```text
+run --prepared-session <directory> --authorization <json-file>
+    --allow-external-model-call [--timeout-ms <positive-integer>]
+```
+
+There are no execution-time provider, model, toolchain, working-directory, or
+capability overrides. Missing, malformed, or mismatched authorization is
+rejected before the single-use launch capability is issued. A failed local
+launcher that sends no request does not consume a model repetition, but its
+shared-runtime failure evidence must still be retained.
 
 ### Comparison arms
 
@@ -291,19 +305,15 @@ The treatment arm must receive the canonical deployable directory and the same
 task prompt, files, web tools, permissions, locale, and time budget. The prompt
 must not coach the treatment with expectations that the baseline does not see.
 
-### Codex CLI isolation
+### Provider isolation
 
-For Codex CLI runs, do not rely on a project `AGENTS.md` while using an
-authenticated home that may contain global instructions. The retained runner:
-
-1. uses a fresh, empty, non-repository working directory per run;
-2. passes the common harness through `developer_instructions`;
-3. sets `project_doc_max_bytes=0` so global and project instruction files are
-   not ingested;
-4. uses `--ignore-user-config`, `--ignore-rules`, `--ephemeral`, and a
-   read-only sandbox;
-5. enables live search explicitly and sends the exact prompt bytes over stdin;
-6. appends the canonical skill bytes only to the treatment developer input.
+The suite runner does not invoke Codex `exec` or implement a second Claude
+process parser. OpenAI sessions use the shared Codex App Server adapter and the
+stable `execution` evaluation-home role. Anthropic sessions use the shared
+Claude CLI adapter and its OAuth/keychain authentication profile. Both use a
+fresh, empty, non-repository working directory, disabled persistence, a
+read-only sandbox, packet-bound instructions, explicit network and live-search
+capabilities, one model turn, and the common authorization boundary.
 
 Retain the full developer input and its digest for both arms. The same baseline
 digest must recur across cases, and the same treatment digest must recur when
@@ -419,23 +429,30 @@ artifacts returned or derived from that execution:
 ```text
 repetition-01/
     inputs/
-        instructions.md
+        manifest.json
+        0001-prompt.txt
+        ... packet-bound instructions and provider inputs
     outputs/
         final.md
         stderr.log
         transcript.jsonl
+        events.jsonl
+    packet.json
+    authorization.json
+    attempt.json
     run.json
     metrics.json
     timing.json
     grading.json
 ```
 
-`run-evaluation-session.mjs` writes schema-version-2 `run.json` records. It
-uses the provider-neutral fields `instructions_bytes` and
-`instructions_sha256`, because the same retained instructions are a Claude
-system-prompt addition and Codex developer instructions. Historical pilot
-records remain schema version 1 and retain their original
-`system_prompt_bytes` and `system_prompt_sha256` field names.
+New sessions use the shared evaluation-runtime schema. The canonical packet and
+input manifest are the authority for transmitted bytes; `run.json` records the
+normalized status, failure class, safe process closure, suite result, and a
+digest map of retained artifacts. `metrics.json` retains native and normalized
+usage, while `timing.json` retains wall-clock timestamps and duration.
+Historical result directories remain byte-for-byte unchanged and keep their
+original schemas.
 
 The `.generated` infix marks derived aggregation output. The initial
 `2026-08-24T092645.127Z` aggregate came from the generic aggregation tool and
