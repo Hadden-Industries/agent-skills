@@ -1,11 +1,17 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
+  constants as fsConstants,
   existsSync,
+  fsyncSync,
   lstatSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
+  unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -83,6 +89,147 @@ function validateAttemptDirectory(transaction) {
   }
 
   return attempt;
+}
+
+export function acquireTransactionStateLock({
+  transactionPath,
+  operation,
+  token = randomUUID(),
+}) {
+  if (
+    typeof operation !== "string" ||
+    operation.length === 0 ||
+    operation.includes("\0")
+  ) {
+    throw new Error("Transaction-state lock operation is invalid.");
+  }
+
+  const transaction = readTransaction(transactionPath);
+  const attemptDirectory = validateAttemptDirectory(transaction);
+  const path = join(attemptDirectory, "transaction-state.lock");
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  let descriptor;
+
+  const openLock = () =>
+    openSync(
+      path,
+      fsConstants.O_WRONLY +
+        fsConstants.O_CREAT +
+        fsConstants.O_EXCL +
+        noFollow,
+      0o600,
+    );
+
+  try {
+    descriptor = openLock();
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      const stat = lstatSync(path);
+      let owner;
+
+      try {
+        owner = JSON.parse(readFileSync(path, "utf8"));
+      } catch {
+        owner = null;
+      }
+
+      const ownerValid =
+        !stat.isSymbolicLink() &&
+        stat.isFile() &&
+        JSON.stringify(Object.keys(owner ?? {}).sort()) ===
+          JSON.stringify(
+            [
+              "schemaVersion",
+              "token",
+              "operation",
+              "pid",
+              "startIdentity",
+            ].sort(),
+          ) &&
+        owner.schemaVersion === 1 &&
+        typeof owner.token === "string" &&
+        owner.token.length > 0 &&
+        typeof owner.operation === "string" &&
+        owner.operation.length > 0 &&
+        Number.isSafeInteger(owner?.pid) &&
+        owner.pid > 0 &&
+        (owner.startIdentity === null ||
+          typeof owner.startIdentity === "string");
+      const ownerExists = ownerValid && processExists(owner.pid);
+      const currentIdentity =
+        ownerExists && owner.startIdentity !== null
+          ? processStartIdentity(owner.pid)
+          : null;
+      const ownerStillLive =
+        ownerExists &&
+        (owner.startIdentity === null ||
+          currentIdentity === null ||
+          currentIdentity === owner.startIdentity);
+
+      if (!ownerValid || ownerStillLive) {
+        const conflict = new Error(
+          "Another report-detail, publication, or cleanup operation owns the transaction state.",
+        );
+        conflict.code = "TRANSACTION_STATE_CONFLICT";
+        throw conflict;
+      }
+
+      unlinkSync(path);
+
+      try {
+        descriptor = openLock();
+      } catch (retryError) {
+        if (retryError.code === "EEXIST") {
+          const conflict = new Error(
+            "Another report-detail, publication, or cleanup operation acquired the transaction state.",
+          );
+          conflict.code = "TRANSACTION_STATE_CONFLICT";
+          throw conflict;
+        }
+
+        throw retryError;
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  try {
+    writeFileSync(
+      descriptor,
+      Buffer.from(
+        `${JSON.stringify({
+          schemaVersion: 1,
+          token,
+          operation,
+          pid: process.pid,
+          startIdentity: processStartIdentity(process.pid),
+        })}\n`,
+        "utf8",
+      ),
+    );
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+
+  return { path, token, operation, attemptDirectory };
+}
+
+export function releaseTransactionStateLock(lock) {
+  const stat = lstatSync(lock.path);
+
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error("Transaction-state lock was replaced.");
+  }
+
+  const recorded = JSON.parse(readFileSync(lock.path, "utf8"));
+
+  if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
+    throw new Error("Transaction-state lock ownership changed.");
+  }
+
+  unlinkSync(lock.path);
 }
 
 function observeRef(root, headAnchor) {
@@ -216,8 +363,23 @@ function assertConfirmedNoLiveChild(
     );
   }
 
-  const childIdentity = transaction.commit.childIdentity;
+  assertRecordedChildInactive({
+    repositoryRoot: transaction.repositoryRoot,
+    childIdentity: transaction.commit.childIdentity,
+    processInspector,
+    indexLockInspector,
+  });
+}
 
+export function assertRecordedChildInactive({
+  repositoryRoot,
+  childIdentity,
+  processInspector = {
+    exists: processExists,
+    startIdentity: processStartIdentity,
+  },
+  indexLockInspector = (root) => existsSync(indexLockPath(root)),
+}) {
   if (childIdentity && processInspector.exists(childIdentity.pid)) {
     const currentIdentity = processInspector.startIdentity(childIdentity.pid);
     const reused =
@@ -232,7 +394,7 @@ function assertConfirmedNoLiveChild(
     );
   }
 
-  if (indexLockInspector(transaction.repositoryRoot)) {
+  if (indexLockInspector(repositoryRoot)) {
     throw new Error("An index lock contradicts the no-live-child assertion.");
   }
 }
@@ -501,7 +663,7 @@ function removeOwnedTarget(attempt, path, removeOperation) {
   return true;
 }
 
-export function compactTerminalTransaction({
+function compactTerminalTransactionUnlocked({
   transactionPath,
   retainReviewArtifacts = false,
   retainProcessLogs = false,
@@ -526,6 +688,20 @@ export function compactTerminalTransaction({
     "content.json",
     "evidence-plan-input.json",
   ];
+  const detailArtifactPattern =
+    /^report-detail-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+  for (const name of readdirSync(attempt)) {
+    if (
+      new Set([
+        "report-detail.active.json",
+        "report-detail.completed.json",
+      ]).has(name) ||
+      detailArtifactPattern.test(name)
+    ) {
+      names.push(name);
+    }
+  }
 
   if (!retainReviewArtifacts) {
     names.push("review", "inspection");
@@ -534,7 +710,10 @@ export function compactTerminalTransaction({
   if (
     !retainProcessLogs &&
     transaction.commit?.completion?.exitCode === 0 &&
-    transaction.commit?.comparison !== null
+    transaction.commit?.comparison !== null &&
+    transaction.publicationAttempts.every((attempt) =>
+      new Set(["succeeded", "observed-matching"]).has(attempt.status),
+    )
   ) {
     names.push("process-logs");
   }
@@ -566,7 +745,20 @@ export function compactTerminalTransaction({
   };
 }
 
-export function purgeTransaction({ transactionPath }) {
+export function compactTerminalTransaction(options) {
+  const lock = acquireTransactionStateLock({
+    transactionPath: options.transactionPath,
+    operation: "cleanup",
+  });
+
+  try {
+    return compactTerminalTransactionUnlocked(options);
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+
+function purgeTransactionUnlocked({ transactionPath }) {
   let transaction = readTransaction(transactionPath);
   const attempt = validateAttemptDirectory(transaction);
 
@@ -610,4 +802,23 @@ export function purgeTransaction({ transactionPath }) {
     completed: [formerPath],
     failed: [],
   };
+}
+
+export function purgeTransaction(options) {
+  const lock = acquireTransactionStateLock({
+    transactionPath: options.transactionPath,
+    operation: "purge",
+  });
+  let purged = false;
+
+  try {
+    const result = purgeTransactionUnlocked(options);
+
+    purged = true;
+    return result;
+  } finally {
+    if (!purged) {
+      releaseTransactionStateLock(lock);
+    }
+  }
 }

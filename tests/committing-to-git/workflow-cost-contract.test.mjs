@@ -29,6 +29,13 @@ const PRE_CUTOVER_MIN_AGENT_ARTIFACT_WRITES = 1;
 const PRE_CUTOVER_MIN_STDOUT_BYTES = 1;
 const REPRESENTATIVE_OLD_LEDGER_UNITS = 1_000;
 const PRE_CUTOVER_THOUSAND_UNIT_ACK_RESPONSE_BYTES = 316_216;
+const PUBLISH_WORKFLOW_SOURCE = readFileSync(
+  new URL(
+    "../../src/committing-to-git/workflow/publishWorkflow.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const EXPECTED_PRE_CUTOVER_PHASES = [
   "snapshot create",
   "inspection prepare",
@@ -46,6 +53,17 @@ function assertNonnegativeInteger(value, label) {
   assert.equal(Number.isInteger(value), true, `${label} must be an integer`);
   assert.ok(value >= 0, `${label} must be nonnegative`);
 }
+
+test("publication reuses persisted report facts instead of collecting them again", () => {
+  assert.match(PUBLISH_WORKFLOW_SOURCE, /readPersistedReport/u);
+  assert.match(PUBLISH_WORKFLOW_SOURCE, /augmentReportWithPublication/u);
+  assert.doesNotMatch(PUBLISH_WORKFLOW_SOURCE, /collectCommitReport/u);
+  assert.doesNotMatch(PUBLISH_WORKFLOW_SOURCE, /collectWorkspaceSummary/u);
+  assert.match(
+    PUBLISH_WORKFLOW_SOURCE,
+    /\["push", "--porcelain", "--", remote, attempt\.refspec\]/u,
+  );
+});
 
 function assertFrozenBaseline(baseline) {
   assert.deepEqual(Object.keys(baseline).sort(), [

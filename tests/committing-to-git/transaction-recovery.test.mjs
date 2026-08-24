@@ -821,6 +821,38 @@ test("cleanup rejects active compaction and purge stays confined to one exact UU
   assert.equal(existsSync(sentinel), true);
 });
 
+test("transaction-state lock acquisition replaces only a provably stale owner", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-state-lock-stale-");
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = await prepareConcise(fixture);
+  const lockPath = join(
+    dirname(prepared.transaction),
+    "transaction-state.lock",
+  );
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      token: "stale",
+      operation: "report-detail",
+      pid: 2_147_483_647,
+      startIdentity: "stale-start",
+    })}\n`,
+  );
+  const { acquireTransactionStateLock, releaseTransactionStateLock } =
+    await import("../../src/committing-to-git/transaction/transactionRecovery.js");
+  const lock = acquireTransactionStateLock({
+    transactionPath: prepared.transaction,
+    operation: "cleanup",
+  });
+
+  assert.notEqual(lock.token, "stale");
+  releaseTransactionStateLock(lock);
+  assert.equal(existsSync(lockPath), false);
+});
+
 test("purge rejects a link replacement without touching its external target", async (t) => {
   const fixture = createRepositoryFixture(t, "commit-cleanup-link-");
   const external = join(fixture.scratch, "external.txt");
@@ -870,7 +902,7 @@ test("terminal compaction retries Windows-style lock failures and is idempotent"
       }
     },
   });
-  recoverTransactionWorkflow({
+  await recoverTransactionWorkflow({
     transactionPath: prepared.transaction,
     resolution: "confirmed-no-live-child",
   });
@@ -1121,7 +1153,7 @@ for (const boundary of [
       assert.equal(result.cleanup.status, "warning");
     } else {
       assert.equal(result.exitCode, 3);
-      const recovered = recoverTransactionWorkflow({
+      const recovered = await recoverTransactionWorkflow({
         transactionPath: prepared.transaction,
       });
 

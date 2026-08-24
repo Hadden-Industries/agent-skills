@@ -692,6 +692,273 @@ function validateVerificationHistory(verification) {
   }
 }
 
+function validatePublicationAttempt(attempt) {
+  assertExactKeys(
+    attempt,
+    [
+      "schemaVersion",
+      "attemptId",
+      "retryOf",
+      "status",
+      "launchState",
+      "childIdentity",
+      "commitOid",
+      "remote",
+      "destination",
+      "refspec",
+      "startedAt",
+      "completion",
+      "transcript",
+      "observation",
+      "resolution",
+      "retryPermitted",
+      "reason",
+    ],
+    "Publication attempt",
+  );
+
+  if (
+    attempt.schemaVersion !== 1 ||
+    !UUID_V4_PATTERN.test(attempt.attemptId) ||
+    (attempt.retryOf !== null && !UUID_V4_PATTERN.test(attempt.retryOf)) ||
+    !new Set([
+      "pending",
+      "unknown",
+      "rejected",
+      "succeeded",
+      "observed-matching",
+    ]).has(attempt.status) ||
+    !new Set(["not-started", "launching", "running", "completed"]).has(
+      attempt.launchState,
+    ) ||
+    !FULL_OID_PATTERN.test(attempt.commitOid) ||
+    typeof attempt.remote !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(attempt.remote) ||
+    typeof attempt.destination !== "string" ||
+    !attempt.destination.startsWith("refs/heads/") ||
+    attempt.refspec !== `${attempt.commitOid}:${attempt.destination}` ||
+    typeof attempt.startedAt !== "string" ||
+    !Number.isFinite(Date.parse(attempt.startedAt)) ||
+    typeof attempt.retryPermitted !== "boolean" ||
+    (attempt.reason !== null && typeof attempt.reason !== "string")
+  ) {
+    throw new Error("Publication attempt contains invalid identity facts.");
+  }
+
+  if (attempt.childIdentity !== null) {
+    assertExactKeys(
+      attempt.childIdentity,
+      ["pid", "startIdentity"],
+      "Publication child identity",
+    );
+
+    if (
+      !Number.isSafeInteger(attempt.childIdentity.pid) ||
+      attempt.childIdentity.pid < 1 ||
+      (attempt.childIdentity.startIdentity !== null &&
+        typeof attempt.childIdentity.startIdentity !== "string")
+    ) {
+      throw new Error("Publication child identity is invalid.");
+    }
+  }
+
+  if (attempt.completion !== null) {
+    assertExactKeys(
+      attempt.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError",
+        "outcome",
+      ],
+      "Publication completion",
+    );
+
+    if (
+      (attempt.completion.exitCode !== null &&
+        !Number.isInteger(attempt.completion.exitCode)) ||
+      (attempt.completion.signal !== null &&
+        typeof attempt.completion.signal !== "string") ||
+      (attempt.completion.transcriptCompletionSha256 !== null &&
+        !SHA256_PATTERN.test(attempt.completion.transcriptCompletionSha256)) ||
+      typeof attempt.completion.nonLaunchGuaranteed !== "boolean" ||
+      (attempt.completion.launchError !== null &&
+        (typeof attempt.completion.launchError !== "object" ||
+          Array.isArray(attempt.completion.launchError))) ||
+      !new Set([
+        "not-launched",
+        "witnessed-success",
+        "known-rejection",
+        "unknown",
+      ]).has(attempt.completion.outcome)
+    ) {
+      throw new Error("Publication completion is invalid.");
+    }
+  }
+
+  if (attempt.observation !== null) {
+    assertExactKeys(
+      attempt.observation,
+      [
+        "status",
+        "observedAt",
+        "observedOid",
+        "exitCode",
+        "stdoutSha256",
+        "stderrSha256",
+        "commandDigest",
+        "reason",
+      ],
+      "Publication observation",
+    );
+
+    if (
+      !new Set(["querying", "observed", "absent", "unavailable"]).has(
+        attempt.observation.status,
+      ) ||
+      typeof attempt.observation.observedAt !== "string" ||
+      !Number.isFinite(Date.parse(attempt.observation.observedAt)) ||
+      (attempt.observation.observedOid !== null &&
+        !FULL_OID_PATTERN.test(attempt.observation.observedOid)) ||
+      (attempt.observation.exitCode !== null &&
+        !Number.isInteger(attempt.observation.exitCode)) ||
+      !SHA256_PATTERN.test(attempt.observation.stdoutSha256) ||
+      !SHA256_PATTERN.test(attempt.observation.stderrSha256) ||
+      !SHA256_PATTERN.test(attempt.observation.commandDigest) ||
+      (attempt.observation.reason !== null &&
+        typeof attempt.observation.reason !== "string") ||
+      (attempt.observation.status === "observed" &&
+        (attempt.observation.observedOid === null ||
+          attempt.observation.exitCode !== 0)) ||
+      (attempt.observation.status === "absent" &&
+        (attempt.observation.observedOid !== null ||
+          attempt.observation.exitCode !== 2)) ||
+      (attempt.observation.status === "unavailable" &&
+        (attempt.observation.observedOid !== null ||
+          attempt.observation.reason === null)) ||
+      (attempt.observation.status === "querying" &&
+        (attempt.observation.observedOid !== null ||
+          attempt.observation.exitCode !== null ||
+          attempt.observation.reason === null))
+    ) {
+      throw new Error("Publication observation is invalid.");
+    }
+  }
+
+  if (attempt.resolution !== null) {
+    assertExactKeys(
+      attempt.resolution,
+      ["kind", "assertedAt", "observationDigest"],
+      "Publication resolution",
+    );
+
+    if (
+      attempt.resolution.kind !== "confirmed-no-live-child" ||
+      typeof attempt.resolution.assertedAt !== "string" ||
+      !Number.isFinite(Date.parse(attempt.resolution.assertedAt)) ||
+      !SHA256_PATTERN.test(attempt.resolution.observationDigest) ||
+      attempt.observation === null ||
+      attempt.resolution.observationDigest !== attempt.observation.commandDigest
+    ) {
+      throw new Error("Publication resolution is invalid.");
+    }
+  }
+
+  if (
+    attempt.retryPermitted !== (attempt.resolution !== null) ||
+    (attempt.retryPermitted && attempt.status !== "unknown")
+  ) {
+    throw new Error(
+      "Publication retry permission requires an observation and resolution.",
+    );
+  }
+
+  for (const field of ["transcript", "completion"]) {
+    if (
+      attempt[field] !== null &&
+      (typeof attempt[field] !== "object" || Array.isArray(attempt[field]))
+    ) {
+      throw new Error(`Publication ${field} must be an object or null.`);
+    }
+  }
+
+  if (attempt.transcript !== null) {
+    assertExactKeys(
+      attempt.transcript,
+      [
+        "path",
+        "status",
+        "signal",
+        "totalByteCount",
+        "stdoutByteCount",
+        "stderrByteCount",
+        "stdoutSha256",
+        "stderrSha256",
+        "sha256",
+        "completionSha256",
+        "retainRecommended",
+      ],
+      "Publication transcript",
+    );
+
+    if (
+      typeof attempt.transcript.path !== "string" ||
+      attempt.transcript.path.length === 0 ||
+      (attempt.transcript.status !== null &&
+        !Number.isInteger(attempt.transcript.status)) ||
+      (attempt.transcript.signal !== null &&
+        typeof attempt.transcript.signal !== "string") ||
+      !Number.isSafeInteger(attempt.transcript.totalByteCount) ||
+      attempt.transcript.totalByteCount < 0 ||
+      !Number.isSafeInteger(attempt.transcript.stdoutByteCount) ||
+      attempt.transcript.stdoutByteCount < 0 ||
+      !Number.isSafeInteger(attempt.transcript.stderrByteCount) ||
+      attempt.transcript.stderrByteCount < 0 ||
+      !SHA256_PATTERN.test(attempt.transcript.stdoutSha256) ||
+      !SHA256_PATTERN.test(attempt.transcript.stderrSha256) ||
+      !SHA256_PATTERN.test(attempt.transcript.sha256) ||
+      !SHA256_PATTERN.test(attempt.transcript.completionSha256) ||
+      typeof attempt.transcript.retainRecommended !== "boolean" ||
+      attempt.transcript.totalByteCount !==
+        attempt.transcript.stdoutByteCount + attempt.transcript.stderrByteCount
+    ) {
+      throw new Error("Publication transcript is invalid.");
+    }
+  }
+
+  if (
+    (attempt.launchState === "not-started" &&
+      (attempt.childIdentity !== null ||
+        attempt.completion !== null ||
+        attempt.transcript !== null)) ||
+    (attempt.launchState === "launching" &&
+      (attempt.completion !== null || attempt.transcript !== null)) ||
+    (attempt.launchState === "running" &&
+      (attempt.childIdentity === null ||
+        attempt.completion !== null ||
+        attempt.transcript !== null)) ||
+    (attempt.launchState === "completed" && attempt.completion === null) ||
+    (attempt.completion?.outcome === "not-launched" &&
+      attempt.completion.nonLaunchGuaranteed !== true) ||
+    (attempt.completion?.outcome === "witnessed-success" &&
+      (attempt.completion.exitCode !== 0 || attempt.transcript === null)) ||
+    (attempt.completion?.outcome === "known-rejection" &&
+      (attempt.completion.exitCode === null ||
+        attempt.completion.exitCode === 0 ||
+        attempt.transcript === null)) ||
+    (attempt.status === "succeeded" &&
+      (attempt.launchState !== "completed" ||
+        attempt.completion?.outcome !== "witnessed-success")) ||
+    (attempt.status === "observed-matching" &&
+      (attempt.observation?.status !== "observed" ||
+        attempt.observation.observedOid !== attempt.commitOid))
+  ) {
+    throw new Error("Publication launch state and outcome are inconsistent.");
+  }
+}
+
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
@@ -820,6 +1087,64 @@ export function validateTransaction(transaction) {
 
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");
+  }
+
+  const publicationIds = new Set();
+
+  for (const attempt of transaction.publicationAttempts) {
+    validatePublicationAttempt(attempt);
+
+    if (
+      publicationIds.has(attempt.attemptId) ||
+      (attempt.retryOf !== null && !publicationIds.has(attempt.retryOf))
+    ) {
+      throw new Error(
+        "Publication attempt IDs and retry links must form append-only history.",
+      );
+    }
+
+    publicationIds.add(attempt.attemptId);
+  }
+
+  const latestPublication = transaction.publicationAttempts.at(-1) ?? null;
+
+  for (const attempt of transaction.publicationAttempts) {
+    if (attempt.commitOid !== transaction.commit?.commitOid) {
+      throw new Error(
+        "Every publication attempt must bind the transaction commit OID.",
+      );
+    }
+  }
+
+  if (
+    transaction.phase === "publication-pending" &&
+    latestPublication === null
+  ) {
+    throw new Error(
+      "A publication-pending transaction requires a journaled publication attempt.",
+    );
+  }
+
+  if (
+    transaction.phase === "published" &&
+    (latestPublication === null ||
+      !new Set(["succeeded", "observed-matching"]).has(
+        latestPublication.status,
+      ))
+  ) {
+    throw new Error(
+      "A published transaction requires a successful or observed-matching attempt.",
+    );
+  }
+
+  if (
+    transaction.phase === "reported" &&
+    latestPublication !== null &&
+    latestPublication.status !== "rejected"
+  ) {
+    throw new Error(
+      "A reported transaction may retain only a latest known rejected publication attempt.",
+    );
   }
 
   if (transaction.phase === "commit-pending" && transaction.commit === null) {

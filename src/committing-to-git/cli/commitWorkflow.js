@@ -40,6 +40,18 @@ const COMMANDS = new Map([
     ],
   ],
   [
+    "workflow report-detail",
+    [
+      () => import("../workflow/reportDetailWorkflow.js"),
+      null,
+      "runReportDetailCommand",
+    ],
+  ],
+  [
+    "workflow publish",
+    [() => import("../workflow/publishWorkflow.js"), null, "runPublishCommand"],
+  ],
+  [
     "workflow recover",
     [
       () => import("../workflow/recoverTransactionWorkflow.js"),
@@ -142,6 +154,31 @@ Exit status:
 
 Retries or reclassifies signature verification only for the already recorded
 commit OID. This command never invokes commit creation.
+`,
+  ],
+  [
+    "workflow report-detail",
+    `Usage: commitWorkflow.mjs workflow report-detail --transaction <transaction.json> [--cursor <cursor> | --refresh] [--format <json|text>]
+
+Streams one fresh, bounded workspace observation for a reported or published
+transaction. Continue an immutable observation with its opaque cursor. A
+completed response is replayed until --refresh explicitly starts a new one.
+`,
+  ],
+  [
+    "workflow publish",
+    `Usage: commitWorkflow.mjs workflow publish --transaction <transaction.json> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <attempt-id>] [--format <json|text>]
+
+Publishes the exact recorded commit only when its comparison, signature header,
+verification policy, configured remote, and full destination ref permit it.
+Every attempt is journaled and never retried automatically.
+
+Exit status:
+  0  Push success was witnessed, or recovery observed the matching remote OID.
+  1  Git reported a known rejection with no successful push recorded.
+  2  Invalid input or failure before a publication attempt was journaled.
+  3  The known commit report or verification policy blocks publication.
+  4  Remote outcome is unknown and requires recovery before any new attempt.
 `,
   ],
   [
@@ -403,6 +440,8 @@ Usage:
   commitWorkflow.mjs workflow extend [options]
   commitWorkflow.mjs workflow commit [options]
   commitWorkflow.mjs workflow verify [options]
+  commitWorkflow.mjs workflow report-detail [options]
+  commitWorkflow.mjs workflow publish [options]
   commitWorkflow.mjs workflow recover [options]
   commitWorkflow.mjs workflow cleanup [options]
   commitWorkflow.mjs snapshot create [options]

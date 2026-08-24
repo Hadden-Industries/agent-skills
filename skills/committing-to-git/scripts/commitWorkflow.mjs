@@ -19,6 +19,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+function containsControlCharacter(value) {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0);
+    return code <= 31 || code === 127;
+  });
+}
 function normalizeProbeResult(result) {
   if (result?.error) {
     throw new GitCapabilityError(
@@ -204,15 +210,17 @@ function buildReadOnlyArguments(operation, args) {
       }
       return ["rev-parse", "--path-format=absolute", "--git-path", args[0]];
     case "status":
-      if (!args.includes("--porcelain=v2") || !args.includes("-z") || args.filter(
+      if (!args.includes("--porcelain=v2") || !args.includes("-z") || args.filter((argument) => argument.startsWith("--untracked-files=")).length !== 1 || args.filter(
         (argument) => argument === "--renames" || argument === "--no-renames"
-      ).length !== 1 || args.some(
+      ).length !== 1 || args.filter((argument) => argument.startsWith("--ignore-submodules=")).length > 1 || args.some(
         (argument) => !(/* @__PURE__ */ new Set([
           "--porcelain=v2",
           "-z",
           "--untracked-files=all",
+          "--untracked-files=normal",
           "--renames",
-          "--no-renames"
+          "--no-renames",
+          "--ignore-submodules=dirty"
         ])).has(argument)
       ) || new Set(args).size !== args.length) {
         throw new Error(
@@ -274,6 +282,16 @@ function buildReadOnlyArguments(operation, args) {
         );
       }
       return ["check-ref-format", args[0]];
+    case "remote-names":
+      assertExactArguments(args, [], operation);
+      return ["remote"];
+    case "ls-remote":
+      if (args.length !== 5 || args[0] !== "--refs" || args[1] !== "--exit-code" || args[2] !== "--" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[3]) || !args[4].startsWith("refs/heads/") || containsControlCharacter(args[4])) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation ls-remote."
+        );
+      }
+      return ["ls-remote", ...args];
     default:
       throw new Error(
         `Unsupported read-only Git operation ${JSON.stringify(operation)}.`
@@ -2177,6 +2195,140 @@ function validateVerificationHistory(verification) {
     }
   }
 }
+function validatePublicationAttempt(attempt) {
+  assertExactKeys(
+    attempt,
+    [
+      "schemaVersion",
+      "attemptId",
+      "retryOf",
+      "status",
+      "launchState",
+      "childIdentity",
+      "commitOid",
+      "remote",
+      "destination",
+      "refspec",
+      "startedAt",
+      "completion",
+      "transcript",
+      "observation",
+      "resolution",
+      "retryPermitted",
+      "reason"
+    ],
+    "Publication attempt"
+  );
+  if (attempt.schemaVersion !== 1 || !UUID_V4_PATTERN.test(attempt.attemptId) || attempt.retryOf !== null && !UUID_V4_PATTERN.test(attempt.retryOf) || !(/* @__PURE__ */ new Set([
+    "pending",
+    "unknown",
+    "rejected",
+    "succeeded",
+    "observed-matching"
+  ])).has(attempt.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
+    attempt.launchState
+  ) || !FULL_OID_PATTERN.test(attempt.commitOid) || typeof attempt.remote !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(attempt.remote) || typeof attempt.destination !== "string" || !attempt.destination.startsWith("refs/heads/") || attempt.refspec !== `${attempt.commitOid}:${attempt.destination}` || typeof attempt.startedAt !== "string" || !Number.isFinite(Date.parse(attempt.startedAt)) || typeof attempt.retryPermitted !== "boolean" || attempt.reason !== null && typeof attempt.reason !== "string") {
+    throw new Error("Publication attempt contains invalid identity facts.");
+  }
+  if (attempt.childIdentity !== null) {
+    assertExactKeys(
+      attempt.childIdentity,
+      ["pid", "startIdentity"],
+      "Publication child identity"
+    );
+    if (!Number.isSafeInteger(attempt.childIdentity.pid) || attempt.childIdentity.pid < 1 || attempt.childIdentity.startIdentity !== null && typeof attempt.childIdentity.startIdentity !== "string") {
+      throw new Error("Publication child identity is invalid.");
+    }
+  }
+  if (attempt.completion !== null) {
+    assertExactKeys(
+      attempt.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError",
+        "outcome"
+      ],
+      "Publication completion"
+    );
+    if (attempt.completion.exitCode !== null && !Number.isInteger(attempt.completion.exitCode) || attempt.completion.signal !== null && typeof attempt.completion.signal !== "string" || attempt.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN.test(attempt.completion.transcriptCompletionSha256) || typeof attempt.completion.nonLaunchGuaranteed !== "boolean" || attempt.completion.launchError !== null && (typeof attempt.completion.launchError !== "object" || Array.isArray(attempt.completion.launchError)) || !(/* @__PURE__ */ new Set([
+      "not-launched",
+      "witnessed-success",
+      "known-rejection",
+      "unknown"
+    ])).has(attempt.completion.outcome)) {
+      throw new Error("Publication completion is invalid.");
+    }
+  }
+  if (attempt.observation !== null) {
+    assertExactKeys(
+      attempt.observation,
+      [
+        "status",
+        "observedAt",
+        "observedOid",
+        "exitCode",
+        "stdoutSha256",
+        "stderrSha256",
+        "commandDigest",
+        "reason"
+      ],
+      "Publication observation"
+    );
+    if (!(/* @__PURE__ */ new Set(["querying", "observed", "absent", "unavailable"])).has(
+      attempt.observation.status
+    ) || typeof attempt.observation.observedAt !== "string" || !Number.isFinite(Date.parse(attempt.observation.observedAt)) || attempt.observation.observedOid !== null && !FULL_OID_PATTERN.test(attempt.observation.observedOid) || attempt.observation.exitCode !== null && !Number.isInteger(attempt.observation.exitCode) || !SHA256_PATTERN.test(attempt.observation.stdoutSha256) || !SHA256_PATTERN.test(attempt.observation.stderrSha256) || !SHA256_PATTERN.test(attempt.observation.commandDigest) || attempt.observation.reason !== null && typeof attempt.observation.reason !== "string" || attempt.observation.status === "observed" && (attempt.observation.observedOid === null || attempt.observation.exitCode !== 0) || attempt.observation.status === "absent" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== 2) || attempt.observation.status === "unavailable" && (attempt.observation.observedOid !== null || attempt.observation.reason === null) || attempt.observation.status === "querying" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== null || attempt.observation.reason === null)) {
+      throw new Error("Publication observation is invalid.");
+    }
+  }
+  if (attempt.resolution !== null) {
+    assertExactKeys(
+      attempt.resolution,
+      ["kind", "assertedAt", "observationDigest"],
+      "Publication resolution"
+    );
+    if (attempt.resolution.kind !== "confirmed-no-live-child" || typeof attempt.resolution.assertedAt !== "string" || !Number.isFinite(Date.parse(attempt.resolution.assertedAt)) || !SHA256_PATTERN.test(attempt.resolution.observationDigest) || attempt.observation === null || attempt.resolution.observationDigest !== attempt.observation.commandDigest) {
+      throw new Error("Publication resolution is invalid.");
+    }
+  }
+  if (attempt.retryPermitted !== (attempt.resolution !== null) || attempt.retryPermitted && attempt.status !== "unknown") {
+    throw new Error(
+      "Publication retry permission requires an observation and resolution."
+    );
+  }
+  for (const field of ["transcript", "completion"]) {
+    if (attempt[field] !== null && (typeof attempt[field] !== "object" || Array.isArray(attempt[field]))) {
+      throw new Error(`Publication ${field} must be an object or null.`);
+    }
+  }
+  if (attempt.transcript !== null) {
+    assertExactKeys(
+      attempt.transcript,
+      [
+        "path",
+        "status",
+        "signal",
+        "totalByteCount",
+        "stdoutByteCount",
+        "stderrByteCount",
+        "stdoutSha256",
+        "stderrSha256",
+        "sha256",
+        "completionSha256",
+        "retainRecommended"
+      ],
+      "Publication transcript"
+    );
+    if (typeof attempt.transcript.path !== "string" || attempt.transcript.path.length === 0 || attempt.transcript.status !== null && !Number.isInteger(attempt.transcript.status) || attempt.transcript.signal !== null && typeof attempt.transcript.signal !== "string" || !Number.isSafeInteger(attempt.transcript.totalByteCount) || attempt.transcript.totalByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stdoutByteCount) || attempt.transcript.stdoutByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stderrByteCount) || attempt.transcript.stderrByteCount < 0 || !SHA256_PATTERN.test(attempt.transcript.stdoutSha256) || !SHA256_PATTERN.test(attempt.transcript.stderrSha256) || !SHA256_PATTERN.test(attempt.transcript.sha256) || !SHA256_PATTERN.test(attempt.transcript.completionSha256) || typeof attempt.transcript.retainRecommended !== "boolean" || attempt.transcript.totalByteCount !== attempt.transcript.stdoutByteCount + attempt.transcript.stderrByteCount) {
+      throw new Error("Publication transcript is invalid.");
+    }
+  }
+  if (attempt.launchState === "not-started" && (attempt.childIdentity !== null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "launching" && (attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "running" && (attempt.childIdentity === null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "completed" && attempt.completion === null || attempt.completion?.outcome === "not-launched" && attempt.completion.nonLaunchGuaranteed !== true || attempt.completion?.outcome === "witnessed-success" && (attempt.completion.exitCode !== 0 || attempt.transcript === null) || attempt.completion?.outcome === "known-rejection" && (attempt.completion.exitCode === null || attempt.completion.exitCode === 0 || attempt.transcript === null) || attempt.status === "succeeded" && (attempt.launchState !== "completed" || attempt.completion?.outcome !== "witnessed-success") || attempt.status === "observed-matching" && (attempt.observation?.status !== "observed" || attempt.observation.observedOid !== attempt.commitOid)) {
+    throw new Error("Publication launch state and outcome are inconsistent.");
+  }
+}
 function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
   if (transaction.schemaVersion !== 1) {
@@ -2265,6 +2417,41 @@ function validateTransaction(transaction) {
   }
   if (!Array.isArray(transaction.publicationAttempts)) {
     throw new Error("Transaction publicationAttempts must be an array.");
+  }
+  const publicationIds = /* @__PURE__ */ new Set();
+  for (const attempt of transaction.publicationAttempts) {
+    validatePublicationAttempt(attempt);
+    if (publicationIds.has(attempt.attemptId) || attempt.retryOf !== null && !publicationIds.has(attempt.retryOf)) {
+      throw new Error(
+        "Publication attempt IDs and retry links must form append-only history."
+      );
+    }
+    publicationIds.add(attempt.attemptId);
+  }
+  const latestPublication = transaction.publicationAttempts.at(-1) ?? null;
+  for (const attempt of transaction.publicationAttempts) {
+    if (attempt.commitOid !== transaction.commit?.commitOid) {
+      throw new Error(
+        "Every publication attempt must bind the transaction commit OID."
+      );
+    }
+  }
+  if (transaction.phase === "publication-pending" && latestPublication === null) {
+    throw new Error(
+      "A publication-pending transaction requires a journaled publication attempt."
+    );
+  }
+  if (transaction.phase === "published" && (latestPublication === null || !(/* @__PURE__ */ new Set(["succeeded", "observed-matching"])).has(
+    latestPublication.status
+  ))) {
+    throw new Error(
+      "A published transaction requires a successful or observed-matching attempt."
+    );
+  }
+  if (transaction.phase === "reported" && latestPublication !== null && latestPublication.status !== "rejected") {
+    throw new Error(
+      "A reported transaction may retain only a latest known rejected publication attempt."
+    );
   }
   if (transaction.phase === "commit-pending" && transaction.commit === null) {
     throw new Error(
@@ -5054,7 +5241,7 @@ function writeReviewPacketQueue({
   if (packetIds.length === 0) {
     return null;
   }
-  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha2568 }) => ({ id, artifact, sha256: sha2568 })).sort(
+  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha25610 }) => ({ id, artifact, sha256: sha25610 })).sort(
     (left, right) => Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact))
   );
   const partitions = partitionQueueRecords(
@@ -5148,7 +5335,7 @@ function supersedePriorQueue({
   }
   const pageSetSha256 = sha256Bytes(
     stableJsonBytes(
-      pages.map(({ artifact, sha256: sha2568 }) => ({ artifact, sha256: sha2568 }))
+      pages.map(({ artifact, sha256: sha25610 }) => ({ artifact, sha256: sha25610 }))
     )
   );
   const marker = {
@@ -6165,11 +6352,11 @@ function presentationWarnings(lines) {
       reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
     });
   });
-  const sha2568 = warnings.length === 0 ? null : createHash6("sha256").update(JSON.stringify(warnings)).digest("hex");
+  const sha25610 = warnings.length === 0 ? null : createHash6("sha256").update(JSON.stringify(warnings)).digest("hex");
   return {
     count: warnings.length,
     samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
-    sha256: sha2568
+    sha256: sha25610
   };
 }
 function canUseDirectSubjectTransport(subject) {
@@ -6298,7 +6485,7 @@ import { Buffer as Buffer4 } from "node:buffer";
 function characterLength(text) {
   return [...text].length;
 }
-function containsControlCharacter(text) {
+function containsControlCharacter2(text) {
   return /[\u0000-\u001f\u007f]/u.test(text);
 }
 function isCapitalizedDescription2(description) {
@@ -6401,7 +6588,7 @@ function validateSubject(subject) {
     throw new Error("Subject description is required.");
   }
   const description = subject.description.trim();
-  if (description !== subject.description || containsControlCharacter(description)) {
+  if (description !== subject.description || containsControlCharacter2(description)) {
     throw new Error(
       "Subject description must be one trimmed line without control characters."
     );
@@ -6411,7 +6598,7 @@ function validateSubject(subject) {
   }
   let scope = null;
   if (subject.scope !== null && subject.scope !== void 0) {
-    if (typeof subject.scope !== "string" || subject.scope.trim() === "" || subject.scope !== subject.scope.trim() || containsControlCharacter(subject.scope) || /[()]/u.test(subject.scope)) {
+    if (typeof subject.scope !== "string" || subject.scope.trim() === "" || subject.scope !== subject.scope.trim() || containsControlCharacter2(subject.scope) || /[()]/u.test(subject.scope)) {
       throw new Error(
         "Subject scope must be one trimmed, non-empty value without parentheses or control characters."
       );
@@ -6479,7 +6666,7 @@ function renderBulk(manifest, content) {
   const width = String(domains.length).length;
   const lines = ["File Changes:"];
   domains.forEach((domain, index) => {
-    if (!domain.title?.trim() || domain.title !== domain.title.trim() || containsControlCharacter(domain.title) || !domain.reasons?.length || !domain.changeUnitIds?.length) {
+    if (!domain.title?.trim() || domain.title !== domain.title.trim() || containsControlCharacter2(domain.title) || !domain.reasons?.length || !domain.changeUnitIds?.length) {
       throw new Error(
         `Domain ${index + 1} requires a single-line title, files, and rationale.`
       );
@@ -10420,7 +10607,7 @@ function ensureDirectory3(path, label) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
-function openTranscript(attemptDirectory, operation) {
+function openTranscript(attemptDirectory, operation, instanceId) {
   const normalizedAttempt = resolve11(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
   const directory = join8(normalizedAttempt, "process-logs");
@@ -10432,7 +10619,15 @@ function openTranscript(attemptDirectory, operation) {
   if (!/^[a-z][a-z0-9-]{0,31}$/u.test(operation)) {
     throw new Error("Transcript operation must be a bounded lowercase token.");
   }
-  const path = join8(directory, `${operation}.transcript.bin`);
+  if (instanceId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+    instanceId
+  )) {
+    throw new Error("Transcript instance must be a UUIDv4 when supplied.");
+  }
+  const path = join8(
+    directory,
+    `${operation}${instanceId === null ? "" : `-${instanceId}`}.transcript.bin`
+  );
   assertContained2(normalizedAttempt, path);
   const descriptor = openSync8(path, "wx", 384);
   return { descriptor, path };
@@ -10459,13 +10654,20 @@ function captureGitProcessTranscript({
   transactionPath,
   attemptDirectory = dirname7(resolve11(transactionPath)),
   operation,
+  instanceId = null,
   child,
   diagnosticBudget = 32 * 1024,
+  stdoutCaptureLimit = 0,
   diagnosticWriter = process.stderr
 }) {
   if (!Number.isSafeInteger(diagnosticBudget) || diagnosticBudget < 1024) {
     throw new Error(
       "Git diagnostic budget must be a safe integer of at least 1 KiB."
+    );
+  }
+  if (!Number.isSafeInteger(stdoutCaptureLimit) || stdoutCaptureLimit < 0 || stdoutCaptureLimit > 64 * 1024) {
+    throw new Error(
+      "Git stdout classification capture must be between 0 and 64 KiB."
     );
   }
   if (child === null || typeof child !== "object" || typeof child.once !== "function" || child.stdout === null || child.stderr === null) {
@@ -10478,7 +10680,11 @@ function captureGitProcessTranscript({
   if (dirname7(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
-  const { descriptor, path } = openTranscript(normalizedAttempt, operation);
+  const { descriptor, path } = openTranscript(
+    normalizedAttempt,
+    operation,
+    instanceId
+  );
   const transcriptHash = createHash10("sha256");
   const channelHashes = {
     stdout: createHash10("sha256"),
@@ -10500,6 +10706,8 @@ function captureGitProcessTranscript({
   let suppressionWritten = false;
   let launchError = null;
   let closed = false;
+  let capturedStdout = Buffer.alloc(0);
+  let capturedStdoutComplete = true;
   writeSync(descriptor, MAGIC);
   transcriptHash.update(MAGIC);
   function mirror(chunk) {
@@ -10524,6 +10732,16 @@ function captureGitProcessTranscript({
       return;
     }
     const frame = frameBytes(sequence, channel, bytes);
+    if (channel === "stdout" && stdoutCaptureLimit > 0) {
+      const remaining = Math.max(0, stdoutCaptureLimit - capturedStdout.length);
+      capturedStdout = Buffer.concat([
+        capturedStdout,
+        bytes.subarray(0, remaining)
+      ]);
+      if (bytes.length > remaining) {
+        capturedStdoutComplete = false;
+      }
+    }
     writeSync(descriptor, frame.header);
     writeSync(descriptor, frame.bytes);
     transcriptHash.update(frame.header);
@@ -10574,7 +10792,9 @@ function captureGitProcessTranscript({
           suppressionMarkerCount: suppressionWritten ? 1 : 0,
           mirroredHeadByteCount: mirroredHeadBytes,
           mirroredTailByteCount: status !== 0 || signal !== null || launchError !== null ? tail.length : 0,
-          retainRecommended: status !== 0 || signal !== null || launchError !== null
+          retainRecommended: status !== 0 || signal !== null || launchError !== null,
+          capturedStdout,
+          capturedStdoutComplete
         });
       } catch (error) {
         try {
@@ -10602,6 +10822,7 @@ var init_gitProcessTranscript = __esm({
 
 // src/committing-to-git/report/commitReport.js
 import { createHash as createHash11 } from "node:crypto";
+import { TextDecoder as TextDecoder7 } from "node:util";
 function hasExactKeys(value, keys) {
   return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
@@ -10642,6 +10863,39 @@ function validateChecksArtifact(checks) {
 }
 function validatePublicationArtifact(publication) {
   if (hasExactKeys(publication, ["status"]) && publication.status === "not-requested") {
+    return publication;
+  }
+  if (hasExactKeys(publication, ["status", "reason"]) && publication.status === "blocked" && typeof publication.reason === "string" && publication.reason.length > 0) {
+    return publication;
+  }
+  const workflowKeys = [
+    "schemaVersion",
+    "status",
+    "attemptId",
+    "retryOf",
+    "commitOid",
+    "remote",
+    "destination",
+    "refspec",
+    "exitCode",
+    "transcript",
+    "observation",
+    "resolution",
+    "retryPermitted",
+    "reason"
+  ];
+  if (publication?.schemaVersion === 2) {
+    const statusValid = (/* @__PURE__ */ new Set([
+      "rejected",
+      "unknown",
+      "observed-matching",
+      "succeeded"
+    ])).has(publication.status);
+    if (!hasExactKeys(publication, workflowKeys) || !statusValid || !UUID_V4_PATTERN2.test(publication.attemptId) || publication.retryOf !== null && !UUID_V4_PATTERN2.test(publication.retryOf) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote.length === 0 || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || publication.exitCode !== null && !Number.isInteger(publication.exitCode) || publication.transcript !== null && (typeof publication.transcript !== "object" || Array.isArray(publication.transcript)) || publication.observation !== null && (typeof publication.observation !== "object" || Array.isArray(publication.observation)) || publication.resolution !== null && (typeof publication.resolution !== "object" || Array.isArray(publication.resolution)) || typeof publication.retryPermitted !== "boolean" || publication.reason !== null && typeof publication.reason !== "string" || publication.status === "succeeded" && (publication.exitCode !== 0 || publication.transcript === null) || publication.status === "observed-matching" && (publication.observation?.status !== "observed" || publication.observation.observedOid !== publication.commitOid || publication.retryPermitted) || publication.retryPermitted && (publication.status !== "unknown" || publication.observation === null || publication.resolution === null)) {
+      throw new Error(
+        "Publication artifact does not match the workflow contract."
+      );
+    }
     return publication;
   }
   const keys = [
@@ -10723,28 +10977,32 @@ function inspectCommitObject(root, commitOid) {
   const raw = runReadOnlyGit(root, "cat-file", ["commit", commitOid]).stdout;
   return parseRawCommitObject(raw, commitOid);
 }
-function commitFacts(root, commitOid) {
+function commitFacts(root, commitOid, headAnchor = null) {
   const fields = readOnlyGitText(root, "show-commit-fields", [
     "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
     commitOid
   ]).replace(/\r?\n$/u, "").split("\0");
   const object = inspectCommitObject(root, commitOid);
-  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
+  const branchResult = headAnchor === null ? runReadOnlyGit(root, "short-symbolic-head", [], {
     allowFailure: true
-  });
+  }) : null;
   return {
-    oid: fields[0],
-    parents: object.parents,
-    treeOid: object.treeOid,
-    author: { name: fields[3], email: fields[4] },
-    committer: { name: fields[5], email: fields[6] },
-    subject: fields[7],
-    message: object.messageBytes.toString("utf8"),
-    messageSha256: createHash11("sha256").update(object.messageBytes).digest("hex"),
-    signed: object.signed,
-    signatureHeaders: object.signatureHeaders,
-    branch: branchResult.status === 0 ? branchResult.stdout.toString("utf8").trim() : null,
-    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim()
+    messageBytes: object.messageBytes,
+    facts: {
+      oid: fields[0],
+      parents: object.parents,
+      treeOid: object.treeOid,
+      author: { name: fields[3], email: fields[4] },
+      committer: { name: fields[5], email: fields[6] },
+      subject: fields[7],
+      message: object.messageBytes.toString("utf8"),
+      messageSha256: createHash11("sha256").update(object.messageBytes).digest("hex"),
+      signed: object.signed,
+      signatureHeaders: object.signatureHeaders,
+      branch: headAnchor?.targetRef ?? (branchResult?.status === 0 ? branchResult.stdout.toString("utf8").trim() : null),
+      headKind: headAnchor?.headKind ?? null,
+      shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim()
+    }
   };
 }
 function kindName(status) {
@@ -10869,7 +11127,8 @@ function workspaceState(root) {
       "--porcelain=v2",
       "-z",
       "--untracked-files=all",
-      "--no-renames"
+      "--no-renames",
+      "--ignore-submodules=dirty"
     ]).stdout
   );
   const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
@@ -10908,6 +11167,255 @@ function workspaceState(root) {
   }
   return workspace;
 }
+function bytesAfterSpaces2(field, count) {
+  let offset = 0;
+  for (let index = 0; index < count; index += 1) {
+    offset = field.indexOf(32, offset);
+    if (offset < 0) {
+      throw new Error("Git status emitted a malformed porcelain v2 record.");
+    }
+    offset += 1;
+  }
+  return field.subarray(offset);
+}
+function safeByteDisplay(bytes) {
+  try {
+    const decoded = STRICT_UTF8_DECODER6.decode(bytes);
+    if (SAFE_TERMINAL_TEXT.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+  }
+  return [...bytes].map(
+    (byte) => byte >= 32 && byte <= 126 && byte !== 92 ? String.fromCharCode(byte) : `\\x${byte.toString(16).padStart(2, "0")}`
+  ).join("");
+}
+function pathFact(bytes) {
+  return {
+    display: safeByteDisplay(bytes),
+    bytesBase64: bytes.toString("base64"),
+    byteCount: bytes.length,
+    sha256: createHash11("sha256").update(bytes).digest("hex")
+  };
+}
+function compactPathSample(bytes) {
+  const sampleBytes = 64;
+  const prefix = bytes.subarray(0, Math.min(sampleBytes, bytes.length));
+  const suffixStart = Math.max(prefix.length, bytes.length - sampleBytes);
+  const suffix = bytes.subarray(suffixStart);
+  return {
+    prefix: safeByteDisplay(prefix),
+    suffix: safeByteDisplay(suffix),
+    byteCount: bytes.length,
+    sha256: createHash11("sha256").update(bytes).digest("hex")
+  };
+}
+function statusEntries(field) {
+  if (field.length < 2 || field[1] !== 32) {
+    throw new Error("Git status emitted an unknown porcelain v2 record.");
+  }
+  const recordType = String.fromCharCode(field[0]);
+  if (recordType === "?") {
+    const pathBytes4 = field.subarray(2);
+    return [
+      {
+        category: "untracked",
+        status: "untracked",
+        pathBytes: pathBytes4,
+        compactDirectory: pathBytes4.at(-1) === 47
+      }
+    ];
+  }
+  if (recordType === "u") {
+    return [
+      {
+        category: "conflicted",
+        status: "unmerged",
+        pathBytes: bytesAfterSpaces2(field, 10),
+        compactDirectory: false
+      }
+    ];
+  }
+  if (recordType !== "1" && recordType !== "2") {
+    return [];
+  }
+  const xy = field.subarray(2, 4).toString("ascii");
+  const pathBytes3 = bytesAfterSpaces2(field, recordType === "2" ? 9 : 8);
+  const entries = [];
+  if (xy[0] !== ".") {
+    entries.push({
+      category: "staged",
+      status: statusLabel(xy[0]),
+      pathBytes: pathBytes3,
+      compactDirectory: false
+    });
+  }
+  if (xy[1] !== ".") {
+    entries.push({
+      category: "unstaged",
+      status: statusLabel(xy[1]),
+      pathBytes: pathBytes3,
+      compactDirectory: false
+    });
+  }
+  return entries;
+}
+async function observeWorkspaceEntries(root, { scope, enumerateAllUntracked = false, onEntry, stream = streamGit } = {}) {
+  const scopeKind = typeof scope === "string" ? scope : scope?.kind;
+  const untrackedMode = enumerateAllUntracked || scopeKind === "full" ? "all" : "normal";
+  const digest = createHash11("sha256");
+  let pending = Buffer.alloc(0);
+  let discardRenameSource = false;
+  let observedEntries = 0;
+  const consumeField = (field) => {
+    if (discardRenameSource) {
+      discardRenameSource = false;
+      return;
+    }
+    const entries = statusEntries(field);
+    if (field[0] === 50) {
+      discardRenameSource = true;
+    }
+    for (const entry of entries) {
+      digest.update(Buffer.from(entry.category, "ascii"));
+      digest.update(Buffer.from([0]));
+      digest.update(Buffer.from(entry.status, "ascii"));
+      digest.update(Buffer.from([0]));
+      digest.update(entry.pathBytes);
+      digest.update(Buffer.from([0]));
+      observedEntries += 1;
+      onEntry?.(entry, observedEntries - 1);
+    }
+  };
+  const result = await stream(
+    "status",
+    [
+      "--porcelain=v2",
+      "-z",
+      `--untracked-files=${untrackedMode}`,
+      "--no-renames",
+      "--ignore-submodules=dirty"
+    ],
+    {
+      cwd: root,
+      onStdout(chunk) {
+        pending = Buffer.concat([pending, chunk]);
+        let separator;
+        while ((separator = pending.indexOf(0)) >= 0) {
+          consumeField(pending.subarray(0, separator));
+          pending = pending.subarray(separator + 1);
+        }
+      }
+    }
+  );
+  if (pending.length !== 0 || discardRenameSource) {
+    throw new Error("Git status ended with an incomplete porcelain v2 record.");
+  }
+  return {
+    observedEntries,
+    digest: digest.digest("hex"),
+    untrackedMode,
+    stdoutByteCount: result.stdoutByteCount,
+    stdoutSha256: result.stdoutSha256
+  };
+}
+async function collectWorkspaceSummary(root, {
+  scope,
+  detailLimit = 49,
+  enumerateAllUntracked = false,
+  stream = streamGit
+} = {}) {
+  if (!Number.isSafeInteger(detailLimit) || detailLimit < 0) {
+    throw new Error("Workspace detail limit must be a nonnegative integer.");
+  }
+  const counts = {
+    observedEntries: 0,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    conflicted: 0
+  };
+  const exactPaths = [];
+  const directorySamples = [];
+  let firstCompactSample = null;
+  let compact = false;
+  const observation = await observeWorkspaceEntries(root, {
+    scope,
+    enumerateAllUntracked,
+    stream,
+    onEntry(entry) {
+      counts.observedEntries += 1;
+      counts[entry.category] += 1;
+      if (!entry.compactDirectory) {
+        firstCompactSample ??= {
+          category: entry.category,
+          status: entry.status,
+          path: compactPathSample(entry.pathBytes)
+        };
+      }
+      if (entry.compactDirectory && directorySamples.length < MAXIMUM_COMPACT_DIRECTORY_SAMPLES) {
+        directorySamples.push({
+          category: entry.category,
+          path: compactPathSample(entry.pathBytes),
+          observedEntryCount: 1,
+          exactFileCount: false
+        });
+      }
+      if (compact || entry.compactDirectory) {
+        compact = true;
+        exactPaths.length = 0;
+        return;
+      }
+      exactPaths.push({
+        category: entry.category,
+        status: entry.status,
+        path: pathFact(entry.pathBytes)
+      });
+      if (exactPaths.length > detailLimit || Buffer.byteLength(JSON.stringify(exactPaths)) > MAXIMUM_INLINE_WORKSPACE_BYTES) {
+        compact = true;
+        exactPaths.length = 0;
+      }
+    }
+  });
+  const compactDirectories = compact ? directorySamples : [];
+  const compactPathSamples = compact && firstCompactSample !== null ? [firstCompactSample] : [];
+  return {
+    observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    scopeKind: typeof scope === "string" ? scope : scope?.kind ?? "full",
+    untrackedMode: observation.untrackedMode,
+    detailMode: compact ? "fresh-observation" : "inline-exact",
+    exactAtReportTime: true,
+    counts,
+    exactPaths,
+    compactDirectories,
+    compactPathSamples,
+    digest: observation.digest,
+    nestedSubmoduleWorktrees: "not-inspected"
+  };
+}
+function compactWorkspaceSummary(workspace) {
+  if (!workspace || !Array.isArray(workspace.exactPaths)) {
+    return workspace;
+  }
+  if (workspace.detailMode === "fresh-observation") {
+    return workspace;
+  }
+  const firstPath = workspace.exactPaths[0] ?? null;
+  const compactRecord = firstPath === null ? null : {
+    category: firstPath.category,
+    path: compactPathSample(
+      Buffer.from(firstPath.path.bytesBase64, "base64")
+    ),
+    status: firstPath.status
+  };
+  return {
+    ...workspace,
+    detailMode: "fresh-observation",
+    exactPaths: [],
+    compactDirectories: [],
+    compactPathSamples: compactRecord === null ? [] : [compactRecord]
+  };
+}
 function collectCommitReport({
   root,
   commitOid,
@@ -10915,34 +11423,67 @@ function collectCommitReport({
   approvedMessage,
   verification,
   checks,
-  publication = { status: "not-requested" }
+  publication = { status: "not-requested" },
+  headAnchor = null,
+  workspaceSummary = null
 }) {
-  const commit = commitFacts(root, commitOid);
+  const observedCommit = commitFacts(root, commitOid, headAnchor);
+  const commit = observedCommit.facts;
   const approvedMessageBytes = Buffer.isBuffer(approvedMessage) ? approvedMessage : Buffer.from(approvedMessage, "utf8");
   validateChecksArtifact(checks);
   validatePublicationArtifact(publication);
   validateVerificationArtifact(verification, commit.oid);
-  if (publication.status !== "not-requested" && publication.commitOid !== commit.oid) {
+  if (!(/* @__PURE__ */ new Set(["not-requested", "blocked"])).has(publication.status) && publication.commitOid !== commit.oid) {
     throw new Error("Publication artifact belongs to a different commit.");
   }
   commit.treeMatches = commit.treeOid === manifest.indexTreeOid;
-  commit.messageMatches = Buffer.from(commit.message, "utf8").equals(
-    approvedMessageBytes
+  commit.messageMatches = observedCommit.messageBytes.equals(approvedMessageBytes);
+  const expectedParentOids = headAnchor?.expectedParentOids ?? (manifest.headOid ? [manifest.headOid] : []);
+  commit.parentMatches = commit.parents.length === expectedParentOids.length && commit.parents.every(
+    (parent, index) => parent === expectedParentOids[index]
   );
-  if (manifest.headOid) {
-    commit.parentMatches = commit.parents.length === 1 && commit.parents[0] === manifest.headOid;
-  } else {
-    commit.parentMatches = commit.parents.length === 0;
-  }
   const approvedStatistics = commit.treeMatches ? manifestStatistics(manifest) : null;
+  const comparisonMatches = commit.parentMatches && commit.treeMatches && commit.messageMatches;
+  const recordedPublication = publication.status === "not-requested" && (!comparisonMatches || !commit.signed || verification.blocksPush) ? {
+    status: "blocked",
+    reason: !comparisonMatches ? "commit-comparison-mismatch" : !commit.signed ? "signed-commit-header-missing" : "verification-policy-blocked"
+  } : publication;
   return {
     schemaVersion: 1,
+    headAnchor: headAnchor ?? {
+      headKind: manifest.headOid ? "attached" : "unborn",
+      targetRef: commit.branch,
+      expectedParentOids
+    },
     commit,
+    comparison: {
+      expectedParentOids,
+      actualParentOids: commit.parents,
+      parentMatches: commit.parentMatches,
+      expectedTreeOid: manifest.indexTreeOid,
+      actualTreeOid: commit.treeOid,
+      treeMatches: commit.treeMatches,
+      expectedMessageSha256: createHash11("sha256").update(approvedMessageBytes).digest("hex"),
+      actualMessageSha256: commit.messageSha256,
+      messageMatches: commit.messageMatches,
+      signatureHeaderPresent: commit.signed,
+      signatureHeaders: commit.signatureHeaders
+    },
     statistics: approvedStatistics ?? commitStatistics(root, commitOid),
     verification,
     checks,
-    publication,
-    workspace: workspaceState(root)
+    publication: recordedPublication,
+    workspace: workspaceSummary ?? workspaceState(root)
+  };
+}
+function augmentReportWithPublication(report, publication) {
+  validatePublicationArtifact(publication);
+  if (!(/* @__PURE__ */ new Set(["not-requested", "blocked"])).has(publication.status) && publication.commitOid !== report.commit.oid) {
+    throw new Error("Publication artifact belongs to a different commit.");
+  }
+  return {
+    ...structuredClone(report),
+    publication: structuredClone(publication)
   };
 }
 function plural(count, singular, pluralForm = `${singular}s`) {
@@ -10973,6 +11514,38 @@ function verificationText(verification) {
   }
 }
 function renderWorkspace(workspace) {
+  if (Array.isArray(workspace.exactPaths)) {
+    if (workspace.counts.observedEntries === 0) {
+      return [
+        "- Clean in the inspected top-level workspace",
+        `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+        `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`
+      ];
+    }
+    if (workspace.detailMode === "fresh-observation") {
+      const directoryRecords = workspace.compactDirectories.length;
+      return [
+        `- ${directoryRecords === 0 ? plural(workspace.counts.observedEntries, "path") : plural(
+          workspace.counts.observedEntries,
+          "workspace status record"
+        )} observed at report time; exact paths require a fresh report-detail observation`,
+        `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+        `- Conflicts observed: ${workspace.counts.conflicted}`,
+        ...directoryRecords > 0 ? [
+          `- ${plural(directoryRecords, "compact directory record")} (not an exact file count)`
+        ] : [],
+        `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`
+      ];
+    }
+    return [
+      ...workspace.exactPaths.map(
+        ({ category, status, path }) => `- ${category}: \`${path.display}\` (${status})`
+      ),
+      `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+      `- Conflicts observed: ${workspace.counts.conflicted}`,
+      `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`
+    ];
+  }
   const groups = [
     ["Staged", workspace.staged],
     ["Unstaged", workspace.unstaged],
@@ -10992,8 +11565,18 @@ function renderWorkspace(workspace) {
 }
 function renderCommitReport(report) {
   const { commit, statistics, verification, checks, publication, workspace } = report;
+  const comparison = report.comparison ?? {
+    parentMatches: commit.parentMatches,
+    treeMatches: commit.treeMatches,
+    messageMatches: commit.messageMatches,
+    signatureHeaderPresent: commit.signed
+  };
+  const comparisonsMatch = comparison.parentMatches && comparison.treeMatches && comparison.messageMatches;
+  const outcome = !comparison.signatureHeaderPresent || !comparisonsMatch ? "Created commit; signing/comparison invariant failed" : verification.blocksPush ? "Created commit; publication blocked" : "Created signed commit";
+  const target = report.headAnchor?.targetRef ?? commit.branch;
+  const targetText = report.headAnchor?.headKind === "detached" || target === null ? "detached `HEAD`" : `\`${target}\``;
   const lines = [
-    `Created ${commit.signed ? "signed " : ""}commit \`${commit.shortOid}\` on \`${commit.branch ?? "detached HEAD"}\`:`,
+    `${outcome} \`${commit.shortOid}\` on ${targetText}:`,
     `\`${commit.subject}\``,
     "",
     "Commit:",
@@ -11004,16 +11587,16 @@ function renderCommitReport(report) {
       `- Committer: ${commit.committer.name} <${commit.committer.email}>`
     );
   }
+  lines.push("", "Comparison:");
   lines.push(
-    `- Snapshot: ${commit.treeMatches ? "Matches the approved staged tree" : "DIFFERS from the approved staged tree"}`,
-    `- Message: ${commit.messageMatches ? "Matches the approved message" : "DIFFERS from the approved message"}`,
-    `- Parent: ${commit.parentMatches ? "Matches the approved one-parent contract" : "DIFFERS from the approved one-parent contract"}`,
-    `- Changes: ${plural(statistics.files, "file")}` + (statistics.additions === null || statistics.deletions === null ? "; line statistics deferred by the approved snapshot budget" : `, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : "")),
-    `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
+    `- Snapshot: ${comparison.treeMatches ? "Matches the approved staged tree" : "DIFFERS from the approved staged tree"}`,
+    `- Message: ${comparison.messageMatches ? "Matches the approved message" : "DIFFERS from the approved message"}`,
+    `- Parent: ${comparison.parentMatches ? "Matches the approved parent array" : "DIFFERS from the approved parent array"}`,
+    `- Signed commit header: ${comparison.signatureHeaderPresent ? "Present" : "MISSING"}`,
     "",
-    "Signature:",
-    `- Policy: ${verification.finalPolicy}${verification.initialPolicy !== verification.finalPolicy ? ` (overridden from ${verification.initialPolicy})` : ""}`,
-    `- Result: ${verificationText(verification)}`,
+    "Changes:",
+    `- ${plural(statistics.files, "file")}` + (statistics.additions === null || statistics.deletions === null ? "; line statistics deferred by the approved snapshot budget" : `, ${plural(statistics.additions, "insertion")}, ` + plural(statistics.deletions, "deletion") + (statistics.binaryFiles > 0 ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts` : "")),
+    `- Types: ${renderKinds(statistics.kinds) || "none"}`,
     "",
     "Checks:"
   );
@@ -11024,22 +11607,56 @@ function renderCommitReport(report) {
       lines.push(`- ${check.label}: ${check.status} (${check.context})`);
     }
   }
-  lines.push("", "Publication:");
+  lines.push(
+    "",
+    "Signature:",
+    `- Policy: ${verification.finalPolicy}${verification.initialPolicy !== verification.finalPolicy ? ` (overridden from ${verification.initialPolicy})` : ""}`,
+    `- Result: ${verificationText(verification)}`,
+    "",
+    "Workspace:",
+    ...renderWorkspace(workspace),
+    "",
+    "Publication:"
+  );
   if (publication.status === "not-requested") {
-    lines.push("- Not requested; not attempted by this workflow");
-  } else if (publication.status === "pushed") {
+    lines.push("- Not requested; no successful push was recorded");
+  } else if ((/* @__PURE__ */ new Set(["pushed", "succeeded"])).has(publication.status)) {
     lines.push(
-      `- Pushed \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\``
+      `- The helper pushed \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\`; successful push witnessed`
+    );
+  } else if (publication.status === "observed-matching") {
+    lines.push(
+      `- Remote \`${publication.remote}\` \`${publication.destination}\` was observed at \`${publication.commitOid}\`; the original push actor and attempt remain unproven`
+    );
+  } else if (publication.status === "unknown") {
+    lines.push(
+      `- Push outcome is unknown for \`${publication.remote}\` \`${publication.destination}\`; no successful push was recorded`
+    );
+  } else if (publication.status === "blocked") {
+    lines.push(
+      "- Not attempted because publication is blocked; no successful push was recorded"
     );
   } else {
     lines.push(
-      `- Push failed for \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\` (exit ${publication.exitCode}); see publication.json for Git output`
+      `- Push was rejected for \`${publication.commitOid}\` to \`${publication.remote}\` \`${publication.destination}\`; no successful push was recorded`
     );
   }
-  lines.push("", "Workspace:", ...renderWorkspace(workspace), "");
+  const recovery = [];
+  if (publication.status === "unknown") {
+    recovery.push("- Recovery is required before another publication attempt");
+  }
+  if (publication.transcript?.retainRecommended) {
+    recovery.push(
+      `- Retained publication log: ${publication.transcript.path} (SHA-256 ${publication.transcript.sha256})`
+    );
+  }
+  if (recovery.length > 0) {
+    lines.push("", "Recovery:", ...recovery);
+  }
+  lines.push("");
   return lines.join("\n");
 }
-var CHECK_STATUSES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, CHECK_CONTEXTS, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2;
+var CHECK_STATUSES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, CHECK_CONTEXTS, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER6, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
 var init_commitReport = __esm({
   "src/committing-to-git/report/commitReport.js"() {
     init_gitRepository();
@@ -11060,6 +11677,12 @@ var init_commitReport = __esm({
     ]);
     SSH_FINGERPRINT_PATTERN2 = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
     OPENPGP_FINGERPRINT_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    UUID_V4_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    SAFE_TERMINAL_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
+    MAXIMUM_INLINE_WORKSPACE_BYTES = 48 * 1024;
+    MAXIMUM_COMPACT_DIRECTORY_SAMPLES = 16;
+    MAXIMUM_REPORT_RESULT_BYTES = 80 * 1024;
   }
 });
 
@@ -11247,14 +11870,20 @@ var init_commitSignature = __esm({
 });
 
 // src/committing-to-git/transaction/transactionRecovery.js
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash12, randomUUID as randomUUID5 } from "node:crypto";
 import {
+  closeSync as closeSync9,
+  constants as fsConstants7,
   existsSync as existsSync12,
+  fsyncSync as fsyncSync8,
   lstatSync as lstatSync8,
+  openSync as openSync9,
   readFileSync as readFileSync10,
   readdirSync as readdirSync3,
   realpathSync as realpathSync5,
-  rmSync as rmSync4
+  rmSync as rmSync4,
+  unlinkSync as unlinkSync7,
+  writeFileSync as writeFileSync9
 } from "node:fs";
 import { basename as basename2, isAbsolute as isAbsolute6, join as join9, relative as relative7, resolve as resolve12 } from "node:path";
 function sha2564(bytes) {
@@ -11283,6 +11912,103 @@ function validateAttemptDirectory(transaction) {
     throw new Error("Transaction attempt directory was replaced.");
   }
   return attempt;
+}
+function acquireTransactionStateLock({
+  transactionPath,
+  operation,
+  token = randomUUID5()
+}) {
+  if (typeof operation !== "string" || operation.length === 0 || operation.includes("\0")) {
+    throw new Error("Transaction-state lock operation is invalid.");
+  }
+  const transaction = readTransaction(transactionPath);
+  const attemptDirectory = validateAttemptDirectory(transaction);
+  const path = join9(attemptDirectory, "transaction-state.lock");
+  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
+  let descriptor;
+  const openLock = () => openSync9(
+    path,
+    fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL + noFollow,
+    384
+  );
+  try {
+    descriptor = openLock();
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      const stat = lstatSync8(path);
+      let owner;
+      try {
+        owner = JSON.parse(readFileSync10(path, "utf8"));
+      } catch {
+        owner = null;
+      }
+      const ownerValid = !stat.isSymbolicLink() && stat.isFile() && JSON.stringify(Object.keys(owner ?? {}).sort()) === JSON.stringify(
+        [
+          "schemaVersion",
+          "token",
+          "operation",
+          "pid",
+          "startIdentity"
+        ].sort()
+      ) && owner.schemaVersion === 1 && typeof owner.token === "string" && owner.token.length > 0 && typeof owner.operation === "string" && owner.operation.length > 0 && Number.isSafeInteger(owner?.pid) && owner.pid > 0 && (owner.startIdentity === null || typeof owner.startIdentity === "string");
+      const ownerExists = ownerValid && processExists(owner.pid);
+      const currentIdentity = ownerExists && owner.startIdentity !== null ? processStartIdentity(owner.pid) : null;
+      const ownerStillLive = ownerExists && (owner.startIdentity === null || currentIdentity === null || currentIdentity === owner.startIdentity);
+      if (!ownerValid || ownerStillLive) {
+        const conflict = new Error(
+          "Another report-detail, publication, or cleanup operation owns the transaction state."
+        );
+        conflict.code = "TRANSACTION_STATE_CONFLICT";
+        throw conflict;
+      }
+      unlinkSync7(path);
+      try {
+        descriptor = openLock();
+      } catch (retryError) {
+        if (retryError.code === "EEXIST") {
+          const conflict = new Error(
+            "Another report-detail, publication, or cleanup operation acquired the transaction state."
+          );
+          conflict.code = "TRANSACTION_STATE_CONFLICT";
+          throw conflict;
+        }
+        throw retryError;
+      }
+    } else {
+      throw error;
+    }
+  }
+  try {
+    writeFileSync9(
+      descriptor,
+      Buffer.from(
+        `${JSON.stringify({
+          schemaVersion: 1,
+          token,
+          operation,
+          pid: process.pid,
+          startIdentity: processStartIdentity(process.pid)
+        })}
+`,
+        "utf8"
+      )
+    );
+    fsyncSync8(descriptor);
+  } finally {
+    closeSync9(descriptor);
+  }
+  return { path, token, operation, attemptDirectory };
+}
+function releaseTransactionStateLock(lock) {
+  const stat = lstatSync8(lock.path);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error("Transaction-state lock was replaced.");
+  }
+  const recorded = JSON.parse(readFileSync10(lock.path, "utf8"));
+  if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
+    throw new Error("Transaction-state lock ownership changed.");
+  }
+  unlinkSync7(lock.path);
 }
 function observeRef(root, headAnchor) {
   const observationPoint = headAnchor.headKind === "detached" ? "HEAD" : headAnchor.targetRef;
@@ -11380,7 +12106,22 @@ function assertConfirmedNoLiveChild(transaction, before, after, { processInspect
       "The observed ref changed while confirming child termination."
     );
   }
-  const childIdentity = transaction.commit.childIdentity;
+  assertRecordedChildInactive({
+    repositoryRoot: transaction.repositoryRoot,
+    childIdentity: transaction.commit.childIdentity,
+    processInspector,
+    indexLockInspector
+  });
+}
+function assertRecordedChildInactive({
+  repositoryRoot: repositoryRoot3,
+  childIdentity,
+  processInspector = {
+    exists: processExists,
+    startIdentity: processStartIdentity
+  },
+  indexLockInspector = (root) => existsSync12(indexLockPath(root))
+}) {
   if (childIdentity && processInspector.exists(childIdentity.pid)) {
     const currentIdentity = processInspector.startIdentity(childIdentity.pid);
     const reused = childIdentity.startIdentity !== null && currentIdentity !== null && currentIdentity !== childIdentity.startIdentity;
@@ -11388,7 +12129,7 @@ function assertConfirmedNoLiveChild(transaction, before, after, { processInspect
       reused ? "The recorded process ID has been reused; recovery remains conservative." : "The recorded Git/signing/hook child is still live."
     );
   }
-  if (indexLockInspector(transaction.repositoryRoot)) {
+  if (indexLockInspector(repositoryRoot3)) {
     throw new Error("An index lock contradicts the no-live-child assertion.");
   }
 }
@@ -11591,7 +12332,7 @@ function removeOwnedTarget(attempt, path, removeOperation) {
   );
   return true;
 }
-function compactTerminalTransaction({
+function compactTerminalTransactionUnlocked({
   transactionPath,
   retainReviewArtifacts = false,
   retainProcessLogs = false,
@@ -11610,10 +12351,21 @@ function compactTerminalTransaction({
     "content.json",
     "evidence-plan-input.json"
   ];
+  const detailArtifactPattern = /^report-detail-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+  for (const name of readdirSync3(attempt)) {
+    if ((/* @__PURE__ */ new Set([
+      "report-detail.active.json",
+      "report-detail.completed.json"
+    ])).has(name) || detailArtifactPattern.test(name)) {
+      names.push(name);
+    }
+  }
   if (!retainReviewArtifacts) {
     names.push("review", "inspection");
   }
-  if (!retainProcessLogs && transaction.commit?.completion?.exitCode === 0 && transaction.commit?.comparison !== null) {
+  if (!retainProcessLogs && transaction.commit?.completion?.exitCode === 0 && transaction.commit?.comparison !== null && transaction.publicationAttempts.every(
+    (attempt2) => (/* @__PURE__ */ new Set(["succeeded", "observed-matching"])).has(attempt2.status)
+  )) {
     names.push("process-logs");
   }
   const completed = [];
@@ -11639,7 +12391,18 @@ function compactTerminalTransaction({
     failed
   };
 }
-function purgeTransaction({ transactionPath }) {
+function compactTerminalTransaction(options2) {
+  const lock = acquireTransactionStateLock({
+    transactionPath: options2.transactionPath,
+    operation: "cleanup"
+  });
+  try {
+    return compactTerminalTransactionUnlocked(options2);
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+function purgeTransactionUnlocked({ transactionPath }) {
   let transaction = readTransaction(transactionPath);
   const attempt = validateAttemptDirectory(transaction);
   if (transaction.phase === "commit-pending" || transaction.phase === "publication-pending" || transaction.status === "outcome-unknown") {
@@ -11673,6 +12436,22 @@ function purgeTransaction({ transactionPath }) {
     completed: [formerPath],
     failed: []
   };
+}
+function purgeTransaction(options2) {
+  const lock = acquireTransactionStateLock({
+    transactionPath: options2.transactionPath,
+    operation: "purge"
+  });
+  let purged = false;
+  try {
+    const result = purgeTransactionUnlocked(options2);
+    purged = true;
+    return result;
+  } finally {
+    if (!purged) {
+      releaseTransactionStateLock(lock);
+    }
+  }
 }
 var FULL_OID_PATTERN4, ATTEMPT_PATTERN, PRECOMMIT_PHASES, TERMINAL_PHASES, WINDOWS_RETRY_CODES;
 var init_transactionRecovery = __esm({
@@ -11716,20 +12495,20 @@ __export(createCommitWorkflow_exports, {
   runRetryVerificationCommand: () => runRetryVerificationCommand
 });
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash13, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash13, randomUUID as randomUUID6 } from "node:crypto";
 import {
-  closeSync as closeSync9,
-  constants as fsConstants7,
+  closeSync as closeSync10,
+  constants as fsConstants8,
   fstatSync as fstatSync7,
-  fsyncSync as fsyncSync8,
+  fsyncSync as fsyncSync9,
   lstatSync as lstatSync9,
-  openSync as openSync9,
+  openSync as openSync10,
   readFileSync as readFileSync11,
   renameSync as renameSync5,
-  writeFileSync as writeFileSync9
+  writeFileSync as writeFileSync10
 } from "node:fs";
 import { dirname as dirname8, join as join10, resolve as resolve13 } from "node:path";
-import { TextDecoder as TextDecoder7 } from "node:util";
+import { TextDecoder as TextDecoder8 } from "node:util";
 function fail6(code, message, options2) {
   throw new CommitWorkflowError(code, message, options2);
 }
@@ -11766,7 +12545,7 @@ function readSnapshot(transactionPath, transaction) {
     );
   }
   try {
-    return JSON.parse(STRICT_UTF8_DECODER6.decode(input.bytes));
+    return JSON.parse(STRICT_UTF8_DECODER7.decode(input.bytes));
   } catch (error) {
     fail6(
       "SNAPSHOT_ARTIFACT_INVALID",
@@ -11906,8 +12685,8 @@ function readChecksArtifact(checksPath, { afterOpen = () => {
       "Checks input must be a non-symbolic regular file."
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
-  const descriptor = openSync9(path, fsConstants7.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants8.O_NOFOLLOW;
+  const descriptor = openSync10(path, fsConstants8.O_RDONLY + noFollow);
   try {
     afterOpen({ path, descriptor });
     const before = fstatSync7(descriptor, { bigint: true });
@@ -11925,21 +12704,21 @@ function readChecksArtifact(checksPath, { afterOpen = () => {
     }
     let value;
     try {
-      value = JSON.parse(STRICT_UTF8_DECODER6.decode(bytes));
+      value = JSON.parse(STRICT_UTF8_DECODER7.decode(bytes));
       validateChecksArtifact(value);
     } catch (error) {
       fail6("CHECKS_INPUT_INVALID", `Checks input is invalid: ${error.message}`);
     }
-    const canonicalBytes2 = canonicalJsonBytes3(value);
-    if (canonicalBytes2.length > MAXIMUM_COMMIT_RESULT_BYTES / 2) {
+    const canonicalBytes4 = canonicalJsonBytes3(value);
+    if (canonicalBytes4.length > MAXIMUM_COMMIT_RESULT_BYTES / 2) {
       fail6(
         "CHECKS_RESULT_BUDGET_EXCEEDED",
         "Checks are valid but too large for one bounded commit result."
       );
     }
-    return { value, bytes: canonicalBytes2, externalPath: path };
+    return { value, bytes: canonicalBytes4, externalPath: path };
   } finally {
-    closeSync9(descriptor);
+    closeSync10(descriptor);
   }
 }
 function transcriptFacts(transcript) {
@@ -11968,17 +12747,17 @@ function updateCommitJournal(transactionPath, transform) {
   });
 }
 function atomicWrite(path, bytes) {
-  const candidate = join10(dirname8(path), `.report-${randomUUID5()}.tmp`);
-  const descriptor = openSync9(
+  const candidate = join10(dirname8(path), `.report-${randomUUID6()}.tmp`);
+  const descriptor = openSync10(
     candidate,
-    fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL,
+    fsConstants8.O_WRONLY + fsConstants8.O_CREAT + fsConstants8.O_EXCL,
     384
   );
   try {
-    writeFileSync9(descriptor, bytes);
-    fsyncSync8(descriptor);
+    writeFileSync10(descriptor, bytes);
+    fsyncSync9(descriptor);
   } finally {
-    closeSync9(descriptor);
+    closeSync10(descriptor);
   }
   if (lstatSafe(path)?.isSymbolicLink()) {
     fail6(
@@ -12033,7 +12812,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit.commitOid,
-    publicationState: "not-requested",
+    publicationState: report.publication.status === "blocked" ? "blocked" : "not-requested",
     publicationAllowed: transaction.report.publicationAllowed,
     recoveryRequired: false,
     report,
@@ -12062,7 +12841,7 @@ function readRecordedReport(transactionPath) {
     null
   );
 }
-function completeRecordedCommit({
+async function completeRecordedCommit({
   transactionPath,
   verificationPolicyOverride = null,
   retainReviewArtifacts = false,
@@ -12107,15 +12886,34 @@ function completeRecordedCommit({
   failureInjector("after-verification-before-report");
   const manifest = readSnapshot(transactionPath, transaction);
   const message = readCanonicalMessage(transactionPath);
-  const report = collectCommitReport({
+  const workspaceSummary = await collectWorkspaceSummary(
+    transaction.repositoryRoot,
+    { scope: transaction.scope }
+  );
+  let report = collectCommitReport({
     root: transaction.repositoryRoot,
     commitOid: transaction.commit.commitOid,
     manifest,
     approvedMessage: message.bytes,
     verification,
-    checks: transaction.commit.checks.value
+    checks: transaction.commit.checks.value,
+    headAnchor: transaction.headAnchor,
+    workspaceSummary
   });
-  const displayText = renderCommitReport(report);
+  let displayText = renderCommitReport(report);
+  if (Buffer.byteLength(
+    JSON.stringify({
+      transaction: resolve13(transactionPath),
+      report,
+      displayText
+    })
+  ) > MAXIMUM_REPORT_RESULT_BYTES) {
+    report = {
+      ...report,
+      workspace: compactWorkspaceSummary(report.workspace)
+    };
+    displayText = renderCommitReport(report);
+  }
   const reportBytes = canonicalJsonBytes3(report);
   const textBytes = Buffer.from(displayText, "utf8");
   if (reportBytes.length + textBytes.length > MAXIMUM_COMMIT_RESULT_BYTES) {
@@ -12170,7 +12968,7 @@ function completeRecordedCommit({
       ]
     };
   }
-  return reportResult(
+  let result = reportResult(
     transactionPath,
     transaction,
     report,
@@ -12178,6 +12976,41 @@ function completeRecordedCommit({
     blocked ? 3 : 0,
     cleanup
   );
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    report = {
+      ...report,
+      workspace: compactWorkspaceSummary(report.workspace)
+    };
+    displayText = renderCommitReport(report);
+    const compactReportBytes = canonicalJsonBytes3(report);
+    const compactTextBytes = Buffer.from(displayText, "utf8");
+    atomicWrite(jsonPath, compactReportBytes);
+    atomicWrite(textPath, compactTextBytes);
+    transaction = updateTransaction(transactionPath, "reported", {
+      ...transaction,
+      report: {
+        ...transaction.report,
+        jsonSha256: sha2565(compactReportBytes),
+        textSha256: sha2565(compactTextBytes)
+      }
+    });
+    result = reportResult(
+      transactionPath,
+      transaction,
+      report,
+      displayText,
+      blocked ? 3 : 0,
+      cleanup
+    );
+  }
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    fail6(
+      "REPORT_RESULT_BUDGET_EXCEEDED",
+      "The complete serialized commit result exceeds the bounded report budget.",
+      { exitCode: 3 }
+    );
+  }
+  return result;
 }
 function incompleteKnownCommitResult(transactionPath, error, recovery) {
   const transaction = readTransaction(transactionPath);
@@ -12387,7 +13220,7 @@ async function createCommitWorkflow({
       observationProvenance: "witnessed"
     }));
     failureInjector("after-oid-before-verification");
-    return completeRecordedCommit({
+    return await completeRecordedCommit({
       transactionPath,
       verificationPolicyOverride,
       retainReviewArtifacts,
@@ -12450,16 +13283,10 @@ function retrySignatureVerificationWorkflow({
     verificationAttempt: attempt,
     previousVerification: previous
   });
-  const manifest = readSnapshot(transactionPath, transaction);
-  const message = readCanonicalMessage(transactionPath);
-  const report = collectCommitReport({
-    root: transaction.repositoryRoot,
-    commitOid: transaction.commit.commitOid,
-    manifest,
-    approvedMessage: message.bytes,
-    verification,
-    checks: transaction.commit.checks.value
-  });
+  const priorReport = JSON.parse(
+    readFileSync11(transaction.report.jsonPath, "utf8")
+  );
+  const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
   const publicationAllowed = transaction.commit.comparison.parentMatches && transaction.commit.comparison.treeMatches && transaction.commit.comparison.messageMatches && transaction.commit.comparison.signatureHeaderPresent && !verification.blocksPush;
   const reportBytes = canonicalJsonBytes3(report);
@@ -12634,7 +13461,7 @@ async function runRetryVerificationCommand(argv, { stdout = process.stdout, stde
     return error.exitCode;
   }
 }
-var MAXIMUM_CHECKS_INPUT_BYTES, MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER6, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
+var MAXIMUM_CHECKS_INPUT_BYTES, MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER7, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
 var init_createCommitWorkflow = __esm({
   "src/committing-to-git/workflow/createCommitWorkflow.js"() {
     init_snapshotVerificationCommand();
@@ -12647,8 +13474,8 @@ var init_createCommitWorkflow = __esm({
     init_transactionRecovery();
     init_transactionWorkspace();
     MAXIMUM_CHECKS_INPUT_BYTES = 1024 * 1024;
-    MAXIMUM_COMMIT_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    MAXIMUM_COMMIT_RESULT_BYTES = MAXIMUM_REPORT_RESULT_BYTES;
+    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
     VERIFICATION_POLICIES3 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
     STORAGE_OVERRIDE_NAMES2 = [
       "GIT_DIR",
@@ -12672,6 +13499,1665 @@ var init_createCommitWorkflow = __esm({
   }
 });
 
+// src/committing-to-git/workflow/reportDetailWorkflow.js
+var reportDetailWorkflow_exports = {};
+__export(reportDetailWorkflow_exports, {
+  ReportDetailError: () => ReportDetailError,
+  readWorkspaceDetailPage: () => readWorkspaceDetailPage,
+  reportDetailWorkflow: () => reportDetailWorkflow,
+  runReportDetailCommand: () => runReportDetailCommand
+});
+import { createHash as createHash14, randomBytes, randomUUID as randomUUID7 } from "node:crypto";
+import {
+  closeSync as closeSync11,
+  constants as fsConstants9,
+  existsSync as existsSync13,
+  fsyncSync as fsyncSync10,
+  lstatSync as lstatSync10,
+  mkdirSync as mkdirSync9,
+  openSync as openSync11,
+  readFileSync as readFileSync12,
+  renameSync as renameSync6,
+  rmSync as rmSync5,
+  unlinkSync as unlinkSync8,
+  writeFileSync as writeFileSync11
+} from "node:fs";
+import { join as join11, resolve as resolve14 } from "node:path";
+import { TextDecoder as TextDecoder9 } from "node:util";
+function fail7(code, message, exitCode = 2) {
+  throw new ReportDetailError(code, message, exitCode);
+}
+function sha2566(value) {
+  return createHash14("sha256").update(value).digest("hex");
+}
+function canonicalBytes2(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function safeDisplay(bytes) {
+  try {
+    const decoded = STRICT_UTF8_DECODER8.decode(bytes);
+    if (SAFE_TERMINAL_TEXT2.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+  }
+  return [...bytes].map(
+    (byte) => byte >= 32 && byte <= 126 && byte !== 92 ? String.fromCharCode(byte) : `\\x${byte.toString(16).padStart(2, "0")}`
+  ).join("");
+}
+function detailEntry(entry, ordinal) {
+  return {
+    ordinal,
+    category: entry.category,
+    status: entry.status,
+    path: {
+      display: safeDisplay(entry.pathBytes),
+      bytesBase64: entry.pathBytes.toString("base64"),
+      byteCount: entry.pathBytes.length,
+      sha256: sha2566(entry.pathBytes)
+    }
+  };
+}
+function directoryIdentity(path) {
+  const stat = lstatSync10(path, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    fail7(
+      "DETAIL_STATE_REPLACED",
+      "Workspace observation directory was replaced."
+    );
+  }
+  return {
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    birthtimeNanoseconds: String(stat.birthtimeNs)
+  };
+}
+function validDirectoryIdentity(identity) {
+  return identity !== null && typeof identity === "object" && !Array.isArray(identity) && JSON.stringify(Object.keys(identity).sort()) === JSON.stringify(["birthtimeNanoseconds", "device", "inode"].sort()) && Object.values(identity).every(
+    (value) => typeof value === "string" && /^\d+$/u.test(value)
+  );
+}
+function assertRegularFile(path, label) {
+  const stat = lstatSync10(path);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail7("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
+  }
+}
+function readJson(path, label) {
+  assertRegularFile(path, label);
+  try {
+    return JSON.parse(readFileSync12(path, "utf8"));
+  } catch (error) {
+    fail7("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
+  }
+}
+function validateReadyActive(transactionPath, active) {
+  const expectedKeys = [
+    "schemaVersion",
+    "state",
+    "transactionDigest",
+    "startingReportDigest",
+    "observationId",
+    "observationDirectoryIdentity",
+    "cursorKey",
+    "observedAt",
+    "observationDigest",
+    "observedEntryCount",
+    "pages"
+  ].sort();
+  const pagesValid = Array.isArray(active?.pages) && active.pages.length > 0 && active.pages.every(
+    (page, index) => JSON.stringify(Object.keys(page).sort()) === JSON.stringify(
+      ["index", "startOrdinal", "endOrdinal", "sha256"].sort()
+    ) && page.index === index && Number.isSafeInteger(page.startOrdinal) && page.startOrdinal >= 0 && Number.isSafeInteger(page.endOrdinal) && page.endOrdinal >= -1 && SHA256_PATTERN3.test(page.sha256)
+  );
+  const pagesContiguous = pagesValid && active.pages.every(
+    (page, index) => page.startOrdinal === (index === 0 ? 0 : active.pages[index - 1].endOrdinal + 1)
+  ) && (active.observedEntryCount === 0 ? active.pages.length === 1 && active.pages[0].startOrdinal === 0 && active.pages[0].endOrdinal === -1 : active.pages.every((page) => page.endOrdinal >= page.startOrdinal) && active.pages.at(-1).endOrdinal + 1 === active.observedEntryCount);
+  let cursorKeyValid = false;
+  if (typeof active?.cursorKey === "string") {
+    const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
+    cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
+  }
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2566(Buffer.from(resolve14(transactionPath))) || !SHA256_PATTERN3.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN3.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+    fail7("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
+  }
+  return active;
+}
+function writeNew(path, value) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants9.O_NOFOLLOW;
+  const descriptor = openSync11(
+    path,
+    fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL + noFollow,
+    384
+  );
+  try {
+    writeFileSync11(descriptor, canonicalBytes2(value));
+    fsyncSync10(descriptor);
+  } finally {
+    closeSync11(descriptor);
+  }
+}
+function replaceJson2(path, value) {
+  const candidate = `${path}.${randomUUID7()}.tmp`;
+  writeNew(candidate, value);
+  renameSync6(candidate, path);
+}
+function cursorRequestDigest(cursor) {
+  return sha2566(Buffer.from(cursor === null ? "<cursorless>" : cursor));
+}
+function cursorBody(active, nextOrdinal) {
+  return {
+    schemaVersion: 1,
+    transactionDigest: active.transactionDigest,
+    startingReportDigest: active.startingReportDigest,
+    observationDigest: active.observationDigest,
+    nextOrdinal
+  };
+}
+function encodeCursor(active, nextOrdinal) {
+  const body = cursorBody(active, nextOrdinal);
+  const signature = sha2566(
+    Buffer.concat([
+      Buffer.from(active.cursorKey, "base64url"),
+      Buffer.from(JSON.stringify(body), "utf8")
+    ])
+  );
+  const cursor = Buffer.from(
+    JSON.stringify({ ...body, signature }),
+    "utf8"
+  ).toString("base64url");
+  if (Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
+    fail7("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
+  }
+  return cursor;
+}
+function decodeCursor(cursor, active) {
+  if (typeof cursor !== "string" || cursor.length === 0 || Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
+    fail7("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+  }
+  let decoded;
+  try {
+    const bytes = Buffer.from(cursor, "base64url");
+    if (bytes.toString("base64url") !== cursor) {
+      fail7("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    }
+    decoded = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    fail7("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+  }
+  const keys = Object.keys(decoded).sort();
+  const expectedKeys = [
+    "nextOrdinal",
+    "observationDigest",
+    "schemaVersion",
+    "signature",
+    "startingReportDigest",
+    "transactionDigest"
+  ].sort();
+  const body = cursorBody(active, decoded.nextOrdinal);
+  const expectedSignature = sha2566(
+    Buffer.concat([
+      Buffer.from(active.cursorKey, "base64url"),
+      Buffer.from(JSON.stringify(body), "utf8")
+    ])
+  );
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || decoded.schemaVersion !== 1 || decoded.transactionDigest !== active.transactionDigest || decoded.startingReportDigest !== active.startingReportDigest || decoded.observationDigest !== active.observationDigest || !Number.isSafeInteger(decoded.nextOrdinal) || decoded.nextOrdinal < 1 || decoded.signature !== expectedSignature) {
+    fail7(
+      "DETAIL_CURSOR_INVALID",
+      "Report-detail cursor is stale, tampered, or belongs to another transaction."
+    );
+  }
+  return decoded.nextOrdinal;
+}
+function observationDirectory(transaction, active) {
+  if (!UUID_V4_PATTERN3.test(active.observationId)) {
+    fail7("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
+  }
+  return join11(
+    transaction.attemptDirectory,
+    `report-detail-${active.observationId}`
+  );
+}
+function pagePath(transaction, active, index) {
+  return join11(
+    observationDirectory(transaction, active),
+    `page-${String(index).padStart(6, "0")}.json`
+  );
+}
+function assertObservationDirectory(transaction, active) {
+  const path = observationDirectory(transaction, active);
+  const observedIdentity = directoryIdentity(path);
+  if (!validDirectoryIdentity(active.observationDirectoryIdentity) || JSON.stringify(observedIdentity) !== JSON.stringify(active.observationDirectoryIdentity)) {
+    fail7(
+      "DETAIL_STATE_REPLACED",
+      "Workspace observation directory was replaced."
+    );
+  }
+  return path;
+}
+async function materializeObservation(transaction, active) {
+  mkdirSync9(observationDirectory(transaction, active), { mode: 448 });
+  const observationDirectoryIdentity = directoryIdentity(
+    observationDirectory(transaction, active)
+  );
+  let entries = [];
+  let pageIndex = 0;
+  let nextOrdinal = 0;
+  const pages = [];
+  const flushPage = () => {
+    if (entries.length === 0) {
+      return;
+    }
+    const page = {
+      schemaVersion: 1,
+      startOrdinal: entries[0].ordinal,
+      endOrdinal: entries.at(-1).ordinal,
+      entries
+    };
+    writeNew(pagePath(transaction, active, pageIndex), page);
+    pages.push({
+      index: pageIndex,
+      startOrdinal: page.startOrdinal,
+      endOrdinal: page.endOrdinal,
+      sha256: sha2566(canonicalBytes2(page))
+    });
+    pageIndex += 1;
+    entries = [];
+  };
+  const observation = await observeWorkspaceEntries(
+    transaction.repositoryRoot,
+    {
+      scope: transaction.scope,
+      enumerateAllUntracked: true,
+      onEntry(entry) {
+        const candidate = detailEntry(entry, nextOrdinal);
+        if (entries.length > 0 && Buffer.byteLength(JSON.stringify([...entries, candidate])) > MAXIMUM_PAGE_MODEL_BYTES) {
+          flushPage();
+        }
+        entries.push(candidate);
+        nextOrdinal += 1;
+      }
+    }
+  );
+  flushPage();
+  if (pages.length === 0) {
+    const page = {
+      schemaVersion: 1,
+      startOrdinal: 0,
+      endOrdinal: -1,
+      entries: []
+    };
+    writeNew(pagePath(transaction, active, 0), page);
+    pages.push({
+      index: 0,
+      startOrdinal: 0,
+      endOrdinal: -1,
+      sha256: sha2566(canonicalBytes2(page))
+    });
+  }
+  const completedActive = {
+    ...active,
+    state: "ready",
+    observationDirectoryIdentity,
+    observationDigest: observation.digest,
+    observedEntryCount: observation.observedEntries,
+    pages
+  };
+  replaceJson2(join11(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
+  return completedActive;
+}
+function renderDetailPage(result) {
+  const lines = [
+    `Workspace detail observed ${result.observation.observedAt}`,
+    `Digest: ${result.observation.digest}`,
+    ""
+  ];
+  if (result.page.entries.length === 0) {
+    lines.push("Workspace is clean.");
+  } else {
+    for (const entry of result.page.entries) {
+      lines.push(
+        `${entry.ordinal + 1}. ${entry.category}: ${entry.path.display} (${entry.status})`
+      );
+    }
+  }
+  if (result.nextCursor !== null) {
+    lines.push("", "More entries remain; continue with the returned cursor.");
+  }
+  return `${lines.join("\n")}
+`;
+}
+function boundedPageResult(transactionPath, active, page, requestCursor) {
+  const nextPage = active.pages[page.index + 1] ?? null;
+  const result = {
+    schemaVersion: 1,
+    status: nextPage === null ? "detail-complete" : "detail-page",
+    transaction: resolve14(transactionPath),
+    startingReportDigest: active.startingReportDigest,
+    observation: {
+      observedAt: active.observedAt,
+      digest: active.observationDigest,
+      observedEntryCount: active.observedEntryCount,
+      exactAtReportTime: false
+    },
+    page: {
+      startOrdinal: page.startOrdinal,
+      endOrdinal: page.endOrdinal,
+      entries: page.entries
+    },
+    nextCursor: nextPage === null ? null : encodeCursor(active, nextPage.startOrdinal),
+    displayText: "",
+    exitCode: 0
+  };
+  result.displayText = renderDetailPage(result);
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    fail7(
+      "DETAIL_RESULT_BUDGET_EXCEEDED",
+      "Workspace detail page exceeds the serialized result budget."
+    );
+  }
+  return {
+    result,
+    requestCursorDigest: cursorRequestDigest(requestCursor),
+    final: nextPage === null
+  };
+}
+function readPageForRequest(transaction, active, cursor) {
+  assertObservationDirectory(transaction, active);
+  const ordinal = cursor === null ? 0 : decodeCursor(cursor, active);
+  const descriptor = active.pages.find((page2) => page2.startOrdinal === ordinal);
+  if (!descriptor) {
+    fail7("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
+  }
+  const page = readJson(
+    pagePath(transaction, active, descriptor.index),
+    "Workspace detail page"
+  );
+  if (sha2566(canonicalBytes2(page)) !== descriptor.sha256) {
+    fail7("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
+  }
+  return { ...page, index: descriptor.index };
+}
+function hasExactKeys3(value, expectedKeys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
+}
+function validReplayPath(path) {
+  if (!hasExactKeys3(path, ["display", "bytesBase64", "byteCount", "sha256"]) || typeof path.display !== "string" || typeof path.bytesBase64 !== "string" || !Number.isSafeInteger(path.byteCount) || path.byteCount < 0 || !SHA256_PATTERN3.test(path.sha256)) {
+    return false;
+  }
+  const bytes = Buffer.from(path.bytesBase64, "base64");
+  return bytes.toString("base64") === path.bytesBase64 && bytes.length === path.byteCount && sha2566(bytes) === path.sha256 && safeDisplay(bytes) === path.display;
+}
+function validateCompletedResult(result, transactionPath) {
+  const resultKeys = [
+    "schemaVersion",
+    "status",
+    "transaction",
+    "startingReportDigest",
+    "observation",
+    "page",
+    "nextCursor",
+    "displayText",
+    "exitCode"
+  ];
+  const observationValid = hasExactKeys3(result?.observation, [
+    "observedAt",
+    "digest",
+    "observedEntryCount",
+    "exactAtReportTime"
+  ]) && typeof result.observation.observedAt === "string" && Number.isFinite(Date.parse(result.observation.observedAt)) && SHA256_PATTERN3.test(result.observation.digest) && Number.isSafeInteger(result.observation.observedEntryCount) && result.observation.observedEntryCount >= 0 && result.observation.exactAtReportTime === false;
+  const pageValid = hasExactKeys3(result?.page, ["startOrdinal", "endOrdinal", "entries"]) && Number.isSafeInteger(result.page.startOrdinal) && result.page.startOrdinal >= 0 && Number.isSafeInteger(result.page.endOrdinal) && result.page.endOrdinal >= -1 && Array.isArray(result.page.entries) && result.page.entries.every(
+    (entry, index) => hasExactKeys3(entry, ["ordinal", "category", "status", "path"]) && entry.ordinal === result.page.startOrdinal + index && (/* @__PURE__ */ new Set(["staged", "unstaged", "untracked", "conflicted"])).has(
+      entry.category
+    ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
+  );
+  const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
+  if (!hasExactKeys3(result, resultKeys) || result.schemaVersion !== 1 || result.status !== "detail-complete" || result.transaction !== resolve14(transactionPath) || !SHA256_PATTERN3.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || typeof result.displayText !== "string" || result.exitCode !== 0 || result.displayText !== renderDetailPage(result)) {
+    fail7("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+  }
+}
+function replayCompletion(completed, cursor, transactionPath) {
+  if (JSON.stringify(Object.keys(completed ?? {}).sort()) !== JSON.stringify(
+    ["schemaVersion", "requestCursorDigest", "result"].sort()
+  ) || completed.schemaVersion !== 1 || !SHA256_PATTERN3.test(completed.requestCursorDigest) || canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
+    fail7("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+  }
+  validateCompletedResult(completed.result, transactionPath);
+  if (completed.requestCursorDigest !== cursorRequestDigest(cursor)) {
+    fail7(
+      "DETAIL_STATE_CONFLICT",
+      "A completed detail observation is retained; use its final cursor or request --refresh.",
+      1
+    );
+  }
+  return completed.result;
+}
+async function readWorkspaceDetailPage({
+  transactionPath,
+  cursor = null,
+  refresh = false,
+  failureInjector = () => {
+  }
+}) {
+  if (refresh && cursor !== null) {
+    fail7(
+      "DETAIL_ARGUMENT_CONFLICT",
+      "--cursor and --refresh are mutually exclusive."
+    );
+  }
+  let lock;
+  try {
+    lock = acquireTransactionStateLock({
+      transactionPath,
+      operation: "report-detail"
+    });
+  } catch (error) {
+    if (error.code === "TRANSACTION_STATE_CONFLICT") {
+      fail7("DETAIL_STATE_CONFLICT", error.message, 1);
+    }
+    throw error;
+  }
+  try {
+    const transaction = readTransaction(transactionPath);
+    if (!(/* @__PURE__ */ new Set(["reported", "published"])).has(transaction.phase)) {
+      fail7(
+        "DETAIL_PHASE_INVALID",
+        "Workspace detail requires a reported or published transaction.",
+        1
+      );
+    }
+    const activePath = join11(transaction.attemptDirectory, ACTIVE_NAME);
+    const completedPath = join11(transaction.attemptDirectory, COMPLETED_NAME);
+    if (existsSync13(completedPath) && !refresh) {
+      const completed = readJson(
+        completedPath,
+        "Completed workspace detail replay"
+      );
+      if (!existsSync13(activePath)) {
+        return replayCompletion(completed, cursor, transactionPath);
+      }
+      const replayActive = readJson(
+        activePath,
+        "Active workspace detail journal"
+      );
+      if (replayActive.state === "ready" && completed.result?.startingReportDigest === replayActive.startingReportDigest && completed.result?.observation?.digest === replayActive.observationDigest) {
+        validateReadyActive(transactionPath, replayActive);
+        const replay = replayCompletion(completed, cursor, transactionPath);
+        const directory = observationDirectory(transaction, replayActive);
+        if (existsSync13(directory)) {
+          rmSync5(assertObservationDirectory(transaction, replayActive), {
+            recursive: true,
+            force: false
+          });
+        }
+        unlinkSync8(activePath);
+        return replay;
+      }
+    }
+    let active;
+    if (existsSync13(activePath)) {
+      if (cursor === null || refresh) {
+        fail7(
+          "DETAIL_STATE_CONFLICT",
+          "A workspace detail observation is already active.",
+          1
+        );
+      }
+      active = readJson(activePath, "Active workspace detail journal");
+      if (active.state !== "ready") {
+        fail7(
+          "DETAIL_STATE_CONFLICT",
+          "The workspace detail observation was interrupted before paging.",
+          1
+        );
+      }
+      active = validateReadyActive(transactionPath, active);
+    } else {
+      if (cursor !== null) {
+        fail7(
+          "DETAIL_CURSOR_INVALID",
+          "No active workspace detail observation accepts this cursor."
+        );
+      }
+      const observationId = randomUUID7();
+      active = {
+        schemaVersion: 1,
+        state: "observing",
+        transactionDigest: sha2566(Buffer.from(resolve14(transactionPath))),
+        startingReportDigest: transaction.report.jsonSha256,
+        observationId,
+        observationDirectoryIdentity: null,
+        cursorKey: randomBytes(32).toString("base64url"),
+        observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        observationDigest: null,
+        observedEntryCount: null,
+        pages: []
+      };
+      writeNew(activePath, active);
+      if (refresh && existsSync13(completedPath)) {
+        unlinkSync8(completedPath);
+      }
+      active = await materializeObservation(transaction, active);
+      active = validateReadyActive(transactionPath, active);
+    }
+    const page = readPageForRequest(transaction, active, cursor);
+    const bounded = boundedPageResult(transactionPath, active, page, cursor);
+    if (bounded.final) {
+      const completed = {
+        schemaVersion: 1,
+        requestCursorDigest: bounded.requestCursorDigest,
+        result: bounded.result
+      };
+      if (canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
+        fail7(
+          "DETAIL_RESULT_BUDGET_EXCEEDED",
+          "Completed detail replay exceeds the serialized result budget."
+        );
+      }
+      if (existsSync13(completedPath)) {
+        replaceJson2(completedPath, completed);
+      } else {
+        writeNew(completedPath, completed);
+      }
+      failureInjector("after-detail-completion-before-page-cleanup");
+      rmSync5(assertObservationDirectory(transaction, active), {
+        recursive: true,
+        force: false
+      });
+      failureInjector("after-detail-page-cleanup-before-journal-cleanup");
+      unlinkSync8(activePath);
+      failureInjector("after-detail-cleanup-before-output");
+    }
+    return bounded.result;
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+async function reportDetailWorkflow(options2) {
+  return readWorkspaceDetailPage(options2);
+}
+function parseFlags2(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token?.startsWith("--")) {
+      fail7("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+    }
+    const name = token.slice(2);
+    if (values.has(name)) {
+      fail7("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+    }
+    if (name === "refresh") {
+      values.set(name, true);
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === void 0 || value.startsWith("--")) {
+      fail7("INVALID_ARGUMENT", `--${name} requires a value.`);
+    }
+    values.set(name, value);
+    index += 1;
+  }
+  return values;
+}
+function commandOutput2(result, format) {
+  return format === "text" ? result.displayText : `${JSON.stringify(result)}
+`;
+}
+async function runReportDetailCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags2(argv);
+    const allowed = /* @__PURE__ */ new Set(["transaction", "cursor", "refresh", "format"]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        fail7("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+      fail7("INVALID_FORMAT", "--format must be json or text.");
+    }
+    const transactionPath = flags4.get("transaction");
+    if (!transactionPath) {
+      fail7("TRANSACTION_REQUIRED", "--transaction is required.");
+    }
+    const result = await reportDetailWorkflow({
+      transactionPath,
+      cursor: flags4.get("cursor") ?? null,
+      refresh: flags4.get("refresh") === true
+    });
+    stdout.write(commandOutput2(result, format));
+    return result.exitCode;
+  } catch (caught) {
+    const error = caught instanceof ReportDetailError ? caught : new ReportDetailError("DETAIL_WORKFLOW_FAILED", caught.message);
+    const result = {
+      schemaVersion: 1,
+      status: "invalid",
+      code: error.code,
+      message: error.message,
+      exitCode: error.exitCode,
+      displayText: `Status: invalid
+Code: ${error.code}
+Message: ${error.message}
+`
+    };
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(commandOutput2(result, format));
+    return error.exitCode;
+  }
+}
+var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN3, STRICT_UTF8_DECODER8, SAFE_TERMINAL_TEXT2, ReportDetailError;
+var init_reportDetailWorkflow = __esm({
+  "src/committing-to-git/workflow/reportDetailWorkflow.js"() {
+    init_commitReport();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    ACTIVE_NAME = "report-detail.active.json";
+    COMPLETED_NAME = "report-detail.completed.json";
+    MAXIMUM_CURSOR_BYTES = 512;
+    MAXIMUM_PAGE_MODEL_BYTES = 40 * 1024;
+    UUID_V4_PATTERN3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
+    SAFE_TERMINAL_TEXT2 = /^[^\p{Cc}\p{Cf}]*$/u;
+    ReportDetailError = class extends Error {
+      constructor(code, message, exitCode = 2) {
+        super(message);
+        this.name = "ReportDetailError";
+        this.code = code;
+        this.exitCode = exitCode;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/workflow/publishWorkflow.js
+var publishWorkflow_exports = {};
+__export(publishWorkflow_exports, {
+  PublishWorkflowError: () => PublishWorkflowError,
+  observePublicationDestination: () => observePublicationDestination,
+  publishWorkflow: () => publishWorkflow,
+  recoverPublicationOutcome: () => recoverPublicationOutcome,
+  runPublishCommand: () => runPublishCommand
+});
+import { spawn as spawn3 } from "node:child_process";
+import { createHash as createHash15, randomUUID as randomUUID8 } from "node:crypto";
+import {
+  closeSync as closeSync12,
+  constants as fsConstants10,
+  fsyncSync as fsyncSync11,
+  lstatSync as lstatSync11,
+  openSync as openSync12,
+  readFileSync as readFileSync13,
+  renameSync as renameSync7,
+  writeFileSync as writeFileSync12
+} from "node:fs";
+import { dirname as dirname9, join as join12, resolve as resolve15 } from "node:path";
+function fail8(code, message, options2) {
+  throw new PublishWorkflowError(code, message, options2);
+}
+function sha2567(bytes) {
+  return createHash15("sha256").update(bytes).digest("hex");
+}
+function canonicalBytes3(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function containsControlCharacter3(value) {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0);
+    return code <= 31 || code === 127;
+  });
+}
+function atomicWrite2(path, bytes) {
+  const candidate = join12(dirname9(path), `.publication-${randomUUID8()}.tmp`);
+  const descriptor = openSync12(
+    candidate,
+    fsConstants10.O_WRONLY + fsConstants10.O_CREAT + fsConstants10.O_EXCL,
+    384
+  );
+  try {
+    writeFileSync12(descriptor, bytes);
+    fsyncSync11(descriptor);
+  } finally {
+    closeSync12(descriptor);
+  }
+  try {
+    const current = lstatSync11(path);
+    if (current.isSymbolicLink() || !current.isFile()) {
+      fail8("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  renameSync7(candidate, path);
+}
+function transcriptFacts2(transcript) {
+  return {
+    path: transcript.path,
+    status: transcript.status,
+    signal: transcript.signal,
+    totalByteCount: transcript.totalByteCount,
+    stdoutByteCount: transcript.stdoutByteCount,
+    stderrByteCount: transcript.stderrByteCount,
+    stdoutSha256: transcript.stdoutSha256,
+    stderrSha256: transcript.stderrSha256,
+    sha256: transcript.sha256,
+    completionSha256: transcript.completionSha256,
+    retainRecommended: transcript.retainRecommended
+  };
+}
+function classifyPushCompletion(transcript, destination) {
+  if (transcript.status === 0 && transcript.signal === null && transcript.launchError === null) {
+    return "witnessed-success";
+  }
+  if (transcript.signal !== null || transcript.launchError !== null || !transcript.capturedStdoutComplete) {
+    return "unknown";
+  }
+  const records = transcript.capturedStdout.toString("utf8").split(/\r?\n/u).filter((line) => line.startsWith("!	"));
+  const knownRejection = records.length === 1 && records[0].split("	")[1]?.endsWith(`:${destination}`) && /\[(?:rejected|remote rejected)\]/u.test(records[0]);
+  return knownRejection ? "known-rejection" : "unknown";
+}
+function latestAttempt(transaction) {
+  return transaction.publicationAttempts.at(-1) ?? null;
+}
+function updateAttempt(transactionPath, attemptId, transform) {
+  const transaction = readTransaction(transactionPath);
+  const index = transaction.publicationAttempts.findIndex(
+    (attempt) => attempt.attemptId === attemptId
+  );
+  if (index < 0 || index !== transaction.publicationAttempts.length - 1) {
+    fail8(
+      "PUBLICATION_ATTEMPT_STALE",
+      "Only the latest publication attempt may acquire new journal facts.",
+      { exitCode: 4 }
+    );
+  }
+  const attempts = transaction.publicationAttempts.map(
+    (attempt, offset) => offset === index ? transform(attempt) : attempt
+  );
+  return updateTransaction(transactionPath, transaction.phase, {
+    ...transaction,
+    publicationAttempts: attempts
+  });
+}
+function validateDestination(root, remote, destination, readOnlyRunner = runReadOnlyGit) {
+  if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter3(remote)) {
+    fail8(
+      "PUBLICATION_REMOTE_INVALID",
+      "--remote must name one configured non-option Git remote."
+    );
+  }
+  if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter3(destination)) {
+    fail8(
+      "PUBLICATION_DESTINATION_INVALID",
+      "--destination must be a full refs/heads/... branch ref."
+    );
+  }
+  const remotes = readOnlyRunner(root, "remote-names").stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
+  if (!remotes.includes(remote)) {
+    fail8(
+      "PUBLICATION_REMOTE_UNKNOWN",
+      `Configured Git remote ${JSON.stringify(remote)} does not exist.`
+    );
+  }
+  const refCheck = readOnlyRunner(root, "check-ref-format", [destination], {
+    allowFailure: true
+  });
+  if (refCheck.status !== 0) {
+    fail8(
+      "PUBLICATION_DESTINATION_INVALID",
+      "--destination is not a valid full branch ref."
+    );
+  }
+}
+function assertPublicationAllowed(transaction) {
+  if (transaction.commit?.commitOid === null || transaction.commit?.commitOid === void 0 || !FULL_OID_PATTERN5.test(transaction.commit.commitOid) || transaction.commit.comparison === null || !transaction.commit.comparison.parentMatches || !transaction.commit.comparison.treeMatches || !transaction.commit.comparison.messageMatches || !transaction.commit.comparison.signatureHeaderPresent || transaction.verification?.blocksPush !== false || transaction.report?.publicationAllowed !== true) {
+    fail8(
+      "PUBLICATION_BLOCKED",
+      "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
+      { exitCode: 3 }
+    );
+  }
+}
+function readPersistedReport(transaction) {
+  let stat;
+  try {
+    stat = lstatSync11(transaction.report.jsonPath);
+  } catch (error) {
+    fail8(
+      "REPORT_ARTIFACT_MISMATCH",
+      `The persisted report cannot be inspected: ${error.message}`,
+      { exitCode: 3 }
+    );
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail8(
+      "REPORT_ARTIFACT_MISMATCH",
+      "The persisted report path was replaced or is not regular.",
+      { exitCode: 3 }
+    );
+  }
+  const bytes = readFileSync13(transaction.report.jsonPath);
+  if (sha2567(bytes) !== transaction.report.jsonSha256) {
+    fail8(
+      "REPORT_ARTIFACT_MISMATCH",
+      "The persisted report no longer matches its transaction digest.",
+      { exitCode: 3 }
+    );
+  }
+  return JSON.parse(bytes.toString("utf8"));
+}
+function currentReportFilesMatch(transaction, reportBytes, textBytes) {
+  if (transaction.report.jsonSha256 !== sha2567(reportBytes) || transaction.report.textSha256 !== sha2567(textBytes)) {
+    return false;
+  }
+  try {
+    const textStat = lstatSync11(transaction.report.textPath);
+    return !textStat.isSymbolicLink() && textStat.isFile() && sha2567(readFileSync13(transaction.report.textPath)) === transaction.report.textSha256;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+function publicationArtifact(attempt, status = attempt.status) {
+  return {
+    schemaVersion: 2,
+    status,
+    attemptId: attempt.attemptId,
+    retryOf: attempt.retryOf,
+    commitOid: attempt.commitOid,
+    remote: attempt.remote,
+    destination: attempt.destination,
+    refspec: attempt.refspec,
+    exitCode: attempt.completion?.exitCode ?? null,
+    transcript: attempt.transcript,
+    observation: attempt.observation,
+    resolution: attempt.resolution,
+    retryPermitted: attempt.retryPermitted,
+    reason: attempt.reason
+  };
+}
+function resultModel(transactionPath, transaction, publication, report, text) {
+  const publicationState = publication.status === "succeeded" ? "succeeded" : publication.status === "observed-matching" ? "observed-matching" : publication.status === "rejected" ? "rejected" : publication.status === "blocked" ? "blocked" : "unknown";
+  const exitCode = publicationState === "succeeded" || publicationState === "observed-matching" ? 0 : publicationState === "rejected" ? 1 : publicationState === "blocked" ? 3 : 4;
+  return {
+    schemaVersion: 1,
+    status: exitCode === 0 ? "published" : exitCode === 1 ? "rejected" : exitCode === 3 ? "commit-blocked" : "outcome-unknown",
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve15(transactionPath),
+    route: transaction.route,
+    commitState: "created",
+    commitOid: transaction.commit.commitOid,
+    publicationState,
+    publicationAllowed: transaction.report.publicationAllowed,
+    recoveryRequired: exitCode === 4,
+    publication,
+    report,
+    displayText: text,
+    exitCode
+  };
+}
+function boundedAugmentedModel(transactionPath, transaction, publication) {
+  const prior = readPersistedReport(transaction);
+  let report = augmentReportWithPublication(prior, publication);
+  let displayText = renderCommitReport(report);
+  let result = resultModel(
+    transactionPath,
+    transaction,
+    publication,
+    report,
+    displayText
+  );
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    report = {
+      ...report,
+      workspace: compactWorkspaceSummary(report.workspace)
+    };
+    displayText = renderCommitReport(report);
+    result = resultModel(
+      transactionPath,
+      transaction,
+      publication,
+      report,
+      displayText
+    );
+  }
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    fail8(
+      "PUBLICATION_RESULT_BUDGET_EXCEEDED",
+      "Publication result exceeds the serialized report budget.",
+      { exitCode: publication.status === "unknown" ? 4 : 3 }
+    );
+  }
+  return { report, displayText, result };
+}
+function persistPublicationReport({
+  transactionPath,
+  publication,
+  targetPhase,
+  targetStatus,
+  terminalDisposition
+}) {
+  const transaction = readTransaction(transactionPath);
+  const projectedTransaction = {
+    ...transaction,
+    phase: targetPhase,
+    status: targetStatus,
+    terminalDisposition
+  };
+  const bounded = boundedAugmentedModel(
+    transactionPath,
+    projectedTransaction,
+    publication
+  );
+  const reportBytes = canonicalBytes3(bounded.report);
+  const textBytes = Buffer.from(bounded.displayText, "utf8");
+  let jsonPath = transaction.report.jsonPath;
+  let textPath = transaction.report.textPath;
+  if (!currentReportFilesMatch(transaction, reportBytes, textBytes)) {
+    const reportRevision = randomUUID8();
+    const reportDirectory = dirname9(transaction.report.jsonPath);
+    jsonPath = join12(
+      reportDirectory,
+      `report-publication-${reportRevision}.json`
+    );
+    textPath = join12(
+      reportDirectory,
+      `report-publication-${reportRevision}.txt`
+    );
+    atomicWrite2(jsonPath, reportBytes);
+    atomicWrite2(textPath, textBytes);
+  }
+  const next = {
+    ...projectedTransaction,
+    report: {
+      ...transaction.report,
+      jsonPath,
+      jsonSha256: sha2567(reportBytes),
+      textPath,
+      textSha256: sha2567(textBytes)
+    }
+  };
+  if (targetPhase === transaction.phase) {
+    updateTransaction(transactionPath, transaction.phase, next);
+  } else {
+    advanceTransaction(transactionPath, transaction.phase, next);
+  }
+  return bounded.result;
+}
+function finalizeAttempt(transactionPath, attemptId, status, reason = null) {
+  const updated = updateAttempt(transactionPath, attemptId, (attempt2) => ({
+    ...attempt2,
+    status,
+    reason
+  }));
+  const attempt = latestAttempt(updated);
+  const publication = publicationArtifact(attempt);
+  if (status === "succeeded") {
+    return persistPublicationReport({
+      transactionPath,
+      publication,
+      targetPhase: "published",
+      targetStatus: "published",
+      terminalDisposition: "published"
+    });
+  }
+  if (status === "observed-matching") {
+    return persistPublicationReport({
+      transactionPath,
+      publication,
+      targetPhase: "published",
+      targetStatus: "recovered",
+      terminalDisposition: "published"
+    });
+  }
+  return persistPublicationReport({
+    transactionPath,
+    publication,
+    targetPhase: "reported",
+    targetStatus: "reported",
+    terminalDisposition: "local-commit-recorded"
+  });
+}
+function persistUnknownAttempt(transactionPath, attemptId, reason) {
+  const updated = updateAttempt(transactionPath, attemptId, (attempt) => ({
+    ...attempt,
+    status: "unknown",
+    reason
+  }));
+  return persistPublicationReport({
+    transactionPath,
+    publication: publicationArtifact(latestAttempt(updated)),
+    targetPhase: "publication-pending",
+    targetStatus: "outcome-unknown",
+    terminalDisposition: null
+  });
+}
+function newAttempt({ transaction, remote, destination, retryOf }) {
+  const commitOid = transaction.commit.commitOid;
+  return {
+    schemaVersion: 1,
+    attemptId: randomUUID8(),
+    retryOf,
+    status: "pending",
+    launchState: "not-started",
+    childIdentity: null,
+    commitOid,
+    remote,
+    destination,
+    refspec: `${commitOid}:${destination}`,
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    completion: null,
+    transcript: null,
+    observation: null,
+    resolution: null,
+    retryPermitted: false,
+    reason: null
+  };
+}
+function appendAttempt(transactionPath, transaction, attempt) {
+  const next = {
+    ...transaction,
+    phase: "publication-pending",
+    status: "outcome-unknown",
+    terminalDisposition: null,
+    publicationAttempts: [...transaction.publicationAttempts, attempt]
+  };
+  return transaction.phase === "reported" ? advanceTransaction(transactionPath, "reported", next) : updateTransaction(transactionPath, "publication-pending", next);
+}
+function validateRetry(transaction, retryAfterAttempt, remote, destination) {
+  const prior = latestAttempt(transaction);
+  if (transaction.phase !== "publication-pending" || prior === null || prior.attemptId !== retryAfterAttempt || prior.retryPermitted !== true || prior.resolution?.kind !== "confirmed-no-live-child" || prior.remote !== remote || prior.destination !== destination || prior.commitOid !== transaction.commit.commitOid) {
+    fail8(
+      "PUBLICATION_RETRY_NOT_PERMITTED",
+      "The retry token does not bind the latest resolved unknown publication attempt.",
+      { exitCode: 4 }
+    );
+  }
+  try {
+    assertRecordedChildInactive({
+      repositoryRoot: transaction.repositoryRoot,
+      childIdentity: prior.childIdentity
+    });
+  } catch (error) {
+    fail8(
+      "PUBLICATION_RETRY_NOT_PERMITTED",
+      `The resolved publication child state no longer permits retry: ${error.message}`,
+      { exitCode: 4 }
+    );
+  }
+  return prior;
+}
+async function publishWorkflow({
+  transactionPath,
+  remote,
+  destination,
+  retryAfterAttempt = null,
+  environment = process.env,
+  processLauncher = spawn3,
+  diagnosticWriter = process.stderr,
+  readOnlyRunner = runReadOnlyGit,
+  failureInjector = () => {
+  }
+}) {
+  let lock;
+  try {
+    lock = acquireTransactionStateLock({
+      transactionPath,
+      operation: "publication"
+    });
+  } catch (error) {
+    if (error.code === "TRANSACTION_STATE_CONFLICT") {
+      fail8("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 1 });
+    }
+    throw error;
+  }
+  let journaledAttemptId = null;
+  try {
+    let transaction = readTransaction(transactionPath);
+    if (transaction.phase === "published") {
+      if (retryAfterAttempt !== null) {
+        fail8(
+          "PUBLICATION_RETRY_NOT_PERMITTED",
+          "A historical retry token cannot be reused after publication completed.",
+          { exitCode: 4 }
+        );
+      }
+      const attempt2 = latestAttempt(transaction);
+      const publication = publicationArtifact(attempt2);
+      const report = readPersistedReport(transaction);
+      return resultModel(
+        transactionPath,
+        transaction,
+        publication,
+        report,
+        renderCommitReport(report)
+      );
+    }
+    if (retryAfterAttempt !== null && !UUID_V4_PATTERN4.test(retryAfterAttempt)) {
+      fail8(
+        "PUBLICATION_RETRY_INVALID",
+        "--retry-after-attempt must be the exact helper UUID."
+      );
+    }
+    if (retryAfterAttempt === null && transaction.phase !== "reported") {
+      fail8(
+        "PUBLICATION_RECOVERY_REQUIRED",
+        "A pending publication must be recovered and explicitly resolved before retry.",
+        { exitCode: 4 }
+      );
+    }
+    if (retryAfterAttempt !== null && transaction.phase === "reported") {
+      fail8(
+        "PUBLICATION_RETRY_UNEXPECTED",
+        "--retry-after-attempt is not accepted for an ordinary reported transaction."
+      );
+    }
+    assertPublicationAllowed(transaction);
+    validateDestination(
+      transaction.repositoryRoot,
+      remote,
+      destination,
+      readOnlyRunner
+    );
+    const retryOf = retryAfterAttempt === null ? null : validateRetry(transaction, retryAfterAttempt, remote, destination).attemptId;
+    const attempt = newAttempt({
+      transaction,
+      remote,
+      destination,
+      retryOf
+    });
+    transaction = appendAttempt(transactionPath, transaction, attempt);
+    journaledAttemptId = attempt.attemptId;
+    failureInjector("after-publication-journal");
+    transaction = updateAttempt(
+      transactionPath,
+      attempt.attemptId,
+      (current) => ({ ...current, launchState: "launching" })
+    );
+    failureInjector("after-launching-before-spawn");
+    let child;
+    try {
+      child = processLauncher(
+        "git",
+        ["push", "--porcelain", "--", remote, attempt.refspec],
+        {
+          cwd: transaction.repositoryRoot,
+          env: {
+            ...environment,
+            GIT_PAGER: "cat",
+            PAGER: "cat",
+            NO_COLOR: "1"
+          },
+          windowsHide: true,
+          stdio: ["inherit", "pipe", "pipe"]
+        }
+      );
+    } catch (error) {
+      updateAttempt(transactionPath, attempt.attemptId, (current) => ({
+        ...current,
+        status: "rejected",
+        launchState: "completed",
+        completion: {
+          exitCode: null,
+          signal: null,
+          transcriptCompletionSha256: null,
+          nonLaunchGuaranteed: true,
+          launchError: { code: error.code ?? null, message: error.message },
+          outcome: "not-launched"
+        },
+        reason: "not-launched"
+      }));
+      return finalizeAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "rejected",
+        "not-launched"
+      );
+    }
+    const childIdentity = captureChildIdentity(child.pid);
+    if (childIdentity !== null) {
+      updateAttempt(transactionPath, attempt.attemptId, (current) => ({
+        ...current,
+        launchState: "running",
+        childIdentity
+      }));
+    }
+    const transcript = await captureGitProcessTranscript({
+      transactionPath,
+      operation: "push",
+      instanceId: attempt.attemptId,
+      child,
+      stdoutCaptureLimit: MAXIMUM_PUSH_CLASSIFICATION_BYTES,
+      diagnosticWriter
+    });
+    if (transcript.launchError !== null && childIdentity === null) {
+      throw new Error(
+        `Push launcher emitted an asynchronous error without a child identity: ${transcript.launchError.message}`
+      );
+    }
+    const pushOutcome = classifyPushCompletion(transcript, destination);
+    updateAttempt(transactionPath, attempt.attemptId, (current) => ({
+      ...current,
+      launchState: "completed",
+      completion: {
+        exitCode: transcript.status,
+        signal: transcript.signal,
+        transcriptCompletionSha256: transcript.completionSha256,
+        nonLaunchGuaranteed: false,
+        launchError: transcript.launchError,
+        outcome: pushOutcome
+      },
+      transcript: transcriptFacts2(transcript)
+    }));
+    failureInjector("after-push-completion-before-report");
+    return pushOutcome === "witnessed-success" ? finalizeAttempt(transactionPath, attempt.attemptId, "succeeded") : pushOutcome === "known-rejection" ? finalizeAttempt(
+      transactionPath,
+      attempt.attemptId,
+      "rejected",
+      "git-push-rejected"
+    ) : persistUnknownAttempt(
+      transactionPath,
+      attempt.attemptId,
+      "push-transport-outcome-unknown"
+    );
+  } catch (error) {
+    if (journaledAttemptId === null || error instanceof PublishWorkflowError) {
+      throw error;
+    }
+    const transaction = readTransaction(transactionPath);
+    const attempt = latestAttempt(transaction);
+    if (attempt?.attemptId !== journaledAttemptId) {
+      throw error;
+    }
+    if (attempt.launchState === "not-started") {
+      return finalizeAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "rejected",
+        "not-launched"
+      );
+    }
+    if (attempt.launchState === "completed") {
+      if (attempt.completion?.outcome === "witnessed-success") {
+        return finalizeAttempt(transactionPath, attempt.attemptId, "succeeded");
+      }
+      if ((/* @__PURE__ */ new Set(["known-rejection", "not-launched"])).has(
+        attempt.completion?.outcome
+      )) {
+        return finalizeAttempt(
+          transactionPath,
+          attempt.attemptId,
+          "rejected",
+          attempt.completion.outcome === "not-launched" ? "not-launched" : "git-push-rejected"
+        );
+      }
+    }
+    return persistUnknownAttempt(
+      transactionPath,
+      attempt.attemptId,
+      error.message
+    );
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+async function observePublicationDestination(root, remote, destination, { stream = streamGit, now = () => (/* @__PURE__ */ new Date()).toISOString() } = {}) {
+  let stdout = Buffer.alloc(0);
+  let stdoutOverflow = false;
+  const result = await stream(
+    "ls-remote",
+    ["--refs", "--exit-code", "--", remote, destination],
+    {
+      cwd: root,
+      allowFailure: true,
+      onStdout(chunk) {
+        const remaining = Math.max(
+          0,
+          MAXIMUM_REMOTE_OBSERVATION_BYTES - stdout.length
+        );
+        stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)]);
+        stdoutOverflow ||= chunk.length > remaining;
+      }
+    }
+  );
+  const base = {
+    observedAt: now(),
+    observedOid: null,
+    exitCode: result.status,
+    stdoutSha256: result.stdoutSha256,
+    stderrSha256: result.stderrSha256,
+    commandDigest: sha2567(
+      Buffer.from(
+        JSON.stringify({
+          operation: "ls-remote",
+          remote,
+          destination,
+          status: result.status,
+          stdoutSha256: result.stdoutSha256,
+          stderrSha256: result.stderrSha256
+        })
+      )
+    ),
+    reason: null
+  };
+  if (stdoutOverflow) {
+    return {
+      ...base,
+      status: "unavailable",
+      reason: "remote-response-too-large"
+    };
+  }
+  if (result.status === 2 && stdout.length === 0) {
+    return { ...base, status: "absent" };
+  }
+  if (result.status !== 0) {
+    return { ...base, status: "unavailable", reason: "remote-query-failed" };
+  }
+  const lines = stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
+  const matches = lines.map((line) => {
+    const separator = line.indexOf("	");
+    return separator > 0 ? { oid: line.slice(0, separator), ref: line.slice(separator + 1) } : null;
+  });
+  if (matches.length !== 1 || matches[0] === null || matches[0].ref !== destination || !FULL_OID_PATTERN5.test(matches[0].oid)) {
+    return {
+      ...base,
+      status: "unavailable",
+      reason: "remote-response-ambiguous"
+    };
+  }
+  return { ...base, status: "observed", observedOid: matches[0].oid };
+}
+function observationJournal(attempt) {
+  const emptyDigest = sha2567(Buffer.alloc(0));
+  return {
+    status: "querying",
+    observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    observedOid: null,
+    exitCode: null,
+    stdoutSha256: emptyDigest,
+    stderrSha256: emptyDigest,
+    commandDigest: sha2567(
+      Buffer.from(
+        JSON.stringify({
+          operation: "ls-remote",
+          remote: attempt.remote,
+          destination: attempt.destination
+        })
+      )
+    ),
+    reason: "remote-query-journaled"
+  };
+}
+function interruptedObservation(observation, reason) {
+  return {
+    ...observation,
+    status: "unavailable",
+    reason
+  };
+}
+async function recoverPublicationOutcome({
+  transactionPath,
+  resolution = null,
+  remoteObserver = observePublicationDestination,
+  processInspector,
+  indexLockInspector
+}) {
+  if (resolution !== null && resolution !== "confirmed-no-live-child") {
+    fail8(
+      "PUBLICATION_RESOLUTION_INVALID",
+      "Publication recovery accepts only confirmed-no-live-child.",
+      { exitCode: 4 }
+    );
+  }
+  let lock;
+  try {
+    lock = acquireTransactionStateLock({
+      transactionPath,
+      operation: "publication-recovery"
+    });
+  } catch (error) {
+    if (error.code === "TRANSACTION_STATE_CONFLICT") {
+      fail8("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 4 });
+    }
+    throw error;
+  }
+  try {
+    let transaction = readTransaction(transactionPath);
+    if (transaction.phase !== "publication-pending") {
+      fail8(
+        "PUBLICATION_RECOVERY_NOT_REQUIRED",
+        "Publication recovery requires the pending publication phase.",
+        { exitCode: 1 }
+      );
+    }
+    let attempt = latestAttempt(transaction);
+    if (attempt.launchState === "not-started") {
+      return finalizeAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "rejected",
+        "not-launched"
+      );
+    }
+    if (attempt.launchState === "completed") {
+      if (attempt.completion?.outcome === "witnessed-success") {
+        return finalizeAttempt(transactionPath, attempt.attemptId, "succeeded");
+      }
+      if ((/* @__PURE__ */ new Set(["known-rejection", "not-launched"])).has(
+        attempt.completion?.outcome
+      )) {
+        return finalizeAttempt(
+          transactionPath,
+          attempt.attemptId,
+          "rejected",
+          attempt.completion.outcome === "not-launched" ? "not-launched" : "git-push-rejected"
+        );
+      }
+    }
+    if (attempt.observation === null) {
+      transaction = updateAttempt(
+        transactionPath,
+        attempt.attemptId,
+        (current) => ({
+          ...current,
+          observation: observationJournal(current)
+        })
+      );
+      attempt = latestAttempt(transaction);
+      let observation;
+      try {
+        observation = await remoteObserver(
+          transaction.repositoryRoot,
+          attempt.remote,
+          attempt.destination
+        );
+      } catch (error) {
+        observation = interruptedObservation(
+          attempt.observation,
+          `remote-query-failed:${error.message}`
+        );
+      }
+      transaction = updateAttempt(
+        transactionPath,
+        attempt.attemptId,
+        (current) => ({ ...current, observation })
+      );
+      attempt = latestAttempt(transaction);
+    } else if (attempt.observation.status === "querying") {
+      transaction = updateAttempt(
+        transactionPath,
+        attempt.attemptId,
+        (current) => ({
+          ...current,
+          observation: interruptedObservation(
+            current.observation,
+            "remote-query-interrupted"
+          )
+        })
+      );
+      attempt = latestAttempt(transaction);
+    }
+    if (attempt.observation.status === "observed" && attempt.observation.observedOid === attempt.commitOid) {
+      return finalizeAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "observed-matching"
+      );
+    }
+    if (resolution === "confirmed-no-live-child" && attempt.resolution === null) {
+      try {
+        assertRecordedChildInactive({
+          repositoryRoot: transaction.repositoryRoot,
+          childIdentity: attempt.childIdentity,
+          ...processInspector ? { processInspector } : {},
+          ...indexLockInspector ? { indexLockInspector } : {}
+        });
+      } catch (error) {
+        fail8(
+          "PUBLICATION_RESOLUTION_CONTRADICTED",
+          `No-live-child confirmation is contradicted: ${error.message}`,
+          { exitCode: 4 }
+        );
+      }
+      transaction = updateAttempt(
+        transactionPath,
+        attempt.attemptId,
+        (current) => ({
+          ...current,
+          resolution: {
+            kind: resolution,
+            assertedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            observationDigest: current.observation.commandDigest
+          },
+          retryPermitted: true
+        })
+      );
+      attempt = latestAttempt(transaction);
+    }
+    return persistUnknownAttempt(
+      transactionPath,
+      attempt.attemptId,
+      attempt.reason ?? "remote-outcome-unresolved"
+    );
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+function parseFlags3(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token?.startsWith("--")) {
+      fail8("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+    }
+    const name = token.slice(2);
+    const value = argv[index + 1];
+    if (values.has(name)) {
+      fail8("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+    }
+    if (value === void 0 || value.startsWith("--")) {
+      fail8("INVALID_ARGUMENT", `--${name} requires a value.`);
+    }
+    values.set(name, value);
+    index += 1;
+  }
+  return values;
+}
+function commandOutput3(result, format) {
+  return format === "text" ? result.displayText : `${JSON.stringify(result)}
+`;
+}
+async function runPublishCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let format = "json";
+  try {
+    const flags4 = parseFlags3(argv);
+    const allowed = /* @__PURE__ */ new Set([
+      "transaction",
+      "remote",
+      "destination",
+      "retry-after-attempt",
+      "format"
+    ]);
+    for (const name of flags4.keys()) {
+      if (!allowed.has(name)) {
+        fail8("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
+      }
+    }
+    format = flags4.get("format") ?? "json";
+    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+      fail8("INVALID_FORMAT", "--format must be json or text.");
+    }
+    for (const required4 of ["transaction", "remote", "destination"]) {
+      if (!flags4.get(required4)) {
+        fail8("INVALID_ARGUMENT", `--${required4} is required.`);
+      }
+    }
+    const result = await publishWorkflow({
+      transactionPath: flags4.get("transaction"),
+      remote: flags4.get("remote"),
+      destination: flags4.get("destination"),
+      retryAfterAttempt: flags4.get("retry-after-attempt") ?? null
+    });
+    stdout.write(commandOutput3(result, format));
+    return result.exitCode;
+  } catch (caught) {
+    const error = caught instanceof PublishWorkflowError ? caught : new PublishWorkflowError(
+      "PUBLICATION_WORKFLOW_FAILED",
+      caught.message
+    );
+    const result = {
+      schemaVersion: 1,
+      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
+      code: error.code,
+      message: error.message,
+      displayText: `Status: ${error.exitCode === 4 ? "outcome-unknown" : "invalid"}
+Code: ${error.code}
+Message: ${error.message}
+`,
+      exitCode: error.exitCode,
+      ...error.details
+    };
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(commandOutput3(result, format));
+    return error.exitCode;
+  }
+}
+var FULL_OID_PATTERN5, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES, PublishWorkflowError;
+var init_publishWorkflow = __esm({
+  "src/committing-to-git/workflow/publishWorkflow.js"() {
+    init_gitProcessTranscript();
+    init_gitRepository();
+    init_commitReport();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    FULL_OID_PATTERN5 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    UUID_V4_PATTERN4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+    MAXIMUM_REMOTE_OBSERVATION_BYTES = 64 * 1024;
+    MAXIMUM_PUSH_CLASSIFICATION_BYTES = 64 * 1024;
+    PublishWorkflowError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "PublishWorkflowError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
 // src/committing-to-git/workflow/recoverTransactionWorkflow.js
 var recoverTransactionWorkflow_exports = {};
 __export(recoverTransactionWorkflow_exports, {
@@ -12679,11 +15165,11 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve14 } from "node:path";
+import { resolve as resolve16 } from "node:path";
 function invalid(code, message, exitCode = 2) {
   throw new CommitWorkflowError(code, message, { exitCode });
 }
-function recoverTransactionWorkflow({
+async function recoverTransactionWorkflow({
   transactionPath,
   resolution = null,
   verificationPolicyOverride = null,
@@ -12698,6 +15184,9 @@ function recoverTransactionWorkflow({
   }
   recoverCanonicalMessageReplacement(transactionPath);
   const transaction = readTransaction(transactionPath);
+  if (transaction.phase === "publication-pending") {
+    return recoverPublicationOutcome({ transactionPath, resolution });
+  }
   if (transaction.phase === "reported") {
     return readRecordedReport(transactionPath);
   }
@@ -12707,7 +15196,7 @@ function recoverTransactionWorkflow({
       return recovery;
     }
     try {
-      return completeRecordedCommit({
+      return await completeRecordedCommit({
         transactionPath,
         verificationPolicyOverride,
         retainReviewArtifacts,
@@ -12720,7 +15209,7 @@ function recoverTransactionWorkflow({
         status: "commit-blocked",
         phase: current.phase,
         terminalDisposition: current.terminalDisposition,
-        transaction: resolve14(transactionPath),
+        transaction: resolve16(transactionPath),
         route: current.route,
         commitState: "created",
         commitOid: current.commit.commitOid,
@@ -12736,16 +15225,17 @@ function recoverTransactionWorkflow({
   if ((/* @__PURE__ */ new Set(["stopped", "abandoned", "superseded", "published"])).has(
     transaction.phase
   )) {
+    const publicationState = transaction.phase === "published" ? transaction.publicationAttempts.at(-1)?.status === "succeeded" ? "succeeded" : "observed-matching" : "not-requested";
     return {
       schemaVersion: 1,
       status: transaction.status,
       phase: transaction.phase,
       terminalDisposition: transaction.terminalDisposition,
-      transaction: resolve14(transactionPath),
+      transaction: resolve16(transactionPath),
       route: transaction.route,
       commitState: transaction.commit?.commitOid ? "created" : "absent",
       commitOid: transaction.commit?.commitOid ?? null,
-      publicationState: transaction.phase === "published" ? "published" : "not-requested",
+      publicationState,
       publicationAllowed: transaction.report?.publicationAllowed ?? false,
       recoveryRequired: false,
       exitCode: transaction.phase === "stopped" ? 1 : 0
@@ -12757,7 +15247,7 @@ function recoverTransactionWorkflow({
     1
   );
 }
-function parseFlags2(argv, booleanFlags = /* @__PURE__ */ new Set()) {
+function parseFlags4(argv, booleanFlags = /* @__PURE__ */ new Set()) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -12790,10 +15280,10 @@ Code: ${result.code ?? "none"}
 ` : `${JSON.stringify(result)}
 `;
 }
-function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+async function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags2(argv);
+    const flags4 = parseFlags4(argv);
     const allowed = /* @__PURE__ */ new Set(["transaction", "resolution", "format"]);
     for (const name of flags4.keys()) {
       if (!allowed.has(name)) {
@@ -12805,7 +15295,7 @@ function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = 
     if (!transactionPath) {
       invalid("TRANSACTION_REQUIRED", "--transaction is required.");
     }
-    const result = recoverTransactionWorkflow({
+    const result = await recoverTransactionWorkflow({
       transactionPath,
       resolution: flags4.get("resolution") ?? null
     });
@@ -12828,7 +15318,7 @@ function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = 
 function runCleanupTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let format = "json";
   try {
-    const flags4 = parseFlags2(argv, /* @__PURE__ */ new Set(["purge"]));
+    const flags4 = parseFlags4(argv, /* @__PURE__ */ new Set(["purge"]));
     const allowed = /* @__PURE__ */ new Set(["transaction", "purge", "format"]);
     for (const name of flags4.keys()) {
       if (!allowed.has(name)) {
@@ -12868,14 +15358,15 @@ var init_recoverTransactionWorkflow = __esm({
     init_transactionRecovery();
     init_transactionWorkspace();
     init_createCommitWorkflow();
+    init_publishWorkflow();
     RESOLUTIONS = /* @__PURE__ */ new Set([null, "confirmed-no-live-child"]);
   }
 });
 
 // src/committing-to-git/command/snapshotCommand.js
 var snapshotCommand_exports = {};
-import { readFileSync as readFileSync12 } from "node:fs";
-import { resolve as resolve15 } from "node:path";
+import { readFileSync as readFileSync14 } from "node:fs";
+import { resolve as resolve17 } from "node:path";
 function usageError(message) {
   console.error(message);
   console.error(
@@ -12912,12 +15403,12 @@ function parseArguments2(argv) {
   return {
     mode,
     scope,
-    scopeFile: scopeFile ? resolve15(scopeFile) : null,
-    output: resolve15(output2)
+    scopeFile: scopeFile ? resolve17(scopeFile) : null,
+    output: resolve17(output2)
   };
 }
 function readScopePaths(path) {
-  const payload = JSON.parse(readFileSync12(path, "utf8"));
+  const payload = JSON.parse(readFileSync14(path, "utf8"));
   if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.some(
     (entry) => typeof entry !== "string" || entry.length === 0
   )) {
@@ -12964,11 +15455,11 @@ var init_snapshotCommand = __esm({
 });
 
 // src/committing-to-git/inspection/changeInspection.js
-import { createHash as createHash14 } from "node:crypto";
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync13, writeFileSync as writeFileSync10 } from "node:fs";
-import { dirname as dirname9, join as join11 } from "node:path";
-function sha2566(buffer) {
-  return createHash14("sha256").update(buffer).digest("hex");
+import { createHash as createHash16 } from "node:crypto";
+import { mkdirSync as mkdirSync10, readFileSync as readFileSync15, writeFileSync as writeFileSync13 } from "node:fs";
+import { dirname as dirname10, join as join13 } from "node:path";
+function sha2568(buffer) {
+  return createHash16("sha256").update(buffer).digest("hex");
 }
 function utf8SafeBoundary(buffer, start, end) {
   const isContinuation = (byte) => byte >= 128 && byte <= 191;
@@ -13019,21 +15510,21 @@ function isWholeDeletion(unit) {
   return unit?.oldMode !== "000000" && unit?.newMode === "000000";
 }
 function writeInspection({ outputDir, manifest, patch }) {
-  const chunksDir = join11(outputDir, "chunks");
-  const deletionsDir = join11(outputDir, "deletions");
-  const inventoryDir = join11(outputDir, "inventory");
-  const metadataDir = join11(outputDir, "metadata");
+  const chunksDir = join13(outputDir, "chunks");
+  const deletionsDir = join13(outputDir, "deletions");
+  const inventoryDir = join13(outputDir, "inventory");
+  const metadataDir = join13(outputDir, "metadata");
   const chunks = splitPatch(patch);
   const summarizedDeletions = manifest.changeUnits.filter(isWholeDeletion);
   const summarizedTextDeletionLines = summarizedDeletions.reduce(
     (total, unit) => total + (!unit.binary && unit.oldMode !== "160000" && Number.isInteger(unit.deletions) ? unit.deletions : 0),
     0
   );
-  mkdirSync9(outputDir);
-  mkdirSync9(chunksDir);
-  mkdirSync9(deletionsDir);
-  mkdirSync9(inventoryDir);
-  mkdirSync9(metadataDir);
+  mkdirSync10(outputDir);
+  mkdirSync10(chunksDir);
+  mkdirSync10(deletionsDir);
+  mkdirSync10(inventoryDir);
+  mkdirSync10(metadataDir);
   const inventoryPayload = Buffer.from(
     [
       "# Commit snapshot change inventory",
@@ -13050,7 +15541,7 @@ function writeInspection({ outputDir, manifest, patch }) {
     ({ payload, start, end, lineCount: lineCount2 }, index) => {
       const id = `I${String(index + 1).padStart(6, "0")}`;
       const artifact = `inventory/${id}.md`;
-      writeFileSync10(join11(outputDir, artifact), payload);
+      writeFileSync13(join13(outputDir, artifact), payload);
       return {
         id,
         kind: "inventory-page",
@@ -13059,7 +15550,7 @@ function writeInspection({ outputDir, manifest, patch }) {
         byteEnd: end,
         byteCount: payload.length,
         lineCount: lineCount2,
-        sha256: sha2566(payload),
+        sha256: sha2568(payload),
         status: "pending"
       };
     }
@@ -13067,7 +15558,7 @@ function writeInspection({ outputDir, manifest, patch }) {
   const textUnits = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
     const id = `C${String(index + 1).padStart(6, "0")}`;
     const artifact = `chunks/${id}.patch`;
-    writeFileSync10(join11(outputDir, artifact), payload);
+    writeFileSync13(join13(outputDir, artifact), payload);
     return {
       id,
       kind: "text-patch",
@@ -13076,7 +15567,7 @@ function writeInspection({ outputDir, manifest, patch }) {
       byteEnd: end,
       byteCount: payload.length,
       lineCount: lineCount2,
-      sha256: sha2566(payload),
+      sha256: sha2568(payload),
       status: "pending"
     };
   });
@@ -13099,7 +15590,7 @@ function writeInspection({ outputDir, manifest, patch }) {
     };
     const payload = Buffer.from(`${JSON.stringify(metadata, null, 2)}
 `);
-    writeFileSync10(join11(outputDir, artifact), payload);
+    writeFileSync13(join13(outputDir, artifact), payload);
     return {
       id,
       kind: unit.binary ? "binary-metadata" : "submodule-metadata",
@@ -13108,7 +15599,7 @@ function writeInspection({ outputDir, manifest, patch }) {
       byteEnd: payload.length,
       byteCount: payload.length,
       lineCount: payload.toString("utf8").split("\n").length - 1,
-      sha256: sha2566(payload),
+      sha256: sha2568(payload),
       status: "pending"
     };
   });
@@ -13116,7 +15607,7 @@ function writeInspection({ outputDir, manifest, patch }) {
   const ledger = {
     schemaVersion: 2,
     indexTreeOid: manifest.indexTreeOid,
-    reviewPatchSha256: sha2566(patch),
+    reviewPatchSha256: sha2568(patch),
     reviewPatchBytes: patch.length,
     summarizedDeletionCount: summarizedDeletions.length,
     summarizedTextDeletionLines,
@@ -13146,16 +15637,16 @@ function writeInspection({ outputDir, manifest, patch }) {
     "Whole-file deletion bodies are summarized by default. Run `inspection expand-deletion` for a specific change unit when its historical content is needed to ground the rationale or assess its effect.",
     ""
   ].join("\n");
-  writeFileSync10(join11(outputDir, "inventory.md"), inventory);
-  writeFileSync10(
-    join11(outputDir, "ledger.json"),
+  writeFileSync13(join13(outputDir, "inventory.md"), inventory);
+  writeFileSync13(
+    join13(outputDir, "ledger.json"),
     `${JSON.stringify(ledger, null, 2)}
 `
   );
   return ledger;
 }
 function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content }) {
-  const ledger = JSON.parse(readFileSync13(ledgerPath2, "utf8"));
+  const ledger = JSON.parse(readFileSync15(ledgerPath2, "utf8"));
   if (ledger.schemaVersion !== 2) {
     throw new Error(
       "Deletion expansion requires an inspection ledger version 2."
@@ -13166,15 +15657,15 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
   )) {
     throw new Error(`Deletion ${changeUnit.id} was already expanded.`);
   }
-  const inspectionDir = dirname9(ledgerPath2);
-  const deletionDir = join11(inspectionDir, "deletions", changeUnit.id);
+  const inspectionDir = dirname10(ledgerPath2);
+  const deletionDir = join13(inspectionDir, "deletions", changeUnit.id);
   const chunks = splitPatch(content);
-  mkdirSync9(deletionDir);
+  mkdirSync10(deletionDir);
   const units = chunks.map(({ payload, start, end, lineCount: lineCount2 }, index) => {
     const ordinal = `D${String(index + 1).padStart(6, "0")}`;
     const id = `${changeUnit.id}-${ordinal}`;
     const artifact = `deletions/${changeUnit.id}/${ordinal}.deleted`;
-    writeFileSync10(join11(inspectionDir, artifact), payload);
+    writeFileSync13(join13(inspectionDir, artifact), payload);
     return {
       id,
       kind: "deleted-content",
@@ -13184,7 +15675,7 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
       byteEnd: end,
       byteCount: payload.length,
       lineCount: lineCount2,
-      sha256: sha2566(payload),
+      sha256: sha2568(payload),
       status: "pending"
     };
   });
@@ -13192,7 +15683,7 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
     changeUnitId: changeUnit.id,
     oldOid: changeUnit.oldOid,
     byteCount: content.length,
-    sha256: sha2566(content),
+    sha256: sha2568(content),
     unitIds: units.map(({ id }) => id)
   };
   ledger.expandedDeletions.push(expansion);
@@ -13202,18 +15693,18 @@ function expandDeletionInspection({ ledgerPath: ledgerPath2, changeUnit, content
     ({ status }) => status === "reviewed"
   ).length;
   ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync10(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+  writeFileSync13(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
 `);
   return { ledger, expansion, units };
 }
 function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) {
-  const ledger = JSON.parse(readFileSync13(ledgerPath2, "utf8"));
+  const ledger = JSON.parse(readFileSync15(ledgerPath2, "utf8"));
   const unit = ledger.units.find((candidate) => candidate.id === id);
   if (!unit) {
     throw new Error(`Unknown inspection unit ${id}.`);
   }
-  const artifactPath2 = join11(dirname9(ledgerPath2), unit.artifact);
-  const actualSha256 = sha2566(readFileSync13(artifactPath2));
+  const artifactPath2 = join13(dirname10(ledgerPath2), unit.artifact);
+  const actualSha256 = sha2568(readFileSync15(artifactPath2));
   if (actualSha256 !== unit.sha256 || actualSha256 !== expectedSha256) {
     throw new Error(`Inspection unit ${id} changed after it was generated.`);
   }
@@ -13222,7 +15713,7 @@ function acknowledgeInspection({ ledgerPath: ledgerPath2, id, expectedSha256 }) 
     ({ status }) => status === "reviewed"
   ).length;
   ledger.complete = ledger.reviewedCount === ledger.unitCount;
-  writeFileSync10(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
+  writeFileSync13(ledgerPath2, `${JSON.stringify(ledger, null, 2)}
 `);
   return ledger;
 }
@@ -13236,8 +15727,8 @@ var init_changeInspection = __esm({
 
 // src/committing-to-git/command/inspectionCommand.js
 var inspectionCommand_exports = {};
-import { readFileSync as readFileSync14 } from "node:fs";
-import { resolve as resolve16 } from "node:path";
+import { readFileSync as readFileSync16 } from "node:fs";
+import { resolve as resolve18 } from "node:path";
 function usageError2(message) {
   console.error(message);
   console.error(
@@ -13245,7 +15736,7 @@ function usageError2(message) {
   );
   process.exit(2);
 }
-function parseFlags3(argv) {
+function parseFlags5(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
@@ -13298,14 +15789,14 @@ var init_inspectionCommand = __esm({
     init_gitRepository();
     init_createSnapshot();
     [command, ...flagArguments] = process.argv.slice(2);
-    flags = parseFlags3(flagArguments);
+    flags = parseFlags5(flagArguments);
     try {
       if (command === "prepare") {
-        const manifestPath2 = resolve16(required(flags, "manifest"));
-        const outputDir = resolve16(required(flags, "output-dir"));
-        const manifest = JSON.parse(readFileSync14(manifestPath2, "utf8"));
+        const manifestPath2 = resolve18(required(flags, "manifest"));
+        const outputDir = resolve18(required(flags, "output-dir"));
+        const manifest = JSON.parse(readFileSync16(manifestPath2, "utf8"));
         const root = repositoryRoot();
-        if (resolve16(manifest.repositoryRoot) !== resolve16(root)) {
+        if (resolve18(manifest.repositoryRoot) !== resolve18(root)) {
           throw new Error("Snapshot manifest belongs to a different repository.");
         }
         const ledger = writeInspection({
@@ -13316,7 +15807,7 @@ var init_inspectionCommand = __esm({
         process.stdout.write(
           `${JSON.stringify(
             {
-              ledger: resolve16(outputDir, "ledger.json"),
+              ledger: resolve18(outputDir, "ledger.json"),
               unitCount: ledger.unitCount,
               requiredTextChunkCount: ledger.units.filter(
                 ({ kind }) => kind === "text-patch"
@@ -13330,13 +15821,13 @@ var init_inspectionCommand = __esm({
 `
         );
       } else if (command === "expand-deletion") {
-        const manifestPath2 = resolve16(required(flags, "manifest"));
-        const ledgerPath2 = resolve16(required(flags, "ledger"));
+        const manifestPath2 = resolve18(required(flags, "manifest"));
+        const ledgerPath2 = resolve18(required(flags, "ledger"));
         const changeUnitId = required(flags, "change-unit");
-        const manifest = JSON.parse(readFileSync14(manifestPath2, "utf8"));
-        const ledger = JSON.parse(readFileSync14(ledgerPath2, "utf8"));
+        const manifest = JSON.parse(readFileSync16(manifestPath2, "utf8"));
+        const ledger = JSON.parse(readFileSync16(ledgerPath2, "utf8"));
         const root = repositoryRoot();
-        if (resolve16(manifest.repositoryRoot) !== resolve16(root)) {
+        if (resolve18(manifest.repositoryRoot) !== resolve18(root)) {
           throw new Error("Snapshot manifest belongs to a different repository.");
         }
         if (ledger.indexTreeOid !== manifest.indexTreeOid) {
@@ -13405,7 +15896,7 @@ var init_inspectionCommand = __esm({
         );
       } else if (command === "ack") {
         const ledger = acknowledgeInspection({
-          ledgerPath: resolve16(required(flags, "ledger")),
+          ledgerPath: resolve18(required(flags, "ledger")),
           id: required(flags, "id"),
           expectedSha256: required(flags, "sha256")
         });
@@ -13413,7 +15904,7 @@ var init_inspectionCommand = __esm({
 `);
       } else if (command === "status") {
         const ledger = JSON.parse(
-          readFileSync14(resolve16(required(flags, "ledger")), "utf8")
+          readFileSync16(resolve18(required(flags, "ledger")), "utf8")
         );
         process.stdout.write(`${JSON.stringify(ledger, null, 2)}
 `);
@@ -13429,8 +15920,8 @@ var init_inspectionCommand = __esm({
 
 // src/committing-to-git/command/messageCommand.js
 var messageCommand_exports = {};
-import { existsSync as existsSync13, mkdirSync as mkdirSync10, readFileSync as readFileSync15, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname10, resolve as resolve17 } from "node:path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync11, readFileSync as readFileSync17, writeFileSync as writeFileSync14 } from "node:fs";
+import { dirname as dirname11, resolve as resolve19 } from "node:path";
 function usageError3(message) {
   console.error(message);
   console.error(
@@ -13438,7 +15929,7 @@ function usageError3(message) {
   );
   process.exit(2);
 }
-function parseFlags4(argv) {
+function parseFlags6(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
@@ -13453,18 +15944,18 @@ function required2(flags4, name) {
   if (!value) {
     usageError3(`--${name} is required.`);
   }
-  return resolve17(value);
+  return resolve19(value);
 }
-function readJson(path) {
-  return JSON.parse(readFileSync15(path, "utf8"));
+function readJson2(path) {
+  return JSON.parse(readFileSync17(path, "utf8"));
 }
 function writeText(path, text) {
-  mkdirSync10(dirname10(path), { recursive: true });
-  writeFileSync11(path, text);
+  mkdirSync11(dirname11(path), { recursive: true });
+  writeFileSync14(path, text);
 }
 function writeNewText(path, text) {
-  mkdirSync10(dirname10(path), { recursive: true });
-  writeFileSync11(path, text, { flag: "wx" });
+  mkdirSync11(dirname11(path), { recursive: true });
+  writeFileSync14(path, text, { flag: "wx" });
 }
 function containsScaffoldPlaceholder(value) {
   if (typeof value === "string") {
@@ -13488,14 +15979,14 @@ var init_messageCommand = __esm({
   "src/committing-to-git/command/messageCommand.js"() {
     init_commitMessageRenderer();
     [command2, ...flagArguments2] = process.argv.slice(2);
-    flags2 = parseFlags4(flagArguments2);
+    flags2 = parseFlags6(flagArguments2);
     try {
-      const manifest = readJson(required2(flags2, "manifest"));
+      const manifest = readJson2(required2(flags2, "manifest"));
       if (command2 === "scaffold") {
         const output2 = required2(flags2, "output");
         const template = required2(flags2, "template");
         const content = scaffoldLegacyContent(manifest);
-        if (existsSync13(output2) || existsSync13(template)) {
+        if (existsSync14(output2) || existsSync14(template)) {
           throw new Error(
             "A scaffold output already exists; start a new attempt instead of replacing it."
           );
@@ -13508,8 +15999,8 @@ var init_messageCommand = __esm({
 `
         );
       } else if (command2 === "render") {
-        const content = readJson(required2(flags2, "content"));
-        const ledger = readJson(required2(flags2, "ledger"));
+        const content = readJson2(required2(flags2, "content"));
+        const ledger = readJson2(required2(flags2, "ledger"));
         const output2 = required2(flags2, "output");
         if (!ledger.complete || ledger.indexTreeOid !== manifest.indexTreeOid) {
           throw new Error(
@@ -13538,7 +16029,7 @@ __export(commitMessageValidator_exports, {
   RECOMMENDED_COMMIT_TYPES: () => RECOMMENDED_COMMIT_TYPES2
 });
 import { execFileSync } from "node:child_process";
-import { readFileSync as readFileSync16 } from "node:fs";
+import { readFileSync as readFileSync18 } from "node:fs";
 function characterLength2(text) {
   let length = 0;
   for (const _ of text) {
@@ -14182,12 +16673,12 @@ var init_commitMessageValidator = __esm({
     ({ messagePath, requestedScope, manifestPath, contentPath, ledgerPath } = parseArguments3(process.argv.slice(2)));
     try {
       const root = repositoryRoot2();
-      const message = readFileSync16(messagePath, "utf8");
+      const message = readFileSync18(messagePath, "utf8");
       let result;
       if (manifestPath) {
-        const manifest = JSON.parse(readFileSync16(manifestPath, "utf8"));
-        const content = JSON.parse(readFileSync16(contentPath, "utf8"));
-        const ledger = JSON.parse(readFileSync16(ledgerPath, "utf8"));
+        const manifest = JSON.parse(readFileSync18(manifestPath, "utf8"));
+        const content = JSON.parse(readFileSync18(contentPath, "utf8"));
+        const ledger = JSON.parse(readFileSync18(ledgerPath, "utf8"));
         result = validateManifestMessage(message, manifest, content, ledger);
       } else {
         const { resolved, files } = resolveScope(root, requestedScope);
@@ -14220,26 +16711,26 @@ __export(checkMessageWorkflow_exports, {
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-import { createHash as createHash15 } from "node:crypto";
-import { resolve as resolve18 } from "node:path";
-import { TextDecoder as TextDecoder8 } from "node:util";
-function fail7(code, message, options2) {
+import { createHash as createHash17 } from "node:crypto";
+import { resolve as resolve20 } from "node:path";
+import { TextDecoder as TextDecoder10 } from "node:util";
+function fail9(code, message, options2) {
   throw new MessageWorkflowError(code, message, options2);
 }
-function sha2567(bytes) {
-  return createHash15("sha256").update(bytes).digest("hex");
+function sha2569(bytes) {
+  return createHash17("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER7.decode(bytes);
+    text = STRICT_UTF8_DECODER9.decode(bytes);
   } catch {
-    fail7("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail9("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail7("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+    fail9("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
   }
 }
 function sameHeadAnchor(manifest, headAnchor) {
@@ -14257,22 +16748,22 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve18(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve18(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail7(
+  const expectedPath = resolve20(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve20(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail9(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
-  if (sha2567(bytes) !== transaction.snapshot.sha256) {
-    fail7(
+  if (sha2569(bytes) !== transaction.snapshot.sha256) {
+    fail9(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve18(manifest.repositoryRoot) !== resolve18(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
-    fail7(
+  if (resolve20(manifest.repositoryRoot) !== resolve20(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+    fail9(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -14290,7 +16781,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail7(
+    fail9(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -14305,7 +16796,7 @@ function commonResult(transactionPath, route, status, phase) {
     phase,
     terminalDisposition: null,
     route,
-    transaction: resolve18(transactionPath),
+    transaction: resolve20(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -14354,10 +16845,10 @@ function prospectiveCheckedResult({
 }
 function assertCheckTransaction(transaction, transactionPath) {
   if (transaction.route !== "concise" || !(/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail7(
+    fail9(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve18(transactionPath) } }
+      { details: { transaction: resolve20(transactionPath) } }
     );
   }
 }
@@ -14367,7 +16858,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail7("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail9("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -14422,25 +16913,25 @@ function parseMessageWorkflowArguments(argv, command4) {
     const token = argv[index];
     const value = argv[index + 1];
     if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail7("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
+      fail9("UNKNOWN_ARGUMENT", `Unknown message ${command4} flag ${token}.`);
     }
     if (value === void 0 || value.length === 0) {
-      fail7("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+      fail9("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
     }
     if (values.has(token)) {
-      fail7("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+      fail9("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
     }
     values.set(token, value);
   }
   if (!values.has("--transaction")) {
-    fail7(
+    fail9(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command4}.`
     );
   }
   const format = values.get("--format") ?? "json";
   if (!FORMATS.has(format)) {
-    fail7("INVALID_FORMAT", "--format must be json or text.");
+    fail9("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("--transaction"), format };
 }
@@ -14450,7 +16941,7 @@ function messageErrorResult(error, transactionPath = null) {
     status: error.exitCode === 1 ? "evidence-required" : "invalid",
     phase: error.details?.phase ?? null,
     terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve18(transactionPath) : null),
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve20(transactionPath) : null),
     route: error.details?.route ?? null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14499,14 +16990,14 @@ async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
     return error.exitCode;
   }
 }
-var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER7, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER9, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
 var init_checkMessageWorkflow = __esm({
   "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
     init_approvedMessage();
     init_canonicalMessageState();
     init_transactionWorkspace();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER9 = new TextDecoder10("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
     FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
@@ -14529,15 +17020,15 @@ __export(finalizeMessageWorkflow_exports, {
   runFinalizeMessageCommand: () => runFinalizeMessageCommand
 });
 import {
-  existsSync as existsSync14,
-  lstatSync as lstatSync10,
-  readFileSync as readFileSync17,
+  existsSync as existsSync15,
+  lstatSync as lstatSync12,
+  readFileSync as readFileSync19,
   realpathSync as realpathSync6,
-  writeFileSync as writeFileSync12
+  writeFileSync as writeFileSync15
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute7, join as join12, relative as relative8, resolve as resolve19, sep as sep3 } from "node:path";
-import { TextDecoder as TextDecoder9 } from "node:util";
-function fail8(code, message, { exitCode = 2, details = {} } = {}) {
+import { basename as basename3, isAbsolute as isAbsolute7, join as join14, relative as relative8, resolve as resolve21, sep as sep3 } from "node:path";
+import { TextDecoder as TextDecoder11 } from "node:util";
+function fail10(code, message, { exitCode = 2, details = {} } = {}) {
   throw new MessageWorkflowError(code, message, { exitCode, details });
 }
 function isPlainObject4(value) {
@@ -14545,12 +17036,12 @@ function isPlainObject4(value) {
 }
 function assertExactKeys4(value, keys, label) {
   if (!isPlainObject4(value)) {
-    fail8("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
+    fail10("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail8(
+    fail10(
       "INVALID_MESSAGE_CONTENT",
       `${label} contains missing or unknown members.`,
       { details: { label, expected, actual } }
@@ -14560,14 +17051,14 @@ function assertExactKeys4(value, keys, label) {
 function decodeContent(bytes) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER8.decode(bytes);
+    text = STRICT_UTF8_DECODER10.decode(bytes);
   } catch {
-    fail8("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail10("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail8(
+    fail10(
       "INVALID_MESSAGE_CONTENT",
       `The fixed content.json is invalid JSON: ${error.message}`
     );
@@ -14578,19 +17069,19 @@ function assertSelectionContainer(entry, label, extraKeys = []) {
 }
 function assertCompleteContentShape(content) {
   if (!isPlainObject4(content) || content.schemaVersion !== 2) {
-    fail8(
+    fail10(
       "INVALID_MESSAGE_CONTENT",
       "Extended finalization requires schema-version-2 semantic content."
     );
   }
   if (content.authoringState !== "complete") {
-    fail8(
+    fail10(
       "INCOMPLETE_SEMANTIC_CONTENT",
       "Set authoringState to complete only after every semantic decision and required review is complete."
     );
   }
   if (!(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(content.mode)) {
-    fail8(
+    fail10(
       "INVALID_MESSAGE_CONTENT",
       "Semantic message mode must be detailed or bulk."
     );
@@ -14614,8 +17105,8 @@ function assertCompleteContentShape(content) {
     ],
     "Review receipt"
   );
-  if (content.review.schemaVersion !== 1 || !SHA256_PATTERN3.test(content.review.catalogSha256) || !SHA256_PATTERN3.test(content.review.evidencePlanSha256) || typeof content.review.requiredPacketsReviewed !== "boolean" || !Array.isArray(content.review.additionalPacketIds) || new Set(content.review.additionalPacketIds).size !== content.review.additionalPacketIds.length) {
-    fail8("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
+  if (content.review.schemaVersion !== 1 || !SHA256_PATTERN4.test(content.review.catalogSha256) || !SHA256_PATTERN4.test(content.review.evidencePlanSha256) || typeof content.review.requiredPacketsReviewed !== "boolean" || !Array.isArray(content.review.additionalPacketIds) || new Set(content.review.additionalPacketIds).size !== content.review.additionalPacketIds.length) {
+    fail10("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
   }
   assertExactKeys4(
     content.subject,
@@ -14623,7 +17114,7 @@ function assertCompleteContentShape(content) {
     "Commit subject"
   );
   if (!Array.isArray(content.evidenceGroups) || content.evidenceGroups.length === 0) {
-    fail8(
+    fail10(
       "INVALID_MESSAGE_CONTENT",
       "Evidence groups must be a nonempty array."
     );
@@ -14645,7 +17136,7 @@ function assertCompleteContentShape(content) {
     ["fileNotes", content.mode === "detailed" ? content.fileNotes : []]
   ]) {
     if (!Array.isArray(entries)) {
-      fail8("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
+      fail10("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
     }
     entries.forEach(
       (entry, index) => assertSelectionContainer(entry, `${field} entry ${index + 1}`, [
@@ -14654,11 +17145,11 @@ function assertCompleteContentShape(content) {
     );
   }
   if (!Array.isArray(content.userExperienceChanges)) {
-    fail8("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
+    fail10("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
   }
   if (content.mode === "bulk") {
     if (!Array.isArray(content.domains) || content.domains.length === 0) {
-      fail8(
+      fail10(
         "MISSING_SEMANTIC_DECISIONS",
         "Complete bulk content requires at least one semantic domain."
       );
@@ -14672,10 +17163,10 @@ function assertCompleteContentShape(content) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve19(path);
+  const absolute = resolve21(path);
   const contained = relative8(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute7(contained)) {
-    fail8(
+    fail10(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -14684,15 +17175,15 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync10(absolute);
+  const stat = lstatSync12(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail8(
+    fail10(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
   if (realpathSync6(absolute) !== absolute) {
-    fail8(
+    fail10(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -14701,24 +17192,24 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail8(
+    fail10(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve19(transactionPath),
+          transaction: resolve21(transactionPath),
           route: transaction.route
         }
       }
     );
   }
   if (!(/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail8(
+    fail10(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve19(transactionPath),
+          transaction: resolve21(transactionPath),
           route: transaction.route
         }
       }
@@ -14726,7 +17217,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog(transaction) {
-  const expectedReviewDirectory = resolve19(
+  const expectedReviewDirectory = resolve21(
     transaction.attemptDirectory,
     "review"
   );
@@ -14736,14 +17227,14 @@ function readCurrentCatalog(transaction) {
     "Current review catalog"
   );
   if (relative8(expectedReviewDirectory, catalogPath).startsWith(`..${sep3}`) || isAbsolute7(relative8(expectedReviewDirectory, catalogPath))) {
-    fail8(
+    fail10(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail8(
+    fail10(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -14766,9 +17257,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   });
   let stored;
   try {
-    stored = JSON.parse(STRICT_UTF8_DECODER8.decode(opened.bytes));
+    stored = JSON.parse(STRICT_UTF8_DECODER10.decode(opened.bytes));
   } catch (error) {
-    fail8(
+    fail10(
       "INVALID_EVIDENCE_PLAN",
       `Current evidence plan is invalid JSON: ${error.message}`
     );
@@ -14778,7 +17269,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail8(
+    fail10(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
@@ -14806,7 +17297,7 @@ function receiptCoverage(transaction, content, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail8(
+    fail10(
       "REVIEW_RECEIPT_INVALID",
       `Review receipt is invalid: ${error.message}`
     );
@@ -14814,13 +17305,13 @@ function receiptCoverage(transaction, content, catalog) {
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail8("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail10("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       exitCode: 1
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail8(
+    fail10(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { exitCode: 1 }
@@ -14831,7 +17322,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail8(
+    fail10(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -14841,20 +17332,20 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join12(
+  const path = join14(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync14(path)) {
-    if (!readFileSync17(path).equals(bytes)) {
-      fail8(
+  if (existsSync15(path)) {
+    if (!readFileSync19(path).equals(bytes)) {
+      fail10(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
       );
     }
   } else {
-    writeFileSync12(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync15(path, bytes, { flag: "wx", mode: 384 });
   }
   return path;
 }
@@ -14934,7 +17425,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     phase: "review-pending",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve19(transactionPath),
+    transaction: resolve21(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -14942,7 +17433,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     canonical: false,
     evidenceDelta: {
       newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage: firstPage === null ? null : resolve19(transaction.attemptDirectory, "review", firstPage.artifact),
+      firstQueuePage: firstPage === null ? null : resolve21(transaction.attemptDirectory, "review", firstPage.artifact),
       firstQueuePageSha256: firstPage?.sha256 ?? null
     },
     displayText: null
@@ -14964,7 +17455,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve19(transactionPath),
+    transaction: resolve21(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -14983,7 +17474,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail8("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail10("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -15033,7 +17524,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync17(path)
+            empty ? Buffer.alloc(0) : readFileSync19(path)
           ])
         )
       };
@@ -15083,7 +17574,7 @@ async function finalizeMessageWorkflow({
     }
   } else {
     if (content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== currentCatalog.catalogSha256 || content.review.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail8(
+      fail10(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -15094,7 +17585,7 @@ async function finalizeMessageWorkflow({
         receipt: content.review
       });
     } catch (error) {
-      fail8(
+      fail10(
         "REVIEW_RECEIPT_INVALID",
         `Review receipt is invalid: ${error.message}`
       );
@@ -15163,7 +17654,7 @@ async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {})
     return error.exitCode;
   }
 }
-var CONTENT_NAME, STRICT_UTF8_DECODER8, SHA256_PATTERN3, COMPLETE_COMMON_KEYS;
+var CONTENT_NAME, STRICT_UTF8_DECODER10, SHA256_PATTERN4, COMPLETE_COMMON_KEYS;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
     init_gitRepository();
@@ -15176,8 +17667,8 @@ var init_finalizeMessageWorkflow = __esm({
     init_prepareWorkflow();
     init_checkMessageWorkflow();
     CONTENT_NAME = "content.json";
-    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
-    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER10 = new TextDecoder11("utf-8", { fatal: true });
+    SHA256_PATTERN4 = /^[0-9a-f]{64}$/u;
     COMPLETE_COMMON_KEYS = [
       "schemaVersion",
       "authoringState",
@@ -15193,8 +17684,8 @@ var init_finalizeMessageWorkflow = __esm({
 
 // src/committing-to-git/command/postCommitCommand.js
 var postCommitCommand_exports = {};
-import { mkdirSync as mkdirSync11, readFileSync as readFileSync18, writeFileSync as writeFileSync13 } from "node:fs";
-import { dirname as dirname11, resolve as resolve20 } from "node:path";
+import { mkdirSync as mkdirSync12, readFileSync as readFileSync20, writeFileSync as writeFileSync16 } from "node:fs";
+import { dirname as dirname12, resolve as resolve22 } from "node:path";
 function usageError5(message) {
   console.error(message);
   console.error(
@@ -15202,7 +17693,7 @@ function usageError5(message) {
   );
   process.exit(2);
 }
-function parseFlags5(argv) {
+function parseFlags7(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
@@ -15219,13 +17710,13 @@ function required3(flags4, name) {
   }
   return value;
 }
-function readJson2(path) {
-  return JSON.parse(readFileSync18(resolve20(path), "utf8"));
+function readJson3(path) {
+  return JSON.parse(readFileSync20(resolve22(path), "utf8"));
 }
 function write(path, contents) {
-  const resolved = resolve20(path);
-  mkdirSync11(dirname11(resolved), { recursive: true });
-  writeFileSync13(resolved, contents);
+  const resolved = resolve22(path);
+  mkdirSync12(dirname12(resolved), { recursive: true });
+  writeFileSync16(resolved, contents);
   return resolved;
 }
 var command3, flagArguments3, flags3;
@@ -15235,7 +17726,7 @@ var init_postCommitCommand = __esm({
     init_commitReport();
     init_commitSignature();
     [command3, ...flagArguments3] = process.argv.slice(2);
-    flags3 = parseFlags5(flagArguments3);
+    flags3 = parseFlags7(flagArguments3);
     try {
       const root = repositoryRoot();
       if (command3 === "verify") {
@@ -15273,14 +17764,14 @@ var init_postCommitCommand = __esm({
         const report = collectCommitReport({
           root,
           commitOid: required3(flags3, "commit"),
-          manifest: readJson2(required3(flags3, "manifest")),
-          approvedMessage: readFileSync18(
-            resolve20(required3(flags3, "approved-message")),
+          manifest: readJson3(required3(flags3, "manifest")),
+          approvedMessage: readFileSync20(
+            resolve22(required3(flags3, "approved-message")),
             "utf8"
           ),
-          verification: readJson2(required3(flags3, "verification")),
-          checks: readJson2(required3(flags3, "checks")),
-          publication: flags3.get("publication") ? readJson2(flags3.get("publication")) : { status: "not-requested" }
+          verification: readJson3(required3(flags3, "verification")),
+          checks: readJson3(required3(flags3, "checks")),
+          publication: flags3.get("publication") ? readJson3(flags3.get("publication")) : { status: "not-requested" }
         });
         const outputJson = write(
           required3(flags3, "output-json"),
@@ -15310,8 +17801,8 @@ var init_postCommitCommand = __esm({
 
 // src/committing-to-git/command/publicationCommand.js
 var publicationCommand_exports = {};
-import { existsSync as existsSync15, mkdirSync as mkdirSync12, unlinkSync as unlinkSync7, writeFileSync as writeFileSync14 } from "node:fs";
-import { dirname as dirname12, resolve as resolve21 } from "node:path";
+import { existsSync as existsSync16, mkdirSync as mkdirSync13, unlinkSync as unlinkSync9, writeFileSync as writeFileSync17 } from "node:fs";
+import { dirname as dirname13, resolve as resolve23 } from "node:path";
 function usageError6(message) {
   console.error(message);
   console.error(
@@ -15319,7 +17810,7 @@ function usageError6(message) {
   );
   process.exit(2);
 }
-function parseFlags6(argv) {
+function parseFlags8(argv) {
   const values = /* @__PURE__ */ new Map();
   for (let index = 0; index < argv.length; index += 2) {
     if (!argv[index]?.startsWith("--") || argv[index + 1] === void 0) {
@@ -15336,7 +17827,7 @@ function parseFlags6(argv) {
     commit: values.get("commit"),
     remote: values.get("remote"),
     destination: values.get("destination"),
-    output: resolve21(values.get("output"))
+    output: resolve23(values.get("output"))
   };
 }
 function validateInputs(root, options2) {
@@ -15373,18 +17864,18 @@ var init_publicationCommand = __esm({
     init_gitRepository();
     pendingPath = null;
     try {
-      const options2 = parseFlags6(process.argv.slice(2));
+      const options2 = parseFlags8(process.argv.slice(2));
       const root = repositoryRoot();
       const commitOid = validateInputs(root, options2);
       const refspec = `${commitOid}:${options2.destination}`;
       pendingPath = `${options2.output}.pending`;
-      if (existsSync15(options2.output) || existsSync15(pendingPath)) {
+      if (existsSync16(options2.output) || existsSync16(pendingPath)) {
         throw new Error(
           "--output and its .pending journal path must not already exist."
         );
       }
-      mkdirSync12(dirname12(options2.output), { recursive: true });
-      writeFileSync14(
+      mkdirSync13(dirname13(options2.output), { recursive: true });
+      writeFileSync17(
         pendingPath,
         `${JSON.stringify(
           {
@@ -15404,7 +17895,7 @@ var init_publicationCommand = __esm({
 `,
         { flag: "wx" }
       );
-      const push = runGit(["push", "--porcelain", options2.remote, refspec], {
+      const push = runGit(["push", "--porcelain", "--", options2.remote, refspec], {
         cwd: root,
         allowFailure: true
       });
@@ -15419,12 +17910,12 @@ var init_publicationCommand = __esm({
         stdout: push.stdout.toString("utf8"),
         stderr: push.stderr.toString("utf8")
       };
-      writeFileSync14(options2.output, `${JSON.stringify(publication, null, 2)}
+      writeFileSync17(options2.output, `${JSON.stringify(publication, null, 2)}
 `, {
         flag: "wx"
       });
       try {
-        unlinkSync7(pendingPath);
+        unlinkSync9(pendingPath);
       } catch {
       }
       process.stdout.write(`${JSON.stringify(publication, null, 2)}
@@ -15432,7 +17923,7 @@ var init_publicationCommand = __esm({
       process.exit(push.status === 0 ? 0 : 1);
     } catch (error) {
       console.error(`Commit publication failed: ${error.message}`);
-      if (pendingPath && existsSync15(pendingPath)) {
+      if (pendingPath && existsSync16(pendingPath)) {
         console.error(
           `Remote outcome is unknown; preserve and inspect ${pendingPath}. Do not infer failure or retry automatically.`
         );
@@ -15483,6 +17974,18 @@ var COMMANDS = /* @__PURE__ */ new Map([
       null,
       "runRetryVerificationCommand"
     ]
+  ],
+  [
+    "workflow report-detail",
+    [
+      () => Promise.resolve().then(() => (init_reportDetailWorkflow(), reportDetailWorkflow_exports)),
+      null,
+      "runReportDetailCommand"
+    ]
+  ],
+  [
+    "workflow publish",
+    [() => Promise.resolve().then(() => (init_publishWorkflow(), publishWorkflow_exports)), null, "runPublishCommand"]
   ],
   [
     "workflow recover",
@@ -15586,6 +18089,31 @@ Exit status:
 
 Retries or reclassifies signature verification only for the already recorded
 commit OID. This command never invokes commit creation.
+`
+  ],
+  [
+    "workflow report-detail",
+    `Usage: commitWorkflow.mjs workflow report-detail --transaction <transaction.json> [--cursor <cursor> | --refresh] [--format <json|text>]
+
+Streams one fresh, bounded workspace observation for a reported or published
+transaction. Continue an immutable observation with its opaque cursor. A
+completed response is replayed until --refresh explicitly starts a new one.
+`
+  ],
+  [
+    "workflow publish",
+    `Usage: commitWorkflow.mjs workflow publish --transaction <transaction.json> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <attempt-id>] [--format <json|text>]
+
+Publishes the exact recorded commit only when its comparison, signature header,
+verification policy, configured remote, and full destination ref permit it.
+Every attempt is journaled and never retried automatically.
+
+Exit status:
+  0  Push success was witnessed, or recovery observed the matching remote OID.
+  1  Git reported a known rejection with no successful push recorded.
+  2  Invalid input or failure before a publication attempt was journaled.
+  3  The known commit report or verification policy blocks publication.
+  4  Remote outcome is unknown and requires recovery before any new attempt.
 `
   ],
   [
@@ -15846,6 +18374,8 @@ Usage:
   commitWorkflow.mjs workflow extend [options]
   commitWorkflow.mjs workflow commit [options]
   commitWorkflow.mjs workflow verify [options]
+  commitWorkflow.mjs workflow report-detail [options]
+  commitWorkflow.mjs workflow publish [options]
   commitWorkflow.mjs workflow recover [options]
   commitWorkflow.mjs workflow cleanup [options]
   commitWorkflow.mjs snapshot create [options]

@@ -93,7 +93,7 @@
     "report": { "$ref": "#/$defs/reportState" },
     "publicationAttempts": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": { "$ref": "#/$defs/publicationAttempt" }
     }
   },
   "oneOf": [
@@ -122,6 +122,230 @@
     { "$ref": "#/$defs/supersededCleanedState" }
   ],
   "$defs": {
+    "publicationAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "attemptId",
+        "retryOf",
+        "status",
+        "launchState",
+        "childIdentity",
+        "commitOid",
+        "remote",
+        "destination",
+        "refspec",
+        "startedAt",
+        "completion",
+        "transcript",
+        "observation",
+        "resolution",
+        "retryPermitted",
+        "reason"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "retryOf": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "unknown",
+            "rejected",
+            "succeeded",
+            "observed-matching"
+          ]
+        },
+        "launchState": {
+          "enum": ["not-started", "launching", "running", "completed"]
+        },
+        "childIdentity": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pid", "startIdentity"],
+              "properties": {
+                "pid": { "type": "integer", "minimum": 1 },
+                "startIdentity": { "type": ["string", "null"] }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "commitOid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "remote": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^refs/heads/[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "refspec": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "minLength": 1 },
+        "completion": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "exitCode",
+                "signal",
+                "transcriptCompletionSha256",
+                "nonLaunchGuaranteed",
+                "launchError",
+                "outcome"
+              ],
+              "properties": {
+                "exitCode": { "type": ["integer", "null"] },
+                "signal": { "type": ["string", "null"] },
+                "transcriptCompletionSha256": {
+                  "type": ["string", "null"],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "nonLaunchGuaranteed": { "type": "boolean" },
+                "launchError": { "type": ["object", "null"] },
+                "outcome": {
+                  "enum": [
+                    "not-launched",
+                    "witnessed-success",
+                    "known-rejection",
+                    "unknown"
+                  ]
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "transcript": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "status",
+                "signal",
+                "totalByteCount",
+                "stdoutByteCount",
+                "stderrByteCount",
+                "stdoutSha256",
+                "stderrSha256",
+                "sha256",
+                "completionSha256",
+                "retainRecommended"
+              ],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "status": { "type": ["integer", "null"] },
+                "signal": { "type": ["string", "null"] },
+                "totalByteCount": { "type": "integer", "minimum": 0 },
+                "stdoutByteCount": { "type": "integer", "minimum": 0 },
+                "stderrByteCount": { "type": "integer", "minimum": 0 },
+                "stdoutSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "stderrSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "completionSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "retainRecommended": { "type": "boolean" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "observation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "observedAt",
+                "observedOid",
+                "exitCode",
+                "stdoutSha256",
+                "stderrSha256",
+                "commandDigest",
+                "reason"
+              ],
+              "properties": {
+                "status": {
+                  "enum": ["querying", "observed", "absent", "unavailable"]
+                },
+                "observedAt": { "type": "string", "minLength": 1 },
+                "observedOid": {
+                  "type": ["string", "null"],
+                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "exitCode": { "type": ["integer", "null"] },
+                "stdoutSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "stderrSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "commandDigest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "reason": { "type": ["string", "null"] }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "resolution": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "assertedAt", "observationDigest"],
+              "properties": {
+                "kind": { "const": "confirmed-no-live-child" },
+                "assertedAt": { "type": "string", "minLength": 1 },
+                "observationDigest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "retryPermitted": { "type": "boolean" },
+        "reason": { "type": ["string", "null"] }
+      }
+    },
     "nullableHeadAnchor": {
       "type": ["object", "null"],
       "additionalProperties": false,
@@ -627,21 +851,24 @@
       "properties": {
         "phase": { "const": "publication-pending" },
         "status": { "const": "outcome-unknown" },
-        "terminalDisposition": { "const": null }
+        "terminalDisposition": { "const": null },
+        "publicationAttempts": { "minItems": 1 }
       }
     },
     "publishedState": {
       "properties": {
         "phase": { "const": "published" },
         "status": { "const": "published" },
-        "terminalDisposition": { "const": "published" }
+        "terminalDisposition": { "const": "published" },
+        "publicationAttempts": { "minItems": 1 }
       }
     },
     "publishedRecoveredState": {
       "properties": {
         "phase": { "const": "published" },
         "status": { "const": "recovered" },
-        "terminalDisposition": { "const": "published" }
+        "terminalDisposition": { "const": "published" },
+        "publicationAttempts": { "minItems": 1 }
       }
     },
     "stoppedState": {

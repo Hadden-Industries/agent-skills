@@ -38,6 +38,14 @@ const OPERATION_MARKER_NAMES = new Set([
 ]);
 const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
+function containsControlCharacter(value) {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0);
+
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
 let readOnlyCapability;
 
 export class GitCapabilityError extends Error {
@@ -325,17 +333,23 @@ function buildReadOnlyArguments(operation, args) {
       if (
         !args.includes("--porcelain=v2") ||
         !args.includes("-z") ||
+        args.filter((argument) => argument.startsWith("--untracked-files="))
+          .length !== 1 ||
         args.filter(
           (argument) => argument === "--renames" || argument === "--no-renames",
         ).length !== 1 ||
+        args.filter((argument) => argument.startsWith("--ignore-submodules="))
+          .length > 1 ||
         args.some(
           (argument) =>
             !new Set([
               "--porcelain=v2",
               "-z",
               "--untracked-files=all",
+              "--untracked-files=normal",
               "--renames",
               "--no-renames",
+              "--ignore-submodules=dirty",
             ]).has(argument),
         ) ||
         new Set(args).size !== args.length
@@ -405,6 +419,24 @@ function buildReadOnlyArguments(operation, args) {
         );
       }
       return ["check-ref-format", args[0]];
+    case "remote-names":
+      assertExactArguments(args, [], operation);
+      return ["remote"];
+    case "ls-remote":
+      if (
+        args.length !== 5 ||
+        args[0] !== "--refs" ||
+        args[1] !== "--exit-code" ||
+        args[2] !== "--" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[3]) ||
+        !args[4].startsWith("refs/heads/") ||
+        containsControlCharacter(args[4])
+      ) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation ls-remote.",
+        );
+      }
+      return ["ls-remote", ...args];
     default:
       throw new Error(
         `Unsupported read-only Git operation ${JSON.stringify(operation)}.`,

@@ -196,7 +196,16 @@ test("every read-only operation class receives the lock and lazy-fetch boundary"
     return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   };
   const cases = [
-    ["status", ["--porcelain=v2", "-z", "--no-renames"]],
+    [
+      "status",
+      [
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=normal",
+        "--no-renames",
+        "--ignore-submodules=dirty",
+      ],
+    ],
     ["ls-files", ["-u", "-z"]],
     ["diff", ["--cached", "--no-renames", "--"]],
     ["cat-file", ["-t", oid]],

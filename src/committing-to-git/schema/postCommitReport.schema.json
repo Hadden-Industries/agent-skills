@@ -6,7 +6,9 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion",
+    "headAnchor",
     "commit",
+    "comparison",
     "statistics",
     "verification",
     "checks",
@@ -15,6 +17,7 @@
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
+    "headAnchor": { "$ref": "#/$defs/headAnchor" },
     "commit": {
       "type": "object",
       "additionalProperties": false,
@@ -30,6 +33,7 @@
         "signed",
         "signatureHeaders",
         "branch",
+        "headKind",
         "shortOid",
         "treeMatches",
         "messageMatches",
@@ -67,12 +71,14 @@
           "items": { "enum": ["gpgsig", "gpgsig-sha256"] }
         },
         "branch": { "type": ["string", "null"] },
+        "headKind": { "enum": ["unborn", "attached", "detached", null] },
         "shortOid": { "type": "string" },
         "treeMatches": { "type": "boolean" },
         "messageMatches": { "type": "boolean" },
         "parentMatches": { "type": "boolean" }
       }
     },
+    "comparison": { "$ref": "#/$defs/comparison" },
     "statistics": {
       "type": "object",
       "additionalProperties": false,
@@ -87,20 +93,83 @@
     },
     "verification": { "type": "object" },
     "checks": { "type": "object" },
-    "publication": { "type": "object" },
+    "publication": { "$ref": "#/$defs/publication" },
     "workspace": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["staged", "unstaged", "untracked", "conflicted"],
-      "properties": {
-        "staged": { "$ref": "#/$defs/workspaceEntries" },
-        "unstaged": { "$ref": "#/$defs/workspaceEntries" },
-        "untracked": { "$ref": "#/$defs/workspaceEntries" },
-        "conflicted": { "$ref": "#/$defs/workspaceEntries" }
-      }
+      "oneOf": [
+        { "$ref": "#/$defs/workspaceSummary" },
+        { "$ref": "#/$defs/legacyWorkspace" }
+      ]
     }
   },
   "$defs": {
+    "oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "headAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headKind", "targetRef", "expectedParentOids"],
+      "properties": {
+        "headKind": { "enum": ["unborn", "attached", "detached"] },
+        "targetRef": { "type": ["string", "null"] },
+        "expectedParentOids": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/oid" }
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedParentOids",
+        "actualParentOids",
+        "parentMatches",
+        "expectedTreeOid",
+        "actualTreeOid",
+        "treeMatches",
+        "expectedMessageSha256",
+        "actualMessageSha256",
+        "messageMatches",
+        "signatureHeaderPresent",
+        "signatureHeaders"
+      ],
+      "properties": {
+        "expectedParentOids": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/oid" }
+        },
+        "actualParentOids": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/oid" }
+        },
+        "parentMatches": { "type": "boolean" },
+        "expectedTreeOid": { "$ref": "#/$defs/oid" },
+        "actualTreeOid": { "$ref": "#/$defs/oid" },
+        "treeMatches": { "type": "boolean" },
+        "expectedMessageSha256": { "$ref": "#/$defs/sha256" },
+        "actualMessageSha256": { "$ref": "#/$defs/sha256" },
+        "messageMatches": { "type": "boolean" },
+        "signatureHeaderPresent": { "type": "boolean" },
+        "signatureHeaders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["gpgsig", "gpgsig-sha256"] }
+        }
+      }
+    },
     "identity": {
       "type": "object",
       "additionalProperties": false,
@@ -121,6 +190,223 @@
           "status": { "type": "string" }
         }
       }
+    },
+    "legacyWorkspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staged", "unstaged", "untracked", "conflicted"],
+      "properties": {
+        "staged": { "$ref": "#/$defs/workspaceEntries" },
+        "unstaged": { "$ref": "#/$defs/workspaceEntries" },
+        "untracked": { "$ref": "#/$defs/workspaceEntries" },
+        "conflicted": { "$ref": "#/$defs/workspaceEntries" }
+      }
+    },
+    "pathFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display", "bytesBase64", "byteCount", "sha256"],
+      "properties": {
+        "display": { "type": "string" },
+        "bytesBase64": { "type": "string" },
+        "byteCount": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "compactPathFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prefix", "suffix", "byteCount", "sha256"],
+      "properties": {
+        "prefix": { "type": "string" },
+        "suffix": { "type": "string" },
+        "byteCount": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "workspaceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observedAt",
+        "scopeKind",
+        "untrackedMode",
+        "detailMode",
+        "exactAtReportTime",
+        "counts",
+        "exactPaths",
+        "compactDirectories",
+        "compactPathSamples",
+        "digest",
+        "nestedSubmoduleWorktrees"
+      ],
+      "properties": {
+        "observedAt": { "type": "string", "minLength": 1 },
+        "scopeKind": { "enum": ["staged", "full", "paths"] },
+        "untrackedMode": { "enum": ["normal", "all"] },
+        "detailMode": { "enum": ["inline-exact", "fresh-observation"] },
+        "exactAtReportTime": { "type": "boolean" },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observedEntries",
+            "staged",
+            "unstaged",
+            "untracked",
+            "conflicted"
+          ],
+          "properties": {
+            "observedEntries": { "type": "integer", "minimum": 0 },
+            "staged": { "type": "integer", "minimum": 0 },
+            "unstaged": { "type": "integer", "minimum": 0 },
+            "untracked": { "type": "integer", "minimum": 0 },
+            "conflicted": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "exactPaths": {
+          "type": "array",
+          "maxItems": 49,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "status", "path"],
+            "properties": {
+              "category": {
+                "enum": ["staged", "unstaged", "untracked", "conflicted"]
+              },
+              "status": { "type": "string", "minLength": 1 },
+              "path": { "$ref": "#/$defs/pathFact" }
+            }
+          }
+        },
+        "compactDirectories": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "category",
+              "path",
+              "observedEntryCount",
+              "exactFileCount"
+            ],
+            "properties": {
+              "category": { "type": "string", "minLength": 1 },
+              "path": { "$ref": "#/$defs/compactPathFact" },
+              "observedEntryCount": { "type": "integer", "minimum": 0 },
+              "exactFileCount": { "const": false }
+            }
+          }
+        },
+        "compactPathSamples": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "status", "path"],
+            "properties": {
+              "category": { "type": "string", "minLength": 1 },
+              "status": { "type": "string", "minLength": 1 },
+              "path": { "$ref": "#/$defs/compactPathFact" }
+            }
+          }
+        },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "nestedSubmoduleWorktrees": { "const": "not-inspected" }
+      }
+    },
+    "publication": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": { "status": { "const": "not-requested" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "const": "blocked" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "status",
+            "commitOid",
+            "remote",
+            "destination",
+            "refspec",
+            "exitCode",
+            "stdout",
+            "stderr"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "status": { "enum": ["pushed", "failed"] },
+            "commitOid": { "$ref": "#/$defs/oid" },
+            "remote": { "type": "string", "minLength": 1 },
+            "destination": { "type": "string", "minLength": 1 },
+            "refspec": { "type": "string", "minLength": 1 },
+            "exitCode": { "type": "integer" },
+            "stdout": { "type": "string" },
+            "stderr": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "status",
+            "attemptId",
+            "retryOf",
+            "commitOid",
+            "remote",
+            "destination",
+            "refspec",
+            "exitCode",
+            "transcript",
+            "observation",
+            "resolution",
+            "retryPermitted",
+            "reason"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "status": {
+              "enum": ["rejected", "unknown", "observed-matching", "succeeded"]
+            },
+            "attemptId": {
+              "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+            },
+            "retryOf": {
+              "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+            },
+            "commitOid": { "$ref": "#/$defs/oid" },
+            "remote": { "type": "string", "minLength": 1 },
+            "destination": {
+              "type": "string",
+              "pattern": "^refs/heads/[^\\u0000]+$"
+            },
+            "refspec": { "type": "string", "minLength": 1 },
+            "exitCode": { "type": ["integer", "null"] },
+            "transcript": { "type": ["object", "null"] },
+            "observation": { "type": ["object", "null"] },
+            "resolution": { "type": ["object", "null"] },
+            "retryPermitted": { "type": "boolean" },
+            "reason": { "type": ["string", "null"] }
+          }
+        }
+      ]
     }
   }
 }

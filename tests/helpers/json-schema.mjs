@@ -5,8 +5,8 @@
  * repository: `type` (including union arrays and `integer`), `const`, `enum`,
  * `required`, `properties`, `additionalProperties: false`, `items`, `minimum`,
  * `maximum`, `minProperties`, `minItems`, `maxItems`, `uniqueItems`,
- * `minLength`, `maxLength`, `pattern`, `anyOf`, `oneOf`, and local `$ref`
- * pointers into `$defs`. The annotation
+ * `minLength`, `maxLength`, `pattern`, `allOf`, `anyOf`, `oneOf`, conditional
+ * `if`/`then`/`else`, and local `$ref` pointers into `$defs`. The annotation
  * keywords `title` and `description` are accepted and carry no validation effect.
  *
  * A full JSON Schema implementation is deliberately avoided so that validating
@@ -37,8 +37,12 @@ const SUPPORTED_KEYWORDS = new Set([
   "minLength",
   "maxLength",
   "pattern",
+  "allOf",
   "anyOf",
   "oneOf",
+  "if",
+  "then",
+  "else",
 ]);
 
 function resolveRef(root, ref) {
@@ -102,6 +106,22 @@ function check(value, schema, root, path, errors) {
   }
 
   assertKeywordsSupported(schema, path);
+
+  for (const branch of schema.allOf || []) {
+    check(value, branch, root, path, errors);
+  }
+
+  if (schema.if) {
+    const conditionErrors = [];
+
+    check(value, schema.if, root, path, conditionErrors);
+
+    if (conditionErrors.length === 0 && schema.then) {
+      check(value, schema.then, root, path, errors);
+    } else if (conditionErrors.length > 0 && schema.else) {
+      check(value, schema.else, root, path, errors);
+    }
+  }
 
   if (schema.anyOf) {
     const matchingBranches = schema.anyOf.filter((branch) => {

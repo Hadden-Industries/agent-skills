@@ -114,6 +114,35 @@ test("maximum and minProperties enforce upper and object-size bounds", () => {
   assert.match(schemaErrors({}, bounded).join("\n"), /minProperties/u);
 });
 
+test("allOf and conditional branches apply their selected constraints", () => {
+  const conditional = {
+    type: "object",
+    required: ["kind", "value"],
+    allOf: [
+      { properties: { value: { type: "integer", minimum: 0 } } },
+      {
+        if: { properties: { kind: { const: "fixed" } } },
+        then: { properties: { value: { const: 4 } } },
+        else: { properties: { value: { maximum: 3 } } },
+      },
+    ],
+  };
+
+  assert.deepEqual(schemaErrors({ kind: "fixed", value: 4 }, conditional), []);
+  assert.deepEqual(
+    schemaErrors({ kind: "bounded", value: 3 }, conditional),
+    [],
+  );
+  assert.match(
+    schemaErrors({ kind: "fixed", value: 3 }, conditional).join("\n"),
+    /expected const 4/u,
+  );
+  assert.match(
+    schemaErrors({ kind: "bounded", value: 4 }, conditional).join("\n"),
+    /maximum 3/u,
+  );
+});
+
 test("unsupported keywords fail loudly rather than being ignored", () => {
   assert.throws(
     () =>

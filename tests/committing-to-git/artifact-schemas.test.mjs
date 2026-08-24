@@ -350,6 +350,11 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   };
   const report = {
     schemaVersion: 1,
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: ["1".repeat(40)],
+    },
     commit: {
       oid: "6".repeat(40),
       parents: ["1".repeat(40)],
@@ -361,11 +366,25 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
       messageSha256: "9".repeat(64),
       signed: true,
       signatureHeaders: ["gpgsig"],
-      branch: "main",
+      branch: "refs/heads/main",
+      headKind: "attached",
       shortOid: "6".repeat(12),
       treeMatches: true,
       messageMatches: true,
       parentMatches: true,
+    },
+    comparison: {
+      expectedParentOids: ["1".repeat(40)],
+      actualParentOids: ["1".repeat(40)],
+      parentMatches: true,
+      expectedTreeOid: "2".repeat(40),
+      actualTreeOid: "2".repeat(40),
+      treeMatches: true,
+      expectedMessageSha256: "9".repeat(64),
+      actualMessageSha256: "9".repeat(64),
+      messageMatches: true,
+      signatureHeaderPresent: true,
+      signatureHeaders: ["gpgsig"],
     },
     statistics: {
       files: 1,
@@ -377,18 +396,53 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     verification,
     checks: { schemaVersion: 1, checks: [] },
     publication: { status: "not-requested" },
-    workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
+    workspace: {
+      observedAt: "2026-08-23T12:02:00.000Z",
+      scopeKind: "staged",
+      untrackedMode: "normal",
+      detailMode: "inline-exact",
+      exactAtReportTime: true,
+      counts: {
+        observedEntries: 0,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        conflicted: 0,
+      },
+      exactPaths: [],
+      compactDirectories: [],
+      compactPathSamples: [],
+      digest: "0".repeat(64),
+      nestedSubmoduleWorktrees: "not-inspected",
+    },
   };
   const publication = {
-    schemaVersion: 1,
-    status: "pushed",
+    schemaVersion: 2,
+    status: "succeeded",
+    attemptId: "123e4567-e89b-42d3-a456-426614174000",
+    retryOf: null,
     commitOid: "6".repeat(40),
     remote: "origin",
     destination: "refs/heads/main",
     refspec: `${"6".repeat(40)}:refs/heads/main`,
     exitCode: 0,
-    stdout: "To example.invalid/repository\n",
-    stderr: "",
+    transcript: {
+      path: "C:/temp/push.log",
+      status: 0,
+      signal: null,
+      totalByteCount: 0,
+      stdoutByteCount: 0,
+      stderrByteCount: 0,
+      stdoutSha256: "0".repeat(64),
+      stderrSha256: "0".repeat(64),
+      sha256: "0".repeat(64),
+      completionSha256: "0".repeat(64),
+      retainRecommended: false,
+    },
+    observation: null,
+    resolution: null,
+    retryPermitted: false,
+    reason: null,
   };
   const approvedValidation = {
     schemaVersion: 1,
@@ -540,6 +594,67 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
   assert.deepEqual(
     schemaErrors(publication, schema("publicationResult.schema.json")),
     [],
+  );
+  const unwitnessedSuccess = structuredClone(publication);
+  unwitnessedSuccess.transcript = null;
+  assert.match(
+    schemaErrors(
+      unwitnessedSuccess,
+      schema("publicationResult.schema.json"),
+    ).join("\n"),
+    /transcript|oneOf/u,
+  );
+  const unresolvedRetry = {
+    ...structuredClone(publication),
+    status: "unknown",
+    exitCode: null,
+    transcript: null,
+    retryPermitted: true,
+    reason: "transport-outcome-unknown",
+  };
+  assert.match(
+    schemaErrors(unresolvedRetry, schema("publicationResult.schema.json")).join(
+      "\n",
+    ),
+    /observation|resolution|oneOf/u,
+  );
+
+  const publicationAttempt = {
+    schemaVersion: 1,
+    attemptId: "123e4567-e89b-42d3-a456-426614174000",
+    retryOf: null,
+    status: "pending",
+    launchState: "not-started",
+    childIdentity: null,
+    commitOid: "6".repeat(40),
+    remote: "origin",
+    destination: "refs/heads/main",
+    refspec: `${"6".repeat(40)}:refs/heads/main`,
+    startedAt: "2026-08-23T12:03:00.000Z",
+    completion: null,
+    transcript: null,
+    observation: null,
+    resolution: null,
+    retryPermitted: false,
+    reason: null,
+  };
+
+  assert.deepEqual(
+    schemaErrors(
+      publicationAttempt,
+      schema("commitTransaction.schema.json").$defs.publicationAttempt,
+    ),
+    [],
+  );
+
+  const optionLikeRemote = structuredClone(publicationAttempt);
+  optionLikeRemote.remote = "--force";
+  assert.match(
+    schemaErrors(
+      optionLikeRemote,
+      schema("commitTransaction.schema.json").$defs.publicationAttempt,
+    ).join("\n"),
+    /remote/u,
   );
 });
 

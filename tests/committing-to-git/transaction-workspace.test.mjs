@@ -116,6 +116,31 @@ function reportedState() {
   };
 }
 
+function publicationAttempt(overrides = {}) {
+  const destination = "refs/heads/review";
+
+  return {
+    schemaVersion: 1,
+    attemptId: "123e4567-e89b-42d3-a456-426614174000",
+    retryOf: null,
+    status: "pending",
+    launchState: "not-started",
+    childIdentity: null,
+    commitOid: FULL_OID,
+    remote: "origin",
+    destination,
+    refspec: `${FULL_OID}:${destination}`,
+    startedAt: "2026-08-23T12:02:00.000Z",
+    completion: null,
+    transcript: null,
+    observation: null,
+    resolution: null,
+    retryPermitted: false,
+    reason: null,
+    ...overrides,
+  };
+}
+
 function snapshotState(headAnchor) {
   return {
     phase: "snapshot-created",
@@ -481,8 +506,31 @@ test("transaction validation accepts canonical state families and rejects imposs
     const commitState =
       phase === "commit-pending"
         ? { commit: commitJournal() }
-        : phase === "reported"
-          ? reportedState()
+        : new Set(["reported", "publication-pending", "published"]).has(phase)
+          ? {
+              ...reportedState(),
+              publicationAttempts:
+                phase === "publication-pending"
+                  ? [publicationAttempt()]
+                  : phase === "published"
+                    ? [
+                        publicationAttempt({
+                          status: "observed-matching",
+                          launchState: "launching",
+                          observation: {
+                            status: "observed",
+                            observedAt: "2026-08-23T12:03:00.000Z",
+                            observedOid: FULL_OID,
+                            exitCode: 0,
+                            stdoutSha256: "1".repeat(64),
+                            stderrSha256: "2".repeat(64),
+                            commandDigest: "3".repeat(64),
+                            reason: null,
+                          },
+                        }),
+                      ]
+                    : [],
+            }
           : {};
 
     assert.doesNotThrow(() =>

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
+import { TextDecoder } from "node:util";
 
-import { readOnlyGitText, runReadOnlyGit } from "../git/gitRepository.js";
+import {
+  readOnlyGitText,
+  runReadOnlyGit,
+  streamGit,
+} from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
 
 const CHECK_STATUSES = new Set(["passed", "failed"]);
@@ -19,6 +24,14 @@ const CHECK_CONTEXTS = new Set([
 ]);
 const SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
 const OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const SAFE_TERMINAL_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
+const MAXIMUM_INLINE_WORKSPACE_BYTES = 48 * 1024;
+const MAXIMUM_COMPACT_DIRECTORY_SAMPLES = 16;
+
+export const MAXIMUM_REPORT_RESULT_BYTES = 80 * 1024;
 
 function hasExactKeys(value, keys) {
   return (
@@ -105,6 +118,84 @@ export function validatePublicationArtifact(publication) {
     hasExactKeys(publication, ["status"]) &&
     publication.status === "not-requested"
   ) {
+    return publication;
+  }
+
+  if (
+    hasExactKeys(publication, ["status", "reason"]) &&
+    publication.status === "blocked" &&
+    typeof publication.reason === "string" &&
+    publication.reason.length > 0
+  ) {
+    return publication;
+  }
+
+  const workflowKeys = [
+    "schemaVersion",
+    "status",
+    "attemptId",
+    "retryOf",
+    "commitOid",
+    "remote",
+    "destination",
+    "refspec",
+    "exitCode",
+    "transcript",
+    "observation",
+    "resolution",
+    "retryPermitted",
+    "reason",
+  ];
+
+  if (publication?.schemaVersion === 2) {
+    const statusValid = new Set([
+      "rejected",
+      "unknown",
+      "observed-matching",
+      "succeeded",
+    ]).has(publication.status);
+    if (
+      !hasExactKeys(publication, workflowKeys) ||
+      !statusValid ||
+      !UUID_V4_PATTERN.test(publication.attemptId) ||
+      (publication.retryOf !== null &&
+        !UUID_V4_PATTERN.test(publication.retryOf)) ||
+      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) ||
+      typeof publication.remote !== "string" ||
+      publication.remote.length === 0 ||
+      typeof publication.destination !== "string" ||
+      !publication.destination.startsWith("refs/heads/") ||
+      publication.refspec !==
+        `${publication.commitOid}:${publication.destination}` ||
+      (publication.exitCode !== null &&
+        !Number.isInteger(publication.exitCode)) ||
+      (publication.transcript !== null &&
+        (typeof publication.transcript !== "object" ||
+          Array.isArray(publication.transcript))) ||
+      (publication.observation !== null &&
+        (typeof publication.observation !== "object" ||
+          Array.isArray(publication.observation))) ||
+      (publication.resolution !== null &&
+        (typeof publication.resolution !== "object" ||
+          Array.isArray(publication.resolution))) ||
+      typeof publication.retryPermitted !== "boolean" ||
+      (publication.reason !== null && typeof publication.reason !== "string") ||
+      (publication.status === "succeeded" &&
+        (publication.exitCode !== 0 || publication.transcript === null)) ||
+      (publication.status === "observed-matching" &&
+        (publication.observation?.status !== "observed" ||
+          publication.observation.observedOid !== publication.commitOid ||
+          publication.retryPermitted)) ||
+      (publication.retryPermitted &&
+        (publication.status !== "unknown" ||
+          publication.observation === null ||
+          publication.resolution === null))
+    ) {
+      throw new Error(
+        "Publication artifact does not match the workflow contract.",
+      );
+    }
+
     return publication;
   }
 
@@ -250,7 +341,7 @@ export function inspectCommitObject(root, commitOid) {
   return parseRawCommitObject(raw, commitOid);
 }
 
-function commitFacts(root, commitOid) {
+function commitFacts(root, commitOid, headAnchor = null) {
   const fields = readOnlyGitText(root, "show-commit-fields", [
     "--format=%H%x00%P%x00%T%x00%an%x00%ae%x00%cn%x00%ce%x00%s",
     commitOid,
@@ -258,28 +349,36 @@ function commitFacts(root, commitOid) {
     .replace(/\r?\n$/u, "")
     .split("\0");
   const object = inspectCommitObject(root, commitOid);
-  const branchResult = runReadOnlyGit(root, "short-symbolic-head", [], {
-    allowFailure: true,
-  });
+  const branchResult =
+    headAnchor === null
+      ? runReadOnlyGit(root, "short-symbolic-head", [], {
+          allowFailure: true,
+        })
+      : null;
 
   return {
-    oid: fields[0],
-    parents: object.parents,
-    treeOid: object.treeOid,
-    author: { name: fields[3], email: fields[4] },
-    committer: { name: fields[5], email: fields[6] },
-    subject: fields[7],
-    message: object.messageBytes.toString("utf8"),
-    messageSha256: createHash("sha256")
-      .update(object.messageBytes)
-      .digest("hex"),
-    signed: object.signed,
-    signatureHeaders: object.signatureHeaders,
-    branch:
-      branchResult.status === 0
-        ? branchResult.stdout.toString("utf8").trim()
-        : null,
-    shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim(),
+    messageBytes: object.messageBytes,
+    facts: {
+      oid: fields[0],
+      parents: object.parents,
+      treeOid: object.treeOid,
+      author: { name: fields[3], email: fields[4] },
+      committer: { name: fields[5], email: fields[6] },
+      subject: fields[7],
+      message: object.messageBytes.toString("utf8"),
+      messageSha256: createHash("sha256")
+        .update(object.messageBytes)
+        .digest("hex"),
+      signed: object.signed,
+      signatureHeaders: object.signatureHeaders,
+      branch:
+        headAnchor?.targetRef ??
+        (branchResult?.status === 0
+          ? branchResult.stdout.toString("utf8").trim()
+          : null),
+      headKind: headAnchor?.headKind ?? null,
+      shortOid: readOnlyGitText(root, "short-object-id", [commitOid]).trim(),
+    },
   };
 }
 
@@ -449,6 +548,7 @@ function workspaceState(root) {
       "-z",
       "--untracked-files=all",
       "--no-renames",
+      "--ignore-submodules=dirty",
     ]).stdout,
   );
   const workspace = { staged: [], unstaged: [], untracked: [], conflicted: [] };
@@ -500,6 +600,320 @@ function workspaceState(root) {
   return workspace;
 }
 
+function bytesAfterSpaces(field, count) {
+  let offset = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    offset = field.indexOf(0x20, offset);
+
+    if (offset < 0) {
+      throw new Error("Git status emitted a malformed porcelain v2 record.");
+    }
+
+    offset += 1;
+  }
+
+  return field.subarray(offset);
+}
+
+function safeByteDisplay(bytes) {
+  try {
+    const decoded = STRICT_UTF8_DECODER.decode(bytes);
+
+    if (SAFE_TERMINAL_TEXT.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+    // Fall through to a byte-exact escaped display.
+  }
+
+  return [...bytes]
+    .map((byte) =>
+      byte >= 0x20 && byte <= 0x7e && byte !== 0x5c
+        ? String.fromCharCode(byte)
+        : `\\x${byte.toString(16).padStart(2, "0")}`,
+    )
+    .join("");
+}
+
+function pathFact(bytes) {
+  return {
+    display: safeByteDisplay(bytes),
+    bytesBase64: bytes.toString("base64"),
+    byteCount: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+function compactPathSample(bytes) {
+  const sampleBytes = 64;
+  const prefix = bytes.subarray(0, Math.min(sampleBytes, bytes.length));
+  const suffixStart = Math.max(prefix.length, bytes.length - sampleBytes);
+  const suffix = bytes.subarray(suffixStart);
+
+  return {
+    prefix: safeByteDisplay(prefix),
+    suffix: safeByteDisplay(suffix),
+    byteCount: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+function statusEntries(field) {
+  if (field.length < 2 || field[1] !== 0x20) {
+    throw new Error("Git status emitted an unknown porcelain v2 record.");
+  }
+
+  const recordType = String.fromCharCode(field[0]);
+
+  if (recordType === "?") {
+    const pathBytes = field.subarray(2);
+    return [
+      {
+        category: "untracked",
+        status: "untracked",
+        pathBytes,
+        compactDirectory: pathBytes.at(-1) === 0x2f,
+      },
+    ];
+  }
+
+  if (recordType === "u") {
+    return [
+      {
+        category: "conflicted",
+        status: "unmerged",
+        pathBytes: bytesAfterSpaces(field, 10),
+        compactDirectory: false,
+      },
+    ];
+  }
+
+  if (recordType !== "1" && recordType !== "2") {
+    return [];
+  }
+
+  const xy = field.subarray(2, 4).toString("ascii");
+  const pathBytes = bytesAfterSpaces(field, recordType === "2" ? 9 : 8);
+  const entries = [];
+
+  if (xy[0] !== ".") {
+    entries.push({
+      category: "staged",
+      status: statusLabel(xy[0]),
+      pathBytes,
+      compactDirectory: false,
+    });
+  }
+
+  if (xy[1] !== ".") {
+    entries.push({
+      category: "unstaged",
+      status: statusLabel(xy[1]),
+      pathBytes,
+      compactDirectory: false,
+    });
+  }
+
+  return entries;
+}
+
+export async function observeWorkspaceEntries(
+  root,
+  { scope, enumerateAllUntracked = false, onEntry, stream = streamGit } = {},
+) {
+  const scopeKind = typeof scope === "string" ? scope : scope?.kind;
+  const untrackedMode =
+    enumerateAllUntracked || scopeKind === "full" ? "all" : "normal";
+  const digest = createHash("sha256");
+  let pending = Buffer.alloc(0);
+  let discardRenameSource = false;
+  let observedEntries = 0;
+
+  const consumeField = (field) => {
+    if (discardRenameSource) {
+      discardRenameSource = false;
+      return;
+    }
+
+    const entries = statusEntries(field);
+
+    if (field[0] === 0x32) {
+      discardRenameSource = true;
+    }
+
+    for (const entry of entries) {
+      digest.update(Buffer.from(entry.category, "ascii"));
+      digest.update(Buffer.from([0]));
+      digest.update(Buffer.from(entry.status, "ascii"));
+      digest.update(Buffer.from([0]));
+      digest.update(entry.pathBytes);
+      digest.update(Buffer.from([0]));
+      observedEntries += 1;
+      onEntry?.(entry, observedEntries - 1);
+    }
+  };
+
+  const result = await stream(
+    "status",
+    [
+      "--porcelain=v2",
+      "-z",
+      `--untracked-files=${untrackedMode}`,
+      "--no-renames",
+      "--ignore-submodules=dirty",
+    ],
+    {
+      cwd: root,
+      onStdout(chunk) {
+        pending = Buffer.concat([pending, chunk]);
+        let separator;
+
+        while ((separator = pending.indexOf(0)) >= 0) {
+          consumeField(pending.subarray(0, separator));
+          pending = pending.subarray(separator + 1);
+        }
+      },
+    },
+  );
+
+  if (pending.length !== 0 || discardRenameSource) {
+    throw new Error("Git status ended with an incomplete porcelain v2 record.");
+  }
+
+  return {
+    observedEntries,
+    digest: digest.digest("hex"),
+    untrackedMode,
+    stdoutByteCount: result.stdoutByteCount,
+    stdoutSha256: result.stdoutSha256,
+  };
+}
+
+export async function collectWorkspaceSummary(
+  root,
+  {
+    scope,
+    detailLimit = 49,
+    enumerateAllUntracked = false,
+    stream = streamGit,
+  } = {},
+) {
+  if (!Number.isSafeInteger(detailLimit) || detailLimit < 0) {
+    throw new Error("Workspace detail limit must be a nonnegative integer.");
+  }
+
+  const counts = {
+    observedEntries: 0,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    conflicted: 0,
+  };
+  const exactPaths = [];
+  const directorySamples = [];
+  let firstCompactSample = null;
+  let compact = false;
+  const observation = await observeWorkspaceEntries(root, {
+    scope,
+    enumerateAllUntracked,
+    stream,
+    onEntry(entry) {
+      counts.observedEntries += 1;
+      counts[entry.category] += 1;
+
+      if (!entry.compactDirectory) {
+        firstCompactSample ??= {
+          category: entry.category,
+          status: entry.status,
+          path: compactPathSample(entry.pathBytes),
+        };
+      }
+
+      if (
+        entry.compactDirectory &&
+        directorySamples.length < MAXIMUM_COMPACT_DIRECTORY_SAMPLES
+      ) {
+        directorySamples.push({
+          category: entry.category,
+          path: compactPathSample(entry.pathBytes),
+          observedEntryCount: 1,
+          exactFileCount: false,
+        });
+      }
+
+      if (compact || entry.compactDirectory) {
+        compact = true;
+        exactPaths.length = 0;
+        return;
+      }
+
+      exactPaths.push({
+        category: entry.category,
+        status: entry.status,
+        path: pathFact(entry.pathBytes),
+      });
+
+      if (
+        exactPaths.length > detailLimit ||
+        Buffer.byteLength(JSON.stringify(exactPaths)) >
+          MAXIMUM_INLINE_WORKSPACE_BYTES
+      ) {
+        compact = true;
+        exactPaths.length = 0;
+      }
+    },
+  });
+
+  const compactDirectories = compact ? directorySamples : [];
+  const compactPathSamples =
+    compact && firstCompactSample !== null ? [firstCompactSample] : [];
+
+  return {
+    observedAt: new Date().toISOString(),
+    scopeKind: typeof scope === "string" ? scope : (scope?.kind ?? "full"),
+    untrackedMode: observation.untrackedMode,
+    detailMode: compact ? "fresh-observation" : "inline-exact",
+    exactAtReportTime: true,
+    counts,
+    exactPaths,
+    compactDirectories,
+    compactPathSamples,
+    digest: observation.digest,
+    nestedSubmoduleWorktrees: "not-inspected",
+  };
+}
+
+export function compactWorkspaceSummary(workspace) {
+  if (!workspace || !Array.isArray(workspace.exactPaths)) {
+    return workspace;
+  }
+
+  if (workspace.detailMode === "fresh-observation") {
+    return workspace;
+  }
+
+  const firstPath = workspace.exactPaths[0] ?? null;
+  const compactRecord =
+    firstPath === null
+      ? null
+      : {
+          category: firstPath.category,
+          path: compactPathSample(
+            Buffer.from(firstPath.path.bytesBase64, "base64"),
+          ),
+          status: firstPath.status,
+        };
+
+  return {
+    ...workspace,
+    detailMode: "fresh-observation",
+    exactPaths: [],
+    compactDirectories: [],
+    compactPathSamples: compactRecord === null ? [] : [compactRecord],
+  };
+}
+
 export function collectCommitReport({
   root,
   commitOid,
@@ -508,8 +922,11 @@ export function collectCommitReport({
   verification,
   checks,
   publication = { status: "not-requested" },
+  headAnchor = null,
+  workspaceSummary = null,
 }) {
-  const commit = commitFacts(root, commitOid);
+  const observedCommit = commitFacts(root, commitOid, headAnchor);
+  const commit = observedCommit.facts;
   const approvedMessageBytes = Buffer.isBuffer(approvedMessage)
     ? approvedMessage
     : Buffer.from(approvedMessage, "utf8");
@@ -519,36 +936,88 @@ export function collectCommitReport({
   validateVerificationArtifact(verification, commit.oid);
 
   if (
-    publication.status !== "not-requested" &&
+    !new Set(["not-requested", "blocked"]).has(publication.status) &&
     publication.commitOid !== commit.oid
   ) {
     throw new Error("Publication artifact belongs to a different commit.");
   }
 
   commit.treeMatches = commit.treeOid === manifest.indexTreeOid;
-  commit.messageMatches = Buffer.from(commit.message, "utf8").equals(
-    approvedMessageBytes,
-  );
+  commit.messageMatches =
+    observedCommit.messageBytes.equals(approvedMessageBytes);
 
-  if (manifest.headOid) {
-    commit.parentMatches =
-      commit.parents.length === 1 && commit.parents[0] === manifest.headOid;
-  } else {
-    commit.parentMatches = commit.parents.length === 0;
-  }
+  const expectedParentOids =
+    headAnchor?.expectedParentOids ??
+    (manifest.headOid ? [manifest.headOid] : []);
+
+  commit.parentMatches =
+    commit.parents.length === expectedParentOids.length &&
+    commit.parents.every(
+      (parent, index) => parent === expectedParentOids[index],
+    );
 
   const approvedStatistics = commit.treeMatches
     ? manifestStatistics(manifest)
     : null;
+  const comparisonMatches =
+    commit.parentMatches && commit.treeMatches && commit.messageMatches;
+  const recordedPublication =
+    publication.status === "not-requested" &&
+    (!comparisonMatches || !commit.signed || verification.blocksPush)
+      ? {
+          status: "blocked",
+          reason: !comparisonMatches
+            ? "commit-comparison-mismatch"
+            : !commit.signed
+              ? "signed-commit-header-missing"
+              : "verification-policy-blocked",
+        }
+      : publication;
 
   return {
     schemaVersion: 1,
+    headAnchor: headAnchor ?? {
+      headKind: manifest.headOid ? "attached" : "unborn",
+      targetRef: commit.branch,
+      expectedParentOids,
+    },
     commit,
+    comparison: {
+      expectedParentOids,
+      actualParentOids: commit.parents,
+      parentMatches: commit.parentMatches,
+      expectedTreeOid: manifest.indexTreeOid,
+      actualTreeOid: commit.treeOid,
+      treeMatches: commit.treeMatches,
+      expectedMessageSha256: createHash("sha256")
+        .update(approvedMessageBytes)
+        .digest("hex"),
+      actualMessageSha256: commit.messageSha256,
+      messageMatches: commit.messageMatches,
+      signatureHeaderPresent: commit.signed,
+      signatureHeaders: commit.signatureHeaders,
+    },
     statistics: approvedStatistics ?? commitStatistics(root, commitOid),
     verification,
     checks,
-    publication,
-    workspace: workspaceState(root),
+    publication: recordedPublication,
+    workspace: workspaceSummary ?? workspaceState(root),
+  };
+}
+
+export function augmentReportWithPublication(report, publication) {
+  validatePublicationArtifact(publication);
+
+  if (
+    !new Set(["not-requested", "blocked"]).has(publication.status) &&
+    publication.commitOid !== report.commit.oid
+  ) {
+    throw new Error("Publication artifact belongs to a different commit.");
+  }
+
+  return {
+    ...structuredClone(report),
+    publication: structuredClone(publication),
   };
 }
 
@@ -606,6 +1075,48 @@ function verificationText(verification) {
 }
 
 function renderWorkspace(workspace) {
+  if (Array.isArray(workspace.exactPaths)) {
+    if (workspace.counts.observedEntries === 0) {
+      return [
+        "- Clean in the inspected top-level workspace",
+        `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+        `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`,
+      ];
+    }
+
+    if (workspace.detailMode === "fresh-observation") {
+      const directoryRecords = workspace.compactDirectories.length;
+      return [
+        `- ${
+          directoryRecords === 0
+            ? plural(workspace.counts.observedEntries, "path")
+            : plural(
+                workspace.counts.observedEntries,
+                "workspace status record",
+              )
+        } observed at report time; exact paths require a fresh report-detail observation`,
+        `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+        `- Conflicts observed: ${workspace.counts.conflicted}`,
+        ...(directoryRecords > 0
+          ? [
+              `- ${plural(directoryRecords, "compact directory record")} (not an exact file count)`,
+            ]
+          : []),
+        `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`,
+      ];
+    }
+
+    return [
+      ...workspace.exactPaths.map(
+        ({ category, status, path }) =>
+          `- ${category}: \`${path.display}\` (${status})`,
+      ),
+      `- Scope: ${workspace.scopeKind}; untracked enumeration: ${workspace.untrackedMode}`,
+      `- Conflicts observed: ${workspace.counts.conflicted}`,
+      `- Nested submodule worktrees: ${workspace.nestedSubmoduleWorktrees}`,
+    ];
+  }
+
   const groups = [
     ["Staged", workspace.staged],
     ["Unstaged", workspace.unstaged],
@@ -633,9 +1144,29 @@ function renderWorkspace(workspace) {
 export function renderCommitReport(report) {
   const { commit, statistics, verification, checks, publication, workspace } =
     report;
+  const comparison = report.comparison ?? {
+    parentMatches: commit.parentMatches,
+    treeMatches: commit.treeMatches,
+    messageMatches: commit.messageMatches,
+    signatureHeaderPresent: commit.signed,
+  };
+  const comparisonsMatch =
+    comparison.parentMatches &&
+    comparison.treeMatches &&
+    comparison.messageMatches;
+  const outcome =
+    !comparison.signatureHeaderPresent || !comparisonsMatch
+      ? "Created commit; signing/comparison invariant failed"
+      : verification.blocksPush
+        ? "Created commit; publication blocked"
+        : "Created signed commit";
+  const target = report.headAnchor?.targetRef ?? commit.branch;
+  const targetText =
+    report.headAnchor?.headKind === "detached" || target === null
+      ? "detached `HEAD`"
+      : `\`${target}\``;
   const lines = [
-    `Created ${commit.signed ? "signed " : ""}commit \`${commit.shortOid}\` on ` +
-      `\`${commit.branch ?? "detached HEAD"}\`:`,
+    `${outcome} \`${commit.shortOid}\` on ${targetText}:`,
     `\`${commit.subject}\``,
     "",
     "Commit:",
@@ -651,23 +1182,29 @@ export function renderCommitReport(report) {
     );
   }
 
+  lines.push("", "Comparison:");
   lines.push(
     `- Snapshot: ${
-      commit.treeMatches
+      comparison.treeMatches
         ? "Matches the approved staged tree"
         : "DIFFERS from the approved staged tree"
     }`,
     `- Message: ${
-      commit.messageMatches
+      comparison.messageMatches
         ? "Matches the approved message"
         : "DIFFERS from the approved message"
     }`,
     `- Parent: ${
-      commit.parentMatches
-        ? "Matches the approved one-parent contract"
-        : "DIFFERS from the approved one-parent contract"
+      comparison.parentMatches
+        ? "Matches the approved parent array"
+        : "DIFFERS from the approved parent array"
     }`,
-    `- Changes: ${plural(statistics.files, "file")}` +
+    `- Signed commit header: ${
+      comparison.signatureHeaderPresent ? "Present" : "MISSING"
+    }`,
+    "",
+    "Changes:",
+    `- ${plural(statistics.files, "file")}` +
       (statistics.additions === null || statistics.deletions === null
         ? "; line statistics deferred by the approved snapshot budget"
         : `, ${plural(statistics.additions, "insertion")}, ` +
@@ -675,15 +1212,7 @@ export function renderCommitReport(report) {
           (statistics.binaryFiles > 0
             ? `, ${plural(statistics.binaryFiles, "binary file")} with unavailable line counts`
             : "")),
-    `- Change types: ${renderKinds(statistics.kinds) || "none"}`,
-    "",
-    "Signature:",
-    `- Policy: ${verification.finalPolicy}${
-      verification.initialPolicy !== verification.finalPolicy
-        ? ` (overridden from ${verification.initialPolicy})`
-        : ""
-    }`,
-    `- Result: ${verificationText(verification)}`,
+    `- Types: ${renderKinds(statistics.kinds) || "none"}`,
     "",
     "Checks:",
   );
@@ -696,23 +1225,67 @@ export function renderCommitReport(report) {
     }
   }
 
-  lines.push("", "Publication:");
+  lines.push(
+    "",
+    "Signature:",
+    `- Policy: ${verification.finalPolicy}${
+      verification.initialPolicy !== verification.finalPolicy
+        ? ` (overridden from ${verification.initialPolicy})`
+        : ""
+    }`,
+    `- Result: ${verificationText(verification)}`,
+    "",
+    "Workspace:",
+    ...renderWorkspace(workspace),
+    "",
+    "Publication:",
+  );
 
   if (publication.status === "not-requested") {
-    lines.push("- Not requested; not attempted by this workflow");
-  } else if (publication.status === "pushed") {
+    lines.push("- Not requested; no successful push was recorded");
+  } else if (new Set(["pushed", "succeeded"]).has(publication.status)) {
     lines.push(
-      `- Pushed \`${publication.commitOid}\` to \`${publication.remote}\` ` +
-        `\`${publication.destination}\``,
+      `- The helper pushed \`${publication.commitOid}\` to \`${publication.remote}\` ` +
+        `\`${publication.destination}\`; successful push witnessed`,
+    );
+  } else if (publication.status === "observed-matching") {
+    lines.push(
+      `- Remote \`${publication.remote}\` \`${publication.destination}\` was observed at ` +
+        `\`${publication.commitOid}\`; the original push actor and attempt remain unproven`,
+    );
+  } else if (publication.status === "unknown") {
+    lines.push(
+      `- Push outcome is unknown for \`${publication.remote}\` ` +
+        `\`${publication.destination}\`; no successful push was recorded`,
+    );
+  } else if (publication.status === "blocked") {
+    lines.push(
+      "- Not attempted because publication is blocked; no successful push was recorded",
     );
   } else {
     lines.push(
-      `- Push failed for \`${publication.commitOid}\` to ` +
-        `\`${publication.remote}\` \`${publication.destination}\` ` +
-        `(exit ${publication.exitCode}); see publication.json for Git output`,
+      `- Push was rejected for \`${publication.commitOid}\` to ` +
+        `\`${publication.remote}\` \`${publication.destination}\`; no successful push was recorded`,
     );
   }
 
-  lines.push("", "Workspace:", ...renderWorkspace(workspace), "");
+  const recovery = [];
+
+  if (publication.status === "unknown") {
+    recovery.push("- Recovery is required before another publication attempt");
+  }
+
+  if (publication.transcript?.retainRecommended) {
+    recovery.push(
+      `- Retained publication log: ${publication.transcript.path} ` +
+        `(SHA-256 ${publication.transcript.sha256})`,
+    );
+  }
+
+  if (recovery.length > 0) {
+    lines.push("", "Recovery:", ...recovery);
+  }
+
+  lines.push("");
   return lines.join("\n");
 }

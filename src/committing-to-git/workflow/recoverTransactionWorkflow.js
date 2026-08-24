@@ -12,6 +12,7 @@ import {
   completeRecordedCommit,
   readRecordedReport,
 } from "./createCommitWorkflow.js";
+import { recoverPublicationOutcome } from "./publishWorkflow.js";
 
 const RESOLUTIONS = new Set([null, "confirmed-no-live-child"]);
 
@@ -19,7 +20,7 @@ function invalid(code, message, exitCode = 2) {
   throw new CommitWorkflowError(code, message, { exitCode });
 }
 
-export function recoverTransactionWorkflow({
+export async function recoverTransactionWorkflow({
   transactionPath,
   resolution = null,
   verificationPolicyOverride = null,
@@ -36,6 +37,10 @@ export function recoverTransactionWorkflow({
   recoverCanonicalMessageReplacement(transactionPath);
   const transaction = readTransaction(transactionPath);
 
+  if (transaction.phase === "publication-pending") {
+    return recoverPublicationOutcome({ transactionPath, resolution });
+  }
+
   if (transaction.phase === "reported") {
     return readRecordedReport(transactionPath);
   }
@@ -48,7 +53,7 @@ export function recoverTransactionWorkflow({
     }
 
     try {
-      return completeRecordedCommit({
+      return await completeRecordedCommit({
         transactionPath,
         verificationPolicyOverride,
         retainReviewArtifacts,
@@ -81,6 +86,13 @@ export function recoverTransactionWorkflow({
       transaction.phase,
     )
   ) {
+    const publicationState =
+      transaction.phase === "published"
+        ? transaction.publicationAttempts.at(-1)?.status === "succeeded"
+          ? "succeeded"
+          : "observed-matching"
+        : "not-requested";
+
     return {
       schemaVersion: 1,
       status: transaction.status,
@@ -90,8 +102,7 @@ export function recoverTransactionWorkflow({
       route: transaction.route,
       commitState: transaction.commit?.commitOid ? "created" : "absent",
       commitOid: transaction.commit?.commitOid ?? null,
-      publicationState:
-        transaction.phase === "published" ? "published" : "not-requested",
+      publicationState,
       publicationAllowed: transaction.report?.publicationAllowed ?? false,
       recoveryRequired: false,
       exitCode: transaction.phase === "stopped" ? 1 : 0,
@@ -149,7 +160,7 @@ function output(result, format) {
     : `${JSON.stringify(result)}\n`;
 }
 
-export function runRecoverTransactionCommand(
+export async function runRecoverTransactionCommand(
   argv,
   { stdout = process.stdout, stderr = process.stderr } = {},
 ) {
@@ -172,7 +183,7 @@ export function runRecoverTransactionCommand(
       invalid("TRANSACTION_REQUIRED", "--transaction is required.");
     }
 
-    const result = recoverTransactionWorkflow({
+    const result = await recoverTransactionWorkflow({
       transactionPath,
       resolution: flags.get("resolution") ?? null,
     });

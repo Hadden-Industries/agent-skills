@@ -27,7 +27,10 @@ import {
   replaceCanonicalMessage,
 } from "../message/canonicalMessageState.js";
 import {
+  MAXIMUM_REPORT_RESULT_BYTES,
   collectCommitReport,
+  collectWorkspaceSummary,
+  compactWorkspaceSummary,
   renderCommitReport,
   validateChecksArtifact,
 } from "../report/commitReport.js";
@@ -48,7 +51,7 @@ import {
 } from "../transaction/transactionWorkspace.js";
 
 export const MAXIMUM_CHECKS_INPUT_BYTES = 1024 * 1024;
-export const MAXIMUM_COMMIT_RESULT_BYTES = 80 * 1024;
+export const MAXIMUM_COMMIT_RESULT_BYTES = MAXIMUM_REPORT_RESULT_BYTES;
 
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const VERIFICATION_POLICIES = new Set(["required", "advisory", "skipped"]);
@@ -462,7 +465,8 @@ function reportResult(
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit.commitOid,
-    publicationState: "not-requested",
+    publicationState:
+      report.publication.status === "blocked" ? "blocked" : "not-requested",
     publicationAllowed: transaction.report.publicationAllowed,
     recoveryRequired: false,
     report,
@@ -496,7 +500,7 @@ export function readRecordedReport(transactionPath) {
   );
 }
 
-export function completeRecordedCommit({
+export async function completeRecordedCommit({
   transactionPath,
   verificationPolicyOverride = null,
   retainReviewArtifacts = false,
@@ -552,15 +556,38 @@ export function completeRecordedCommit({
   failureInjector("after-verification-before-report");
   const manifest = readSnapshot(transactionPath, transaction);
   const message = readCanonicalMessage(transactionPath);
-  const report = collectCommitReport({
+  const workspaceSummary = await collectWorkspaceSummary(
+    transaction.repositoryRoot,
+    { scope: transaction.scope },
+  );
+  let report = collectCommitReport({
     root: transaction.repositoryRoot,
     commitOid: transaction.commit.commitOid,
     manifest,
     approvedMessage: message.bytes,
     verification,
     checks: transaction.commit.checks.value,
+    headAnchor: transaction.headAnchor,
+    workspaceSummary,
   });
-  const displayText = renderCommitReport(report);
+  let displayText = renderCommitReport(report);
+
+  if (
+    Buffer.byteLength(
+      JSON.stringify({
+        transaction: resolve(transactionPath),
+        report,
+        displayText,
+      }),
+    ) > MAXIMUM_REPORT_RESULT_BYTES
+  ) {
+    report = {
+      ...report,
+      workspace: compactWorkspaceSummary(report.workspace),
+    };
+    displayText = renderCommitReport(report);
+  }
+
   const reportBytes = canonicalJsonBytes(report);
   const textBytes = Buffer.from(displayText, "utf8");
 
@@ -625,7 +652,7 @@ export function completeRecordedCommit({
     };
   }
 
-  return reportResult(
+  let result = reportResult(
     transactionPath,
     transaction,
     report,
@@ -633,6 +660,45 @@ export function completeRecordedCommit({
     blocked ? 3 : 0,
     cleanup,
   );
+
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    report = {
+      ...report,
+      workspace: compactWorkspaceSummary(report.workspace),
+    };
+    displayText = renderCommitReport(report);
+    const compactReportBytes = canonicalJsonBytes(report);
+    const compactTextBytes = Buffer.from(displayText, "utf8");
+
+    atomicWrite(jsonPath, compactReportBytes);
+    atomicWrite(textPath, compactTextBytes);
+    transaction = updateTransaction(transactionPath, "reported", {
+      ...transaction,
+      report: {
+        ...transaction.report,
+        jsonSha256: sha256(compactReportBytes),
+        textSha256: sha256(compactTextBytes),
+      },
+    });
+    result = reportResult(
+      transactionPath,
+      transaction,
+      report,
+      displayText,
+      blocked ? 3 : 0,
+      cleanup,
+    );
+  }
+
+  if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
+    fail(
+      "REPORT_RESULT_BUDGET_EXCEEDED",
+      "The complete serialized commit result exceeds the bounded report budget.",
+      { exitCode: 3 },
+    );
+  }
+
+  return result;
 }
 
 function incompleteKnownCommitResult(transactionPath, error, recovery) {
@@ -865,7 +931,7 @@ export async function createCommitWorkflow({
       observationProvenance: "witnessed",
     }));
     failureInjector("after-oid-before-verification");
-    return completeRecordedCommit({
+    return await completeRecordedCommit({
       transactionPath,
       verificationPolicyOverride,
       retainReviewArtifacts,
@@ -943,16 +1009,10 @@ export function retrySignatureVerificationWorkflow({
     verificationAttempt: attempt,
     previousVerification: previous,
   });
-  const manifest = readSnapshot(transactionPath, transaction);
-  const message = readCanonicalMessage(transactionPath);
-  const report = collectCommitReport({
-    root: transaction.repositoryRoot,
-    commitOid: transaction.commit.commitOid,
-    manifest,
-    approvedMessage: message.bytes,
-    verification,
-    checks: transaction.commit.checks.value,
-  });
+  const priorReport = JSON.parse(
+    readFileSync(transaction.report.jsonPath, "utf8"),
+  );
+  const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
   const publicationAllowed =
     transaction.commit.comparison.parentMatches &&

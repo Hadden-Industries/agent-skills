@@ -149,3 +149,30 @@ test("successful transcript mirrors only its non-overlapping head and marks supp
     1,
   );
 });
+
+test("optional stdout classification capture is bounded without truncating the transcript", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-transcript-classify-");
+  const child = fakeChild();
+  const payload = Buffer.alloc(4096, 0x50);
+  const { captureGitProcessTranscript, readGitProcessTranscript } =
+    await import(pathToFileURL(TRANSCRIPT_MODULE));
+  const completion = captureGitProcessTranscript({
+    transactionPath: join(fixture.scratch, "transaction.json"),
+    attemptDirectory: fixture.scratch,
+    operation: "push",
+    child,
+    stdoutCaptureLimit: 1024,
+    diagnosticWriter: { write: () => true },
+  });
+
+  child.stdout.write(payload);
+  finishChild(child, 1);
+
+  const transcript = await completion;
+  const records = readGitProcessTranscript(transcript.path);
+
+  assert.equal(transcript.capturedStdout.length, 1024);
+  assert.equal(transcript.capturedStdoutComplete, false);
+  assert.equal(records[0].bytes.length, payload.length);
+  assert.equal(transcript.stdoutByteCount, payload.length);
+});

@@ -1,35 +1,252 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Commit Publication Result",
-  "description": "Machine-readable result of pushing one exact commit object to one explicit branch ref.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "status",
-    "commitOid",
-    "remote",
-    "destination",
-    "refspec",
-    "exitCode",
-    "stdout",
-    "stderr"
+  "description": "Machine-readable result or durable workflow state for publishing one exact commit object to one explicit branch ref.",
+  "oneOf": [
+    { "$ref": "#/$defs/workflowResult" },
+    { "$ref": "#/$defs/legacyResult" }
   ],
-  "properties": {
-    "schemaVersion": { "const": 1 },
-    "status": { "enum": ["pushed", "failed"] },
-    "commitOid": {
+  "$defs": {
+    "oid": {
       "type": "string",
-      "minLength": 40
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
-    "remote": { "type": "string", "minLength": 1 },
-    "destination": {
+    "sha256": {
       "type": "string",
-      "minLength": 12
+      "pattern": "^[0-9a-f]{64}$"
     },
-    "refspec": { "type": "string", "minLength": 1 },
-    "exitCode": { "type": "integer", "minimum": 0 },
-    "stdout": { "type": "string" },
-    "stderr": { "type": "string" }
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "transcript": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "signal",
+        "totalByteCount",
+        "stdoutByteCount",
+        "stderrByteCount",
+        "stdoutSha256",
+        "stderrSha256",
+        "sha256",
+        "completionSha256",
+        "retainRecommended"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "status": { "type": ["integer", "null"] },
+        "signal": { "type": ["string", "null"] },
+        "totalByteCount": { "type": "integer", "minimum": 0 },
+        "stdoutByteCount": { "type": "integer", "minimum": 0 },
+        "stderrByteCount": { "type": "integer", "minimum": 0 },
+        "stdoutSha256": { "$ref": "#/$defs/sha256" },
+        "stderrSha256": { "$ref": "#/$defs/sha256" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "completionSha256": { "$ref": "#/$defs/sha256" },
+        "retainRecommended": { "type": "boolean" }
+      }
+    },
+    "observation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observedAt",
+        "observedOid",
+        "exitCode",
+        "stdoutSha256",
+        "stderrSha256",
+        "commandDigest",
+        "reason"
+      ],
+      "properties": {
+        "status": { "enum": ["observed", "absent", "unavailable"] },
+        "observedAt": { "type": "string", "minLength": 1 },
+        "observedOid": {
+          "oneOf": [{ "$ref": "#/$defs/oid" }, { "type": "null" }]
+        },
+        "exitCode": { "type": ["integer", "null"] },
+        "stdoutSha256": { "$ref": "#/$defs/sha256" },
+        "stderrSha256": { "$ref": "#/$defs/sha256" },
+        "commandDigest": { "$ref": "#/$defs/sha256" },
+        "reason": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "observed" } } },
+          "then": {
+            "properties": {
+              "observedOid": { "$ref": "#/$defs/oid" },
+              "reason": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "absent" } } },
+          "then": {
+            "properties": {
+              "observedOid": { "type": "null" },
+              "reason": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unavailable" } } },
+          "then": {
+            "properties": {
+              "observedOid": { "type": "null" },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "resolution": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["kind", "assertedAt", "observationDigest"],
+      "properties": {
+        "kind": { "const": "confirmed-no-live-child" },
+        "assertedAt": { "type": "string", "minLength": 1 },
+        "observationDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "workflowResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "attemptId",
+        "retryOf",
+        "commitOid",
+        "remote",
+        "destination",
+        "refspec",
+        "exitCode",
+        "transcript",
+        "observation",
+        "resolution",
+        "retryPermitted",
+        "reason"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "status": {
+          "enum": ["rejected", "unknown", "observed-matching", "succeeded"]
+        },
+        "attemptId": { "$ref": "#/$defs/uuid" },
+        "retryOf": {
+          "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "commitOid": { "$ref": "#/$defs/oid" },
+        "remote": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^refs/heads/[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "refspec": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": ["integer", "null"] },
+        "transcript": { "$ref": "#/$defs/transcript" },
+        "observation": { "$ref": "#/$defs/observation" },
+        "resolution": { "$ref": "#/$defs/resolution" },
+        "retryPermitted": { "type": "boolean" },
+        "reason": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "succeeded" } } },
+          "then": {
+            "properties": {
+              "exitCode": { "const": 0 },
+              "transcript": { "type": "object" },
+              "observation": { "type": "null" },
+              "resolution": { "type": "null" },
+              "retryPermitted": { "const": false },
+              "reason": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "observed-matching" } }
+          },
+          "then": {
+            "properties": {
+              "observation": {
+                "type": "object",
+                "properties": { "status": { "const": "observed" } }
+              },
+              "retryPermitted": { "const": false },
+              "reason": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "rejected" } } },
+          "then": {
+            "properties": {
+              "observation": { "type": "null" },
+              "resolution": { "type": "null" },
+              "retryPermitted": { "const": false },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unknown" } } },
+          "then": {
+            "properties": {
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "retryPermitted": { "const": true } } },
+          "then": {
+            "properties": {
+              "status": { "const": "unknown" },
+              "observation": { "type": "object" },
+              "resolution": { "type": "object" }
+            }
+          }
+        }
+      ]
+    },
+    "legacyResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "commitOid",
+        "remote",
+        "destination",
+        "refspec",
+        "exitCode",
+        "stdout",
+        "stderr"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "status": { "enum": ["pushed", "failed"] },
+        "commitOid": { "$ref": "#/$defs/oid" },
+        "remote": { "type": "string", "minLength": 1 },
+        "destination": {
+          "type": "string",
+          "pattern": "^refs/heads/[^\\u0000]+$"
+        },
+        "refspec": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": "integer", "minimum": 0 },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" }
+      }
+    }
   }
 }

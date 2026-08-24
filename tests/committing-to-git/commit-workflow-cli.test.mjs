@@ -75,6 +75,29 @@ test("unified workflow help exposes the domain command groups", () => {
   assert.match(result.stdout, /publication push/u);
   assert.match(result.stdout, /workflow prepare/u);
   assert.match(result.stdout, /workflow resume/u);
+  assert.match(result.stdout, /workflow report-detail/u);
+  assert.match(result.stdout, /workflow publish/u);
+});
+
+test("high-level report-detail and publish help expose bounded transaction routes", () => {
+  const detail = runNodeScript(
+    COMMIT_WORKFLOW,
+    ["workflow", "report-detail", "--help"],
+    REPO_ROOT,
+  );
+  const publication = runNodeScript(
+    COMMIT_WORKFLOW,
+    ["workflow", "publish", "--help"],
+    REPO_ROOT,
+  );
+
+  assert.equal(detail.status, 0, detail.stderr);
+  assert.match(detail.stdout, /--transaction <transaction\.json>/u);
+  assert.match(detail.stdout, /--cursor <cursor> \| --refresh/u);
+  assert.equal(publication.status, 0, publication.stderr);
+  assert.match(publication.stdout, /--remote <name>/u);
+  assert.match(publication.stdout, /--retry-after-attempt <attempt-id>/u);
+  assert.match(publication.stdout, /Every attempt is journaled/u);
 });
 
 test("message commands expose only the fixed transaction-local inputs", () => {

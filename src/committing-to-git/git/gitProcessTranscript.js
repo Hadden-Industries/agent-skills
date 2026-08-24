@@ -47,7 +47,7 @@ function ensureDirectory(path, label) {
   }
 }
 
-function openTranscript(attemptDirectory, operation) {
+function openTranscript(attemptDirectory, operation, instanceId) {
   const normalizedAttempt = resolve(attemptDirectory);
 
   ensureDirectory(normalizedAttempt, "Transaction attempt directory");
@@ -65,7 +65,19 @@ function openTranscript(attemptDirectory, operation) {
     throw new Error("Transcript operation must be a bounded lowercase token.");
   }
 
-  const path = join(directory, `${operation}.transcript.bin`);
+  if (
+    instanceId !== null &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+      instanceId,
+    )
+  ) {
+    throw new Error("Transcript instance must be a UUIDv4 when supplied.");
+  }
+
+  const path = join(
+    directory,
+    `${operation}${instanceId === null ? "" : `-${instanceId}`}.transcript.bin`,
+  );
 
   assertContained(normalizedAttempt, path);
   const descriptor = openSync(path, "wx", 0o600);
@@ -102,13 +114,25 @@ export function captureGitProcessTranscript({
   transactionPath,
   attemptDirectory = dirname(resolve(transactionPath)),
   operation,
+  instanceId = null,
   child,
   diagnosticBudget = 32 * 1024,
+  stdoutCaptureLimit = 0,
   diagnosticWriter = process.stderr,
 }) {
   if (!Number.isSafeInteger(diagnosticBudget) || diagnosticBudget < 1024) {
     throw new Error(
       "Git diagnostic budget must be a safe integer of at least 1 KiB.",
+    );
+  }
+
+  if (
+    !Number.isSafeInteger(stdoutCaptureLimit) ||
+    stdoutCaptureLimit < 0 ||
+    stdoutCaptureLimit > 64 * 1024
+  ) {
+    throw new Error(
+      "Git stdout classification capture must be between 0 and 64 KiB.",
     );
   }
 
@@ -131,7 +155,11 @@ export function captureGitProcessTranscript({
     throw new Error("Transaction handle and attempt directory do not match.");
   }
 
-  const { descriptor, path } = openTranscript(normalizedAttempt, operation);
+  const { descriptor, path } = openTranscript(
+    normalizedAttempt,
+    operation,
+    instanceId,
+  );
   const transcriptHash = createHash("sha256");
   const channelHashes = {
     stdout: createHash("sha256"),
@@ -153,6 +181,8 @@ export function captureGitProcessTranscript({
   let suppressionWritten = false;
   let launchError = null;
   let closed = false;
+  let capturedStdout = Buffer.alloc(0);
+  let capturedStdoutComplete = true;
 
   writeSync(descriptor, MAGIC);
   transcriptHash.update(MAGIC);
@@ -186,6 +216,19 @@ export function captureGitProcessTranscript({
     }
 
     const frame = frameBytes(sequence, channel, bytes);
+
+    if (channel === "stdout" && stdoutCaptureLimit > 0) {
+      const remaining = Math.max(0, stdoutCaptureLimit - capturedStdout.length);
+
+      capturedStdout = Buffer.concat([
+        capturedStdout,
+        bytes.subarray(0, remaining),
+      ]);
+
+      if (bytes.length > remaining) {
+        capturedStdoutComplete = false;
+      }
+    }
 
     writeSync(descriptor, frame.header);
     writeSync(descriptor, frame.bytes);
@@ -251,6 +294,8 @@ export function captureGitProcessTranscript({
               : 0,
           retainRecommended:
             status !== 0 || signal !== null || launchError !== null,
+          capturedStdout,
+          capturedStdoutComplete,
         });
       } catch (error) {
         try {

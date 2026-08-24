@@ -37,9 +37,63 @@ test("check artifacts use exact result and execution-context vocabularies", () =
   );
 });
 
-test("publication artifacts distinguish not-requested, pushed, and failed", () => {
+test("publication artifacts distinguish blocked, witnessed, observed, rejected, and unknown states", () => {
+  const commitOid = "1".repeat(40);
+  const attemptId = "123e4567-e89b-42d3-a456-426614174000";
+  const base = {
+    schemaVersion: 2,
+    attemptId,
+    retryOf: null,
+    commitOid,
+    remote: "origin",
+    destination: "refs/heads/main",
+    refspec: `${commitOid}:refs/heads/main`,
+    exitCode: null,
+    transcript: null,
+    observation: null,
+    resolution: null,
+    retryPermitted: false,
+    reason: null,
+  };
+
   assert.doesNotThrow(() =>
     validatePublicationArtifact({ status: "not-requested" }),
+  );
+  assert.doesNotThrow(() =>
+    validatePublicationArtifact({
+      status: "blocked",
+      reason: "verification-policy-blocked",
+    }),
+  );
+  assert.doesNotThrow(() =>
+    validatePublicationArtifact({
+      ...base,
+      status: "succeeded",
+      exitCode: 0,
+      transcript: {},
+    }),
+  );
+  assert.doesNotThrow(() =>
+    validatePublicationArtifact({
+      ...base,
+      status: "observed-matching",
+      observation: { status: "observed", observedOid: commitOid },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    validatePublicationArtifact({
+      ...base,
+      status: "rejected",
+      exitCode: 1,
+      reason: "git-push-rejected",
+    }),
+  );
+  assert.doesNotThrow(() =>
+    validatePublicationArtifact({
+      ...base,
+      status: "unknown",
+      reason: "remote-outcome-unresolved",
+    }),
   );
   assert.doesNotThrow(() =>
     validatePublicationArtifact({
@@ -53,6 +107,15 @@ test("publication artifacts distinguish not-requested, pushed, and failed", () =
       stdout: "ok",
       stderr: "",
     }),
+  );
+  assert.throws(
+    () =>
+      validatePublicationArtifact({
+        ...base,
+        status: "succeeded",
+        exitCode: 0,
+      }),
+    /publication/iu,
   );
   assert.throws(
     () =>

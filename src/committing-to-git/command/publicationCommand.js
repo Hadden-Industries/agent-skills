@@ -113,7 +113,7 @@ try {
     { flag: "wx" },
   );
 
-  const push = runGit(["push", "--porcelain", options.remote, refspec], {
+  const push = runGit(["push", "--porcelain", "--", options.remote, refspec], {
     cwd: root,
     allowFailure: true,
   });
