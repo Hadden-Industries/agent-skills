@@ -1,7 +1,9 @@
-import { createInterface } from "node:readline";
 import { join } from "node:path";
 
-const scenario = process.env.FAKE_APP_SERVER_SCENARIO ?? "authorized";
+import { runFakeCodexAppServer } from "../../scripts/fixtures/codex-app-server-fake-engine.mjs";
+
+let scenario = null;
+let emit = null;
 const threadId = "019a-fake-thread";
 const pendingApprovals = new Map();
 let fixtureRoot = null;
@@ -10,7 +12,7 @@ let totalInputTokens = 0;
 let totalOutputTokens = 0;
 
 function send(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`);
+  emit(message);
 }
 
 function tokenUsage(turnId, inputTokens, outputTokens) {
@@ -324,10 +326,16 @@ function threadStartResult(params) {
   };
 }
 
-const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+async function handleGitScenario(message, context) {
+  scenario ??= context.state.scenario;
+  emit ??= context.send;
 
-input.on("line", (line) => {
-  const message = JSON.parse(line);
+  if (pendingApprovals.has(message.id) && typeof message.method !== "string") {
+    const continuation = pendingApprovals.get(message.id);
+    pendingApprovals.delete(message.id);
+    continuation(message.result);
+    return true;
+  }
 
   if (message.method === "initialize") {
     send({
@@ -340,7 +348,7 @@ input.on("line", (line) => {
       },
     });
   } else if (message.method === "initialized") {
-    return;
+    return true;
   } else if (message.method === "account/read") {
     send({
       id: message.id,
@@ -408,9 +416,28 @@ input.on("line", (line) => {
     } else {
       send({ id: message.id, result: {} });
     }
-  } else if (pendingApprovals.has(message.id)) {
-    const continuation = pendingApprovals.get(message.id);
-    pendingApprovals.delete(message.id);
-    continuation(message.result);
   }
+
+  return true;
+}
+
+const gitScenarios = [
+  "ambiguous",
+  "authorized",
+  "external-capability",
+  "implicit-cwd",
+  "invalid-proposal",
+  "leaked-instructions",
+  "leaked-skill",
+  "read-only-baseline",
+  "unauthenticated",
+];
+const scenarioHandlers = Object.fromEntries(
+  gitScenarios.map((name) => [name, handleGitScenario]),
+);
+
+await runFakeCodexAppServer({
+  legacyAppServerWithoutSubcommand: true,
+  legacyScenario: process.env.FAKE_APP_SERVER_SCENARIO ?? "authorized",
+  scenarioHandlers,
 });
