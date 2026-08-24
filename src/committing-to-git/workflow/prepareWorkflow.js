@@ -140,6 +140,48 @@ function fail(code, message, options) {
   throw new PreparationError(code, message, options);
 }
 
+export function preflightVerificationPolicy({
+  root,
+  verificationPolicy,
+  signaturePreflightInspector = inspectSignatureRequirements,
+}) {
+  if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
+    fail(
+      "INVALID_VERIFICATION_POLICY",
+      "Verification policy must be required, advisory, or skipped.",
+    );
+  }
+
+  const signaturePreflight =
+    verificationPolicy === "skipped"
+      ? { backend: null, trustSource: null }
+      : signaturePreflightInspector(root);
+
+  if (
+    verificationPolicy === "required" &&
+    signaturePreflight.backend === "ssh" &&
+    signaturePreflight.trustSource?.readable !== true
+  ) {
+    fail(
+      "SIGNATURE_TRUST_ACCESS_REQUIRED",
+      "Required SSH verification cannot read Git's configured allowed-signers file.",
+      {
+        exitCode: 1,
+        details: {
+          capability: {
+            kind: "read-file",
+            path: signaturePreflight.trustSource?.path ?? null,
+            origin: signaturePreflight.trustSource?.origin ?? null,
+          },
+          verificationPolicy,
+        },
+      },
+    );
+  }
+
+  return signaturePreflight;
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -1803,32 +1845,10 @@ export async function prepareWorkflow({
   let signaturePreflight = null;
 
   if (parsed.mode === "actual") {
-    signaturePreflight =
-      parsed.verificationPolicy === "skipped"
-        ? { backend: null, trustSource: null }
-        : inspectSignatureRequirements(root);
-
-    if (
-      parsed.verificationPolicy === "required" &&
-      signaturePreflight.backend === "ssh" &&
-      signaturePreflight.trustSource?.readable !== true
-    ) {
-      fail(
-        "SIGNATURE_TRUST_ACCESS_REQUIRED",
-        "Required SSH verification cannot read Git's configured allowed-signers file.",
-        {
-          exitCode: 1,
-          details: {
-            capability: {
-              kind: "read-file",
-              path: signaturePreflight.trustSource?.path ?? null,
-              origin: signaturePreflight.trustSource?.origin ?? null,
-            },
-            verificationPolicy: parsed.verificationPolicy,
-          },
-        },
-      );
-    }
+    signaturePreflight = preflightVerificationPolicy({
+      root,
+      verificationPolicy: parsed.verificationPolicy,
+    });
   }
 
   const candidates = discoverCandidates(root);

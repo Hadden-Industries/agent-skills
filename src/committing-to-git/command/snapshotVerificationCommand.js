@@ -86,11 +86,12 @@ export function verifySnapshotAgainstRepository({
   root,
   manifest,
   headAnchor = undefined,
+  useRealIndex = false,
 }) {
   const repositoryMatches =
     typeof manifest.repositoryRoot === "string" &&
     samePath(root, manifest.repositoryRoot);
-  const env = manifestEnvironment(manifest);
+  const env = useRealIndex ? undefined : manifestEnvironment(manifest);
   const head = repositoryMatches
     ? headAnchorMatches(root, headAnchor, env)
     : { matches: false, actualHeadOid: null, actualTargetRef: null };

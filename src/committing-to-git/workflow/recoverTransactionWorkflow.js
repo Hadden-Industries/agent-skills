@@ -12,6 +12,7 @@ import {
   completeRecordedCommit,
   readRecordedReport,
 } from "./createCommitWorkflow.js";
+import { recoverDraftPromotion } from "./promoteDraftWorkflow.js";
 import { recoverPublicationOutcome } from "./publishWorkflow.js";
 
 const RESOLUTIONS = new Set([null, "confirmed-no-live-child"]);
@@ -36,6 +37,14 @@ export async function recoverTransactionWorkflow({
 
   recoverCanonicalMessageReplacement(transactionPath);
   const transaction = readTransaction(transactionPath);
+
+  if (
+    transaction.mode === "draft" &&
+    transaction.snapshot?.promotion !== undefined &&
+    transaction.snapshot.promotion !== null
+  ) {
+    return recoverDraftPromotion({ transactionPath });
+  }
 
   if (transaction.phase === "publication-pending") {
     return recoverPublicationOutcome({ transactionPath, resolution });

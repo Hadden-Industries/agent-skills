@@ -62,12 +62,53 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
     validationSha256: "c".repeat(64),
     slot: "message/current",
   };
+  const indexIdentity = {
+    state: "file",
+    byteCount: 128,
+    sha256: "d".repeat(64),
+    fileIdentity: {
+      device: "1",
+      inode: "2",
+      mode: 33188,
+      modifiedTimeMilliseconds: 1_777_777_777_777,
+      changeTimeMilliseconds: 1_777_777_777_778,
+    },
+  };
+  const promotionState = {
+    schemaVersion: 1,
+    status: "installed",
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: ["1".repeat(40)],
+    },
+    indexTreeOid: "2".repeat(40),
+    originalIndexIdentity: indexIdentity,
+    preparedIndexPath: "C:/temp/attempt/promotion-index",
+    preparedIndexIdentity: indexIdentity,
+    installedIndexIdentity: indexIdentity,
+    recoveryObservation: null,
+  };
+  const promotionStateSchema = {
+    ...transactionSchema.$defs.promotionState,
+    $defs: transactionSchema.$defs,
+  };
 
   assert.deepEqual(schemaErrors(transaction, transactionSchema), []);
   assert.deepEqual(schemaErrors(scope, scopeSchema), []);
   assert.deepEqual(
     schemaErrors(messageState, transactionSchema.$defs.messageState),
     [],
+  );
+  assert.deepEqual(schemaErrors(promotionState, promotionStateSchema), []);
+
+  const unknownPromotionMember = {
+    ...promotionState,
+    replayAllowed: true,
+  };
+  assert.match(
+    schemaErrors(unknownPromotionMember, promotionStateSchema).join("\n"),
+    /replayAllowed/u,
   );
 
   const historicalSlot = { ...messageState, slot: "message/revision-2" };

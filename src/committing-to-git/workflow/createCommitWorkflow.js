@@ -779,6 +779,7 @@ export async function createCommitWorkflow({
     root: transaction.repositoryRoot,
     manifest,
     headAnchor: transaction.headAnchor,
+    useRealIndex: transaction.snapshot.promotion?.status === "installed",
   });
 
   if (!snapshotVerification.valid) {

@@ -279,6 +279,166 @@ function validateHeadAnchor(headAnchor) {
   }
 }
 
+function validateIndexIdentity(identity, label) {
+  if (identity?.state === "absent") {
+    assertExactKeys(identity, ["state"], label);
+    return;
+  }
+
+  assertExactKeys(
+    identity,
+    ["state", "byteCount", "sha256", "fileIdentity"],
+    label,
+  );
+
+  if (
+    identity.state !== "file" ||
+    !Number.isSafeInteger(identity.byteCount) ||
+    identity.byteCount < 0 ||
+    !SHA256_PATTERN.test(identity.sha256)
+  ) {
+    throw new Error(`${label} is not a canonical index identity.`);
+  }
+
+  assertExactKeys(
+    identity.fileIdentity,
+    [
+      "device",
+      "inode",
+      "mode",
+      "modifiedTimeMilliseconds",
+      "changeTimeMilliseconds",
+    ],
+    `${label} file identity`,
+  );
+
+  if (
+    typeof identity.fileIdentity.device !== "string" ||
+    identity.fileIdentity.device.length === 0 ||
+    typeof identity.fileIdentity.inode !== "string" ||
+    identity.fileIdentity.inode.length === 0 ||
+    !Number.isSafeInteger(identity.fileIdentity.mode) ||
+    identity.fileIdentity.mode < 0 ||
+    !Number.isFinite(identity.fileIdentity.modifiedTimeMilliseconds) ||
+    identity.fileIdentity.modifiedTimeMilliseconds < 0 ||
+    !Number.isFinite(identity.fileIdentity.changeTimeMilliseconds) ||
+    identity.fileIdentity.changeTimeMilliseconds < 0
+  ) {
+    throw new Error(`${label} file identity is invalid.`);
+  }
+}
+
+function validatePromotionState(snapshot, transaction) {
+  if (snapshot?.promotion === undefined || snapshot.promotion === null) {
+    return;
+  }
+
+  const promotion = snapshot.promotion;
+  assertExactKeys(
+    promotion,
+    [
+      "schemaVersion",
+      "status",
+      "headAnchor",
+      "indexTreeOid",
+      "originalIndexIdentity",
+      "preparedIndexPath",
+      "preparedIndexIdentity",
+      "installedIndexIdentity",
+      "recoveryObservation",
+    ],
+    "Promotion state",
+  );
+
+  if (
+    promotion.schemaVersion !== 1 ||
+    !new Set(["prepared", "recovery-observed", "installed"]).has(
+      promotion.status,
+    ) ||
+    !FULL_OID_PATTERN.test(promotion.indexTreeOid) ||
+    promotion.indexTreeOid !== snapshot.indexTreeOid ||
+    JSON.stringify(promotion.headAnchor) !==
+      JSON.stringify(transaction.headAnchor)
+  ) {
+    throw new Error("Promotion state does not match the transaction anchors.");
+  }
+
+  validateHeadAnchor(promotion.headAnchor);
+  validateIndexIdentity(
+    promotion.originalIndexIdentity,
+    "Promotion original index identity",
+  );
+  validateIndexIdentity(
+    promotion.preparedIndexIdentity,
+    "Promotion prepared index identity",
+  );
+
+  if (promotion.installedIndexIdentity !== null) {
+    validateIndexIdentity(
+      promotion.installedIndexIdentity,
+      "Promotion installed index identity",
+    );
+  }
+
+  if (
+    promotion.preparedIndexPath !== null &&
+    (typeof promotion.preparedIndexPath !== "string" ||
+      !isAbsolute(promotion.preparedIndexPath))
+  ) {
+    throw new Error("Promotion prepared index path is invalid.");
+  }
+
+  if (promotion.recoveryObservation !== null) {
+    const observation = promotion.recoveryObservation;
+    assertExactKeys(
+      observation,
+      [
+        "status",
+        "resumeAllowed",
+        "recoveryRequired",
+        "currentIndexIdentity",
+        "preparedIndexTreeOid",
+        "headAnchor",
+      ],
+      "Promotion recovery observation",
+    );
+
+    if (
+      !new Set([
+        "installed",
+        "matching-index-observed",
+        "not-installed",
+        "ambiguous",
+      ]).has(observation.status) ||
+      typeof observation.resumeAllowed !== "boolean" ||
+      typeof observation.recoveryRequired !== "boolean" ||
+      observation.preparedIndexTreeOid !== promotion.indexTreeOid ||
+      JSON.stringify(observation.headAnchor) !==
+        JSON.stringify(promotion.headAnchor)
+    ) {
+      throw new Error("Promotion recovery observation is invalid.");
+    }
+
+    validateIndexIdentity(
+      observation.currentIndexIdentity,
+      "Promotion recovery current index identity",
+    );
+  }
+
+  if (
+    (promotion.status === "prepared" &&
+      (promotion.installedIndexIdentity !== null ||
+        promotion.recoveryObservation !== null)) ||
+    (promotion.status === "recovery-observed" &&
+      (promotion.installedIndexIdentity !== null ||
+        promotion.recoveryObservation === null)) ||
+    (promotion.status === "installed" &&
+      promotion.installedIndexIdentity === null)
+  ) {
+    throw new Error("Promotion status and durable facts are inconsistent.");
+  }
+}
+
 function validateRepositoryTypePolicy(policy) {
   assertExactKeys(policy, ["allowedTypes"], "Repository type policy");
 
@@ -1027,8 +1187,19 @@ export function validateTransaction(transaction) {
   validateReviewState(transaction.review);
   validateMessageState(transaction.message);
   validateSignaturePreflight(transaction.signaturePreflight);
+  validatePromotionState(transaction.snapshot, transaction);
   validateCommitJournal(transaction.commit);
   validateVerificationHistory(transaction.verification);
+
+  if (
+    transaction.status === "promoted" &&
+    (transaction.mode !== "actual" ||
+      transaction.snapshot?.promotion?.status !== "installed")
+  ) {
+    throw new Error(
+      "A promoted transaction requires an installed promotion and actual mode.",
+    );
+  }
 
   if (
     transaction.phase === "evidence-ready" &&

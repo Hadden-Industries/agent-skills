@@ -1,11 +1,98 @@
-import { runReadOnlyGit, writeIndexTree } from "../git/gitRepository.js";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
+import {
+  runIndexMutationGit,
+  runReadOnlyGit,
+  writeIndexTree,
+} from "../git/gitRepository.js";
 import { comparePathBytes, pathRecord, splitNul } from "../git/gitPath.js";
+import { readIndexIdentity } from "../transaction/indexInstallation.js";
 
 export const MAXIMUM_SIMILARITY_CANDIDATE_PAIRS = 40_000;
 export const MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES = 64 * 1024 * 1024;
 
 const RENAME_SCORE = 50;
 const ZERO_OBJECT_ID = /^(?:0{40}|0{64})$/u;
+
+function nulPathInput(paths) {
+  return Buffer.concat(
+    paths.flatMap((path) => [
+      Buffer.isBuffer(path) ? path : Buffer.from(path, "utf8"),
+      Buffer.from([0]),
+    ]),
+  );
+}
+
+export function captureStagedSourceIdentity(root, env) {
+  const bytes = runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"], {
+    env,
+  }).stdout;
+
+  return {
+    state: "file",
+    byteCount: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+export function preparePromotionIndex({
+  root,
+  scopeKind,
+  scopePaths = [],
+  headOid,
+  preparedIndexPath,
+}) {
+  if (!new Set(["full", "paths"]).has(scopeKind)) {
+    throw new Error(
+      "Promotion index preparation requires full or paths scope.",
+    );
+  }
+
+  if (scopeKind === "paths" && scopePaths.length === 0) {
+    throw new Error(
+      "Path promotion requires at least one recorded literal path.",
+    );
+  }
+
+  if (existsSync(preparedIndexPath)) {
+    throw new Error(
+      `Promotion index already exists without a recovery record: ${preparedIndexPath}`,
+    );
+  }
+
+  mkdirSync(dirname(preparedIndexPath), { recursive: true });
+  const env = {
+    GIT_INDEX_FILE: preparedIndexPath,
+    GIT_OPTIONAL_LOCKS: "0",
+  };
+
+  runIndexMutationGit(root, "read-index-tree", [headOid ?? "--empty"], {
+    env,
+  });
+
+  if (scopeKind === "full") {
+    runIndexMutationGit(root, "add-all", [], { env });
+  } else {
+    runIndexMutationGit(root, "add-paths", [], {
+      env,
+      input: nulPathInput(scopePaths),
+    });
+  }
+
+  const indexTreeOid = writeIndexTree(root, env);
+
+  if (process.platform !== "win32") {
+    chmodSync(preparedIndexPath, 0o600);
+  }
+
+  return {
+    preparedIndexPath,
+    preparedIndexIdentity: readIndexIdentity(preparedIndexPath),
+    indexTreeOid,
+  };
+}
 
 function parseNonNegativeInteger(value, label) {
   if (typeof value === "bigint") {

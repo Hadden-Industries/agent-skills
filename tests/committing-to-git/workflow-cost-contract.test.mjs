@@ -11,6 +11,7 @@ import {
   commitAll,
   configureSshSigning,
   createRepositoryFixture,
+  readJson,
   runCommitWorkflow,
   runRecordedWorkflow,
   summarizeWorkflowCost,
@@ -32,6 +33,13 @@ const PRE_CUTOVER_THOUSAND_UNIT_ACK_RESPONSE_BYTES = 316_216;
 const PUBLISH_WORKFLOW_SOURCE = readFileSync(
   new URL(
     "../../src/committing-to-git/workflow/publishWorkflow.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const PROMOTE_WORKFLOW_SOURCE = readFileSync(
+  new URL(
+    "../../src/committing-to-git/workflow/promoteDraftWorkflow.js",
     import.meta.url,
   ),
   "utf8",
@@ -63,6 +71,53 @@ test("publication reuses persisted report facts instead of collecting them again
     PUBLISH_WORKFLOW_SOURCE,
     /\["push", "--porcelain", "--", remote, attempt\.refspec\]/u,
   );
+});
+
+test("draft promotion reuses reviewed evidence instead of routing it again", (t) => {
+  assert.doesNotMatch(PROMOTE_WORKFLOW_SOURCE, /routePreparedEvidence/u);
+  assert.doesNotMatch(PROMOTE_WORKFLOW_SOURCE, /createInlineEvidenceCapsule/u);
+  assert.doesNotMatch(PROMOTE_WORKFLOW_SOURCE, /createReviewCatalog/u);
+
+  const fixture = createRepositoryFixture(t, "workflow-cost-promotion-");
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "draft",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const before = readJson(transactionPath);
+  const trace2File = join(fixture.scratch, "promotion-trace.json");
+  const promoted = runRecordedWorkflow(
+    "workflow promote",
+    ["--transaction", transactionPath],
+    fixture.repo,
+    { trace2File, env: { GIT_TRACE2_EVENT: trace2File } },
+  );
+  const after = readJson(transactionPath);
+
+  assert.equal(promoted.result.status, 0, promoted.result.stderr);
+  assert.equal(promoted.invocation.command, "workflow promote");
+  assert.deepEqual(after.inlineEvidence, before.inlineEvidence);
+  assert.deepEqual(after.review, before.review);
+  assert.deepEqual(after.message, before.message);
+  assert.equal(after.snapshot.path, before.snapshot.path);
+  assert.equal(after.snapshot.sha256, before.snapshot.sha256);
 });
 
 function assertFrozenBaseline(baseline) {

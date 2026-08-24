@@ -4,6 +4,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {
+  parsePrepareArguments,
+  prepareWorkflow,
+} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
+import {
+  createRepositoryFixture,
+  git,
+  readJson,
+  writeRepositoryFile,
+} from "./harness.mjs";
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SIGNATURE_MODULE = join(
   REPO_ROOT,
@@ -19,6 +31,90 @@ const PREFLIGHT_MODULE = join(
   "signature",
   "signaturePreflight.js",
 );
+
+async function prepareDraftForPromotion(
+  fixture,
+  verificationPolicy = "required",
+) {
+  return prepareWorkflow({
+    options: parsePrepareArguments([
+      "--mode",
+      "draft",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      verificationPolicy,
+    ]),
+    cwd: fixture.repo,
+    temporaryRoot: fixture.scratch,
+  });
+}
+
+test("draft promotion completes trust preflight before real staging", async (t) => {
+  const required = createRepositoryFixture(t, "promotion-preflight-required-");
+  writeRepositoryFile(required.repo, "feature.txt", "feature\n");
+  const requiredDraft = await prepareDraftForPromotion(required);
+  const before = readJson(requiredDraft.transaction);
+  let inspections = 0;
+
+  assert.throws(
+    () =>
+      promoteDraftWorkflow({
+        transactionPath: requiredDraft.transaction,
+        signaturePreflightInspector() {
+          inspections += 1;
+          return {
+            backend: "ssh",
+            trustSource: {
+              configured: true,
+              origin: "file:C:/Users/example/.gitconfig",
+              path: "G:/keys/allowed_signers",
+              readable: false,
+            },
+          };
+        },
+      }),
+    (error) =>
+      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 1,
+  );
+  assert.equal(inspections, 1);
+  assert.deepEqual(readJson(requiredDraft.transaction), before);
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], required.repo).stdout,
+    "",
+  );
+
+  const advisory = createRepositoryFixture(t, "promotion-preflight-advisory-");
+  writeRepositoryFile(advisory.repo, "feature.txt", "feature\n");
+  const advisoryDraft = await prepareDraftForPromotion(advisory, "advisory");
+  const promoted = promoteDraftWorkflow({
+    transactionPath: advisoryDraft.transaction,
+    signaturePreflightInspector() {
+      return {
+        backend: "ssh",
+        trustSource: {
+          configured: true,
+          origin: "file:.git/config",
+          path: "G:/keys/unavailable",
+          readable: false,
+        },
+      };
+    },
+  });
+  const advisoryTransaction = readJson(advisoryDraft.transaction);
+
+  assert.equal(promoted.status, "promoted");
+  assert.equal(advisoryTransaction.mode, "actual");
+  assert.equal(advisoryTransaction.signaturePreflight.backend, "ssh");
+  assert.equal(
+    advisoryTransaction.signaturePreflight.trustSource.readable,
+    false,
+  );
+});
 
 test("advisory override unblocks an unavailable trust store without claiming verification", async () => {
   const { applyVerificationPolicy } = await import(

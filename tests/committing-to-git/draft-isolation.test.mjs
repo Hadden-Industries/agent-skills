@@ -109,10 +109,20 @@ function prepareDraft(fixture, scope, selectors = []) {
       "reuse",
       "--basis",
       "authored-current-task",
+      "--verification",
+      "skipped",
       ...selectors,
     ],
     fixture.repo,
     { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+}
+
+function promoteDraft(fixture, transactionPath) {
+  return runCommitWorkflow(
+    "workflow promote",
+    ["--transaction", transactionPath],
+    fixture.repo,
   );
 }
 
@@ -424,6 +434,199 @@ test("a disjoint path draft records staged work as a promotion blocker", (t) => 
       digestLength: 64,
     },
   );
+
+  const promotion = promoteDraft(
+    fixture,
+    JSON.parse(result.stdout).transaction,
+  );
+
+  assert.equal(promotion.status, 1);
+  assert.equal(
+    JSON.parse(promotion.stdout).code,
+    "PROMOTION_BLOCKED_STAGED_STATE",
+  );
+  assert.deepEqual(repositoryMetadataFingerprint(fixture.repo), before);
+});
+
+test("an unchanged full draft promotes without rebuilding its evidence", (t) => {
+  const fixture = createRepositoryFixture(t, "draft-full-promotion-");
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "draft",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+  assert.equal(prepared.status, 0, prepared.stderr);
+
+  const preparedResult = JSON.parse(prepared.stdout);
+  const before = readJson(preparedResult.transaction);
+  const promotion = promoteDraft(fixture, preparedResult.transaction);
+
+  assert.equal(promotion.status, 0, `${promotion.stderr}\n${promotion.stdout}`);
+  const promotedResult = JSON.parse(promotion.stdout);
+  const after = readJson(preparedResult.transaction);
+
+  assert.equal(promotedResult.status, "promoted");
+  assert.equal(promotedResult.mode, "actual");
+  assert.equal(after.mode, "actual");
+  assert.equal(after.status, "promoted");
+  assert.equal(after.phase, before.phase);
+  assert.equal(after.snapshot.path, before.snapshot.path);
+  assert.equal(after.snapshot.sha256, before.snapshot.sha256);
+  assert.deepEqual(after.inlineEvidence, before.inlineEvidence);
+  assert.deepEqual(after.review, before.review);
+  assert.deepEqual(after.message, before.message);
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], fixture.repo).stdout.trim(),
+    "tracked.txt",
+  );
+  assert.equal(
+    git(["write-tree"], fixture.repo).stdout.trim(),
+    before.snapshot.indexTreeOid,
+  );
+});
+
+test("selected-content drift leaves a full draft and the real index unchanged", (t) => {
+  const fixture = createRepositoryFixture(t, "draft-full-promotion-drift-");
+  writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "tracked.txt", "drafted\n");
+
+  const prepared = prepareDraft(fixture, "full");
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const transactionBefore = readJson(transactionPath);
+  const indexBefore = git(
+    ["diff", "--cached", "--binary", "--no-ext-diff"],
+    fixture.repo,
+  ).stdout;
+
+  writeRepositoryFile(fixture.repo, "tracked.txt", "drifted\n");
+  const promotion = promoteDraft(fixture, transactionPath);
+
+  assert.equal(promotion.status, 1);
+  assert.equal(JSON.parse(promotion.stdout).code, "PROMOTION_TREE_DRIFT");
+  assert.equal(
+    git(["diff", "--cached", "--binary", "--no-ext-diff"], fixture.repo).stdout,
+    indexBefore,
+  );
+  assert.deepEqual(readJson(transactionPath), transactionBefore);
+});
+
+test("removing a selected untracked path is promotion drift, not malformed input", (t) => {
+  const fixture = createRepositoryFixture(t, "draft-path-removal-drift-");
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "selected.txt", "drafted\n");
+  const prepared = prepareDraft(fixture, "paths", ["--path", "selected.txt"]);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+
+  unlinkSync(join(fixture.repo, "selected.txt"));
+  const promotion = promoteDraft(fixture, transactionPath);
+
+  assert.equal(promotion.status, 1);
+  assert.equal(JSON.parse(promotion.stdout).code, "PROMOTION_TREE_DRIFT");
+  assert.equal(readJson(transactionPath).mode, "draft");
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], fixture.repo).stdout,
+    "",
+  );
+});
+
+for (const scope of ["staged", "paths"]) {
+  test(`an unchanged ${scope} draft promotes the exact reviewed tree`, (t) => {
+    const fixture = createRepositoryFixture(t, `draft-${scope}-promotion-`);
+    writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
+    commitAll(fixture.repo);
+    writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
+
+    if (scope === "staged") {
+      git(["add", "tracked.txt"], fixture.repo);
+    }
+
+    const prepared = prepareDraft(
+      fixture,
+      scope,
+      scope === "paths" ? ["--path", "tracked.txt"] : [],
+    );
+    assert.equal(prepared.status, 0, prepared.stderr);
+    const transactionPath = JSON.parse(prepared.stdout).transaction;
+    const reviewedTree = readJson(transactionPath).snapshot.indexTreeOid;
+    const promotion = promoteDraft(fixture, transactionPath);
+
+    assert.equal(
+      promotion.status,
+      0,
+      `${promotion.stderr}\n${promotion.stdout}`,
+    );
+    assert.equal(readJson(transactionPath).mode, "actual");
+    assert.equal(git(["write-tree"], fixture.repo).stdout.trim(), reviewedTree);
+  });
+}
+
+test("a staged draft rejects real-index source digest drift", (t) => {
+  const fixture = createRepositoryFixture(t, "draft-staged-source-drift-");
+  writeRepositoryFile(fixture.repo, "first.txt", "before\n");
+  writeRepositoryFile(fixture.repo, "second.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "first.txt", "drafted\n");
+  git(["add", "first.txt"], fixture.repo);
+  const prepared = prepareDraft(fixture, "staged");
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+
+  writeRepositoryFile(fixture.repo, "second.txt", "drifted\n");
+  git(["add", "second.txt"], fixture.repo);
+  const promotion = promoteDraft(fixture, transactionPath);
+
+  assert.equal(promotion.status, 1);
+  assert.equal(
+    JSON.parse(promotion.stdout).code,
+    "PROMOTION_STAGED_SOURCE_DRIFT",
+  );
+  assert.equal(readJson(transactionPath).mode, "draft");
+});
+
+test("promotion rejects a changed symbolic attachment at the same commit OID", (t) => {
+  const fixture = createRepositoryFixture(t, "draft-head-kind-drift-");
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = prepareDraft(fixture, "full");
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const parentBefore = git(["rev-parse", "HEAD"], fixture.repo).stdout.trim();
+
+  git(["checkout", "--quiet", "--detach"], fixture.repo);
+  assert.equal(
+    git(["rev-parse", "HEAD"], fixture.repo).stdout.trim(),
+    parentBefore,
+  );
+  const promotion = promoteDraft(fixture, transactionPath);
+
+  assert.equal(promotion.status, 1);
+  assert.equal(JSON.parse(promotion.stdout).code, "PROMOTION_HEAD_DRIFT");
+  assert.equal(readJson(transactionPath).mode, "draft");
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], fixture.repo).stdout,
+    "",
+  );
 });
 
 test("a partially staged selected path is rejected before attempt mutation", (t) => {
@@ -446,7 +649,7 @@ test("a partially staged selected path is rejected before attempt mutation", (t)
   );
 });
 
-test("preparation records attached, detached, and unborn head anchors exactly", async (t) => {
+test("full draft promotion preserves attached, detached, and unborn head anchors", async (t) => {
   for (const kind of ["attached", "detached", "unborn"]) {
     await t.test(kind, (subtest) => {
       const fixture = createRepositoryFixture(subtest, `head-anchor-${kind}-`);
@@ -461,11 +664,11 @@ test("preparation records attached, detached, and unborn head anchors exactly", 
       }
 
       writeRepositoryFile(fixture.repo, "change.txt", "change\n");
-      git(["add", "change.txt"], fixture.repo);
-      const result = prepareDraft(fixture, "staged");
+      const result = prepareDraft(fixture, "full");
 
       assert.equal(result.status, 0, result.stderr);
-      const transaction = readJson(JSON.parse(result.stdout).transaction);
+      const transactionPath = JSON.parse(result.stdout).transaction;
+      const transaction = readJson(transactionPath);
       const anchor = transaction.headAnchor;
 
       assert.equal(anchor.headKind, kind);
@@ -476,6 +679,15 @@ test("preparation records attached, detached, and unborn head anchors exactly", 
       } else {
         assert.equal(anchor.targetRef, "refs/heads/main");
       }
+
+      const promotion = promoteDraft(fixture, transactionPath);
+
+      assert.equal(promotion.status, 0, promotion.stderr);
+      assert.equal(readJson(transactionPath).mode, "actual");
+      assert.equal(
+        git(["write-tree"], fixture.repo).stdout.trim(),
+        transaction.snapshot.indexTreeOid,
+      );
     });
   }
 });

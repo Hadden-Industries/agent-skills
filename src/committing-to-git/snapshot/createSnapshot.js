@@ -21,7 +21,10 @@ import {
   indexIdentitiesMatch,
   readIndexIdentity,
 } from "../transaction/indexInstallation.js";
-import { buildSnapshot } from "./commitSnapshot.js";
+import {
+  buildSnapshot,
+  captureStagedSourceIdentity,
+} from "./commitSnapshot.js";
 
 function nulPathInput(paths) {
   return Buffer.concat(
@@ -428,7 +431,10 @@ export function createSnapshot({
     indexFile: sourceIndex === "temporary" ? actualPreparedIndexPath : null,
     temporaryObjectDirectory: draftStorage?.objectDirectory ?? null,
     objectAlternates: draftStorage?.alternates ?? [],
-    sourceIndexIdentity: portableIndexIdentity(originalIndexIdentity),
+    sourceIndexIdentity:
+      scope === "staged"
+        ? captureStagedSourceIdentity(root)
+        : portableIndexIdentity(originalIndexIdentity),
     promotionBlocker,
   });
 

@@ -84,7 +84,17 @@
     "route": { "enum": ["concise", "extended", null] },
     "verificationPolicy": { "enum": ["required", "advisory", "skipped"] },
     "signaturePreflight": { "$ref": "#/$defs/signaturePreflight" },
-    "snapshot": { "type": ["object", "null"] },
+    "snapshot": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "promotion": { "$ref": "#/$defs/nullablePromotionState" }
+          }
+        }
+      ]
+    },
     "inlineEvidence": { "$ref": "#/$defs/inlineEvidenceState" },
     "review": { "$ref": "#/$defs/reviewState" },
     "message": { "$ref": "#/$defs/messageState" },
@@ -122,6 +132,124 @@
     { "$ref": "#/$defs/supersededCleanedState" }
   ],
   "$defs": {
+    "indexFileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "inode",
+        "mode",
+        "modifiedTimeMilliseconds",
+        "changeTimeMilliseconds"
+      ],
+      "properties": {
+        "device": { "type": "string", "minLength": 1 },
+        "inode": { "type": "string", "minLength": 1 },
+        "mode": { "type": "integer", "minimum": 0 },
+        "modifiedTimeMilliseconds": { "type": "number", "minimum": 0 },
+        "changeTimeMilliseconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "indexIdentity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": { "const": "absent" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "byteCount", "sha256", "fileIdentity"],
+          "properties": {
+            "state": { "const": "file" },
+            "byteCount": { "type": "integer", "minimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "fileIdentity": { "$ref": "#/$defs/indexFileIdentity" }
+          }
+        }
+      ]
+    },
+    "promotionRecoveryObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "resumeAllowed",
+        "recoveryRequired",
+        "currentIndexIdentity",
+        "preparedIndexTreeOid",
+        "headAnchor"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "installed",
+            "matching-index-observed",
+            "not-installed",
+            "ambiguous"
+          ]
+        },
+        "resumeAllowed": { "type": "boolean" },
+        "recoveryRequired": { "type": "boolean" },
+        "currentIndexIdentity": { "$ref": "#/$defs/indexIdentity" },
+        "preparedIndexTreeOid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "headAnchor": {
+          "allOf": [
+            { "$ref": "#/$defs/nullableHeadAnchor" },
+            { "type": "object" }
+          ]
+        }
+      }
+    },
+    "promotionState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "headAnchor",
+        "indexTreeOid",
+        "originalIndexIdentity",
+        "preparedIndexPath",
+        "preparedIndexIdentity",
+        "installedIndexIdentity",
+        "recoveryObservation"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "status": { "enum": ["prepared", "recovery-observed", "installed"] },
+        "headAnchor": {
+          "allOf": [
+            { "$ref": "#/$defs/nullableHeadAnchor" },
+            { "type": "object" }
+          ]
+        },
+        "indexTreeOid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "originalIndexIdentity": { "$ref": "#/$defs/indexIdentity" },
+        "preparedIndexPath": { "type": ["string", "null"] },
+        "preparedIndexIdentity": { "$ref": "#/$defs/indexIdentity" },
+        "installedIndexIdentity": {
+          "oneOf": [{ "$ref": "#/$defs/indexIdentity" }, { "type": "null" }]
+        },
+        "recoveryObservation": {
+          "oneOf": [
+            { "$ref": "#/$defs/promotionRecoveryObservation" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "nullablePromotionState": {
+      "oneOf": [{ "$ref": "#/$defs/promotionState" }, { "type": "null" }]
+    },
     "publicationAttempt": {
       "type": "object",
       "additionalProperties": false,
@@ -766,11 +894,22 @@
       "properties": {
         "phase": { "const": "evidence-ready" },
         "status": { "const": "promoted" },
+        "mode": { "const": "actual" },
         "terminalDisposition": { "const": null },
         "route": { "const": "concise" },
         "inlineEvidence": { "type": "object" },
         "review": { "const": null },
-        "message": { "const": null }
+        "message": { "const": null },
+        "snapshot": {
+          "type": "object",
+          "required": ["promotion"],
+          "properties": {
+            "promotion": {
+              "type": "object",
+              "properties": { "status": { "const": "installed" } }
+            }
+          }
+        }
       }
     },
     "reviewPendingState": {
@@ -805,8 +944,19 @@
       "properties": {
         "phase": { "const": "message-ready" },
         "status": { "const": "promoted" },
+        "mode": { "const": "actual" },
         "terminalDisposition": { "const": null },
-        "message": { "type": "object" }
+        "message": { "type": "object" },
+        "snapshot": {
+          "type": "object",
+          "required": ["promotion"],
+          "properties": {
+            "promotion": {
+              "type": "object",
+              "properties": { "status": { "const": "installed" } }
+            }
+          }
+        }
       }
     },
     "commitPendingState": {

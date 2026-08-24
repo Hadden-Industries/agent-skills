@@ -24,6 +24,14 @@ const COMMANDS = new Map([
     ],
   ],
   [
+    "workflow promote",
+    [
+      () => import("../workflow/promoteDraftWorkflow.js"),
+      null,
+      "runPromoteDraftCommand",
+    ],
+  ],
+  [
     "workflow commit",
     [
       () => import("../workflow/createCommitWorkflow.js"),
@@ -132,6 +140,20 @@ const COMMANDS = new Map([
 ]);
 
 const COMMAND_HELP = new Map([
+  [
+    "workflow promote",
+    `Usage: commitWorkflow.mjs workflow promote --transaction <transaction.json> [--format <json|text>]
+
+Recreates an unchanged draft tree in the real object database, compares the
+complete recorded head and tree anchors, and installs only the exact matching
+index. Reviewed evidence and canonical message bytes remain unchanged.
+
+Exit status:
+  0  The exact draft tree is staged and the transaction is promoted.
+  1  Repository drift, blocked staged state, or recoverable installation stop.
+  2  Usage, transaction, artifact, or unsupported-state failure.
+`,
+  ],
   [
     "workflow commit",
     `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--checks <checks.json>] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
@@ -438,6 +460,7 @@ Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
+  commitWorkflow.mjs workflow promote [options]
   commitWorkflow.mjs workflow commit [options]
   commitWorkflow.mjs workflow verify [options]
   commitWorkflow.mjs workflow report-detail [options]

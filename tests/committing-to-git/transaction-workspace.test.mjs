@@ -532,6 +532,25 @@ test("transaction validation accepts canonical state families and rejects imposs
                     : [],
             }
           : {};
+    const promotionState =
+      status === "promoted"
+        ? {
+            snapshot: {
+              indexTreeOid: FULL_OID,
+              promotion: {
+                schemaVersion: 1,
+                status: "installed",
+                headAnchor: template.headAnchor,
+                indexTreeOid: FULL_OID,
+                originalIndexIdentity: { state: "absent" },
+                preparedIndexPath: null,
+                preparedIndexIdentity: { state: "absent" },
+                installedIndexIdentity: { state: "absent" },
+                recoveryObservation: null,
+              },
+            },
+          }
+        : {};
 
     assert.doesNotThrow(() =>
       validateTransaction({
@@ -541,6 +560,7 @@ test("transaction validation accepts canonical state families and rejects imposs
         terminalDisposition,
         ...evidenceState,
         ...commitState,
+        ...promotionState,
       }),
     );
   }

@@ -28,6 +28,7 @@ import {
   parsePrepareArguments,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
 
 import {
   commitAll,
@@ -95,6 +96,78 @@ async function createLaunchingUnknown(fixture) {
     },
   });
   return prepared.transaction;
+}
+
+for (const [failurePoint, recoveryStatus] of [
+  ["after-pending-journal", "not-installed"],
+  ["after-index-replacement", "matching-index-observed"],
+]) {
+  test(`draft promotion recovers an index interruption at ${failurePoint}`, async (t) => {
+    const fixture = createRepositoryFixture(
+      t,
+      `promotion-index-recovery-${failurePoint}-`,
+    );
+    writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+    commitAll(fixture.repo);
+    writeRepositoryFile(fixture.repo, "feature.txt", "promote\n");
+    const prepared = await prepareConcise(fixture, {
+      mode: "draft",
+      verification: "skipped",
+    });
+
+    assert.throws(
+      () =>
+        promoteDraftWorkflow({
+          transactionPath: prepared.transaction,
+          indexFailureInjector(point) {
+            if (point === failurePoint) {
+              throw new Error(`interrupt at ${point}`);
+            }
+          },
+        }),
+      (error) =>
+        error.code === "PROMOTION_INDEX_INSTALLATION_INTERRUPTED" &&
+        error.exitCode === 1 &&
+        error.details.recoveryRequired === true &&
+        error.details.recoveryStatus === recoveryStatus,
+    );
+
+    const interrupted = readTransaction(prepared.transaction);
+    const promotion = interrupted.snapshot.promotion;
+
+    assert.equal(interrupted.mode, "draft");
+    assert.equal(promotion.status, "recovery-observed");
+    assert.equal(promotion.recoveryObservation.status, recoveryStatus);
+    assert.notDeepEqual(
+      promotion.originalIndexIdentity,
+      promotion.preparedIndexIdentity,
+    );
+    assert.equal(promotion.installedIndexIdentity, null);
+
+    const observed = runCommitWorkflow(
+      "workflow recover",
+      ["--transaction", prepared.transaction],
+      fixture.repo,
+    );
+    assert.equal(observed.status, 1, observed.stderr);
+    assert.equal(JSON.parse(observed.stdout).status, "recovery-observed");
+    assert.equal(JSON.parse(observed.stdout).recoveryStatus, recoveryStatus);
+
+    const resumed = promoteDraftWorkflow({
+      transactionPath: prepared.transaction,
+    });
+    const promoted = readTransaction(prepared.transaction);
+
+    assert.equal(resumed.status, "promoted");
+    assert.equal(promoted.mode, "actual");
+    assert.equal(promoted.status, "promoted");
+    assert.equal(promoted.snapshot.promotion.status, "installed");
+    assert.notEqual(promoted.snapshot.promotion.installedIndexIdentity, null);
+    assert.equal(
+      git(["write-tree"], fixture.repo).stdout.trim(),
+      promoted.snapshot.indexTreeOid,
+    );
+  });
 }
 
 test("required SSH trust preflight stops before transaction allocation", async (t) => {
