@@ -1,0 +1,244 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "skill_name": "defining-concepts",
+    "skill_path": "skills/defining-concepts",
+    "run_set_id": "2026-08-24T141214.748Z",
+    "requested_model": "gpt-5.6-sol",
+    "actual_model_evidence": "not_exposed_by_provider",
+    "generated_at": "2026-08-24T14:35:29Z",
+    "evals_run": [1, 4, 7, 8],
+    "runs_per_configuration": 1,
+    "source": "individual grading.json, metrics.json, transcript.jsonl, and timing.json records",
+    "performance_claim_allowed": false
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 11,
+        "failed": 1,
+        "total": 12,
+        "pass_rate": 0.916667,
+        "critical_gate_passed": false,
+        "time_seconds": 53.441,
+        "input_tokens": 112447,
+        "output_tokens": 1205,
+        "total_tokens": 113652,
+        "tool_calls": 3,
+        "completed_url_specific_actions": 1,
+        "final_destinations": 2,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 5,
+        "failed": 7,
+        "total": 12,
+        "pass_rate": 0.416667,
+        "critical_gate_passed": false,
+        "time_seconds": 39.542,
+        "input_tokens": 40791,
+        "output_tokens": 1455,
+        "total_tokens": 42246,
+        "tool_calls": 1,
+        "completed_url_specific_actions": 0,
+        "final_destinations": 3,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 4,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 11,
+        "failed": 1,
+        "total": 12,
+        "pass_rate": 0.916667,
+        "critical_gate_passed": false,
+        "time_seconds": 52.188,
+        "input_tokens": 79083,
+        "output_tokens": 1457,
+        "total_tokens": 80540,
+        "tool_calls": 2,
+        "completed_url_specific_actions": 0,
+        "final_destinations": 3,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 4,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 4,
+        "failed": 8,
+        "total": 12,
+        "pass_rate": 0.333333,
+        "critical_gate_passed": false,
+        "time_seconds": 9.082,
+        "input_tokens": 16350,
+        "output_tokens": 95,
+        "total_tokens": 16445,
+        "tool_calls": 0,
+        "completed_url_specific_actions": 0,
+        "final_destinations": 0,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 7,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 10,
+        "failed": 3,
+        "total": 13,
+        "pass_rate": 0.769231,
+        "critical_gate_passed": false,
+        "time_seconds": 106.767,
+        "input_tokens": 301629,
+        "output_tokens": 2738,
+        "total_tokens": 304367,
+        "tool_calls": 7,
+        "completed_url_specific_actions": 0,
+        "final_destinations": 3,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 7,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 5,
+        "failed": 8,
+        "total": 13,
+        "pass_rate": 0.384615,
+        "critical_gate_passed": false,
+        "time_seconds": 43.206,
+        "input_tokens": 41060,
+        "output_tokens": 1277,
+        "total_tokens": 42337,
+        "tool_calls": 1,
+        "completed_url_specific_actions": 0,
+        "final_destinations": 2,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 8,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 10,
+        "failed": 2,
+        "total": 12,
+        "pass_rate": 0.833333,
+        "critical_gate_passed": false,
+        "time_seconds": 59.097,
+        "input_tokens": 182495,
+        "output_tokens": 1528,
+        "total_tokens": 184023,
+        "tool_calls": 4,
+        "completed_url_specific_actions": 1,
+        "final_destinations": 2,
+        "errors": 0
+      }
+    },
+    {
+      "eval_id": 8,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "passed": 6,
+        "failed": 6,
+        "total": 12,
+        "pass_rate": 0.5,
+        "critical_gate_passed": false,
+        "time_seconds": 27.692,
+        "input_tokens": 70814,
+        "output_tokens": 558,
+        "total_tokens": 71372,
+        "tool_calls": 2,
+        "completed_url_specific_actions": 1,
+        "final_destinations": 1,
+        "errors": 0
+      }
+    }
+  ],
+  "arm_summary": {
+    "with_skill": {
+      "atomic_expectations": {"passed": 42, "failed": 7, "total": 49, "pass_rate": 0.857143},
+      "case_pass_rate": {"mean": 0.858975, "sample_stddev": 0.071573, "min": 0.769231, "max": 0.916667},
+      "all_or_nothing_cases": {"passed": 0, "total": 4, "pass_rate": 0},
+      "critical_gate_cases": {"passed": 0, "total": 4, "pass_rate": 0},
+      "required_section_cases": {"passed": 4, "total": 4, "pass_rate": 1},
+      "source_destinations": {
+        "final": 10,
+        "trace_verified": 2,
+        "trace_verified_rate": 0.2,
+        "independently_reachable": 10,
+        "independently_reachable_rate": 1,
+        "semantically_supported": 10,
+        "semantically_supported_rate": 1
+      },
+      "input_tokens": {"mean": 168913.5, "sample_stddev": 98413.8294, "min": 79083, "max": 301629},
+      "output_tokens": {"mean": 1732, "sample_stddev": 684.8372, "min": 1205, "max": 2738},
+      "total_tokens": {"mean": 170645.5, "sample_stddev": 99041.5018, "min": 80540, "max": 304367},
+      "time_seconds": {"mean": 67.87325, "sample_stddev": 26.102767, "min": 52.188, "max": 106.767},
+      "tool_calls": {"mean": 4, "sample_stddev": 2.160247, "min": 2, "max": 7}
+    },
+    "without_skill": {
+      "atomic_expectations": {"passed": 20, "failed": 29, "total": 49, "pass_rate": 0.408163},
+      "case_pass_rate": {"mean": 0.408654, "sample_stddev": 0.069903, "min": 0.333333, "max": 0.5},
+      "all_or_nothing_cases": {"passed": 0, "total": 4, "pass_rate": 0},
+      "critical_gate_cases": {"passed": 0, "total": 4, "pass_rate": 0},
+      "required_section_cases": {"passed": 0, "total": 4, "pass_rate": 0},
+      "source_destinations": {
+        "final": 6,
+        "trace_verified": 1,
+        "trace_verified_rate": 0.166667,
+        "independently_reachable": 5,
+        "independently_reachable_rate": 0.833333,
+        "semantically_supported": 5,
+        "semantically_supported_rate": 0.833333
+      },
+      "input_tokens": {"mean": 42253.75, "sample_stddev": 22287.9401, "min": 16350, "max": 70814},
+      "output_tokens": {"mean": 846.25, "sample_stddev": 633.4, "min": 95, "max": 1455},
+      "total_tokens": {"mean": 43100, "sample_stddev": 22443.31, "min": 16445, "max": 71372},
+      "time_seconds": {"mean": 29.8805, "sample_stddev": 15.365336, "min": 9.082, "max": 43.206},
+      "tool_calls": {"mean": 1, "sample_stddev": 0.816497, "min": 0, "max": 2}
+    },
+    "observed_delta": {
+      "atomic_expectation_pass_rate": 0.44898,
+      "mean_total_tokens": 127545.5,
+      "mean_time_seconds": 37.99275,
+      "mean_tool_calls": 3
+    }
+  },
+  "paired_assertion_patterns": {
+    "passed_in_both_arms": 19,
+    "passed_only_with_skill": 23,
+    "passed_only_without_skill": 1,
+    "failed_in_both_arms": 6
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "reason": "No independent blinded human grade was available after the maintainer had seen arm identities."
+  },
+  "caveats": [
+    "One repetition per case and arm supplies calibration evidence only; it provides no variance across repetitions and supports no performance direction or significance claim.",
+    "The four cases differ in difficulty, so descriptive standard deviations across cases are not estimates of repeated-run variance.",
+    "The provider did not expose the actual model identifier in retained JSONL.",
+    "Several completed web events expose an empty query. They are counted as tool calls but not as completed URL-specific retrieval actions.",
+    "No randomization seed was retained for the preselected matched run order."
+  ]
+}

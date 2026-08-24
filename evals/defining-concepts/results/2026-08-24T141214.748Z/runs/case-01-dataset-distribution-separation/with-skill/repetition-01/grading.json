@@ -1,0 +1,136 @@
+{
+  "grading_method": {
+    "grader": "maintainer evidence review",
+    "recorded_at": "2026-08-24T14:35:29Z",
+    "binary_expectations": "graded from the retained final answer and transcript, with independent destination checks kept separate from run-trace evidence",
+    "semantic_quality": "not blindly scored; the maintainer had already seen arm identities before grading"
+  },
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": true,
+      "evidence": "final.md contains the five required numbered top-level sections in order. Section 3 contains only the formulated definition, and the retained final answer has no preamble or closing conversation."
+    },
+    {
+      "text": "The transcript shows established vocabulary research before the final definition is settled.",
+      "passed": true,
+      "evidence": "Before item_4's final answer, transcript items 1-3 search W3C DCAT Dataset terminology, target the Dataset deep link, and check the candidate definition text."
+    },
+    {
+      "text": "The retained trace contains a completed URL-specific retrieval action for the authoritative W3C Data Catalog Vocabulary Dataset entry rather than only a search-result excerpt or vocabulary homepage.",
+      "passed": true,
+      "evidence": "Completed transcript item_2 names the exact destination https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset. It is a completed non-error URL-specific event before the final answer."
+    },
+    {
+      "text": "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
+      "passed": true,
+      "evidence": "Section 2 selects Path A and explains that the W3C definition matches both extension and intension and already satisfies the mandatory definition requirements."
+    },
+    {
+      "text": "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
+      "passed": true,
+      "evidence": "Section 3 begins 'A collection of data', and section 1 independently identifies the genus as Collection of data."
+    },
+    {
+      "text": "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+      "passed": true,
+      "evidence": "The definition keeps the Dataset as the collection and says it is available in one or more representations. Sections 1 and 4 explicitly distinguish distributions, files, serializations, data services, service responses, and catalog records."
+    },
+    {
+      "text": "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
+      "passed": true,
+      "evidence": "The one-sentence noun phrase positively defines one collection, does not repeat Dataset as its own genus, contains no abbreviations, and does not define constituent terms."
+    },
+    {
+      "text": "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
+      "passed": true,
+      "evidence": "Section 4 separately evaluates singularity, positive declaration, descriptive form, abbreviations, and embedded definitions, with a reason for each result."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+      "passed": true,
+      "evidence": "Repositories Queried names only the W3C Data Catalog Vocabulary. Transcript item_1 visibly searches that repository and item_2 names its exact Dataset destination."
+    },
+    {
+      "text": "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+      "passed": false,
+      "evidence": "Verified Sources contains the Dataset and Distribution deep links. The trace names the Dataset link in completed item_2 but never names https://www.w3.org/TR/vocab-dcat-3/#Class:Distribution in a completed event. The answer's claim that exact-URL retrieval completed for both links is therefore unsupported by the retained trace."
+    },
+    {
+      "text": "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+      "passed": true,
+      "evidence": "Verified Sources lists two W3C specification anchors. Independent checks opened both anchors to accessible DCAT 3 specification content."
+    },
+    {
+      "text": "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation.",
+      "passed": true,
+      "evidence": "The Dataset anchor supplies the exact reused definition and conceptual-dataset usage note. The Distribution anchor defines a distribution as a specific representation and supports the stated boundary role."
+    }
+  ],
+  "summary": {
+    "passed": 11,
+    "failed": 1,
+    "total": 12,
+    "pass_rate": 0.916667,
+    "critical_passed": 4,
+    "critical_failed": 1,
+    "critical_total": 5,
+    "all_expectations_passed": false,
+    "critical_gate_passed": false
+  },
+  "source_verification": {
+    "trace_schema_limitation": "Codex JSONL exposes completed web events but may omit response bodies and HTTP status. Only completed events that visibly name an exact URL count for the trace layer.",
+    "destinations": [
+      {
+        "url": "https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset",
+        "role": "exact definition",
+        "completed_url_specific_action": true,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The DCAT 3 Dataset entry defines a collection of data published or curated by a single agent and available in one or more representations, and identifies the conceptual dataset."
+      },
+      {
+        "url": "https://www.w3.org/TR/vocab-dcat-3/#Class:Distribution",
+        "role": "constituent semantics",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The DCAT 3 Distribution entry defines a specific representation of a dataset and discusses access by download, service, or web page."
+      }
+    ],
+    "final_destinations": 2,
+    "trace_verified_destinations": 1,
+    "independently_reachable_destinations": 2,
+    "semantically_supported_destinations": 2,
+    "unsupported_process_claims": 1,
+    "fabricated_destinations": 0
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "blind": false,
+    "reason": "The protocol requires arm labels to be removed before a human scores the five dimensions. No independent blinded human grade was available, and a non-blind score is not substituted."
+  },
+  "execution_metrics": {
+    "tool_calls": {"web_search": 3},
+    "total_tool_calls": 3,
+    "total_steps": 5,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 3556,
+    "transcript_chars": 5523,
+    "completed_url_specific_actions": 1
+  },
+  "usage": {
+    "input_tokens": 112447,
+    "cached_input_tokens": 58368,
+    "output_tokens": 1205,
+    "reasoning_output_tokens": 175,
+    "total_tokens": 113652
+  },
+  "timing": {
+    "duration_ms": 53441,
+    "total_duration_seconds": 53.441,
+    "executor_start": "2026-08-24T14:13:33.608Z",
+    "executor_end": "2026-08-24T14:14:27.049Z"
+  }
+}

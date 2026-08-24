@@ -1,0 +1,119 @@
+{
+  "grading_method": {
+    "grader": "maintainer evidence review",
+    "recorded_at": "2026-08-24T14:35:29Z",
+    "binary_expectations": "graded from the retained final answer and transcript, with independent destination checks kept separate from run-trace evidence",
+    "semantic_quality": "not blindly scored; the maintainer had already seen arm identities before grading"
+  },
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "The response contains only Preferred designation, Definition, and Note fields. None of the required five numbered sections is present."
+    },
+    {
+      "text": "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+      "passed": false,
+      "evidence": "The transcript has no web or research event and proceeds directly to the final answer."
+    },
+    {
+      "text": "The reuse decision states whether a source definition is reused, adapted, or insufficient and cites candidate source content whose attributed role is confirmed by an independent source check.",
+      "passed": false,
+      "evidence": "The answer contains no reuse decision, candidate source, citation, or source-role statement."
+    },
+    {
+      "text": "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+      "passed": true,
+      "evidence": "The definition begins 'The result reached by', using the correct immediate result-category genus."
+    },
+    {
+      "text": "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+      "passed": true,
+      "evidence": "The definition says the result is reached after evaluating a person's identity evidence and does not insert a separate definition of identity verification."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+      "passed": true,
+      "evidence": "The subject is a result reached by a process, not the process, evidence, code, or value domain."
+    },
+    {
+      "text": "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+      "passed": true,
+      "evidence": "The three labels appear only in a separate note, not in the definition."
+    },
+    {
+      "text": "The compliance audit identifies and explains the corrected process-result category error.",
+      "passed": false,
+      "evidence": "No compliance audit or explicit explanation of the starter's category error is present."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+      "passed": false,
+      "evidence": "Repositories Queried is absent, and the transcript contains no repository action."
+    },
+    {
+      "text": "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+      "passed": false,
+      "evidence": "Verified Sources is absent and no URL-specific retrieval occurred. The evidence requirement is not treated as vacuously satisfied by omitting all sources."
+    },
+    {
+      "text": "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+      "passed": false,
+      "evidence": "Verified Sources is absent and contains no destination for independent verification."
+    },
+    {
+      "text": "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation.",
+      "passed": false,
+      "evidence": "No source destination or attributed semantic role is supplied. Omission of the required evidence surface is not a semantic-support pass."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 8,
+    "total": 12,
+    "pass_rate": 0.333333,
+    "critical_passed": 1,
+    "critical_failed": 5,
+    "critical_total": 6,
+    "all_expectations_passed": false,
+    "critical_gate_passed": false
+  },
+  "source_verification": {
+    "trace_schema_limitation": "No source events occurred in this run.",
+    "destinations": [],
+    "final_destinations": 0,
+    "trace_verified_destinations": 0,
+    "independently_reachable_destinations": 0,
+    "semantically_supported_destinations": 0,
+    "unsupported_process_claims": 0,
+    "fabricated_destinations": 0
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "blind": false,
+    "reason": "The protocol requires arm labels to be removed before a human scores the five dimensions. No independent blinded human grade was available, and a non-blind score is not substituted."
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 1,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 291,
+    "transcript_chars": 639,
+    "completed_url_specific_actions": 0
+  },
+  "usage": {
+    "input_tokens": 16350,
+    "cached_input_tokens": 9984,
+    "output_tokens": 95,
+    "reasoning_output_tokens": 34,
+    "total_tokens": 16445
+  },
+  "timing": {
+    "duration_ms": 9082,
+    "total_duration_seconds": 9.082,
+    "executor_start": "2026-08-24T14:15:45.575Z",
+    "executor_end": "2026-08-24T14:15:54.657Z"
+  }
+}

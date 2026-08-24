@@ -1,0 +1,137 @@
+{
+  "grading_method": {
+    "grader": "maintainer evidence review",
+    "recorded_at": "2026-08-24T14:35:29Z",
+    "binary_expectations": "graded from the retained final answer and transcript, with independent destination checks kept separate from run-trace evidence",
+    "semantic_quality": "not blindly scored; the maintainer had already seen arm identities before grading"
+  },
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": true,
+      "evidence": "final.md contains all five required numbered sections in order, places the definition in section 3, and includes no final-answer preamble or closing conversation."
+    },
+    {
+      "text": "The retained trace contains a completed URL-specific retrieval action for the supplied W3C Data Catalog Vocabulary URL before the response rejects or accepts the colleague's attribution.",
+      "passed": true,
+      "evidence": "Completed transcript item_1 names the exact supplied URL https://www.w3.org/TR/vocab-dcat-3/ before the final answer."
+    },
+    {
+      "text": "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
+      "passed": true,
+      "evidence": "Section 2 explicitly labels DCAT a rejected attribution, says the exact term is absent, and limits DCAT to generic workflow-status semantics. Section 5 preserves the same refutational role."
+    },
+    {
+      "text": "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
+      "passed": true,
+      "evidence": "Before the final answer, completed item_2 searches NIEM, NIEM GitHub material, and justice evidence-retention authorization terminology."
+    },
+    {
+      "text": "Section 2 explicitly selects Path C unless an independently confirmed authoritative source supplies an extensionally and intensionally matching definition; any different path is justified with that direct evidence.",
+      "passed": true,
+      "evidence": "Section 2 explicitly selects Path C because no retrieved authoritative source defined the compound designation and labels other material as constituent or rejected evidence."
+    },
+    {
+      "text": "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
+      "passed": true,
+      "evidence": "The definition begins 'An authorization status', an immediate abstract status genus, rather than an evidence item or activity."
+    },
+    {
+      "text": "Section 3 concerns authorization for continued retention and does not enumerate Unknown, Pending review, Authorized, Refused, or Expired; elsewhere the artifact may mention those labels only to explain their exclusion as a separate value domain and does not define them individually.",
+      "passed": true,
+      "evidence": "Section 3 contains none of the five labels. Sections 1 and 4 mention them only to explain their value-domain role and do not define the values individually."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
+      "passed": true,
+      "evidence": "The subject is an authorization status indicating the standing of permission. The evidence item is its subject matter, and the definition is not an action, decision, workflow, field, code, or set of values."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+      "passed": false,
+      "evidence": "Repositories Queried names W3C, NIEM, and Evidence Management Institute standards. W3C is evidenced by item_1 and NIEM by item_2, but no completed pre-answer event visibly names the Evidence Management Institute repository or its final destination."
+    },
+    {
+      "text": "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+      "passed": false,
+      "evidence": "Verified Sources lists the W3C and Evidence Management Institute URLs. Completed item_1 names the W3C URL, but no completed event names the Evidence Management Institute chapter URL; empty-query item_3 cannot be assigned to it."
+    },
+    {
+      "text": "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+      "passed": true,
+      "evidence": "Independent checks opened both the W3C DCAT specification and the Evidence Management Institute chapter to accessible source content."
+    },
+    {
+      "text": "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation.",
+      "passed": true,
+      "evidence": "DCAT supports the rejected-attribution claim because it lacks the compound term and provides only generic workflow status. The Evidence Management Institute chapter supports documentation and supervisory authorization for continued retention. The answer labels the latter constituent semantics, not an exact definition."
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 2,
+    "total": 12,
+    "pass_rate": 0.833333,
+    "critical_passed": 5,
+    "critical_failed": 2,
+    "critical_total": 7,
+    "all_expectations_passed": false,
+    "critical_gate_passed": false
+  },
+  "source_verification": {
+    "trace_schema_limitation": "One completed Codex web event has an empty query. It cannot prove that the final Evidence Management Institute URL was opened and does not count as URL-specific trace evidence.",
+    "destinations": [
+      {
+        "url": "https://www.w3.org/TR/vocab-dcat-3/",
+        "role": "rejected attribution",
+        "completed_url_specific_action": true,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The accessible DCAT specification contains no Evidence Retention Authorization Status term; its status property is generic workflow status and prescribes no status set."
+      },
+      {
+        "url": "https://evidencemanagement.com/resources/emi-standards-and-best-practices/chapter-10-evidence-retention-and-disposition/",
+        "role": "constituent semantics",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The chapter supports documented responses to continued-retention requests and supervisory authorization for continued retention without defining the compound designation."
+      }
+    ],
+    "final_destinations": 2,
+    "trace_verified_destinations": 1,
+    "independently_reachable_destinations": 2,
+    "semantically_supported_destinations": 2,
+    "unsupported_process_claims": 1,
+    "fabricated_destinations": 0
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "blind": false,
+    "reason": "The protocol requires arm labels to be removed before a human scores the five dimensions. No independent blinded human grade was available, and a non-blind score is not substituted."
+  },
+  "execution_metrics": {
+    "tool_calls": {"web_search": 4},
+    "total_tool_calls": 4,
+    "total_steps": 6,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 4029,
+    "transcript_chars": 6256,
+    "completed_url_specific_actions": 1,
+    "empty_query_completed_web_events": 1
+  },
+  "usage": {
+    "input_tokens": 182495,
+    "cached_input_tokens": 128768,
+    "output_tokens": 1528,
+    "reasoning_output_tokens": 466,
+    "total_tokens": 184023
+  },
+  "timing": {
+    "duration_ms": 59097,
+    "total_duration_seconds": 59.097,
+    "executor_start": "2026-08-24T14:19:17.439Z",
+    "executor_end": "2026-08-24T14:20:16.537Z"
+  }
+}

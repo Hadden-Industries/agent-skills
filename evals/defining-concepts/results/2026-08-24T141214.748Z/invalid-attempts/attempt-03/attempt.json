@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "attempt_id": "attempt-03",
+  "status": "invalid",
+  "started_at": "2026-08-24T14:11:12.523Z",
+  "ended_at": "2026-08-24T14:11:12.528Z",
+  "purpose": "One-repetition calibration regression of the revised defining-concepts candidate; not comparative performance evidence.",
+  "skill_name": "defining-concepts",
+  "skill_revision": "working-tree candidate based on 34ce0a84cff6fab045810d0acc64cc92a4126501",
+  "skill_bytes": 7752,
+  "skill_sha256": "190007b64b33e4cf4fb3a4592859b281318b62d837de631dc18032dfab94b696",
+  "eval_manifest_sha256": "6f867f5df35534e36520c015202f121311d42976e394ed004d16836b761ffb95",
+  "calibration_eval_ids": [1, 4, 7, 8],
+  "held_out_eval_ids": [2, 3, 5, 6],
+  "arms": ["with_skill", "without_skill"],
+  "provider": "openai_codex",
+  "requested_model": "gpt-5.6-sol",
+  "runs_per_configuration": 1,
+  "tools": ["live_web_search"],
+  "codex_cli_version": "0.149.1",
+  "launcher": "direct Windows Codex application alias from the Node runner",
+  "prompt_sha256": {
+    "1": "0a72be148dee36c6bdca1c9501383514ae6a068ccec8fed44d3c427f3a3268f4",
+    "4": "d789ce5d3428e35d0bcf22e44f4746da68b6a93d69666f447fea1cb9c44c3e8f",
+    "7": "eb5aa6a6a061d4d0209a68753b47b6588904fe13ded64ee33177bf2a28f1043b",
+    "8": "4144e2f5576d34669f4eef73907538e8b6d6c3e034f6d0def1a8de9b0d5b2497"
+  },
+  "previous_invalid_attempt": "../attempt-02/attempt.json",
+  "invalid_reason": "Windows denied the Node runner's direct attempt to spawn the current Codex application alias (EPERM) before the CLI started.",
+  "outcome": {
+    "launch_attempts": 1,
+    "codex_processes_started": 0,
+    "service_requests_sent": 0,
+    "final_answers_returned": 0,
+    "usable_for_grading": false,
+    "partial_launch_directory_retained": true
+  }
+}

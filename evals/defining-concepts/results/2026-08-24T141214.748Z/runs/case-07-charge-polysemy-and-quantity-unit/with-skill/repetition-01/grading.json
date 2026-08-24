@@ -1,0 +1,154 @@
+{
+  "grading_method": {
+    "grader": "maintainer evidence review",
+    "recorded_at": "2026-08-24T14:35:29Z",
+    "binary_expectations": "graded from the retained final answer and transcript, with independent destination checks kept separate from run-trace evidence",
+    "semantic_quality": "not blindly scored; the maintainer had already seen arm identities before grading"
+  },
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": true,
+      "evidence": "final.md contains the five required numbered sections in order and places the one-sentence definition in section 3 without final-answer preamble or closing conversation."
+    },
+    {
+      "text": "The retained trace contains a completed URL-specific retrieval action for a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC.",
+      "passed": false,
+      "evidence": "The trace shows topical and site-restricted searches for IEC, IUPAC, BIPM, and JCGM, plus three completed empty-query web events. No completed event visibly names an exact term-bearing IUPAC or IEC destination, including the final IEC PDF URL."
+    },
+    {
+      "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+      "passed": true,
+      "evidence": "Section 1 evaluates Charge, enumerates the relevant non-physical senses, recommends Electric charge for registry use, and explicitly retains Charge as an admitted synonym rather than silently replacing it."
+    },
+    {
+      "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+      "passed": true,
+      "evidence": "The definition uses the more specific genus 'Additive scalar quantity'. In its stated physics context and electromagnetic differentia, this is a scalar physical-quantity category, not a property bearer or material object."
+    },
+    {
+      "text": "The artifact identifies the electric or electrostatic sense and distinguishes the financial, legal, assignment, and battery-state senses; those exclusions need not be repeated in section 3 when its differentia already select the electric sense unambiguously.",
+      "passed": true,
+      "evidence": "The electromagnetic-interaction differentia selects the electric sense. Section 1 separately excludes price, accusation, assignment, and battery-state meanings."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+      "passed": true,
+      "evidence": "Section 3 defines a quantity associated with particles and matter. Section 4 distinguishes quantity, value, unit, procedure, current, and bearer; the coulomb and elementary charge occur only as separate supporting boundary material."
+    },
+    {
+      "text": "Section 3 may contain one compact defining relation essential to electric charge, but it contains no measurement procedure, unit, conventional symbol, numerical constant, dimensional formula, force law, or worked equation.",
+      "passed": true,
+      "evidence": "Section 3 contains only a compact verbal genus-differentia definition. It includes no procedure, symbol, unit, number, formula, law, or equation."
+    },
+    {
+      "text": "Outside section 3, an SI unit or conventional symbol may be stated briefly, but dimensional formulas, exact constants, force laws, quantization detail, and worked equations are omitted unless the prompt requires them.",
+      "passed": false,
+      "evidence": "Section 2 and the BIPM source note include the unit relation C = A s and the exact SI value of elementary charge. The prompt did not require either exact constant or unit equation."
+    },
+    {
+      "text": "The reuse action identifies Path A, B, or C and, when adapting, preserves the defining semantic relation from the independently confirmed scientific source while explaining the changes needed for ISO/IEC 11179-4 form.",
+      "passed": true,
+      "evidence": "Section 2 selects Path A and reuses the independently confirmed IEC entry rather than claiming an adaptation. It explains that the source definition already has matching extension, intension, and mandatory form."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+      "passed": true,
+      "evidence": "Repositories Queried names IEC/Electropedia, IUPAC Gold Book, BIPM/JCGM VIM, and BIPM SI resources. Completed search items 1, 2, 5, and 6 visibly target all of those repository families before the answer."
+    },
+    {
+      "text": "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+      "passed": false,
+      "evidence": "Verified Sources contains three exact URLs. No completed transcript event visibly names the IEC PDF, JCGM VIM entry, or BIPM measurement-units destination. Empty-query events cannot be assigned to those URLs, so all three exact-retrieval claims lack retained trace evidence."
+    },
+    {
+      "text": "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+      "passed": true,
+      "evidence": "Independent checks opened the IEC-standard preview PDF, the JCGM VIM quantity entry, and the BIPM measurement-units page to accessible source content."
+    },
+    {
+      "text": "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation.",
+      "passed": true,
+      "evidence": "The IEC preview reproduces entry 121-11-01 with the exact reused electric-charge definition. JCGM defines quantity and gives electric charge as an example; BIPM supports the stated unit/constant boundary. The answer labels the latter two as constituent semantics rather than exact definitions."
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 3,
+    "total": 13,
+    "pass_rate": 0.769231,
+    "critical_passed": 5,
+    "critical_failed": 1,
+    "critical_total": 6,
+    "all_expectations_passed": false,
+    "critical_gate_passed": false
+  },
+  "source_verification": {
+    "trace_schema_limitation": "Three completed Codex web events have empty queries. They cannot prove which destinations, if any, were opened and therefore do not count as URL-specific trace evidence.",
+    "destinations": [
+      {
+        "url": "https://www.physicsnorm.com/NewSamples/IEC/146718365/IEC-60050-121-1998-1.pdf",
+        "role": "exact definition reproduced from IEC 60050-121:1998",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The accessible IEC-standard preview contains entry 121-11-01 and the English additive-scalar-quantity definition reproduced in section 3."
+      },
+      {
+        "url": "https://jcgm.bipm.org/vim/en/1.1.html",
+        "role": "constituent semantics",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The VIM entry defines quantity, describes the scalar model, and includes electric charge as a quantity example."
+      },
+      {
+        "url": "https://www.bipm.org/en/measurement-units/",
+        "role": "constituent semantics",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The BIPM page supports the SI unit relation and exact elementary-charge value used only to distinguish quantity, unit, and constant."
+      }
+    ],
+    "excluded_candidate": {
+      "url": "https://goldbook.iupac.org/terms/view/E01923",
+      "reason": "Independent retrieval returned HTTP 403, and the final answer correctly omitted it from Verified Sources."
+    },
+    "final_destinations": 3,
+    "trace_verified_destinations": 0,
+    "independently_reachable_destinations": 3,
+    "semantically_supported_destinations": 3,
+    "unsupported_process_claims": 3,
+    "fabricated_destinations": 0
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "blind": false,
+    "reason": "The protocol requires arm labels to be removed before a human scores the five dimensions. No independent blinded human grade was available, and a non-blind score is not substituted."
+  },
+  "execution_metrics": {
+    "tool_calls": {"web_search": 7},
+    "total_tool_calls": 7,
+    "total_steps": 9,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 5482,
+    "transcript_chars": 9243,
+    "completed_url_specific_actions": 0,
+    "empty_query_completed_web_events": 3
+  },
+  "usage": {
+    "input_tokens": 301629,
+    "cached_input_tokens": 253952,
+    "output_tokens": 2738,
+    "reasoning_output_tokens": 1015,
+    "total_tokens": 304367
+  },
+  "timing": {
+    "duration_ms": 106767,
+    "total_duration_seconds": 106.767,
+    "executor_start": "2026-08-24T14:17:08.736Z",
+    "executor_end": "2026-08-24T14:18:55.504Z"
+  }
+}

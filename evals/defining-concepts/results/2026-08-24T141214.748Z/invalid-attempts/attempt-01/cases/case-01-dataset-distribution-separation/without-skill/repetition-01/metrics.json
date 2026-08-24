@@ -1,0 +1,11 @@
+{
+  "tool_calls": {},
+  "total_tool_calls": 0,
+  "total_steps": 0,
+  "files_created": [
+    "outputs/final.md"
+  ],
+  "errors_encountered": 1,
+  "output_chars": 0,
+  "transcript_chars": 0
+}

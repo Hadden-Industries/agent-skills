@@ -1,0 +1,9 @@
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:458:11)
+    at spawn (node:child_process:813:9)
+    at main (file:///C:/Users/maksy/GitHub/agent-skills/evals/defining-concepts/run-evaluation-session.mjs:345:19)
+    at file:///C:/Users/maksy/GitHub/agent-skills/evals/defining-concepts/run-evaluation-session.mjs:512:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)

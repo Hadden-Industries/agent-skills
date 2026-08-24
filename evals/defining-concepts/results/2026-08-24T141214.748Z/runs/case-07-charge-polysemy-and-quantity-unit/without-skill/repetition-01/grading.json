@@ -1,0 +1,141 @@
+{
+  "grading_method": {
+    "grader": "maintainer evidence review",
+    "recorded_at": "2026-08-24T14:35:29Z",
+    "binary_expectations": "graded from the retained final answer and transcript, with independent destination checks kept separate from run-trace evidence",
+    "semantic_quality": "not blindly scored; the maintainer had already seen arm identities before grading"
+  },
+  "expectations": [
+    {
+      "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+      "passed": false,
+      "evidence": "The response uses an unnumbered Standardized semantic artifact plus a Designation assessment. It does not use the five required numbered sections or place the definition in section 3."
+    },
+    {
+      "text": "The retained trace contains a completed URL-specific retrieval action for a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC.",
+      "passed": false,
+      "evidence": "The only web event is a site-restricted search for BIPM, IUPAC, and ISO. No completed event names an exact IUPAC or IEC term-bearing URL."
+    },
+    {
+      "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+      "passed": true,
+      "evidence": "The artifact preserves Charge as the registry designation, recommends Electric charge, retains Charge as a short form, and discusses financial, legal, assignment, and battery-state ambiguity."
+    },
+    {
+      "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+      "passed": true,
+      "evidence": "The definition begins 'scalar extensive quantity', and the concept type is measurable physical quantity. The body or system is the bearer rather than the concept."
+    },
+    {
+      "text": "The artifact identifies the electric or electrostatic sense and distinguishes the financial, legal, assignment, and battery-state senses; those exclusions need not be repeated in section 3 when its differentia already select the electric sense unambiguously.",
+      "passed": true,
+      "evidence": "The electromagnetic-interaction differentia identifies the electric sense, and the Excluded senses and designation analysis distinguish all four requested non-target senses."
+    },
+    {
+      "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+      "passed": true,
+      "evidence": "The definition identifies a scalar quantity characterizing a body or system. The artifact separately labels the coulomb as unit, elementary charge as a constant, current as related, and the object as bearer."
+    },
+    {
+      "text": "Section 3 may contain one compact defining relation essential to electric charge, but it contains no measurement procedure, unit, conventional symbol, numerical constant, dimensional formula, force law, or worked equation.",
+      "passed": true,
+      "evidence": "Although the required section heading is absent and is failed separately by assertion 1, the actual Definition field itself is a clean verbal genus-differentia statement containing no procedure, unit, symbol, constant, formula, law, or equation."
+    },
+    {
+      "text": "Outside section 3, an SI unit or conventional symbol may be stated briefly, but dimensional formulas, exact constants, force laws, quantization detail, and worked equations are omitted unless the prompt requires them.",
+      "passed": false,
+      "evidence": "The artifact includes Q = integral I(t) dt, C = A s, a dimensional formula, the exact elementary-charge value, a worked numerical example, conservation and force consequences, and other detail not required by the prompt."
+    },
+    {
+      "text": "The reuse action identifies Path A, B, or C and, when adapting, preserves the defining semantic relation from the independently confirmed scientific source while explaining the changes needed for ISO/IEC 11179-4 form.",
+      "passed": false,
+      "evidence": "The answer identifies no Path A, B, or C, does not distinguish reuse from adaptation, and gives no source-to-definition change account."
+    },
+    {
+      "text": "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+      "passed": false,
+      "evidence": "Repositories Queried is absent. The visible BIPM/IUPAC/ISO search does not repair the missing required section."
+    },
+    {
+      "text": "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+      "passed": false,
+      "evidence": "Verified Sources is absent, while the final cites IUPAC and BIPM deep links. Neither exact URL appears in a completed transcript event."
+    },
+    {
+      "text": "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+      "passed": false,
+      "evidence": "Verified Sources is absent. In addition, independent retrieval of the cited IUPAC destination returned HTTP 403; only the BIPM page was accessible."
+    },
+    {
+      "text": "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation.",
+      "passed": false,
+      "evidence": "The BIPM destination supports the unit and exact-constant statements, but the IUPAC destination could not be independently opened because it returned HTTP 403. The complete set of final source attributions therefore cannot pass independent semantic confirmation."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 8,
+    "total": 13,
+    "pass_rate": 0.384615,
+    "critical_passed": 1,
+    "critical_failed": 5,
+    "critical_total": 6,
+    "all_expectations_passed": false,
+    "critical_gate_passed": false
+  },
+  "source_verification": {
+    "trace_schema_limitation": "The only completed web event is a topical search and does not name either final destination.",
+    "destinations": [
+      {
+        "url": "https://goldbook.iupac.org/terms/view/E01923",
+        "role": "definition and synonym",
+        "completed_url_specific_action": false,
+        "independently_reachable": false,
+        "semantic_role_supported": false,
+        "evidence": "Independent retrieval returned HTTP 403, so the destination was not accessible for semantic confirmation."
+      },
+      {
+        "url": "https://www.bipm.org/en/measurement-units/",
+        "role": "unit and exact constant",
+        "completed_url_specific_action": false,
+        "independently_reachable": true,
+        "semantic_role_supported": true,
+        "evidence": "The BIPM page supports the SI unit relation and exact elementary-charge value."
+      }
+    ],
+    "final_destinations": 2,
+    "trace_verified_destinations": 0,
+    "independently_reachable_destinations": 1,
+    "semantically_supported_destinations": 1,
+    "unsupported_process_claims": 0,
+    "fabricated_destinations": 0
+  },
+  "semantic_quality": {
+    "status": "not_scored",
+    "blind": false,
+    "reason": "The protocol requires arm labels to be removed before a human scores the five dimensions. No independent blinded human grade was available, and a non-blind score is not substituted."
+  },
+  "execution_metrics": {
+    "tool_calls": {"web_search": 1},
+    "total_tool_calls": 1,
+    "total_steps": 3,
+    "files_created": ["final.md"],
+    "errors_encountered": 0,
+    "output_chars": 3303,
+    "transcript_chars": 4686,
+    "completed_url_specific_actions": 0
+  },
+  "usage": {
+    "input_tokens": 41060,
+    "cached_input_tokens": 26112,
+    "output_tokens": 1277,
+    "reasoning_output_tokens": 422,
+    "total_tokens": 42337
+  },
+  "timing": {
+    "duration_ms": 43206,
+    "total_duration_seconds": 43.206,
+    "executor_start": "2026-08-24T14:16:12.846Z",
+    "executor_end": "2026-08-24T14:16:56.053Z"
+  }
+}

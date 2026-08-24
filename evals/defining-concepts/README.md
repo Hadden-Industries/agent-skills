@@ -22,26 +22,37 @@ does not by itself support a measured-improvement claim.
 
 ## Evaluation status
 
-**Calibration run completed; revised suite not yet run.** On 2026-08-24, one
-matched repetition of cases 1, 4, 7, and 8 was run with and without the skill
-on one requested Codex model. The run was used only to find grading and runner
-defects. It is not a performance estimate, contains no variance evidence, and
-does not establish that the revised expectations pass. Cases 2, 3, 5, and 6
-remain held out and unrun.
+**Calibration and revised regression completed; candidate not accepted.** On
+2026-08-24, one matched repetition of cases 1, 4, 7, and 8 was first used to
+find grading and runner defects. After the expectations were frozen and the
+skill's source-evidence workflow was revised, the same four development cases
+were run once more with and without the working-tree candidate on one requested
+Codex model. Neither run set is a performance estimate; each has only one
+repetition per arm, no repetition-based variance, and no provider-confirmed
+actual model identifier. Cases 2, 3, 5, and 6 remain held out and unrun.
 
-The calibration showed that bundled source assertions obscured three different
-questions: whether the executor performed a URL-specific action, whether the
-URL was independently reachable, and whether its content supported the stated
-semantic role. It also showed that Codex JSONL can omit returned page content
-and the actual model identifier. The revised protocol below grades those facts
-separately and labels unavailable provider evidence explicitly.
+The initial calibration showed that bundled source assertions obscured three
+different questions: whether the executor performed a URL-specific action,
+whether the URL was independently reachable, and whether its content supported
+the stated semantic role. It also showed that Codex JSONL can omit returned
+page content and the actual model identifier. The revised protocol below grades
+those facts separately and labels unavailable provider evidence explicitly.
+
+The revised regression passed 42 of 49 atomic treatment expectations, used the
+required five-section format in all four treatment runs, and retained 10 final
+destinations that all passed independent reachability and semantic checks. It
+nevertheless failed the critical gate in every treatment case: only two of the
+10 exact final URLs were visibly named by completed URL-specific events in the
+retained trace. Empty-query web events are not credited as exact-URL evidence.
+The working-tree candidate therefore does not pass the acceptance rules.
 
 Raw model outputs are retained under the timestamped maintainer-only result
-bundle at `results/2026-08-24T092645.127Z/`. Any reported run must record the
-exact skill revision, requested and provider-confirmed model identifiers, host,
-CLI and web tool versions, run date, randomization seed, repetitions, raw
-outputs, transcripts, usage reports, grades, and failed launches. Never replace
-a failed run silently.
+bundles at `results/2026-08-24T092645.127Z/` and
+`results/2026-08-24T141214.748Z/`. Any reported run must record the exact skill
+revision, requested and provider-confirmed model identifiers, host, CLI and web
+tool versions, run date, randomization seed, repetitions, raw outputs,
+transcripts, usage reports, grades, and failed launches. Never replace a failed
+run silently.
 
 ## What each file measures
 
@@ -426,10 +437,12 @@ system-prompt addition and Codex developer instructions. Historical pilot
 records remain schema version 1 and retain their original
 `system_prompt_bytes` and `system_prompt_sha256` field names.
 
-The `.generated` infix marks output from the generic aggregation tool. For the
-2026-08-24 pilot, that aggregate contains known repetition and token-accounting
-errors; `manifest.json`, individual `run.json` files, and `timing.json` files
-remain authoritative. Invalid service or launcher attempts stay under
+The `.generated` infix marks derived aggregation output. The initial
+`2026-08-24T092645.127Z` aggregate came from the generic aggregation tool and
+contains known repetition and token-accounting errors; its `manifest.json`,
+individual `run.json` files, and `timing.json` files remain authoritative. The
+`2026-08-24T141214.748Z` aggregate uses the retained one-repetition metadata and
+raw timing token totals. Invalid service or launcher attempts stay under
 `invalid-attempts/` and never enter the successful run count.
 
 ## Trigger protocol
@@ -518,6 +531,7 @@ deterministic contract.
   multilingual terminology quality.
 - Eight cases cannot cover every domain, category error, or source-failure
   mode.
-- The 2026-08-24 single-repetition calibration covered only cases 1, 4, 7, and
-  8 on one requested model. It supports rubric and runner refinement only; no
-  trigger study or comparative performance study has been completed.
+- The two 2026-08-24 single-repetition run sets covered only cases 1, 4, 7, and
+  8 on one requested model. They support rubric, runner, and candidate
+  regression diagnosis only; no trigger study or comparative performance study
+  has been completed.

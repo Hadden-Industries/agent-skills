@@ -1,0 +1,20 @@
+{
+  "id": 4,
+  "prompt": "Standardize the designation \"Identity Verification Outcome\". Starter definition: \"A process that checks a person's evidence and returns Pass, Fail, or Inconclusive.\" Notes: the concept records the result reached by an identity-verification process; the value labels belong to a separate value domain.",
+  "expected_output": "A five-section artifact that corrects the starter's process-result category error and defines an outcome or result reached by identity verification without embedding the result-code list.",
+  "files": [],
+  "expectations": [
+    "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+    "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+    "The reuse decision states whether a source definition is reused, adapted, or insufficient and cites candidate source content whose attributed role is confirmed by an independent source check.",
+    "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+    "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+    "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+    "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+    "The compliance audit identifies and explains the corrected process-result category error.",
+    "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
+    "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
+    "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
+    "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+  ]
+}
