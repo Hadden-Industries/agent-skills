@@ -3,37 +3,63 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  validateChecksArtifact,
+  validateCheckEvidence,
   validatePublicationArtifact,
   validateVerificationArtifact,
 } from "../../src/committing-to-git/report/commitReport.js";
 
-test("check artifacts use exact result and execution-context vocabularies", () => {
+test("check evidence requires helper-witnessed argv, context, result, and authorization facts", () => {
+  const output = {
+    stdout: {
+      totalByteCount: 0,
+      sha256: "0".repeat(64),
+      truncated: false,
+    },
+    stderr: {
+      totalByteCount: 0,
+      sha256: "0".repeat(64),
+      truncated: false,
+    },
+  };
+  const receipt = {
+    receiptId: "C000001",
+    label: "Focused Node tests",
+    command: { executable: "npm", arguments: ["test"] },
+    context: {
+      kind: "current-worktree",
+      repositoryRelativeWorkingDirectory: ".",
+    },
+    outcome: "passed",
+    exitCode: 0,
+    signal: null,
+    durationMilliseconds: 125,
+    selectedScopeStable: true,
+    failureAcknowledged: null,
+    output,
+  };
+
   assert.doesNotThrow(() =>
-    validateChecksArtifact({
-      schemaVersion: 1,
-      checks: [
-        {
-          label: "Focused Node tests",
-          status: "passed",
-          context: "current working tree",
-        },
-      ],
+    validateCheckEvidence({
+      schemaVersion: 2,
+      attemptCount: 1,
+      receipts: [receipt],
     }),
   );
   assert.throws(
     () =>
-      validateChecksArtifact({
-        schemaVersion: 1,
-        checks: [
+      validateCheckEvidence({
+        schemaVersion: 2,
+        attemptCount: 1,
+        receipts: [
           {
-            label: "Focused Node tests",
-            status: "probably passed",
-            context: "somewhere",
+            ...receipt,
+            outcome: "failed",
+            exitCode: 7,
+            failureAcknowledged: null,
           },
         ],
       }),
-    /status|context/u,
+    /result.*authorization/iu,
   );
 });
 

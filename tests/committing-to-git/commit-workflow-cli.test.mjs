@@ -95,6 +95,8 @@ test("unified workflow help exposes only the proportional command groups", () =>
   assert.match(result.stdout, /workflow resume/u);
   assert.match(result.stdout, /workflow extend/u);
   assert.match(result.stdout, /workflow promote/u);
+  assert.match(result.stdout, /workflow check/u);
+  assert.match(result.stdout, /workflow check-detail/u);
   assert.match(result.stdout, /workflow commit/u);
   assert.match(result.stdout, /workflow verify/u);
   assert.match(result.stdout, /workflow report-detail/u);
@@ -175,7 +177,7 @@ test("canonical guidance requires capitalized descriptions before approval", () 
   assert.match(skill, /capitalization-only second approval/iu);
 });
 
-test("canonical skill routes exceptions to the five focused references", () => {
+test("canonical skill routes exceptions to the six focused references", () => {
   const source = readFileSync(CANONICAL_SKILL, "utf8");
   const expected = [
     "inspection-recovery.md",
@@ -183,6 +185,7 @@ test("canonical skill routes exceptions to the five focused references", () => {
     "signature-recovery.md",
     "publication-recovery.md",
     "message-format.md",
+    "check-evidence.md",
   ];
 
   for (const reference of expected) {

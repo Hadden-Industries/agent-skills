@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   parsePrepareArguments,
+  preflightVerificationPolicy,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
 import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
@@ -73,7 +74,8 @@ test("draft promotion completes trust preflight before real staging", async (t) 
               configured: true,
               origin: "file:C:/Users/example/.gitconfig",
               path: "G:/keys/allowed_signers",
-              readable: false,
+              state: "permission-denied",
+              errorCode: "EACCES",
             },
           };
         },
@@ -100,7 +102,8 @@ test("draft promotion completes trust preflight before real staging", async (t) 
           configured: true,
           origin: "file:.git/config",
           path: "G:/keys/unavailable",
-          readable: false,
+          state: "permission-denied",
+          errorCode: "EACCES",
         },
       };
     },
@@ -111,8 +114,8 @@ test("draft promotion completes trust preflight before real staging", async (t) 
   assert.equal(advisoryTransaction.mode, "actual");
   assert.equal(advisoryTransaction.signaturePreflight.backend, "ssh");
   assert.equal(
-    advisoryTransaction.signaturePreflight.trustSource.readable,
-    false,
+    advisoryTransaction.signaturePreflight.trustSource.state,
+    "permission-denied",
   );
 });
 
@@ -304,9 +307,9 @@ test("SSH preflight preserves config origin and probes the configured path once"
         stderr: Buffer.alloc(0),
       };
     },
-    probeReadable(path) {
+    probeTrustSource(path) {
       probed.push(path);
-      return true;
+      return { state: "readable", errorCode: null };
     },
   });
 
@@ -316,41 +319,162 @@ test("SSH preflight preserves config origin and probes the configured path once"
       configured: true,
       origin: "file:C:/Users/example/.gitconfig",
       path: "G:/keys/allowed_signers",
-      readable: true,
+      state: "readable",
+      errorCode: null,
     },
   });
   assert.deepEqual(probed, ["G:/keys/allowed_signers"]);
 });
 
-test("SSH preflight records missing and unreadable trust stores without replacing them", async () => {
+test("SSH preflight distinguishes trust-source failures without replacing the configured path", async () => {
   const { inspectSignatureRequirements } = await import(
     pathToFileURL(PREFLIGHT_MODULE)
   );
-  const result = inspectSignatureRequirements("C:/repo", {
-    runConfig(args) {
-      if (args.includes("gpg.format")) {
+  const cases = [
+    ["not-found", "ENOENT"],
+    ["permission-denied", "EACCES"],
+    ["invalid-file-type", null],
+    ["probe-error", "EIO"],
+  ];
+
+  for (const [state, errorCode] of cases) {
+    const result = inspectSignatureRequirements("C:/repo", {
+      runConfig(args) {
+        if (args.includes("gpg.format")) {
+          return {
+            status: 0,
+            stdout: Buffer.from("ssh\n"),
+            stderr: Buffer.alloc(0),
+          };
+        }
+
         return {
           status: 0,
-          stdout: Buffer.from("ssh\n"),
+          stdout: Buffer.from(
+            "file:.git/config\tC:/configured/allowed_signers\n",
+          ),
           stderr: Buffer.alloc(0),
         };
-      }
+      },
+      probeTrustSource(path) {
+        assert.equal(path, "C:/configured/allowed_signers");
+        return { state, errorCode };
+      },
+    });
 
-      return {
-        status: 0,
-        stdout: Buffer.from("file:.git/config\tC:/missing/allowed_signers\n"),
-        stderr: Buffer.alloc(0),
-      };
+    assert.deepEqual(result, {
+      backend: "ssh",
+      trustSource: {
+        configured: true,
+        origin: "file:.git/config",
+        path: "C:/configured/allowed_signers",
+        state,
+        errorCode,
+      },
+    });
+  }
+});
+
+test("SSH preflight classifies an absent allowed-signers setting", async () => {
+  const { inspectSignatureRequirements } = await import(
+    pathToFileURL(PREFLIGHT_MODULE)
+  );
+  let probes = 0;
+  const result = inspectSignatureRequirements("C:/repo", {
+    runConfig(args) {
+      return args.includes("gpg.format")
+        ? {
+            status: 0,
+            stdout: Buffer.from("ssh\n"),
+            stderr: Buffer.alloc(0),
+          }
+        : { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
     },
-    probeReadable() {
-      return false;
+    probeTrustSource() {
+      probes += 1;
+      return { state: "readable", errorCode: null };
     },
   });
 
-  assert.equal(result.backend, "ssh");
-  assert.equal(result.trustSource.configured, true);
-  assert.equal(result.trustSource.readable, false);
-  assert.equal(result.trustSource.path, "C:/missing/allowed_signers");
+  assert.deepEqual(result, {
+    backend: "ssh",
+    trustSource: {
+      configured: false,
+      origin: null,
+      path: null,
+      state: "not-configured",
+      errorCode: null,
+    },
+  });
+  assert.equal(probes, 0);
+});
+
+test("required trust preflight requests file access only for permission denial", () => {
+  assert.throws(
+    () =>
+      preflightVerificationPolicy({
+        root: "C:/repo",
+        verificationPolicy: "required",
+        signaturePreflightInspector() {
+          return {
+            backend: "ssh",
+            trustSource: {
+              configured: true,
+              origin: "file:C:/Users/example/.gitconfig",
+              path: "G:/keys/allowed_signers",
+              state: "permission-denied",
+              errorCode: "EACCES",
+            },
+          };
+        },
+      }),
+    (error) => {
+      assert.equal(error.code, "SIGNATURE_TRUST_ACCESS_REQUIRED");
+      assert.deepEqual(error.details.action, {
+        kind: "request-read-capability",
+        capability: {
+          kind: "read-file",
+          path: "G:/keys/allowed_signers",
+          origin: "file:C:/Users/example/.gitconfig",
+        },
+      });
+      assert.equal(error.details.trustSource.state, "permission-denied");
+      return true;
+    },
+  );
+});
+
+test("required trust preflight routes missing paths to configuration repair", () => {
+  assert.throws(
+    () =>
+      preflightVerificationPolicy({
+        root: "C:/repo",
+        verificationPolicy: "required",
+        signaturePreflightInspector() {
+          return {
+            backend: "ssh",
+            trustSource: {
+              configured: true,
+              origin: "file:C:/Users/example/.gitconfig",
+              path: "G:/missing/allowed_signers",
+              state: "not-found",
+              errorCode: "ENOENT",
+            },
+          };
+        },
+      }),
+    (error) => {
+      assert.equal(error.code, "SIGNATURE_TRUST_ACCESS_REQUIRED");
+      assert.deepEqual(error.details.action, {
+        kind: "repair-configuration",
+        configKey: "gpg.ssh.allowedSignersFile",
+        origin: "file:C:/Users/example/.gitconfig",
+        path: "G:/missing/allowed_signers",
+      });
+      assert.equal("capability" in error.details, false);
+      return true;
+    },
+  );
 });
 
 test("OpenPGP preflight does not query or probe an SSH trust path", async () => {
@@ -368,9 +492,9 @@ test("OpenPGP preflight does not query or probe an SSH trust path", async () => 
         stderr: Buffer.alloc(0),
       };
     },
-    probeReadable() {
+    probeTrustSource() {
       probes += 1;
-      return false;
+      return { state: "permission-denied", errorCode: "EACCES" };
     },
   });
 

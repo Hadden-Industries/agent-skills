@@ -913,6 +913,87 @@ export function indexMatchesTree(root, treeOid, env) {
   throw new GitCommandError(args, result);
 }
 
+export function selectedWorktreeMatchesPreparedTree({
+  root,
+  manifest,
+  now = () => new Date().toISOString(),
+}) {
+  if (
+    manifest === null ||
+    typeof manifest !== "object" ||
+    Array.isArray(manifest) ||
+    !FULL_OBJECT_ID.test(manifest.indexTreeOid) ||
+    !Array.isArray(manifest.changeUnits)
+  ) {
+    throw new Error(
+      "Selected-worktree comparison requires a validated snapshot manifest.",
+    );
+  }
+
+  const paths = [];
+
+  for (const change of manifest.changeUnits) {
+    if (
+      change === null ||
+      typeof change !== "object" ||
+      Array.isArray(change) ||
+      (change.sourcePath !== null && typeof change.sourcePath !== "string") ||
+      typeof change.destinationPath !== "string"
+    ) {
+      throw new Error(
+        "Selected-worktree comparison found an invalid change-unit path.",
+      );
+    }
+
+    if (change.sourcePath !== null) {
+      paths.push(change.sourcePath);
+    }
+
+    paths.push(change.destinationPath);
+  }
+
+  const uniquePaths = [...new Set(paths)].sort((left, right) =>
+    Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
+  );
+  const observedAt = now();
+
+  if (
+    typeof observedAt !== "string" ||
+    !Number.isFinite(Date.parse(observedAt))
+  ) {
+    throw new Error("Selected-worktree observation time is invalid.");
+  }
+
+  if (uniquePaths.length === 0) {
+    return { matches: true, pathCount: 0, observedAt };
+  }
+
+  // Compare only manifest-derived literal paths. Unrelated workspace changes
+  // remain outside the prepared commit and must neither invalidate the check
+  // receipt nor be silently described as part of its tested subject.
+  const args = [
+    "--quiet",
+    "--no-renames",
+    "--ignore-submodules=none",
+    manifest.indexTreeOid,
+    "--",
+    ...uniquePaths,
+  ];
+  const result = runReadOnlyGit(root, "diff-paths", args, {
+    allowFailure: true,
+  });
+
+  if (!new Set([0, 1]).has(result.status)) {
+    throw new GitCommandError(["diff", ...args], result);
+  }
+
+  return {
+    matches: result.status === 0,
+    pathCount: uniquePaths.length,
+    observedAt,
+  };
+}
+
 const OPERATION_MARKERS = [
   ["merge", "MERGE_HEAD"],
   ["cherry-pick", "CHERRY_PICK_HEAD"],

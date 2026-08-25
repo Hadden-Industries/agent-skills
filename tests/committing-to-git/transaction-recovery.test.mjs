@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -29,6 +28,8 @@ import {
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
 import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
+import { recoverTransactionWorkflow } from "../../src/committing-to-git/workflow/recoverTransactionWorkflow.js";
+import { runCheckWorkflow } from "../../src/committing-to-git/workflow/runCheckWorkflow.js";
 
 import {
   commitAll,
@@ -97,6 +98,184 @@ async function createLaunchingUnknown(fixture) {
   });
   return prepared.transaction;
 }
+
+function appendInterruptedCheck(
+  transactionPath,
+  { launchState = "launching", childIdentity = null } = {},
+) {
+  const transaction = readTransaction(transactionPath);
+  const observedAt = "2026-08-25T12:00:00.000Z";
+  const attempt = {
+    schemaVersion: 1,
+    receiptId: "C000001",
+    retryOf: null,
+    label: "Interrupted repository check",
+    command: { executable: "npm", arguments: ["run", "verify"] },
+    context: {
+      kind: "current-worktree",
+      repositoryRelativeWorkingDirectory: ".",
+    },
+    subject: {
+      manifestSha256: transaction.snapshot.sha256,
+      headAnchor: transaction.headAnchor,
+      preparedTreeOid: transaction.snapshot.indexTreeOid,
+    },
+    launchState,
+    childIdentity,
+    startedAt: observedAt,
+    completion: null,
+    workspace: {
+      before: { matches: true, pathCount: 1, observedAt },
+      after: null,
+    },
+    output: null,
+    resolution: null,
+  };
+
+  updateTransaction(transactionPath, transaction.phase, {
+    ...transaction,
+    checkAttempts: [...transaction.checkAttempts, attempt],
+  });
+}
+
+test("check recovery reports an unresolved launching attempt without replaying it", async (t) => {
+  const fixture = createRepositoryFixture(t, "check-recovery-launching-");
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "prepared\n");
+  const prepared = await prepareConcise(fixture);
+
+  appendInterruptedCheck(prepared.transaction);
+  const result = await recoverTransactionWorkflow({
+    transactionPath: prepared.transaction,
+  });
+  const attempt = readTransaction(prepared.transaction).checkAttempts[0];
+
+  assert.equal(result.status, "check-outcome-unknown");
+  assert.equal(result.code, "CHECK_OUTCOME_UNKNOWN");
+  assert.equal(result.recoveryRequired, true);
+  assert.equal(result.exitCode, 4);
+  assert.equal(attempt.launchState, "launching");
+  assert.equal(attempt.completion, null);
+});
+
+test("confirmed check recovery requires a directly linked retry", async (t) => {
+  const fixture = createRepositoryFixture(t, "check-recovery-retry-");
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "prepared\n");
+  const prepared = await prepareConcise(fixture);
+
+  appendInterruptedCheck(prepared.transaction);
+  const recovered = await recoverTransactionWorkflow({
+    transactionPath: prepared.transaction,
+    resolution: "confirmed-no-live-child",
+    checkProcessInspector: {
+      exists: () => false,
+      startIdentity: () => null,
+    },
+    checkIndexLockInspector: () => false,
+    now: () => "2026-08-25T12:05:00.000Z",
+  });
+  const resolved = readTransaction(prepared.transaction).checkAttempts[0];
+
+  assert.equal(recovered.status, "check-recovery-resolved");
+  assert.equal(recovered.code, "CHECK_RETRY_REQUIRED");
+  assert.equal(recovered.recoveryRequired, false);
+  assert.equal(resolved.launchState, "completed");
+  assert.equal(resolved.completion.outcome, "unknown");
+  assert.deepEqual(resolved.resolution, {
+    kind: "confirmed-no-live-child",
+    resolvedAt: "2026-08-25T12:05:00.000Z",
+  });
+
+  await assert.rejects(
+    runCheckWorkflow({
+      transactionPath: prepared.transaction,
+      label: "Retry repository check",
+      command: { executable: process.execPath, arguments: ["-e", ""] },
+      diagnosticWriter: { write() {} },
+    }),
+    (error) => error.code === "CHECK_RETRY_LINK_REQUIRED",
+  );
+
+  const retried = await runCheckWorkflow({
+    transactionPath: prepared.transaction,
+    label: "Retry repository check",
+    command: { executable: process.execPath, arguments: ["-e", ""] },
+    retryAfterAttempt: "C000001",
+    diagnosticWriter: { write() {} },
+  });
+  const attempts = readTransaction(prepared.transaction).checkAttempts;
+
+  assert.equal(retried.status, "check-passed");
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[1].retryOf, "C000001");
+  assert.equal(attempts[1].completion.outcome, "passed");
+});
+
+test("check recovery refuses confirmation while the recorded child is live", async (t) => {
+  const fixture = createRepositoryFixture(t, "check-recovery-live-child-");
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "prepared\n");
+  const prepared = await prepareConcise(fixture);
+
+  appendInterruptedCheck(prepared.transaction, {
+    launchState: "running",
+    childIdentity: { pid: 4242, startIdentity: "fixture-start" },
+  });
+
+  await assert.rejects(
+    recoverTransactionWorkflow({
+      transactionPath: prepared.transaction,
+      resolution: "confirmed-no-live-child",
+      checkProcessInspector: {
+        exists: () => true,
+        startIdentity: () => "fixture-start",
+      },
+      checkIndexLockInspector: () => false,
+    }),
+    (error) => error.code === "CHECK_CHILD_STILL_LIVE",
+  );
+  assert.equal(
+    readTransaction(prepared.transaction).checkAttempts[0].launchState,
+    "running",
+  );
+});
+
+test("commit creation blocks both active and resolved-but-unretried check outcomes", async (t) => {
+  const fixture = createRepositoryFixture(t, "check-recovery-commit-block-");
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "prepared\n");
+  const prepared = await prepareConcise(fixture);
+  const { createCommitWorkflow } =
+    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+
+  appendInterruptedCheck(prepared.transaction);
+  await assert.rejects(
+    createCommitWorkflow({
+      transactionPath: prepared.transaction,
+      approvedSubject: "test(checks): Block unresolved evidence",
+    }),
+    (error) => error.code === "CHECK_RECOVERY_REQUIRED" && error.exitCode === 4,
+  );
+
+  await recoverTransactionWorkflow({
+    transactionPath: prepared.transaction,
+    resolution: "confirmed-no-live-child",
+    checkProcessInspector: {
+      exists: () => false,
+      startIdentity: () => null,
+    },
+    checkIndexLockInspector: () => false,
+  });
+  await assert.rejects(
+    createCommitWorkflow({
+      transactionPath: prepared.transaction,
+      approvedSubject: "test(checks): Block unresolved evidence",
+    }),
+    (error) => error.code === "CHECK_RETRY_REQUIRED" && error.exitCode === 1,
+  );
+  assert.equal(readTransaction(prepared.transaction).commit, null);
+});
 
 for (const [failurePoint, recoveryStatus] of [
   ["after-pending-journal", "not-installed"],
@@ -204,7 +383,8 @@ test("advisory preflight records an unreadable trust store while draft defers it
       configured: true,
       origin: "file:.git/config",
       path: missingTrustStore,
-      readable: false,
+      state: "not-found",
+      errorCode: "ENOENT",
     },
   });
 
@@ -248,7 +428,8 @@ test("a required commit-policy override preflights trust before message or Git m
             configured: true,
             origin: "file:C:/Users/example/.gitconfig",
             path: "G:/keys/allowed_signers",
-            readable: false,
+            state: "permission-denied",
+            errorCode: "EACCES",
           },
         };
       },
@@ -268,7 +449,10 @@ test("a required commit-policy override preflights trust before message or Git m
   assert.equal(transaction.message, null);
   assert.equal(transaction.commit, null);
   assert.equal(transaction.signaturePreflight.backend, "ssh");
-  assert.equal(transaction.signaturePreflight.trustSource.readable, false);
+  assert.equal(
+    transaction.signaturePreflight.trustSource.state,
+    "permission-denied",
+  );
 });
 
 function rawCommitMessage(repo, oid) {
@@ -664,8 +848,8 @@ test("hook-produced message bytes are reported exactly without normalization", a
   );
 });
 
-test("checks input is copied once into the journal and remains caller-owned", async (t) => {
-  const fixture = createRepositoryFixture(t, "commit-checks-input-");
+test("commit reporting consumes only helper-witnessed transaction receipts", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-witnessed-check-");
   writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
   commitAll(fixture.repo);
 
@@ -674,76 +858,110 @@ test("checks input is copied once into the journal and remains caller-owned", as
   }
 
   writeRepositoryFile(fixture.repo, "feature.txt", "checked\n");
-  const checksPath = join(fixture.scratch, "checks.json");
-  const checks = {
-    schemaVersion: 1,
-    checks: [
-      {
-        label: "Focused tests",
-        status: "passed",
-        context: "approved staged snapshot",
-      },
-    ],
-  };
-
-  writeFileSync(checksPath, `${JSON.stringify(checks)}\n`);
   const prepared = await prepareConcise(fixture);
   const { createCommitWorkflow } =
     await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+  const witnessed = await runCheckWorkflow({
+    transactionPath: prepared.transaction,
+    label: "Focused tests",
+    command: {
+      executable: process.execPath,
+      arguments: ["-e", "process.stdout.write('retained-success')"],
+    },
+    diagnosticWriter: { write() {} },
+  });
+  const retainedOutputPath = readTransaction(prepared.transaction)
+    .checkAttempts[0].output.stdout.headPath;
   const result = await createCommitWorkflow({
     transactionPath: prepared.transaction,
-    approvedSubject: "test(core): Record approved checks",
-    checksPath,
+    approvedSubject: "test(core): Record witnessed checks",
+  });
+
+  assert.equal(witnessed.status, "check-passed");
+  assert.equal(result.exitCode, 0, JSON.stringify(result));
+  assert.equal(result.report.schemaVersion, 2);
+  assert.equal(result.report.checks.schemaVersion, 2);
+  assert.equal(result.report.checks.attemptCount, 1);
+  assert.equal(result.report.checks.receipts.length, 1);
+  assert.deepEqual(result.report.checks.receipts[0].command, {
+    executable: process.execPath,
+    arguments: ["-e", "process.stdout.write('retained-success')"],
+  });
+  assert.equal(result.report.checks.receipts[0].outcome, "passed");
+  assert.equal(result.report.checks.receipts[0].failureAcknowledged, null);
+  assert.deepEqual(
+    readTransaction(prepared.transaction).commit.acknowledgedFailedCheckIds,
+    [],
+  );
+  assert.equal(existsSync(retainedOutputPath), false);
+});
+
+test("commit requires exact authorization for every witnessed non-passing receipt", async (t) => {
+  const fixture = createRepositoryFixture(t, "commit-failed-check-approval-");
+
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+
+  if (!configureSshSigning(t, fixture)) {
+    return;
+  }
+
+  writeRepositoryFile(fixture.repo, "feature.txt", "checked\n");
+  const prepared = await prepareConcise(fixture);
+  const { CommitWorkflowError, createCommitWorkflow } =
+    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+  const witnessed = await runCheckWorkflow({
+    transactionPath: prepared.transaction,
+    label: "Focused tests",
+    command: {
+      executable: process.execPath,
+      arguments: [
+        "-e",
+        "process.stderr.write('failed-output'); process.exit(7)",
+      ],
+    },
+    diagnosticWriter: { write() {} },
+  });
+  const retainedOutputPath = readTransaction(prepared.transaction)
+    .checkAttempts[0].output.stderr.headPath;
+
+  assert.equal(witnessed.receipt.receiptId, "C000001");
+  await assert.rejects(
+    createCommitWorkflow({
+      transactionPath: prepared.transaction,
+      approvedSubject: "test(core): Authorize failed witnessed check",
+    }),
+    (error) =>
+      error instanceof CommitWorkflowError &&
+      error.code === "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED" &&
+      error.details.receiptIds[0] === "C000001",
+  );
+  assert.equal(existsSync(retainedOutputPath), true);
+  await assert.rejects(
+    createCommitWorkflow({
+      transactionPath: prepared.transaction,
+      approvedSubject: "test(core): Authorize failed witnessed check",
+      acknowledgedFailedCheckIds: ["C000002"],
+    }),
+    (error) =>
+      error instanceof CommitWorkflowError &&
+      error.code === "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
+  );
+
+  const result = await createCommitWorkflow({
+    transactionPath: prepared.transaction,
+    approvedSubject: "test(core): Authorize failed witnessed check",
+    acknowledgedFailedCheckIds: ["C000001"],
   });
 
   assert.equal(result.exitCode, 0, JSON.stringify(result));
-  assert.deepEqual(result.report.checks, checks);
-  assert.equal(existsSync(checksPath), true);
-  assert.deepEqual(
-    readTransaction(prepared.transaction).commit.checks.value,
-    checks,
+  assert.equal(result.report.checks.receipts[0].outcome, "failed");
+  assert.equal(result.report.checks.receipts[0].failureAcknowledged, true);
+  assert.match(
+    result.displayText,
+    /Failure authorization: acknowledged with the exact commit approval/u,
   );
-});
-
-test("checks input rejects path replacement and the 1 MiB boundary without taking ownership", async (t) => {
-  const fixture = createRepositoryFixture(t, "commit-checks-race-");
-  const checksPath = join(fixture.scratch, "checks.json");
-  const openedPath = join(fixture.scratch, "opened-checks.json");
-  const valid = `${JSON.stringify({ schemaVersion: 1, checks: [] })}\n`;
-
-  writeFileSync(checksPath, valid);
-  const {
-    CommitWorkflowError,
-    MAXIMUM_CHECKS_INPUT_BYTES,
-    readChecksArtifact,
-  } =
-    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
-
-  assert.throws(
-    () =>
-      readChecksArtifact(checksPath, {
-        afterOpen() {
-          renameSync(checksPath, openedPath);
-          writeFileSync(checksPath, valid);
-        },
-      }),
-    (error) =>
-      error instanceof CommitWorkflowError &&
-      error.code === "CHECKS_INPUT_CHANGED",
-  );
-  assert.equal(existsSync(checksPath), true);
-  assert.equal(existsSync(openedPath), true);
-
-  const oversized = join(fixture.scratch, "oversized-checks.json");
-
-  writeFileSync(oversized, Buffer.alloc(MAXIMUM_CHECKS_INPUT_BYTES + 1, 0x20));
-  assert.throws(
-    () => readChecksArtifact(oversized),
-    (error) =>
-      error instanceof CommitWorkflowError &&
-      error.code === "CHECKS_INPUT_TOO_LARGE",
-  );
-  assert.equal(existsSync(oversized), true);
+  assert.equal(existsSync(retainedOutputPath), false);
 });
 
 test("verification retry appends history for the recorded OID without recreating or repeating statistics", async (t) => {

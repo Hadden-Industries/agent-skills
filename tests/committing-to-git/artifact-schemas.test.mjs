@@ -16,7 +16,7 @@ function schema(name) {
 
 test("transaction and scope schemas expose the strict preparation contracts", () => {
   const transaction = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase: "allocated",
     repositoryRoot: "C:/repo",
     attemptDirectory:
@@ -38,6 +38,7 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
     commit: null,
     verification: null,
     report: null,
+    checkAttempts: [],
     publicationAttempts: [],
   };
   const scope = {
@@ -143,11 +144,7 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
       expectedTreeOid: "2".repeat(40),
       messageSha256: "a".repeat(64),
       messageByteCount: 40,
-      checks: {
-        value: { schemaVersion: 1, checks: [] },
-        sha256: "b".repeat(64),
-        externalPath: null,
-      },
+      acknowledgedFailedCheckIds: [],
       startedAt: "2026-08-23T12:00:00.000Z",
       completion: null,
       transcript: null,
@@ -345,7 +342,7 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     blocksPush: false,
   };
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     headAnchor: {
       headKind: "attached",
       targetRef: "refs/heads/main",
@@ -390,7 +387,7 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
       kinds: { modified: 1 },
     },
     verification,
-    checks: { schemaVersion: 1, checks: [] },
+    checks: { schemaVersion: 2, attemptCount: 0, receipts: [] },
     publication: { status: "not-requested" },
     workspace: {
       observedAt: "2026-08-23T12:02:00.000Z",

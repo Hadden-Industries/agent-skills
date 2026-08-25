@@ -30,6 +30,20 @@ const COMMANDS = new Map([
     ],
   ],
   [
+    "workflow check",
+    [
+      () => import("../workflow/runCheckWorkflow.js"),
+      "runCheckWorkflowCommand",
+    ],
+  ],
+  [
+    "workflow check-detail",
+    [
+      () => import("../workflow/checkDetailWorkflow.js"),
+      "runCheckDetailCommand",
+    ],
+  ],
+  [
     "workflow commit",
     [
       () => import("../workflow/createCommitWorkflow.js"),
@@ -143,12 +157,39 @@ transaction. Newly required evidence returns as a bounded delta queue.
 `,
   ],
   [
+    "workflow check",
+    `Usage: commitWorkflow.mjs workflow check --transaction <transaction.json> [--label <description>] [--working-directory <repository-relative-directory>] [--timeout-ms <milliseconds>] [--retry-after-attempt <receipt-id>] [--format <json|text>] -- <executable> [arguments...]
+
+Runs one executable directly, without a shell, in the current worktree. The
+helper records the actual child outcome, bounded output evidence, and selected
+scope stability in the transaction. Success output remains private; bounded
+diagnostics are shown only when the check does not pass.
+
+Exit status:
+  0  The child passed and the selected scope remained stable.
+  1  The child did not pass or the selected scope changed.
+  2  Input, policy, capability, or pre-launch execution failure.
+  4  The child outcome is unknown and requires recovery.
+`,
+  ],
+  [
+    "workflow check-detail",
+    `Usage: commitWorkflow.mjs workflow check-detail --transaction <transaction.json> --receipt <receipt-id> --stream <stdout|stderr> --segment <head|tail> [--offset <bytes>] [--format <json|text>]
+
+Returns one bounded page from a retained helper-owned check-output segment.
+The command accepts no arbitrary path and verifies the segment's recorded size
+and digest before returning UTF-8 or base64 content.
+`,
+  ],
+  [
     "workflow commit",
-    `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--checks <checks.json>] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
+    `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
 
 After exact commit authorization, creates at most one signed commit from the
-recorded tree and approved bytes, verifies the exact OID, and records one
-bounded report. An unknown outcome requires recovery and is never replayed.
+recorded tree and approved bytes, consumes only helper-witnessed check
+receipts, verifies the exact OID, and records one bounded report. Every
+non-passing receipt requires exact acknowledgement. An unknown outcome
+requires recovery and is never replayed.
 
 Exit status:
   0  Matching commit and policy-permitted report completed.
@@ -219,6 +260,8 @@ Usage:
   commitWorkflow.mjs workflow promote [options]
   commitWorkflow.mjs message check [options]
   commitWorkflow.mjs message finalize [options]
+  commitWorkflow.mjs workflow check [options] -- <executable> [arguments...]
+  commitWorkflow.mjs workflow check-detail [options]
   commitWorkflow.mjs workflow commit [options]
   commitWorkflow.mjs workflow verify [options]
   commitWorkflow.mjs workflow report-detail [options]
@@ -275,7 +318,7 @@ function unsupportedAttemptResult(args) {
   try {
     const payload = JSON.parse(readFileSync(args[index + 1], "utf8"));
 
-    if (payload?.schemaVersion !== 1) {
+    if (payload?.schemaVersion !== 2) {
       return invalidResult(
         "UNSUPPORTED_ATTEMPT_VERSION",
         `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,

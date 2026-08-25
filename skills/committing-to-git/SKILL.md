@@ -9,13 +9,13 @@ metadata:
 
 # Committing to Git
 
-Use the helper. Parse canonical JSON `status`, `phase`, `terminalDisposition`, and exit class; pass the returned opaque `transaction` path back unread. Show `displayText` verbatim. Stderr is never the result; `--format text` is human-only.
+Use the helper. Parse JSON `status`, `phase`, `terminalDisposition`, and exit class; pass the opaque `transaction` path back unread. Show `displayText` verbatim. Stderr is never the result; `--format text` is human-only.
 
-Treat the user's hint as a hypothesis. Against policy, current-task evidence, and Git facts, correct type and scope, sharpen the outcome, and add useful rationale or user-experience consequences. Do not ask for terminology or exact wording when evidence can improve the hint.
+Treat the user's hint as a hypothesis. Use policy, task evidence, and Git facts to correct type and scope, sharpen the outcome, and add useful rationale or user-experience consequences. Do not ask for wording when evidence can improve it.
 
 For a known-context concise commit with a transport-safe subject, the route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`, with no artifact access between helper calls. Drafting authorizes neither staging nor committing; commit authorization binds exact message bytes; pushing needs separate authorization.
 
-Derive exact scope from task lineage and Git state, never a semantic hint used as a glob, pathspec, prefix, or fuzzy selector. Stage the unambiguous scope; ask only when two materially different scopes remain plausible. Never autocorrect unmatched selectors.
+Derive exact scope from task lineage and Git state, never a semantic hint used as a glob, pathspec, prefix, or fuzzy selector. Stage unambiguous scope; ask only when two materially different scopes remain plausible. Never autocorrect unmatched selectors.
 
 ## Prepare
 
@@ -34,9 +34,9 @@ Use `staged` for an intentional index, including partial hunks; `full` only for 
 | `message` | The user's hint or bounded current observations are sufficient; a hint alone belongs here |
 | `review` | Content or consequential Git facts remain unknown and require packets |
 
-For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; counted bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Bounded `message` evidence is inline; packets exist only for unresolved uncertainty. A receipt binds packet identities, not proof of reading.
+For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; counted bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Bounded `message` evidence is inline; packets exist only for unresolved uncertainty.
 
-Before `workflow prepare`, account for its side effects: every mode may write Git objects; actual `full` or `paths` may install the completed index, while drafts leave staged entries unchanged. Run:
+Before `workflow prepare`, note that every mode may write Git objects; actual `full` or `paths` may install the completed index, while drafts leave the index unchanged. Run:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> --evidence <reuse|message|review> --basis <authored-current-task|read-current-task|task-lineage|user-grounded|generated-derived|unknown-preexisting> [--path <literal-path> ...] [--allowed-type <type> ...]
@@ -50,7 +50,7 @@ Concise eligibility tracks unresolved semantic uncertainty; file count never det
 
 Before presenting any subject for approval, while authoring the first proposal, apply the supported skill message policy: the description immediately after `: ` must begin with an uppercase Unicode cased letter; optional scope does not change this rule. Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`. If local validation returns `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message to the user, avoiding a capitalization-only second approval. This is an authoring defect, not a repository-specific rejection.
 
-Subject-only fits any coherent scope; add sections only for durable rationale, UX impact, or useful inventory. Apply `canUseDirectSubjectTransport()` before putting the subject in a command. Safe ASCII may go directly to `workflow commit`; multiline, Unicode, shell-active/nonportable punctuation, checked-file preference, or checked-route revision uses fixed transaction-local `message-input.txt` only, never an arbitrary path or second workspace.
+Subject-only fits any coherent scope; add sections only for durable rationale, UX impact, or useful inventory. Apply `canUseDirectSubjectTransport()` before putting the subject in a command. Safe ASCII may go directly to `workflow commit`; otherwise use fixed transaction-local `message-input.txt`, never an arbitrary path.
 
 Canonical bytes are strict UTF-8 with exactly one terminal LF. Direct `--message` means only `subject + LF`. Reject CR, C0/C1 controls, format controls, invalid UTF-8, altered normalization, or any approval whose raw bytes differ. Write the fixed input, then run:
 
@@ -58,7 +58,7 @@ Canonical bytes are strict UTF-8 with exactly one terminal LF. Direct `--message
 node <skill>/scripts/commitWorkflow.mjs message check --transaction <opaque-transaction>
 ```
 
-Success consumes the input and records the latest valid message; failure preserves prior valid state and input. Keep only the latest validation/hash and monotonic revision. Code enforces declared evidence, tree, and byte facts, not semantic equivalence.
+Success consumes the input and records the latest valid message; failure preserves prior valid state and input. Code enforces declared evidence, tree, and byte facts, not semantic equivalence.
 
 | Revision | Invalidation and route |
 | --- | --- |
@@ -77,7 +77,7 @@ node <skill>/scripts/commitWorkflow.mjs workflow extend --transaction <opaque-tr
 node <skill>/scripts/commitWorkflow.mjs message finalize --transaction <opaque-transaction>
 ```
 
-An `evidence-required` result means read only the bounded delta of new packets and invoke the same finalizer again; unchanged hash coverage survives. Shared rationale avoids repetitive diff paraphrase.
+For `evidence-required`, read only the bounded delta and invoke the same finalizer; unchanged coverage survives. Shared rationale avoids repetitive diff paraphrase.
 
 ## Promote a draft
 
@@ -89,10 +89,12 @@ node <skill>/scripts/commitWorkflow.mjs workflow promote --transaction <opaque-t
 
 ## Commit
 
-Immediately before this command, confirm explicit commit authorization for the exact displayed bytes. The helper performs one journaled signed commit transition, compares raw commit-message bytes without trimming, verifies the exact full OID under the selected policy, and records the report. Never substitute standalone `git commit`, OID lookup, signature verification, or report creation:
+Optional checks enter the report only through `workflow check` after preparation and before exact approval; never reconstruct receipts from prose or prior command output. For commands, bounded diagnostics, failure authorization, drift, detail access, and recovery, read [check evidence](references/check-evidence.md).
+
+Immediately before this command, confirm explicit commit authorization for the exact displayed bytes and every named non-passing receipt. The helper performs one journaled signed commit transition, compares raw commit-message bytes without trimming, verifies the exact full OID, and records the report. Never substitute standalone `git commit`, verification, or report creation:
 
 ```text
-node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--message <transport-safe-subject>] [--verification <required|advisory|skipped>]
+node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
 ```
 
 Hooks may change the message; preserve the known commit and report the mismatch. For trust-source failure, policy change, or backend identity limits, use [signature recovery](references/signature-recovery.md). One commit transition reduces races and duplicate retries; journals preserve unknown outcomes without replay.

@@ -46,6 +46,48 @@ function skippedVerification(commitOid = "1".repeat(40)) {
   };
 }
 
+function emptyCheckEvidence() {
+  return { schemaVersion: 2, attemptCount: 0, receipts: [] };
+}
+
+function passedCheckEvidence() {
+  const emptySha256 = createHash("sha256").update("").digest("hex");
+
+  return {
+    schemaVersion: 2,
+    attemptCount: 1,
+    receipts: [
+      {
+        receiptId: "C000001",
+        label: "unit tests",
+        command: { executable: "npm", arguments: ["test"] },
+        context: {
+          kind: "current-worktree",
+          repositoryRelativeWorkingDirectory: ".",
+        },
+        outcome: "passed",
+        exitCode: 0,
+        signal: null,
+        durationMilliseconds: 125,
+        selectedScopeStable: true,
+        failureAcknowledged: null,
+        output: {
+          stdout: {
+            totalByteCount: 0,
+            sha256: emptySha256,
+            truncated: false,
+          },
+          stderr: {
+            totalByteCount: 0,
+            sha256: emptySha256,
+            truncated: false,
+          },
+        },
+      },
+    ],
+  };
+}
+
 function syntheticStatusStream(fields, observedArguments = null) {
   const bytes = Buffer.concat(
     fields.map((field) => Buffer.concat([field, Buffer.from([0])])),
@@ -131,7 +173,7 @@ function reportWorkspace(kind = "clean") {
 function languageReport(overrides = {}) {
   const commitOid = "1".repeat(40);
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     headAnchor: {
       headKind: "attached",
       targetRef: "refs/heads/main",
@@ -176,7 +218,7 @@ function languageReport(overrides = {}) {
       kinds: { modified: 1 },
     },
     verification: skippedVerification(commitOid),
-    checks: { schemaVersion: 1, checks: [] },
+    checks: emptyCheckEvidence(),
     publication: { status: "not-requested" },
     workspace: reportWorkspace(),
   };
@@ -498,23 +540,17 @@ test("report language preserves outcome, signature, workspace, and publication d
 
   const checksText = renderCommitReport(
     languageReport({
-      checks: {
-        schemaVersion: 1,
-        checks: [
-          {
-            label: "unit tests",
-            status: "passed",
-            context: "approved staged snapshot",
-          },
-        ],
-      },
+      checks: passedCheckEvidence(),
     }),
   );
 
-  assert.match(checksText, /unit tests: passed \(approved staged snapshot\)/u);
+  assert.match(checksText, /C000001 unit tests: passed/u);
+  assert.match(checksText, /Command argv: \["npm","test"\]/u);
+  assert.match(checksText, /Context: current worktree at "\."/u);
+  assert.match(checksText, /Result: exit 0 in 125 ms/u);
   assert.match(
     renderCommitReport(languageReport()),
-    /No checks were run in this workflow/u,
+    /No helper-witnessed check evidence is attached to this transaction\./u,
   );
 
   for (const kind of ["clean", "exact", "compact"]) {
@@ -838,7 +874,7 @@ test("report labels binary line statistics as unavailable", () => {
       kinds: { modified: 1 },
     },
     verification: skippedVerification(),
-    checks: { checks: [] },
+    checks: emptyCheckEvidence(),
     publication: { status: "not-requested" },
     workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
   });
@@ -868,7 +904,7 @@ test("report discloses line statistics deferred by the snapshot budget", () => {
       kinds: { modified: 1 },
     },
     verification: skippedVerification(),
-    checks: { checks: [] },
+    checks: emptyCheckEvidence(),
     publication: { status: "not-requested" },
     workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
   });
@@ -921,7 +957,7 @@ test("report does not overclaim OpenPGP identity authorization", () => {
       effectiveAttempt: 0,
       blocksPush: false,
     },
-    checks: { checks: [] },
+    checks: emptyCheckEvidence(),
     publication: { status: "not-requested" },
     workspace: { staged: [], unstaged: [], untracked: [], conflicted: [] },
   });
@@ -983,7 +1019,7 @@ test("report preserves normalized Git change kinds", (t) => {
     manifest: { headOid: parentOid, indexTreeOid: approvedTree },
     approvedMessage: message,
     verification: skippedVerification(commitOid),
-    checks: { schemaVersion: 1, checks: [] },
+    checks: emptyCheckEvidence(),
   });
 
   assert.deepEqual(report.statistics.kinds, {
@@ -1033,7 +1069,7 @@ test("report counts a similar destination with a retained source as added", (t) 
     manifest: { headOid: parentOid, indexTreeOid: approvedTree },
     approvedMessage: message,
     verification: skippedVerification(commitOid),
-    checks: { schemaVersion: 1, checks: [] },
+    checks: emptyCheckEvidence(),
   });
 
   assert.deepEqual(report.statistics.kinds, { added: 1 });

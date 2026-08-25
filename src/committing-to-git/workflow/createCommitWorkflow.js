@@ -3,7 +3,6 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   constants as fsConstants,
-  fstatSync,
   fsyncSync,
   lstatSync,
   openSync,
@@ -14,6 +13,10 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 
+import {
+  analyzeCheckCommitReadiness,
+  summarizeCheckReceipts,
+} from "../checks/checkReceipt.js";
 import { verifySnapshotAgainstRepository } from "../snapshot/verifySnapshot.js";
 import { captureGitProcessTranscript } from "../git/gitProcessTranscript.js";
 import {
@@ -32,13 +35,15 @@ import {
   collectWorkspaceSummary,
   compactWorkspaceSummary,
   renderCommitReport,
-  validateChecksArtifact,
 } from "../report/commitReport.js";
 import {
   applyVerificationPolicy,
   verifyCommitSignature,
 } from "../signature/commitSignature.js";
-import { inspectSignatureRequirements } from "../signature/signaturePreflight.js";
+import {
+  describeSshTrustSourceFailure,
+  inspectSignatureRequirements,
+} from "../signature/signaturePreflight.js";
 import {
   compactTerminalTransaction,
   recoverCommitOutcome,
@@ -50,7 +55,6 @@ import {
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
 
-export const MAXIMUM_CHECKS_INPUT_BYTES = 1024 * 1024;
 export const MAXIMUM_COMMIT_RESULT_BYTES = MAXIMUM_REPORT_RESULT_BYTES;
 
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -237,118 +241,100 @@ function preflightCommitVerification({
   if (
     finalPolicy === "required" &&
     transaction.signaturePreflight?.backend === "ssh" &&
-    transaction.signaturePreflight.trustSource?.readable !== true
+    transaction.signaturePreflight.trustSource?.state !== "readable"
   ) {
-    fail(
-      "SIGNATURE_TRUST_ACCESS_REQUIRED",
-      "Required SSH verification cannot read Git's configured allowed-signers file.",
-      {
-        exitCode: 1,
-        details: {
-          status: "capability-required",
-          phase: transaction.phase,
-          terminalDisposition: transaction.terminalDisposition,
-          transaction: resolve(transactionPath),
-          route: transaction.route,
-          commitState: "absent",
-          publicationState: "not-requested",
-          publicationAllowed: false,
-          recoveryRequired: false,
-          capability: {
-            kind: "read-file",
-            path: transaction.signaturePreflight.trustSource?.path ?? null,
-            origin: transaction.signaturePreflight.trustSource?.origin ?? null,
-          },
-          verificationPolicy: finalPolicy,
-        },
-      },
+    const failure = describeSshTrustSourceFailure(
+      transaction.signaturePreflight.trustSource,
     );
+
+    fail("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
+      exitCode: 1,
+      details: {
+        status: "capability-required",
+        phase: transaction.phase,
+        terminalDisposition: transaction.terminalDisposition,
+        transaction: resolve(transactionPath),
+        route: transaction.route,
+        commitState: "absent",
+        publicationState: "not-requested",
+        publicationAllowed: false,
+        recoveryRequired: false,
+        ...(failure.capability === null
+          ? {}
+          : { capability: failure.capability }),
+        action: failure.action,
+        trustSource: failure.trustSource,
+        verificationPolicy: finalPolicy,
+        policyAlternatives: failure.policyAlternatives,
+      },
+    });
   }
 
   return transaction;
 }
 
-function fileIdentity(stat) {
-  return {
-    dev: String(stat.dev),
-    ino: String(stat.ino),
-    size: Number(stat.size),
-  };
-}
-
-function sameIdentity(left, right) {
-  return (
-    left.dev === right.dev && left.ino === right.ino && left.size === right.size
+function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
+  const readiness = analyzeCheckCommitReadiness(
+    transaction.checkAttempts,
+    acknowledgedFailedCheckIds,
   );
-}
 
-export function readChecksArtifact(checksPath, { afterOpen = () => {} } = {}) {
-  if (checksPath === null || checksPath === undefined) {
-    const value = { schemaVersion: 1, checks: [] };
-    return { value, bytes: canonicalJsonBytes(value), externalPath: null };
-  }
-
-  const path = resolve(checksPath);
-  const initial = lstatSync(path, { bigint: true });
-
-  if (initial.isSymbolicLink() || !initial.isFile()) {
+  if (readiness.activeAttemptIds.length > 0) {
     fail(
-      "CHECKS_INPUT_INVALID",
-      "Checks input must be a non-symbolic regular file.",
+      "CHECK_RECOVERY_REQUIRED",
+      `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
+      {
+        exitCode: 4,
+        details: {
+          receiptIds: readiness.activeAttemptIds,
+          recoveryRequired: true,
+        },
+      },
     );
   }
 
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  const descriptor = openSync(path, fsConstants.O_RDONLY + noFollow);
-
-  try {
-    afterOpen({ path, descriptor });
-    const before = fstatSync(descriptor, { bigint: true });
-
-    if (!before.isFile() || before.size > BigInt(MAXIMUM_CHECKS_INPUT_BYTES)) {
-      fail(
-        "CHECKS_INPUT_TOO_LARGE",
-        `Checks input exceeds ${MAXIMUM_CHECKS_INPUT_BYTES} bytes or is not regular.`,
-      );
-    }
-
-    const bytes = readFileSync(descriptor);
-    const after = fstatSync(descriptor, { bigint: true });
-    const final = lstatSync(path, { bigint: true });
-
-    if (
-      final.isSymbolicLink() ||
-      !final.isFile() ||
-      !sameIdentity(fileIdentity(initial), fileIdentity(before)) ||
-      !sameIdentity(fileIdentity(before), fileIdentity(after)) ||
-      !sameIdentity(fileIdentity(after), fileIdentity(final)) ||
-      bytes.length > MAXIMUM_CHECKS_INPUT_BYTES
-    ) {
-      fail("CHECKS_INPUT_CHANGED", "Checks input changed while it was read.");
-    }
-
-    let value;
-
-    try {
-      value = JSON.parse(STRICT_UTF8_DECODER.decode(bytes));
-      validateChecksArtifact(value);
-    } catch (error) {
-      fail("CHECKS_INPUT_INVALID", `Checks input is invalid: ${error.message}`);
-    }
-
-    const canonicalBytes = canonicalJsonBytes(value);
-
-    if (canonicalBytes.length > MAXIMUM_COMMIT_RESULT_BYTES / 2) {
-      fail(
-        "CHECKS_RESULT_BUDGET_EXCEEDED",
-        "Checks are valid but too large for one bounded commit result.",
-      );
-    }
-
-    return { value, bytes: canonicalBytes, externalPath: path };
-  } finally {
-    closeSync(descriptor);
+  if (readiness.retryRequiredIds.length > 0) {
+    fail(
+      "CHECK_RETRY_REQUIRED",
+      `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
+      { exitCode: 1, details: { receiptIds: readiness.retryRequiredIds } },
+    );
   }
+
+  if (
+    readiness.invalidAcknowledgementIds.length > 0 ||
+    readiness.duplicateAcknowledgementIds.length > 0
+  ) {
+    fail(
+      "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
+      "Failed-check acknowledgements must name each current non-passing witnessed receipt exactly once.",
+      {
+        details: {
+          invalidReceiptIds: readiness.invalidAcknowledgementIds,
+          duplicateReceiptIds: readiness.duplicateAcknowledgementIds,
+          requiredReceiptIds: readiness.failedReceiptIds,
+        },
+      },
+    );
+  }
+
+  if (readiness.missingAcknowledgementIds.length > 0) {
+    fail(
+      "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
+      `Exact commit authorization must acknowledge non-passing check ${readiness.missingAcknowledgementIds.join(", ")}.`,
+      {
+        exitCode: 1,
+        details: {
+          receiptIds: readiness.missingAcknowledgementIds,
+          action: "request-exact-commit-and-failed-check-approval",
+        },
+      },
+    );
+  }
+
+  // Store acknowledgement IDs in receipt order so equivalent CLI ordering
+  // cannot produce different transaction or report bytes.
+  return readiness.failedReceiptIds;
 }
 
 function transcriptFacts(transcript) {
@@ -428,7 +414,7 @@ function verificationAttemptFor({
   if (
     finalPolicy === "advisory" &&
     transaction.signaturePreflight?.backend === "ssh" &&
-    transaction.signaturePreflight.trustSource?.readable === false
+    transaction.signaturePreflight.trustSource?.state !== "readable"
   ) {
     return {
       status: "unavailable",
@@ -560,13 +546,17 @@ export async function completeRecordedCommit({
     transaction.repositoryRoot,
     { scope: transaction.scope },
   );
+  const checks = summarizeCheckReceipts(
+    transaction.checkAttempts,
+    transaction.commit.acknowledgedFailedCheckIds,
+  );
   let report = collectCommitReport({
     root: transaction.repositoryRoot,
     commitOid: transaction.commit.commitOid,
     manifest,
     approvedMessage: message.bytes,
     verification,
-    checks: transaction.commit.checks.value,
+    checks,
     headAnchor: transaction.headAnchor,
     workspaceSummary,
   });
@@ -724,7 +714,7 @@ function incompleteKnownCommitResult(transactionPath, error, recovery) {
 export async function createCommitWorkflow({
   transactionPath,
   approvedSubject = null,
-  checksPath = null,
+  acknowledgedFailedCheckIds = [],
   retainReviewArtifacts = false,
   retainProcessLogs = false,
   verificationPolicyOverride = null,
@@ -744,6 +734,11 @@ export async function createCommitWorkflow({
       "A draft transaction must be promoted before commit creation.",
     );
   }
+
+  const canonicalFailedCheckAcknowledgements = authorizeCheckReceipts(
+    transaction,
+    acknowledgedFailedCheckIds,
+  );
 
   if (
     verificationPolicyOverride !== null &&
@@ -806,7 +801,6 @@ export async function createCommitWorkflow({
     };
   }
 
-  const checks = readChecksArtifact(checksPath);
   const startedAt = new Date().toISOString();
   const commit = {
     status: "pending",
@@ -816,11 +810,7 @@ export async function createCommitWorkflow({
     expectedTreeOid: transaction.snapshot.indexTreeOid,
     messageSha256: message.messageSha256,
     messageByteCount: message.byteCount,
-    checks: {
-      value: checks.value,
-      sha256: sha256(checks.bytes),
-      externalPath: checks.externalPath,
-    },
+    acknowledgedFailedCheckIds: canonicalFailedCheckAcknowledgements,
     startedAt,
     completion: null,
     transcript: null,
@@ -1059,7 +1049,7 @@ export function retrySignatureVerificationWorkflow({
   };
 }
 
-function parseFlags(argv) {
+function parseFlags(argv, repeatable = new Set()) {
   const values = new Map();
   const booleans = new Set(["retain-review-artifacts", "retain-process-logs"]);
 
@@ -1072,7 +1062,7 @@ function parseFlags(argv) {
 
     const name = token.slice(2);
 
-    if (values.has(name)) {
+    if (values.has(name) && !repeatable.has(name)) {
       fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
     }
 
@@ -1087,7 +1077,11 @@ function parseFlags(argv) {
       fail("INVALID_ARGUMENT", `--${name} requires a value.`);
     }
 
-    values.set(name, value);
+    if (repeatable.has(name)) {
+      values.set(name, [...(values.get(name) ?? []), value]);
+    } else {
+      values.set(name, value);
+    }
     index += 1;
   }
 
@@ -1108,12 +1102,12 @@ export async function runCreateCommitCommand(
   let format = "json";
 
   try {
-    const flags = parseFlags(argv);
+    const flags = parseFlags(argv, new Set(["acknowledge-failed-check"]));
     const allowed = new Set([
       "transaction",
       "message",
       "verification",
-      "checks",
+      "acknowledge-failed-check",
       "retain-review-artifacts",
       "retain-process-logs",
       "format",
@@ -1140,7 +1134,7 @@ export async function runCreateCommitCommand(
     const result = await createCommitWorkflow({
       transactionPath,
       approvedSubject: flags.get("message") ?? null,
-      checksPath: flags.get("checks") ?? null,
+      acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
       retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
       retainProcessLogs: flags.get("retain-process-logs") === true,
       verificationPolicyOverride: flags.get("verification") ?? null,

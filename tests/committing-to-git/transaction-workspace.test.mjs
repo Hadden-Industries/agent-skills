@@ -29,7 +29,7 @@ import { createRepositoryFixture, writeJson } from "./harness.mjs";
 
 const FULL_OID = "a".repeat(40);
 const PRECOMMIT_TEMPLATE = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   phase: "allocated",
   repositoryRoot: resolve("."),
   attemptDirectory: resolve("transaction-attempt"),
@@ -50,6 +50,7 @@ const PRECOMMIT_TEMPLATE = {
   commit: null,
   verification: null,
   report: null,
+  checkAttempts: [],
   publicationAttempts: [],
 };
 
@@ -66,11 +67,7 @@ function commitJournal(overrides = {}) {
     expectedTreeOid: FULL_OID,
     messageSha256: "b".repeat(64),
     messageByteCount: 32,
-    checks: {
-      value: { schemaVersion: 1, checks: [] },
-      sha256: "c".repeat(64),
-      externalPath: null,
-    },
+    acknowledgedFailedCheckIds: [],
     startedAt: "2026-08-23T12:00:00.000Z",
     completion: null,
     transcript: null,
@@ -79,6 +76,49 @@ function commitJournal(overrides = {}) {
     observationProvenance: null,
     recoveryObservations: null,
     recoveryResolution: null,
+    ...overrides,
+  };
+}
+
+function checkAttempt(overrides = {}) {
+  const headAnchor = {
+    headKind: "attached",
+    targetRef: "refs/heads/main",
+    expectedParentOids: [FULL_OID],
+  };
+
+  return {
+    schemaVersion: 1,
+    receiptId: "C000001",
+    retryOf: null,
+    label: "Repository verification",
+    command: {
+      executable: "npm",
+      arguments: ["run", "verify"],
+    },
+    context: {
+      kind: "current-worktree",
+      repositoryRelativeWorkingDirectory: ".",
+    },
+    subject: {
+      manifestSha256: "1".repeat(64),
+      headAnchor,
+      preparedTreeOid: FULL_OID,
+    },
+    launchState: "launching",
+    childIdentity: null,
+    startedAt: "2026-08-25T12:00:00.000Z",
+    completion: null,
+    workspace: {
+      before: {
+        matches: true,
+        pathCount: 1,
+        observedAt: "2026-08-25T11:59:59.000Z",
+      },
+      after: null,
+    },
+    output: null,
+    resolution: null,
     ...overrides,
   };
 }
@@ -169,7 +209,7 @@ test("transaction workspace owns one UUIDv4 attempt without discovery machinery"
     "transaction.json",
   ]);
   assert.deepEqual(workspace.transaction, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase: "allocated",
     repositoryRoot: resolve(fixture.repo),
     attemptDirectory: workspace.attemptDirectory,
@@ -190,6 +230,7 @@ test("transaction workspace owns one UUIDv4 attempt without discovery machinery"
     commit: null,
     verification: null,
     report: null,
+    checkAttempts: [],
     publicationAttempts: [],
   });
   assert.deepEqual(
@@ -586,6 +627,69 @@ test("transaction validation accepts canonical state families and rejects imposs
         },
       }),
     /detached head anchor/u,
+  );
+});
+
+test("transaction validation binds append-only check attempts to the prepared subject", () => {
+  const headAnchor = {
+    headKind: "attached",
+    targetRef: "refs/heads/main",
+    expectedParentOids: [FULL_OID],
+  };
+  const transaction = {
+    ...structuredClone(PRECOMMIT_TEMPLATE),
+    phase: "evidence-ready",
+    status: "prepared",
+    headAnchor,
+    snapshot: {
+      indexTreeOid: FULL_OID,
+      sha256: "1".repeat(64),
+    },
+    route: "concise",
+    inlineEvidence: {
+      capsuleSha256: "2".repeat(64),
+      manifestSha256: "1".repeat(64),
+      evidencePlanSha256: "3".repeat(64),
+      capsule: { schemaVersion: 1 },
+    },
+    checkAttempts: [checkAttempt()],
+  };
+
+  assert.doesNotThrow(() => validateTransaction(transaction));
+
+  const duplicate = structuredClone(transaction);
+  duplicate.checkAttempts.push(checkAttempt());
+  assert.throws(
+    () => validateTransaction(duplicate),
+    /receipt IDs.*append-only/u,
+  );
+
+  const wrongSubject = structuredClone(transaction);
+  wrongSubject.checkAttempts[0].subject.preparedTreeOid = "b".repeat(40);
+  assert.throws(
+    () => validateTransaction(wrongSubject),
+    /prepared transaction subject/u,
+  );
+
+  const unsupportedContext = structuredClone(transaction);
+  unsupportedContext.checkAttempts[0].context.kind = "external-environment";
+  assert.throws(
+    () => validateTransaction(unsupportedContext),
+    /current-worktree/u,
+  );
+
+  const shellString = structuredClone(transaction);
+  shellString.checkAttempts[0].command = {
+    executable: "npm run verify && echo fabricated",
+    arguments: [],
+  };
+  assert.throws(() => validateTransaction(shellString), /executable token/u);
+
+  const forwardRetry = structuredClone(transaction);
+  forwardRetry.checkAttempts[0].retryOf = "C000002";
+  assert.throws(
+    () => validateTransaction(forwardRetry),
+    /retry links.*earlier/u,
   );
 });
 

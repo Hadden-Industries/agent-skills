@@ -2,25 +2,23 @@ import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
 
 import {
+  validateCheckCommand,
+  validateCheckContext,
+} from "../checks/checkReceipt.js";
+import {
   readOnlyGitText,
   runReadOnlyGit,
   streamGit,
 } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
 
-const CHECK_STATUSES = new Set(["passed", "failed"]);
+const CHECK_OUTCOMES = new Set(["passed", "failed", "signaled", "timed-out"]);
 const VERIFICATION_POLICIES = new Set(["required", "advisory", "skipped"]);
 const SIGNATURE_STATUSES = new Set([
   "verified",
   "failed",
   "unavailable",
   "skipped",
-]);
-const CHECK_CONTEXTS = new Set([
-  "approved staged snapshot",
-  "current working tree",
-  "isolated worktree/container",
-  "external environment",
 ]);
 const SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
 const OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
@@ -84,30 +82,97 @@ function signatureIdentityMatchesBackend(attempt) {
   return false;
 }
 
-export function validateChecksArtifact(checks) {
+function validateReportOutputChannel(channel, label) {
   if (
-    !hasExactKeys(checks, ["schemaVersion", "checks"]) ||
-    checks.schemaVersion !== 1 ||
-    !Array.isArray(checks.checks)
+    !hasExactKeys(channel, ["totalByteCount", "sha256", "truncated"]) ||
+    !Number.isSafeInteger(channel.totalByteCount) ||
+    channel.totalByteCount < 0 ||
+    typeof channel.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(channel.sha256) ||
+    typeof channel.truncated !== "boolean"
+  ) {
+    throw new Error(`${label} is invalid.`);
+  }
+}
+
+export function validateCheckEvidence(checks) {
+  if (
+    !hasExactKeys(checks, ["schemaVersion", "attemptCount", "receipts"]) ||
+    checks.schemaVersion !== 2 ||
+    !Number.isSafeInteger(checks.attemptCount) ||
+    checks.attemptCount < 0 ||
+    !Array.isArray(checks.receipts) ||
+    checks.receipts.length > checks.attemptCount
   ) {
     throw new Error(
-      "Checks artifact must use schema version 1 and a checks array.",
+      "Check evidence must use schema version 2 with bounded witnessed receipts.",
     );
   }
 
-  for (const check of checks.checks) {
+  let priorOrdinal = 0;
+
+  for (const receipt of checks.receipts) {
     if (
-      !hasExactKeys(check, ["label", "status", "context"]) ||
-      typeof check.label !== "string" ||
-      check.label.trim() === "" ||
-      check.label !== check.label.trim() ||
-      !CHECK_STATUSES.has(check.status) ||
-      !CHECK_CONTEXTS.has(check.context)
+      !hasExactKeys(receipt, [
+        "receiptId",
+        "label",
+        "command",
+        "context",
+        "outcome",
+        "exitCode",
+        "signal",
+        "durationMilliseconds",
+        "selectedScopeStable",
+        "failureAcknowledged",
+        "output",
+      ]) ||
+      typeof receipt.receiptId !== "string" ||
+      !/^C[0-9]{6}$/u.test(receipt.receiptId) ||
+      Number(receipt.receiptId.slice(1)) <= priorOrdinal ||
+      Number(receipt.receiptId.slice(1)) > checks.attemptCount ||
+      typeof receipt.label !== "string" ||
+      receipt.label.trim() !== receipt.label ||
+      receipt.label.length === 0 ||
+      !CHECK_OUTCOMES.has(receipt.outcome) ||
+      !Number.isSafeInteger(receipt.durationMilliseconds) ||
+      receipt.durationMilliseconds < 0 ||
+      receipt.selectedScopeStable !== true ||
+      !hasExactKeys(receipt.output, ["stdout", "stderr"])
     ) {
+      throw new Error("A witnessed check receipt is invalid.");
+    }
+
+    validateCheckCommand(receipt.command);
+    validateCheckContext(receipt.context);
+    validateReportOutputChannel(receipt.output.stdout, "Check stdout summary");
+    validateReportOutputChannel(receipt.output.stderr, "Check stderr summary");
+
+    const resultShapeIsValid =
+      (receipt.outcome === "passed" &&
+        receipt.exitCode === 0 &&
+        receipt.signal === null &&
+        receipt.failureAcknowledged === null) ||
+      (receipt.outcome === "failed" &&
+        Number.isInteger(receipt.exitCode) &&
+        receipt.exitCode !== 0 &&
+        receipt.signal === null &&
+        receipt.failureAcknowledged === true) ||
+      (receipt.outcome === "signaled" &&
+        receipt.exitCode === null &&
+        typeof receipt.signal === "string" &&
+        receipt.failureAcknowledged === true) ||
+      (receipt.outcome === "timed-out" &&
+        receipt.exitCode === null &&
+        (receipt.signal === null || typeof receipt.signal === "string") &&
+        receipt.failureAcknowledged === true);
+
+    if (!resultShapeIsValid) {
       throw new Error(
-        "Each check requires a trimmed label, passed or failed status, and a supported context.",
+        "A witnessed check result contradicts its exit or authorization facts.",
       );
     }
+
+    priorOrdinal = Number(receipt.receiptId.slice(1));
   }
 
   return checks;
@@ -931,7 +996,7 @@ export function collectCommitReport({
     ? approvedMessage
     : Buffer.from(approvedMessage, "utf8");
 
-  validateChecksArtifact(checks);
+  validateCheckEvidence(checks);
   validatePublicationArtifact(publication);
   validateVerificationArtifact(verification, commit.oid);
 
@@ -975,7 +1040,7 @@ export function collectCommitReport({
       : publication;
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     headAnchor: headAnchor ?? {
       headKind: manifest.headOid ? "attached" : "unborn",
       targetRef: commit.branch,
@@ -1217,12 +1282,49 @@ export function renderCommitReport(report) {
     "Checks:",
   );
 
-  if ((checks.checks ?? []).length === 0) {
-    lines.push("- No checks were run in this workflow");
+  if (checks.receipts.length === 0) {
+    lines.push(
+      "- No helper-witnessed check evidence is attached to this transaction.",
+    );
   } else {
-    for (const check of checks.checks) {
-      lines.push(`- ${check.label}: ${check.status} (${check.context})`);
+    for (const receipt of checks.receipts) {
+      const result =
+        receipt.exitCode === null
+          ? (receipt.signal ?? "no exit status")
+          : `exit ${receipt.exitCode}`;
+      const stdoutSuffix = receipt.output.stdout.truncated
+        ? ", retained in part"
+        : "";
+      const stderrSuffix = receipt.output.stderr.truncated
+        ? ", retained in part"
+        : "";
+
+      lines.push(
+        `- ${receipt.receiptId} ${receipt.label}: ${receipt.outcome}`,
+        `  - Command argv: ${JSON.stringify([
+          receipt.command.executable,
+          ...receipt.command.arguments,
+        ])}`,
+        `  - Context: current worktree at ${JSON.stringify(receipt.context.repositoryRelativeWorkingDirectory)}`,
+        `  - Result: ${result} in ${receipt.durationMilliseconds} ms; selected scope stable`,
+        `  - Output: ${receipt.output.stdout.totalByteCount} stdout bytes${stdoutSuffix}; ${receipt.output.stderr.totalByteCount} stderr bytes${stderrSuffix}`,
+      );
+
+      if (receipt.failureAcknowledged === true) {
+        lines.push(
+          "  - Failure authorization: acknowledged with the exact commit approval",
+        );
+      }
     }
+  }
+
+  if (checks.attemptCount > checks.receipts.length) {
+    lines.push(
+      `- ${plural(
+        checks.attemptCount - checks.receipts.length,
+        "other helper attempt",
+      )} did not produce reportable check evidence; inspect the transaction receipt history`,
+    );
   }
 
   lines.push(

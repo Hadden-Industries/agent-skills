@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { closeSync, fstatSync, openSync } from "node:fs";
+
+const TRUST_SOURCE_STATES = new Set([
+  "readable",
+  "not-configured",
+  "not-found",
+  "permission-denied",
+  "invalid-file-type",
+  "probe-error",
+]);
 
 function runGitConfig(root, args) {
   return spawnSync("git", args, {
@@ -33,20 +42,115 @@ function configText(result, label) {
     : null;
 }
 
-function defaultReadableProbe(path) {
+function defaultTrustSourceProbe(path) {
+  let descriptor = null;
+
   try {
-    accessSync(path, fsConstants.R_OK);
-    return true;
-  } catch {
-    return false;
+    // This is capability discovery, not a security authorization check. Open
+    // the same configured path Git will later use so path aliases and links
+    // follow host filesystem semantics; the final Git verification remains
+    // authoritative if access changes after this preflight.
+    descriptor = openSync(path, "r");
+    const stat = fstatSync(descriptor);
+
+    return stat.isFile()
+      ? { state: "readable", errorCode: null }
+      : { state: "invalid-file-type", errorCode: null };
+  } catch (error) {
+    const errorCode = typeof error.code === "string" ? error.code : null;
+
+    if (new Set(["ENOENT", "ENOTDIR"]).has(errorCode)) {
+      return { state: "not-found", errorCode };
+    }
+
+    if (new Set(["EACCES", "EPERM"]).has(errorCode)) {
+      return { state: "permission-denied", errorCode };
+    }
+
+    if (new Set(["EISDIR", "ELOOP"]).has(errorCode)) {
+      return { state: "invalid-file-type", errorCode };
+    }
+
+    return { state: "probe-error", errorCode };
+  } finally {
+    if (descriptor !== null) {
+      closeSync(descriptor);
+    }
   }
+}
+
+function normalizeTrustSourceProbe(result) {
+  if (
+    result === null ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    !TRUST_SOURCE_STATES.has(result.state) ||
+    result.state === "not-configured" ||
+    !Object.hasOwn(result, "errorCode") ||
+    (result.errorCode !== null && typeof result.errorCode !== "string")
+  ) {
+    throw new Error("SSH allowed-signers probe returned an invalid result.");
+  }
+
+  return { state: result.state, errorCode: result.errorCode };
+}
+
+export function describeSshTrustSourceFailure(trustSource) {
+  if (
+    trustSource === null ||
+    typeof trustSource !== "object" ||
+    trustSource.state === "readable"
+  ) {
+    throw new Error(
+      "SSH trust-source failure description requires an unavailable source.",
+    );
+  }
+
+  const permissionDenied = trustSource.state === "permission-denied";
+  const capability = permissionDenied
+    ? {
+        kind: "read-file",
+        path: trustSource.path,
+        origin: trustSource.origin,
+      }
+    : null;
+  const action = permissionDenied
+    ? { kind: "request-read-capability", capability }
+    : {
+        kind: "repair-configuration",
+        configKey: "gpg.ssh.allowedSignersFile",
+        origin: trustSource.origin,
+        path: trustSource.path,
+      };
+  const messageByState = {
+    "not-configured":
+      "Required SSH verification has no configured allowed-signers file.",
+    "not-found":
+      "Required SSH verification cannot find Git's configured allowed-signers file.",
+    "permission-denied":
+      "Required SSH verification cannot read Git's configured allowed-signers file because access was denied.",
+    "invalid-file-type":
+      "Required SSH verification configured an allowed-signers path that is not a readable regular file.",
+    "probe-error":
+      "Required SSH verification could not inspect Git's configured allowed-signers file.",
+  };
+
+  return {
+    message:
+      messageByState[trustSource.state] ??
+      "Required SSH verification cannot use Git's configured allowed-signers file.",
+    action,
+    capability,
+    trustSource,
+    policyAlternatives: ["advisory", "skipped"],
+  };
 }
 
 export function inspectSignatureRequirements(
   root,
   {
     runConfig = (args) => runGitConfig(root, args),
-    probeReadable = defaultReadableProbe,
+    probeTrustSource = defaultTrustSourceProbe,
   } = {},
 ) {
   const format = configText(
@@ -86,7 +190,8 @@ export function inspectSignatureRequirements(
         configured: false,
         origin: null,
         path: null,
-        readable: false,
+        state: "not-configured",
+        errorCode: null,
       },
     };
   }
@@ -101,6 +206,7 @@ export function inspectSignatureRequirements(
 
   const origin = configured.slice(0, separator);
   const path = configured.slice(separator + 1);
+  const probe = normalizeTrustSourceProbe(probeTrustSource(path));
 
   return {
     backend: "ssh",
@@ -108,7 +214,7 @@ export function inspectSignatureRequirements(
       configured: true,
       origin,
       path,
-      readable: probeReadable(path),
+      ...probe,
     },
   };
 }

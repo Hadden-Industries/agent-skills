@@ -14,6 +14,7 @@ import {
 } from "./createCommitWorkflow.js";
 import { recoverDraftPromotion } from "./promoteDraftWorkflow.js";
 import { recoverPublicationOutcome } from "./publishWorkflow.js";
+import { recoverCheckAttempt } from "./runCheckWorkflow.js";
 
 const RESOLUTIONS = new Set([null, "confirmed-no-live-child"]);
 
@@ -27,6 +28,9 @@ export async function recoverTransactionWorkflow({
   verificationPolicyOverride = null,
   retainReviewArtifacts = false,
   retainProcessLogs = false,
+  checkProcessInspector = undefined,
+  checkIndexLockInspector = undefined,
+  now = () => new Date().toISOString(),
 }) {
   if (!RESOLUTIONS.has(resolution)) {
     invalid(
@@ -88,6 +92,21 @@ export async function recoverTransactionWorkflow({
         exitCode: 3,
       };
     }
+  }
+
+  // Commit and publication journals take precedence because they may already
+  // represent repository or remote mutation. Active checks are recoverable
+  // only while the transaction is still in a precommit phase.
+  const checkRecovery = recoverCheckAttempt({
+    transactionPath,
+    resolution,
+    processInspector: checkProcessInspector,
+    indexLockInspector: checkIndexLockInspector,
+    now,
+  });
+
+  if (checkRecovery !== null) {
+    return checkRecovery;
   }
 
   if (

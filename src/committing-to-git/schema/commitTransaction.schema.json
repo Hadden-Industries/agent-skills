@@ -26,10 +26,11 @@
     "commit",
     "verification",
     "report",
+    "checkAttempts",
     "publicationAttempts"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "phase": {
       "enum": [
         "allocated",
@@ -101,6 +102,10 @@
     "commit": { "$ref": "#/$defs/commitJournal" },
     "verification": { "$ref": "#/$defs/verificationHistory" },
     "report": { "$ref": "#/$defs/reportState" },
+    "checkAttempts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/checkAttempt" }
+    },
     "publicationAttempts": {
       "type": "array",
       "items": { "$ref": "#/$defs/publicationAttempt" }
@@ -689,17 +694,243 @@
             "trustSource": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["configured", "origin", "path", "readable"],
+              "required": [
+                "configured",
+                "origin",
+                "path",
+                "state",
+                "errorCode"
+              ],
               "properties": {
                 "configured": { "type": "boolean" },
                 "origin": { "type": ["string", "null"] },
                 "path": { "type": ["string", "null"] },
-                "readable": { "type": "boolean" }
+                "state": {
+                  "enum": [
+                    "readable",
+                    "not-configured",
+                    "not-found",
+                    "permission-denied",
+                    "invalid-file-type",
+                    "probe-error"
+                  ]
+                },
+                "errorCode": { "type": ["string", "null"] }
               }
             }
           }
         }
       ]
+    },
+    "checkAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "retryOf",
+        "label",
+        "command",
+        "context",
+        "subject",
+        "launchState",
+        "childIdentity",
+        "startedAt",
+        "completion",
+        "workspace",
+        "output",
+        "resolution"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "receiptId": { "type": "string", "pattern": "^C[0-9]{6}$" },
+        "retryOf": {
+          "type": ["string", "null"],
+          "pattern": "^C[0-9]{6}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "command": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable", "arguments"],
+          "properties": {
+            "executable": { "type": "string", "minLength": 1 },
+            "arguments": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "repositoryRelativeWorkingDirectory"],
+          "properties": {
+            "kind": { "const": "current-worktree" },
+            "repositoryRelativeWorkingDirectory": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["manifestSha256", "headAnchor", "preparedTreeOid"],
+          "properties": {
+            "manifestSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "headAnchor": { "$ref": "#/$defs/nullableHeadAnchor" },
+            "preparedTreeOid": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            }
+          }
+        },
+        "launchState": { "enum": ["launching", "running", "completed"] },
+        "childIdentity": {
+          "oneOf": [
+            { "const": null },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pid", "startIdentity"],
+              "properties": {
+                "pid": { "type": "integer", "minimum": 1 },
+                "startIdentity": { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+        "startedAt": { "type": "string", "minLength": 20 },
+        "completion": {
+          "oneOf": [
+            { "const": null },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "finishedAt",
+                "durationMilliseconds",
+                "outcome",
+                "exitCode",
+                "signal",
+                "launchError"
+              ],
+              "properties": {
+                "finishedAt": { "type": "string", "minLength": 20 },
+                "durationMilliseconds": { "type": "integer", "minimum": 0 },
+                "outcome": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "launch-error",
+                    "signaled",
+                    "timed-out",
+                    "unknown"
+                  ]
+                },
+                "exitCode": { "type": ["integer", "null"] },
+                "signal": { "type": ["string", "null"] },
+                "launchError": { "type": ["object", "null"] }
+              }
+            }
+          ]
+        },
+        "workspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["before", "after"],
+          "properties": {
+            "before": { "$ref": "#/$defs/checkWorkspaceObservation" },
+            "after": {
+              "oneOf": [
+                { "const": null },
+                { "$ref": "#/$defs/checkWorkspaceObservation" }
+              ]
+            }
+          }
+        },
+        "output": {
+          "oneOf": [
+            { "const": null },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["schemaVersion", "stdout", "stderr"],
+              "properties": {
+                "schemaVersion": { "const": 1 },
+                "stdout": { "$ref": "#/$defs/checkOutputChannel" },
+                "stderr": { "$ref": "#/$defs/checkOutputChannel" }
+              }
+            }
+          ]
+        },
+        "resolution": {
+          "oneOf": [
+            { "const": null },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "resolvedAt"],
+              "properties": {
+                "kind": { "const": "confirmed-no-live-child" },
+                "resolvedAt": { "type": "string", "minLength": 20 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "checkWorkspaceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matches", "pathCount", "observedAt"],
+      "properties": {
+        "matches": { "type": "boolean" },
+        "pathCount": { "type": "integer", "minimum": 0 },
+        "observedAt": { "type": "string", "minLength": 20 }
+      }
+    },
+    "checkOutputChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalByteCount",
+        "sha256",
+        "headPath",
+        "headByteCount",
+        "headSha256",
+        "tailPath",
+        "tailByteCount",
+        "tailSha256",
+        "truncated"
+      ],
+      "properties": {
+        "totalByteCount": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "headPath": { "type": ["string", "null"] },
+        "headByteCount": { "type": "integer", "minimum": 0 },
+        "headSha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tailPath": { "type": ["string", "null"] },
+        "tailByteCount": { "type": "integer", "minimum": 0 },
+        "tailSha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "truncated": { "type": "boolean" }
+      }
     },
     "commitJournal": {
       "oneOf": [
@@ -715,7 +946,7 @@
             "expectedTreeOid",
             "messageSha256",
             "messageByteCount",
-            "checks",
+            "acknowledgedFailedCheckIds",
             "startedAt",
             "completion",
             "transcript",
@@ -758,25 +989,12 @@
               "minimum": 1,
               "maximum": 32768
             },
-            "checks": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["value", "sha256", "externalPath"],
-              "properties": {
-                "value": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["schemaVersion", "checks"],
-                  "properties": {
-                    "schemaVersion": { "const": 1 },
-                    "checks": { "type": "array" }
-                  }
-                },
-                "sha256": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
-                },
-                "externalPath": { "type": ["string", "null"] }
+            "acknowledgedFailedCheckIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^C[0-9]{6}$"
               }
             },
             "startedAt": { "type": "string", "minLength": 20 },

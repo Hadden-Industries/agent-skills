@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import crossSpawn from "cross-spawn";
+
 import {
   COST_PROFILES,
   fixtureScenarioNames,
@@ -71,7 +73,7 @@ const ACTIVE_IDS = [
   ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
     (id) => !RETIRED_IDS.has(id),
   ),
-  ...Array.from({ length: 32 }, (_, index) => index + 35),
+  ...Array.from({ length: 40 }, (_, index) => index + 35),
 ];
 const NEW_CASE_KEYS = new Map([
   [35, "known-context-skill-inventory-hint"],
@@ -106,6 +108,14 @@ const NEW_CASE_KEYS = new Map([
   [64, "noisy-child-recovery"],
   [65, "compact-report-and-publication-reuse"],
   [66, "resolved-publication-retry"],
+  [67, "prose-check-claim-rejected"],
+  [68, "single-receipt-npm-verify"],
+  [69, "ssh-trust-not-found"],
+  [70, "ssh-trust-permission-denied"],
+  [71, "failed-check-checkpoint-authorization"],
+  [72, "noisy-successful-check"],
+  [73, "selected-scope-check-mutation"],
+  [74, "excluded-path-check-mutation"],
 ]);
 const REMOVED_COMMAND =
   /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;
@@ -176,6 +186,14 @@ const REQUIRED_SCALE_SCENARIOS = [
   "publish-existing-report",
   "publication-recovery-observation",
   "resolved-publication-retry",
+  "prose-check-claim-rejected",
+  "single-receipt-npm-verify",
+  "ssh-trust-not-found",
+  "ssh-trust-permission-denied",
+  "failed-check-checkpoint-authorization",
+  "noisy-successful-check",
+  "selected-scope-check-mutation",
+  "excluded-path-check-mutation",
 ];
 
 function readJson(path) {
@@ -384,7 +402,102 @@ test("cost profiles encode the concise and extended action budgets", () => {
     COST_PROFILES["publication-recovery"].maximumAutomaticPushRetries,
     0,
   );
+  assert.deepEqual(COST_PROFILES["witnessed-check"], {
+    route: "concise-with-check",
+    highLevelHelperCalls: 3,
+    opaqueTransactionHandlePassThroughs: 2,
+    agentManagedArtifactReads: 0,
+    agentManagedArtifactWrites: 0,
+    approvalTurns: 1,
+    maximumSuccessfulOutputDisplayBytes: 0,
+    maximumAutomaticCheckRetries: 0,
+  });
 });
+
+for (const [scenario, expectedBehavior] of [
+  ["prose-check-claim-rejected", "pass"],
+  ["single-receipt-npm-verify", "pass"],
+  ["failed-check-checkpoint-authorization", "fail"],
+  ["noisy-successful-check", "noisy-pass"],
+  ["selected-scope-check-mutation", "mutate-selected"],
+  ["excluded-path-check-mutation", "mutate-excluded"],
+]) {
+  test(`${scenario} materializes one exact npm verification command`, (t) => {
+    const { destination, metadata } = generate(t, scenario);
+    const packageDefinition = JSON.parse(
+      readFileSync(join(destination, "package.json"), "utf8"),
+    );
+
+    assert.equal(packageDefinition.scripts.verify, "node scripts/verify.mjs");
+    assert.equal(metadata.expected.safety.checkBehavior, expectedBehavior);
+    assert.deepEqual(metadata.expected.safety.selectedPaths, [
+      "src/feature.js",
+    ]);
+    assert.deepEqual(metadata.expected.safety.excludedPaths, [
+      "notes/local.txt",
+    ]);
+  });
+}
+
+for (const [scenario, expectedStatus, mutatedPath] of [
+  ["single-receipt-npm-verify", 0, null],
+  ["failed-check-checkpoint-authorization", 1, null],
+  ["selected-scope-check-mutation", 0, "src/feature.js"],
+  ["excluded-path-check-mutation", 0, "notes/local.txt"],
+]) {
+  test(`${scenario} executes its declared verification behavior`, (t) => {
+    const { destination } = generate(t, scenario);
+    const before =
+      mutatedPath === null
+        ? null
+        : readFileSync(join(destination, mutatedPath), "utf8");
+    const result = crossSpawn.sync("npm", ["run", "verify"], {
+      cwd: destination,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+    assert.equal(result.error, null);
+    assert.equal(result.status, expectedStatus, result.stderr || result.stdout);
+
+    if (mutatedPath !== null) {
+      assert.notEqual(
+        readFileSync(join(destination, mutatedPath), "utf8"),
+        before,
+      );
+    }
+  });
+}
+
+test("noisy-successful-check emits enough output to exercise bounded retention", (t) => {
+  const { destination } = generate(t, "noisy-successful-check");
+  const result = crossSpawn.sync("npm", ["run", "verify"], {
+    cwd: destination,
+    encoding: null,
+    maxBuffer: 8 * 1024 * 1024,
+    windowsHide: true,
+  });
+
+  assert.equal(result.error, null);
+  assert.equal(result.status, 0, result.stderr?.toString("utf8"));
+  assert.ok(result.stdout.length > 2 * 1024 * 1024);
+});
+
+for (const [scenario, expectedState, requestExactPathOnly] of [
+  ["ssh-trust-not-found", "not-found", false],
+  ["ssh-trust-permission-denied", "permission-denied", true],
+]) {
+  test(`${scenario} records the exact declared SSH trust state`, (t) => {
+    const { metadata } = generate(t, scenario);
+
+    assert.equal(metadata.expected.safety.expectedTrustState, expectedState);
+    assert.equal(metadata.expected.safety.verificationPolicy, "required");
+    assert.equal(
+      metadata.expected.safety.requestExactPathOnly,
+      requestExactPathOnly,
+    );
+  });
+}
 
 test("known-context fixture separates the selected scope from unrelated changes", (t) => {
   const { destination, metadata } = generate(

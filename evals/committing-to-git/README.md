@@ -30,7 +30,7 @@ The repository-wide [Shared Runtime](../README.md) defines packet preparation, e
 
 IDs 20, 22, 25, 26, and 27 are retired. They represented an obsolete validator branch or duplicates. Their historical prompts remain recoverable from Git history and held-out paraphrases may be retained outside this file, but an active runner must never load or reinterpret them. New identities begin at 35. IDs 1-19, 21, 23-24, and 28-34 retain their original safety/product intent through the high-level transaction interface.
 
-The validator exported by `create-fixture-repository.mjs` rejects unknown entry fields, duplicate IDs, duplicate case keys, missing fixtures, missing cost profiles, policy cases that name fixtures, and expectations that invoke a removed low-level route. It accepts intentional ID gaps. Permanent tests assert the exact active-ID sequence and the ID 35-66 case-key mapping.
+The validator exported by `create-fixture-repository.mjs` rejects unknown entry fields, duplicate IDs, duplicate case keys, missing fixtures, missing cost profiles, policy cases that name fixtures, and expectations that invoke a removed low-level route. It accepts intentional ID gaps. Permanent tests assert the exact active-ID sequence and the ID 35-74 case-key mapping.
 
 The metric list is exact and intentionally separates correctness, judgment, and consumption:
 
@@ -94,7 +94,7 @@ The registry covers every scenario named by the proportional-workflow plan. The 
 - 12-, 49-, 50-, 80-, 240-, and 1,000-unit scopes; 1,000 small binary objects; 10 MiB generated data; and a huge single line;
 - attached, detached, and zero-parent unborn heads; draft promotion/retention; staged-state path boundaries; and unmatched selectors;
 - missing partial-clone objects, disabled external drivers, Git 2.45 no-lazy-fetch capability, permission recovery, live locks, and pending commit outcomes;
-- required signature headers, unreadable SSH trust, 10 MiB successful/rejecting hook diagnostics, and terminal cleanup refusal arms;
+- required signature headers; missing and permission-denied SSH trust; helper-witnessed checks; prose-only check claims; failed-check authorization; noisy successful check output; selected/excluded path mutation; 10 MiB successful/rejecting hook diagnostics; and terminal cleanup refusal arms;
 - workspace count/byte compaction, final detail-page replay, uninspected nested worktrees, old-attempt rejection, and all exit classes; and
 - local-bare-remote publication, observation-only recovery, and explicitly resolved/reauthorized linked retry.
 
@@ -108,7 +108,8 @@ Cost profiles are requirements after safety and correctness pass. Important prof
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `known-context-direct` | Two high-level helper calls, one opaque-handle pass-through, zero agent artifact reads/writes, one approval turn, at least 80% fewer treatment tokens than the old-skill arm, and at most 2x no-skill tokens |
 | `concise-direct`       | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn                                                                                                                  |
-| `concise-checked`      | Prepare, one check, and commit; one fixed input write; no semantic/review artifact                                                                                                                           |
+| `concise-checked`      | Prepare, one message check, and commit; one fixed input write; no semantic/review artifact                                                                                                                   |
+| `witnessed-check`      | Prepare, one helper-witnessed check, and commit; no successful output display, automatic retry, or agent-managed artifact                                                                                    |
 | `extended-review`      | Sequential packet reads, each at most 16 KiB                                                                                                                                                                 |
 | `structured-bulk`      | No authored unit-ID array and at most 32 KiB canonical message text                                                                                                                                          |
 | `evidence-delta`       | No reread of unchanged packets                                                                                                                                                                               |
@@ -121,7 +122,7 @@ The frozen deterministic pre-cutover characterization at `tests/committing-to-gi
 
 ## Deterministic app-server harness
 
-The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 306 sessions: 17 cases times three matched arms times five Luna repetitions, plus the same 17 matched triplets once on Sol.
+The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 450 sessions: 25 cases times three matched arms times five Luna repetitions, plus the same 25 matched triplets once on Sol.
 
 These commands are local-only and make zero model calls:
 
@@ -247,7 +248,7 @@ Execute one arm/repetition at a time in the primary session. Do not use subagent
 
 Before an external model call, present and obtain approval for the exact provider, model/version or resolved alias, tool policy, prompts, fixture content, and repository-authored skill/reference/bundle content to be transmitted. Earlier provider approval does not silently authorize newly authored post-cutover content. If authorization or a runner is unavailable, record the arm as unexecuted in the assurance case; do not add a fabricated result JSON.
 
-The minimum repeated families are the known-context inventory hint, checked multiline/nonportable messages, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, and one recovery path.
+The minimum repeated families are the known-context inventory hint, checked multiline/nonportable messages, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, one recovery path, and all eight witnessed-check/trust-diagnostic cases. The latter compare prose-only claims, one npm-script receipt, missing versus denied SSH trust, informed failed-check authorization, noisy success, selected-scope mutation, and excluded-path mutation across the same no-skill, old-skill, and new-skill arms.
 
 Release fails on any critical-safety regression. It also fails when treatment medians miss the plan's tool/token gates, when routes use file count as evidence sufficiency, when unsafe bytes reach direct transport, when an ambiguous scope is staged, when old routes remain executable, or when exit 3/4 automatically repeats a mutation.
 

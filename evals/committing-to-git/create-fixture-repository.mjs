@@ -144,6 +144,16 @@ export const COST_PROFILES = Object.freeze({
     maximumEvidenceReads: 0,
     retainedCanonicalMessageBodies: 1,
   },
+  "witnessed-check": {
+    route: "concise-with-check",
+    highLevelHelperCalls: 3,
+    opaqueTransactionHandlePassThroughs: 2,
+    agentManagedArtifactReads: 0,
+    agentManagedArtifactWrites: 0,
+    approvalTurns: 1,
+    maximumSuccessfulOutputDisplayBytes: 0,
+    maximumAutomaticCheckRetries: 0,
+  },
 });
 
 const EVALUATION_FIELDS = new Set([
@@ -174,6 +184,8 @@ function fail(message) {
 }
 
 export function fixtureScenarioNames() {
+  // Module initialization completes the SCENARIOS map before callers can invoke this export.
+  // eslint-disable-next-line no-use-before-define
   return [...SCENARIOS.keys()].sort();
 }
 
@@ -236,6 +248,8 @@ export function validateEvaluationConfiguration(configuration) {
     if (evaluation.execution_mode === "executable") {
       if (
         typeof evaluation.fixture !== "string" ||
+        // Module initialization completes the SCENARIOS map before validation can run.
+        // eslint-disable-next-line no-use-before-define
         !SCENARIOS.has(evaluation.fixture)
       ) {
         fail(`Unknown fixture ${JSON.stringify(evaluation.fixture)}`);
@@ -578,7 +592,11 @@ function createAddedFiles(
 function createKnownContextInventory(repository) {
   writeRepositoryFile(repository, "skills-lock.json", '{"skills": []}\n');
   writeRepositoryFile(repository, "README.md", "# Fixture\n");
-  writeRepositoryFile(repository, "package-lock.json", '{"lockfileVersion": 3}\n');
+  writeRepositoryFile(
+    repository,
+    "package-lock.json",
+    '{"lockfileVersion": 3}\n',
+  );
   commitAll(repository, "seed known-context fixture");
 
   writeRepositoryFile(
@@ -615,7 +633,11 @@ function createThreeFileFix(repository) {
     "src/parser.js",
     "export const parse = (value) => { if (!value.includes(':')) throw new Error('malformed'); return value; };\n",
   );
-  writeRepositoryFile(repository, "tests/parser.test.js", "// rejects malformed\n");
+  writeRepositoryFile(
+    repository,
+    "tests/parser.test.js",
+    "// rejects malformed\n",
+  );
   writeRepositoryFile(repository, "fixtures/malformed.txt", "rejected\n");
 
   return {
@@ -657,14 +679,22 @@ function createImplementationMechanicsHint(repository) {
 
 function createUnambiguousScope(repository) {
   writeRepositoryFile(repository, "README.md", "# Baseline\n");
-  writeRepositoryFile(repository, "package-lock.json", '{"lockfileVersion": 3}\n');
+  writeRepositoryFile(
+    repository,
+    "package-lock.json",
+    '{"lockfileVersion": 3}\n',
+  );
   commitAll(repository, "seed unambiguous scope fixture");
 
   const selectedPaths = [];
 
   for (let index = 0; index < 6; index += 1) {
     const path = `src/task-${index + 1}.js`;
-    writeRepositoryFile(repository, path, `export const task${index + 1} = true;\n`);
+    writeRepositoryFile(
+      repository,
+      path,
+      `export const task${index + 1} = true;\n`,
+    );
     selectedPaths.push(path);
   }
 
@@ -702,7 +732,10 @@ function createAmbiguousScopes(repository) {
 }
 
 function createSimpleEvidenceScenario(repository, evidenceBasis) {
-  const state = createAddedFiles(repository, { count: 4, directory: "generated" });
+  const state = createAddedFiles(repository, {
+    count: 4,
+    directory: "generated",
+  });
 
   return { ...state, evidenceBasis };
 }
@@ -798,7 +831,11 @@ function createSynopsisOverBudget(repository) {
 }
 
 function createPartialCloneMissingObject(repository) {
-  writeRepositoryFile(repository, "historical.txt", "required historical body\n");
+  writeRepositoryFile(
+    repository,
+    "historical.txt",
+    "required historical body\n",
+  );
   commitAll(repository, "seed partial clone fixture");
   const missingObjectOid = git(repository, [
     "rev-parse",
@@ -937,7 +974,11 @@ function createDraftPathsState(repository, state) {
     git(repository, ["add", "--", "blocker.txt"]);
   } else if (state === "overlap") {
     git(repository, ["add", "--", "selected.txt"]);
-    writeRepositoryFile(repository, "selected.txt", "overlapping unstaged change\n");
+    writeRepositoryFile(
+      repository,
+      "selected.txt",
+      "overlapping unstaged change\n",
+    );
   } else {
     writeRepositoryFile(repository, "blocker.txt", "pre-staged blocker\n");
     git(repository, ["add", "--", "blocker.txt"]);
@@ -960,8 +1001,98 @@ function createSignatureTrustFixture(repository) {
   };
 }
 
+function createSshTrustStateFixture(repository, expectedTrustState) {
+  const state = createAddedFiles(repository, { count: 1 });
+  const trustPath = join(
+    repository,
+    ".git",
+    expectedTrustState === "not-found"
+      ? "missing-allowed-signers"
+      : "declared-denied-allowed-signers",
+  );
+
+  if (expectedTrustState === "permission-denied") {
+    writeFileSync(
+      trustPath,
+      "evals@example.invalid ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEvaluationOnly\n",
+    );
+  }
+
+  git(repository, ["config", "gpg.format", "ssh"]);
+  git(repository, ["config", "gpg.ssh.allowedSignersFile", trustPath]);
+
+  return {
+    ...state,
+    trustPath,
+    expectedTrustState,
+    hostDeclaredTrustState:
+      expectedTrustState === "permission-denied" ? "permission-denied" : null,
+    requestExactPathOnly: expectedTrustState === "permission-denied",
+    verificationPolicy: "required",
+  };
+}
+
+function createWitnessedCheckFixture(repository, checkBehavior) {
+  const selectedPath = "src/feature.js";
+  const excludedPath = "notes/local.txt";
+  const scriptByBehavior = {
+    fail: "process.stderr.write('verification failed\\n'); process.exitCode = 1;\n",
+    "mutate-excluded":
+      "import { writeFileSync } from 'node:fs'; writeFileSync('notes/local.txt', 'changed by verification\\n');\n",
+    "mutate-selected":
+      "import { writeFileSync } from 'node:fs'; writeFileSync('src/feature.js', 'export const feature = \\\"changed by verification\\\";\\n');\n",
+    "noisy-pass":
+      "process.stdout.write('verification output\\n'.repeat(131072));\n",
+    pass: "process.stdout.write('verification passed\\n');\n",
+  };
+  const verificationScript = scriptByBehavior[checkBehavior];
+
+  if (verificationScript === undefined) {
+    fail(`Unknown witnessed-check behavior ${JSON.stringify(checkBehavior)}`);
+  }
+
+  writeRepositoryFile(
+    repository,
+    "package.json",
+    `${JSON.stringify(
+      {
+        name: "committing-to-git-check-evaluation",
+        private: true,
+        type: "module",
+        scripts: { verify: "node scripts/verify.mjs" },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPath,
+    "export const feature = false;\n",
+  );
+  writeRepositoryFile(repository, excludedPath, "local notes\n");
+  writeRepositoryFile(repository, "scripts/verify.mjs", verificationScript);
+  commitAll(repository, "seed witnessed check fixture");
+  writeRepositoryFile(
+    repository,
+    selectedPath,
+    "export const feature = true;\n",
+  );
+
+  return {
+    checkBehavior,
+    checkCommand: ["npm", "run", "verify"],
+    selectedPaths: [selectedPath],
+    excludedPaths: [excludedPath],
+  };
+}
+
 function createNoisyHook(repository) {
-  writeRepositoryFile(repository, ".githooks/commit-msg", "#!/bin/sh\nnode -e \"process.stderr.write('N'.repeat(10485760)); if (process.env.EVAL_REJECT === '1') process.exit(1)\"\n");
+  writeRepositoryFile(
+    repository,
+    ".githooks/commit-msg",
+    "#!/bin/sh\nnode -e \"process.stderr.write('N'.repeat(10485760)); if (process.env.EVAL_REJECT === '1') process.exit(1)\"\n",
+  );
   chmodSync(join(repository, ".githooks", "commit-msg"), 0o755);
   writeRepositoryFile(repository, "feature.txt", "baseline\n");
   commitAll(repository, "seed noisy hook fixture");
@@ -985,7 +1116,10 @@ function createWorkspaceRemaining(repository, count, longPaths = false) {
 
   for (let index = 0; index < count; index += 1) {
     const stem = longPaths ? `long-${"x".repeat(110)}` : "remaining";
-    const path = join("workspace", `${stem}-${String(index + 1).padStart(3, "0")}.txt`);
+    const path = join(
+      "workspace",
+      `${stem}-${String(index + 1).padStart(3, "0")}.txt`,
+    );
     writeRepositoryFile(repository, path, `remaining ${index + 1}\n`);
     paths.push(path.replaceAll("\\", "/"));
   }
@@ -1033,11 +1167,7 @@ function createMixedGitFacts(repository) {
     "similar-addition.txt",
     "shared retained content adapted\n",
   );
-  writeRepositoryFile(
-    repository,
-    "asset.bin",
-    Buffer.from([0, 1, 2, 3, 255]),
-  );
+  writeRepositoryFile(repository, "asset.bin", Buffer.from([0, 1, 2, 3, 255]));
   git(repository, ["add", "-A"]);
   git(repository, ["update-index", "--chmod=+x", "script.sh"]);
 
@@ -1074,7 +1204,11 @@ function createHookMessageMismatch(repository) {
   );
   chmodSync(join(repository, ".githooks", "commit-msg"), 0o755);
   writeRepositoryFile(repository, "feature.txt", "baseline\n");
-  writeRepositoryFile(repository, "package-lock.json", '{"lockfileVersion":3}\n');
+  writeRepositoryFile(
+    repository,
+    "package-lock.json",
+    '{"lockfileVersion":3}\n',
+  );
   commitAll(repository, "seed hook mismatch fixture");
   git(repository, ["config", "core.hooksPath", ".githooks"]);
   writeRepositoryFile(repository, "feature.txt", "approved change\n");
@@ -1545,7 +1679,10 @@ const SCENARIOS = new Map([
   ],
   [
     "known-context-skill-inventory-hint",
-    createScenarioDefinition(createKnownContextInventory, "known-context-direct"),
+    createScenarioDefinition(
+      createKnownContextInventory,
+      "known-context-direct",
+    ),
   ],
   [
     "known-context-twelve-file-feature",
@@ -1578,7 +1715,10 @@ const SCENARIOS = new Map([
       "extended-review",
     ),
   ],
-  ["literal-path", createScenarioDefinition(createLiteralPath, "concise-direct")],
+  [
+    "literal-path",
+    createScenarioDefinition(createLiteralPath, "concise-direct"),
+  ],
   [
     "live-index-lock",
     createScenarioDefinition(createLiveIndexLock, "safe-stop"),
@@ -1654,7 +1794,10 @@ const SCENARIOS = new Map([
   ],
   [
     "partial-clone-missing-object",
-    createScenarioDefinition(createPartialCloneMissingObject, "extended-review"),
+    createScenarioDefinition(
+      createPartialCloneMissingObject,
+      "extended-review",
+    ),
   ],
   [
     "portable-direct-subject",
@@ -1819,8 +1962,14 @@ const SCENARIOS = new Map([
       "extended-review",
     ),
   ],
-  ["staged-rename", createScenarioDefinition(createStagedRename, "concise-direct")],
-  ["stale-head", createScenarioDefinition(createStaleHead, "fresh-preparation")],
+  [
+    "staged-rename",
+    createScenarioDefinition(createStagedRename, "concise-direct"),
+  ],
+  [
+    "stale-head",
+    createScenarioDefinition(createStaleHead, "fresh-preparation"),
+  ],
   [
     "structured-bulk-only",
     createScenarioDefinition(
@@ -1869,6 +2018,65 @@ const SCENARIOS = new Map([
   [
     "unsupported-old-attempt",
     createScenarioDefinition(createUnsupportedAttempt, "invalid-input"),
+  ],
+  [
+    "prose-check-claim-rejected",
+    createScenarioDefinition(
+      (repository) => createWitnessedCheckFixture(repository, "pass"),
+      "witnessed-check",
+    ),
+  ],
+  [
+    "single-receipt-npm-verify",
+    createScenarioDefinition(
+      (repository) => createWitnessedCheckFixture(repository, "pass"),
+      "witnessed-check",
+    ),
+  ],
+  [
+    "ssh-trust-not-found",
+    createScenarioDefinition(
+      (repository) => createSshTrustStateFixture(repository, "not-found"),
+      "verification-recovery",
+    ),
+  ],
+  [
+    "ssh-trust-permission-denied",
+    createScenarioDefinition(
+      (repository) =>
+        createSshTrustStateFixture(repository, "permission-denied"),
+      "permission-preflight",
+    ),
+  ],
+  [
+    "failed-check-checkpoint-authorization",
+    createScenarioDefinition(
+      (repository) => createWitnessedCheckFixture(repository, "fail"),
+      "witnessed-check",
+    ),
+  ],
+  [
+    "noisy-successful-check",
+    createScenarioDefinition(
+      (repository) => createWitnessedCheckFixture(repository, "noisy-pass"),
+      "witnessed-check",
+    ),
+  ],
+  [
+    "selected-scope-check-mutation",
+    createScenarioDefinition(
+      (repository) =>
+        createWitnessedCheckFixture(repository, "mutate-selected"),
+      "safe-stop",
+    ),
+  ],
+  [
+    "excluded-path-check-mutation",
+    createScenarioDefinition(
+      (repository) =>
+        createWitnessedCheckFixture(repository, "mutate-excluded"),
+      "witnessed-check",
+    ),
   ],
   [
     "verification-oid-binding",

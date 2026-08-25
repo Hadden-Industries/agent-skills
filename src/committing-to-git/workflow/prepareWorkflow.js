@@ -36,7 +36,10 @@ import {
 } from "../inspection/reviewCatalog.js";
 import { scaffoldContent } from "../message/commitMessageRenderer.js";
 import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
-import { inspectSignatureRequirements } from "../signature/signaturePreflight.js";
+import {
+  describeSshTrustSourceFailure,
+  inspectSignatureRequirements,
+} from "../signature/signaturePreflight.js";
 import { writePacketStream } from "../inspection/streamingPacketWriter.js";
 import {
   MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
@@ -160,23 +163,24 @@ export function preflightVerificationPolicy({
   if (
     verificationPolicy === "required" &&
     signaturePreflight.backend === "ssh" &&
-    signaturePreflight.trustSource?.readable !== true
+    signaturePreflight.trustSource?.state !== "readable"
   ) {
-    fail(
-      "SIGNATURE_TRUST_ACCESS_REQUIRED",
-      "Required SSH verification cannot read Git's configured allowed-signers file.",
-      {
-        exitCode: 1,
-        details: {
-          capability: {
-            kind: "read-file",
-            path: signaturePreflight.trustSource?.path ?? null,
-            origin: signaturePreflight.trustSource?.origin ?? null,
-          },
-          verificationPolicy,
-        },
-      },
+    const failure = describeSshTrustSourceFailure(
+      signaturePreflight.trustSource,
     );
+
+    fail("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
+      exitCode: 1,
+      details: {
+        ...(failure.capability === null
+          ? {}
+          : { capability: failure.capability }),
+        action: failure.action,
+        trustSource: failure.trustSource,
+        verificationPolicy,
+        policyAlternatives: failure.policyAlternatives,
+      },
+    });
   }
 
   return signaturePreflight;

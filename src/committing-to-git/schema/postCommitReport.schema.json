@@ -16,7 +16,7 @@
     "workspace"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "headAnchor": { "$ref": "#/$defs/headAnchor" },
     "commit": {
       "type": "object",
@@ -92,7 +92,7 @@
       }
     },
     "verification": { "type": "object" },
-    "checks": { "type": "object" },
+    "checks": { "$ref": "#/$defs/checkEvidence" },
     "publication": { "$ref": "#/$defs/publication" },
     "workspace": {
       "oneOf": [
@@ -177,6 +177,94 @@
       "properties": {
         "name": { "type": "string" },
         "email": { "type": "string" }
+      }
+    },
+    "checkOutputSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalByteCount", "sha256", "truncated"],
+      "properties": {
+        "totalByteCount": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "checkEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "attemptCount", "receipts"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "attemptCount": { "type": "integer", "minimum": 0 },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "receiptId",
+              "label",
+              "command",
+              "context",
+              "outcome",
+              "exitCode",
+              "signal",
+              "durationMilliseconds",
+              "selectedScopeStable",
+              "failureAcknowledged",
+              "output"
+            ],
+            "properties": {
+              "receiptId": {
+                "type": "string",
+                "pattern": "^C[0-9]{6}$"
+              },
+              "label": { "type": "string", "minLength": 1 },
+              "command": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["executable", "arguments"],
+                "properties": {
+                  "executable": { "type": "string", "minLength": 1 },
+                  "arguments": {
+                    "type": "array",
+                    "maxItems": 256,
+                    "items": { "type": "string" }
+                  }
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "repositoryRelativeWorkingDirectory"],
+                "properties": {
+                  "kind": { "const": "current-worktree" },
+                  "repositoryRelativeWorkingDirectory": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "outcome": {
+                "enum": ["passed", "failed", "signaled", "timed-out"]
+              },
+              "exitCode": { "type": ["integer", "null"] },
+              "signal": { "type": ["string", "null"] },
+              "durationMilliseconds": { "type": "integer", "minimum": 0 },
+              "selectedScopeStable": { "const": true },
+              "failureAcknowledged": { "type": ["boolean", "null"] },
+              "output": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["stdout", "stderr"],
+                "properties": {
+                  "stdout": { "$ref": "#/$defs/checkOutputSummary" },
+                  "stderr": { "$ref": "#/$defs/checkOutputSummary" }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "workspaceEntries": {

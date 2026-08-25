@@ -340,7 +340,7 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
       effectiveAttempt: 0,
       blocksPush: false,
     },
-    checks: { schemaVersion: 1, checks: [] },
+    checks: { schemaVersion: 2, attemptCount: 0, receipts: [] },
   });
   assert.equal(report.commit.treeMatches, true);
   assert.deepEqual(report.statistics.kinds, { modified: 1 });

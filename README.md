@@ -26,19 +26,20 @@ The repository follows one core rule:
 
 The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
 
-- the public CLI is organized around `workflow prepare`, optional `workflow extend`/`message finalize`, `workflow promote`, `workflow commit`, optional `workflow publish`, and focused recovery, verification, cleanup, and report-detail commands;
+- the public CLI is organized around `workflow prepare`, optional review/message finalization, draft promotion, optional helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
 - concise preparation reuses grounded current-task evidence or returns bounded message evidence inline, while extended preparation creates hash-bound packets only for unresolved uncertainty;
 - a transport-safe ASCII subject goes directly from preparation and exact approval to commit; multiline, Unicode, nonportable, or explicitly checked text uses the one fixed transaction-local `message-input.txt` plus `message check`, and arbitrary external message-file paths are not accepted;
 - the agent treats a strong user hint as direction to improve against evidence, not as a demand for exact Conventional Commit type, scope, wording, rationale, UX consequence, or path selection;
 - draft `full` and `paths` isolate the real index, actual preparation records the exact intended tree, and only an unchanged draft can cross to actual through `workflow promote`;
 - exact manifests and bounded scope synopses prevent accidental inclusion; optional detailed or counted-domain presentation is derived only when it adds durable value;
+- optional `workflow check` receipts bind an exact argv and observed child outcome to the prepared tree; they never reconstruct passes from prose or stdout, and bounded retained output is available through `workflow check-detail`;
 - the approved tree and raw message bytes are compared with the one journaled signed commit, and unknown outcomes are observed rather than replayed;
 - signature policy is `required`, `advisory`, or `skipped`, but every created commit still requires a signature header and recovery remains bound to the exact full OID; and
 - an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
 
-Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing. Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch. Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source; the user may explicitly choose `advisory` or `skipped`.
+Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing. Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch. Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source. The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
 
-The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The exact boundaries, primary-source rationale, tests, adversarial reviews, and residual limitations are documented in the [formal assurance case](./docs/assurance-cases/2026-08-22-committing-to-git-skill.md). The historical design decisions are preserved separately in the [implementation plan](./docs/implementation-plans/2026-08-21-committing-to-git-workflow-redesign.md).
+The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor. Historical design decisions are recorded separately in dated implementation plans.
 
 ## Installation
 
@@ -73,7 +74,7 @@ These skills are built on the open [Agent Skills specification](https://agentski
 | Validate or evaluate a skill | [Validation and evaluation](#validation-and-evaluation) |
 | Understand which tool to use | [Toolchain at a glance](#toolchain-at-a-glance) |
 | Know when a change is finished | [Definition of done](#definition-of-done) |
-| Review the evidence behind `committing-to-git` | [Formal assurance case](./docs/assurance-cases/2026-08-22-committing-to-git-skill.md) |
+| Review the evidence behind `committing-to-git` | [Current assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md) |
 | Refresh the local tooling | [Update the development environment](#update-the-development-environment) |
 | Diagnose setup problems | [Troubleshooting](#troubleshooting) |
 
@@ -138,6 +139,7 @@ agent-skills/
 │   ├── committing-to-git/
 │   │   ├── SKILL.md                      # Signed snapshot transaction workflow
 │   │   ├── references/
+│   │   │   ├── check-evidence.md         # Witnessed checks, bounded output, and recovery
 │   │   │   ├── inspection-recovery.md    # Exceptional evidence and packet recovery
 │   │   │   ├── message-format.md         # Optional sections and structured formatting
 │   │   │   ├── publication-recovery.md   # Exact-OID push recovery policy
@@ -184,6 +186,7 @@ agent-skills/
 │
 ├── src/                                  # Maintainable source for generated skill scripts
 │   └── committing-to-git/
+│       ├── checks/                       # Witnessed check receipts and bounded output
 │       ├── cli/                          # Published command boundary
 │       ├── command/                      # Snapshot, message, report, and publication adapters
 │       ├── git/                          # Git process and path semantics
@@ -192,7 +195,9 @@ agent-skills/
 │       ├── report/                       # Post-commit fact collection and rendering
 │       ├── schema/                       # Versioned workflow contracts
 │       ├── signature/                    # Signature verification policy
-│       └── snapshot/                     # Approved Git-tree snapshots
+│       ├── snapshot/                     # Approved Git-tree snapshots
+│       ├── transaction/                  # Durable journals, recovery, and cleanup
+│       └── workflow/                     # Public workflow orchestration
 │
 ├── scripts/                              # Repository authoring and bootstrap commands
 │   ├── buildSkillBundles.js              # Shared esbuild entry point and drift check
@@ -244,7 +249,8 @@ agent-skills/
 │
 ├── docs/
 │   ├── assurance-cases/
-│   │   └── 2026-08-22-committing-to-git-skill.md
+│   │   ├── 2026-08-23-committing-to-git-proportional-workflow.md
+│   │   └── 2026-08-25-committing-to-git-witnessed-checks.md
 │   └── implementation-plans/
 │       └── 2026-08-21-committing-to-git-workflow-redesign.md
 │
@@ -1357,9 +1363,9 @@ npm test
 
 This matters because a skill's instructions branch on specific output fields.
 `committing-to-git` passes a versioned snapshot, bounded inspection ledger,
-semantic content worksheet, validation result, exact-commit signature result,
-check record, optional publication result, and post-commit report between eleven
-routes in one published workflow bundle. If one output changes without its
+semantic content worksheet, validation result, witnessed check receipts,
+exact-commit signature result, optional publication result, and post-commit
+report between its public routes in one published workflow bundle. If one output changes without its
 schema and consumer, the workflow can silently stage, inspect, approve, verify,
 publish, or report a different state. The suite validates representative
 cross-route payloads; exact Git-tree, path, signature, report, and publication

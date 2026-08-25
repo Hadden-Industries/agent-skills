@@ -24,6 +24,11 @@ import {
   resolve,
 } from "node:path";
 
+import {
+  analyzeCheckCommitReadiness,
+  validateCheckAttempts,
+} from "../checks/checkReceipt.js";
+
 export const MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
 export const MAXIMUM_INITIAL_JSON_INPUT_BYTES = 8 * 1024 * 1024;
 export const MAXIMUM_BASIS_NOTE_BYTES = 512;
@@ -113,6 +118,7 @@ const REQUIRED_TRANSACTION_KEYS = [
   "commit",
   "verification",
   "report",
+  "checkAttempts",
   "publicationAttempts",
 ];
 const STATE_COMBINATIONS = new Set(
@@ -596,23 +602,35 @@ function validateSignaturePreflight(preflight) {
 
   assertExactKeys(
     preflight.trustSource,
-    ["configured", "origin", "path", "readable"],
+    ["configured", "origin", "path", "state", "errorCode"],
     "SSH trust source",
   );
 
   if (
     typeof preflight.trustSource.configured !== "boolean" ||
-    typeof preflight.trustSource.readable !== "boolean" ||
+    !new Set([
+      "readable",
+      "not-configured",
+      "not-found",
+      "permission-denied",
+      "invalid-file-type",
+      "probe-error",
+    ]).has(preflight.trustSource.state) ||
+    (preflight.trustSource.errorCode !== null &&
+      typeof preflight.trustSource.errorCode !== "string") ||
     (preflight.trustSource.origin !== null &&
       typeof preflight.trustSource.origin !== "string") ||
     (preflight.trustSource.path !== null &&
       typeof preflight.trustSource.path !== "string") ||
     (preflight.trustSource.configured &&
-      (!preflight.trustSource.origin || !preflight.trustSource.path)) ||
+      (!preflight.trustSource.origin ||
+        !preflight.trustSource.path ||
+        preflight.trustSource.state === "not-configured")) ||
     (!preflight.trustSource.configured &&
       (preflight.trustSource.origin !== null ||
         preflight.trustSource.path !== null ||
-        preflight.trustSource.readable))
+        preflight.trustSource.state !== "not-configured" ||
+        preflight.trustSource.errorCode !== null))
   ) {
     throw new Error("SSH trust-source preflight is invalid.");
   }
@@ -633,7 +651,7 @@ function validateCommitJournal(commit) {
       "expectedTreeOid",
       "messageSha256",
       "messageByteCount",
-      "checks",
+      "acknowledgedFailedCheckIds",
       "startedAt",
       "completion",
       "transcript",
@@ -656,6 +674,13 @@ function validateCommitJournal(commit) {
     !SHA256_PATTERN.test(commit.messageSha256) ||
     !Number.isSafeInteger(commit.messageByteCount) ||
     commit.messageByteCount < 1 ||
+    !Array.isArray(commit.acknowledgedFailedCheckIds) ||
+    commit.acknowledgedFailedCheckIds.some(
+      (receiptId) =>
+        typeof receiptId !== "string" || !/^C[0-9]{6}$/u.test(receiptId),
+    ) ||
+    new Set(commit.acknowledgedFailedCheckIds).size !==
+      commit.acknowledgedFailedCheckIds.length ||
     typeof commit.startedAt !== "string" ||
     !Number.isFinite(Date.parse(commit.startedAt)) ||
     (commit.commitOid !== null && !FULL_OID_PATTERN.test(commit.commitOid)) ||
@@ -681,22 +706,6 @@ function validateCommitJournal(commit) {
     ) {
       throw new Error("Commit child identity is invalid.");
     }
-  }
-
-  assertExactKeys(
-    commit.checks,
-    ["value", "sha256", "externalPath"],
-    "Commit checks capsule",
-  );
-
-  if (
-    !SHA256_PATTERN.test(commit.checks.sha256) ||
-    (commit.checks.externalPath !== null &&
-      !isAbsolute(commit.checks.externalPath)) ||
-    commit.checks.value?.schemaVersion !== 1 ||
-    !Array.isArray(commit.checks.value?.checks)
-  ) {
-    throw new Error("Commit checks capsule is invalid.");
   }
 
   if (commit.completion !== null) {
@@ -1122,8 +1131,8 @@ function validatePublicationAttempt(attempt) {
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
-  if (transaction.schemaVersion !== 1) {
-    throw new Error("Transaction schemaVersion must be 1.");
+  if (transaction.schemaVersion !== 2) {
+    throw new Error("Transaction schemaVersion must be 2.");
   }
 
   if (!PHASES.has(transaction.phase)) {
@@ -1190,6 +1199,26 @@ export function validateTransaction(transaction) {
   validatePromotionState(transaction.snapshot, transaction);
   validateCommitJournal(transaction.commit);
   validateVerificationHistory(transaction.verification);
+  validateCheckAttempts(transaction.checkAttempts, transaction);
+
+  if (transaction.commit !== null) {
+    const readiness = analyzeCheckCommitReadiness(
+      transaction.checkAttempts,
+      transaction.commit.acknowledgedFailedCheckIds,
+    );
+
+    if (
+      readiness.activeAttemptIds.length > 0 ||
+      readiness.retryRequiredIds.length > 0 ||
+      readiness.missingAcknowledgementIds.length > 0 ||
+      readiness.invalidAcknowledgementIds.length > 0 ||
+      readiness.duplicateAcknowledgementIds.length > 0
+    ) {
+      throw new Error(
+        "Commit journal check acknowledgements do not match its ready witnessed receipts.",
+      );
+    }
+  }
 
   if (
     transaction.status === "promoted" &&
@@ -1361,7 +1390,7 @@ export function validateTransaction(transaction) {
 
 function initialTransaction(repositoryRoot, attemptDirectory) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase: "allocated",
     repositoryRoot,
     attemptDirectory,
@@ -1382,6 +1411,7 @@ function initialTransaction(repositoryRoot, attemptDirectory) {
     commit: null,
     verification: null,
     report: null,
+    checkAttempts: [],
     publicationAttempts: [],
   };
 }
