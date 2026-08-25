@@ -113,6 +113,8 @@ function writeOutput(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+// Operator-selected plan and blinding outputs are outside immutable session
+// evidence, whose exclusive writes are owned by scripts/evaluation/runtime.js.
 function writeJsonArtifactExclusive(destination, value) {
   writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`, {
     encoding: "utf8",

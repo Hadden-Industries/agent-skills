@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -70,12 +70,8 @@ const EVALUATION_BASE_INSTRUCTIONS =
 const EVALUATION_DEVELOPER_INSTRUCTIONS =
   "Follow the user request with the available local tools. Do not use the network, apps, plugins, MCP servers, subagents, or undisclosed skills. Before any commit, emit exactly one structured evaluation proposal; when materially different scopes remain plausible, emit exactly one structured scope question before staging or preparation.";
 
-function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function stableOrderKey(seed, value) {
-  return sha256(`${seed}\0${value}`);
+  return sha256Hex(Buffer.from(`${seed}\0${value}`, "utf8"));
 }
 
 function sortedUnique(values) {
@@ -165,7 +161,7 @@ function listWorktreeFiles(repository) {
           bytes: Buffer.byteLength(target),
           mode: state.mode % 0o1000,
           path: repositoryPath,
-          sha256: sha256(target),
+          sha256: sha256Hex(Buffer.from(target, "utf8")),
           type: "symlink",
         });
       } else if (state.isFile()) {
@@ -174,7 +170,7 @@ function listWorktreeFiles(repository) {
           bytes: contents.byteLength,
           mode: state.mode % 0o1000,
           path: repositoryPath,
-          sha256: sha256(contents),
+          sha256: sha256Hex(contents),
           type: "file",
         });
       }
@@ -216,16 +212,16 @@ export function captureGitState(repository) {
   const facts = {
     branch: branchResult.status === 0 ? branchResult.stdout.trim() : null,
     head,
-    indexSha256: sha256(index),
-    localConfigurationSha256: sha256(localConfiguration),
+    indexSha256: sha256Hex(index),
+    localConfigurationSha256: sha256Hex(localConfiguration),
     parents,
-    statusSha256: sha256(status),
+    statusSha256: sha256Hex(status),
     worktreeFiles,
   };
 
   return {
     ...facts,
-    sha256: sha256(JSON.stringify(facts)),
+    sha256: sha256Hex(Buffer.from(JSON.stringify(facts), "utf8")),
   };
 }
 
@@ -763,7 +759,7 @@ function extractPinnedSkill({ arm, destination, repositoryRoot }) {
       bytes: contents.byteLength,
       mode: entry.mode,
       path: relativePath.split(sep).join("/"),
-      sha256: sha256(contents),
+      sha256: sha256Hex(contents),
     });
   }
 
@@ -1342,10 +1338,9 @@ export function createBlindedGradingBundle({ records, seed }) {
       sessions.push({
         ...sanitizedGradingValue(record, secrets),
         armLabel,
-        blindSessionId: sha256(`${seed}\0${blockId}\0${record.arm}`).slice(
-          0,
-          24,
-        ),
+        blindSessionId: sha256Hex(
+          Buffer.from(`${seed}\0${blockId}\0${record.arm}`, "utf8"),
+        ).slice(0, 24),
       });
     });
     mapping.blocks[blockId] = blockMapping;

@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { access, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, resolve } from "node:path";
 import { TextDecoder } from "node:util";
@@ -115,10 +114,6 @@ function sameCanonical(left, right) {
   } catch {
     return false;
   }
-}
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function assertEnvironment(environment) {
@@ -402,7 +397,7 @@ async function fingerprintFile(path) {
   return {
     path: canonicalPath,
     byteLength: bytes.byteLength,
-    sha256: sha256(bytes),
+    sha256: sha256Hex(bytes),
   };
 }
 
@@ -498,7 +493,7 @@ export async function inspectClaudeCliToolchain({
     boundPrefixFiles: await fingerprintPrefixFiles(boundArguments),
     help: {
       byteLength: helpProbe.stdout.byteLength,
-      sha256: sha256(helpProbe.stdout),
+      sha256: sha256Hex(helpProbe.stdout),
     },
     capabilityProfile: CAPABILITY_PROFILE,
   });

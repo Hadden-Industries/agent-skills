@@ -29,6 +29,19 @@ function independentSha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+test("production evaluation modules use the shared SHA-256 owner", async () => {
+  for (const relativePath of [
+    "../../scripts/evaluation/claude-cli.js",
+    "../../evals/committing-to-git/evaluation-runner.mjs",
+  ]) {
+    const source = await readFile(
+      new URL(relativePath, import.meta.url),
+      "utf8",
+    );
+    assert.doesNotMatch(source, /function sha256\s*\(/u, relativePath);
+  }
+});
+
 function inputRecord({
   id = "prompt",
   role = "user",
