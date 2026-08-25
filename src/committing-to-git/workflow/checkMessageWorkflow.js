@@ -150,14 +150,15 @@ function commonResult(transactionPath, route, status, phase) {
   };
 }
 
-function checkedResult({ transactionPath, canonical, validation, warnings }) {
+function checkedResult({
+  transactionPath,
+  route,
+  canonical,
+  validation,
+  warnings,
+}) {
   return {
-    ...commonResult(
-      transactionPath,
-      "concise",
-      "message-ready",
-      "message-ready",
-    ),
+    ...commonResult(transactionPath, route, "message-ready", "message-ready"),
     messageSource: "checked-file",
     messageRevision: canonical.messageRevision,
     messageSha256: canonical.messageSha256,
@@ -173,9 +174,11 @@ function prospectiveCheckedResult({
   validation,
   displayText,
   inputPath,
+  route,
 }) {
   return checkedResult({
     transactionPath,
+    route,
     canonical: {
       messageRevision: revision,
       messageSha256: validation.messageSha256,
@@ -194,14 +197,22 @@ function prospectiveCheckedResult({
 }
 
 function assertCheckTransaction(transaction, transactionPath) {
-  if (
-    transaction.route !== "concise" ||
-    !new Set(["evidence-ready", "message-ready"]).has(transaction.phase) ||
-    transaction.commit !== null
-  ) {
+  const conciseAllowed =
+    transaction.route === "concise" &&
+    new Set(["evidence-ready", "message-ready"]).has(transaction.phase);
+  const receipt = transaction.review?.receipt;
+  const extendedAllowed =
+    transaction.route === "extended" &&
+    new Set(["review-pending", "message-ready"]).has(transaction.phase) &&
+    transaction.review.semanticStructureRequired === false &&
+    receipt?.requiredPacketsReviewed === true &&
+    receipt.catalogSha256 === transaction.review.catalogSha256 &&
+    receipt.evidencePlanSha256 === transaction.review.evidencePlanSha256;
+
+  if ((!conciseAllowed && !extendedAllowed) || transaction.commit !== null) {
     fail(
       "MESSAGE_CHECK_NOT_ALLOWED",
-      `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
+      `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       { details: { transaction: resolve(transactionPath) } },
     );
   }
@@ -231,7 +242,7 @@ export function checkMessageWorkflow({
   assertCheckTransaction(transaction, transactionPath);
   const validation = validateApprovedMessage({
     manifest,
-    route: "concise",
+    route: transaction.route,
     bytes: opened.bytes,
     repositoryTypePolicy: transaction.repositoryTypePolicy,
     messageSource: "checked-file",
@@ -246,6 +257,7 @@ export function checkMessageWorkflow({
       validation,
       displayText: validation.displayText,
       inputPath: opened.path,
+      route: transaction.route,
     }),
   );
 
@@ -262,6 +274,7 @@ export function checkMessageWorkflow({
   });
   const result = checkedResult({
     transactionPath,
+    route: transaction.route,
     canonical,
     validation,
     warnings: cleanup.warning === null ? [] : [cleanup.warning],

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -14,6 +14,121 @@ import {
   writeJson,
   writeRepositoryFile,
 } from "./harness.mjs";
+
+test("a trivial lock hash change commits through the direct concise path", (t) => {
+  const fixture = createRepositoryFixture(t, "trivial-lock-hash-e2e-");
+  const before = {
+    skills: {
+      "committing-to-git": {
+        source: "Hadden-Industries/agent-skills",
+        computedHash: "a".repeat(64),
+      },
+    },
+  };
+
+  writeJson(join(fixture.repo, "skills-lock.json"), before);
+  commitAll(fixture.repo);
+
+  if (!configureSshSigning(t, fixture)) {
+    return;
+  }
+
+  const signingKeyPath = git(
+    ["config", "--path", "user.signingkey"],
+    fixture.repo,
+  ).stdout.trim();
+  const allowedSignersPath = join(fixture.scratch, "allowed-signers");
+  const publicKey = readFileSync(`${signingKeyPath}.pub`, "utf8").trim();
+
+  writeFileSync(allowedSignersPath, `tests@example.invalid ${publicKey}\n`);
+  git(
+    ["config", "gpg.ssh.allowedSignersFile", allowedSignersPath],
+    fixture.repo,
+  );
+
+  writeJson(join(fixture.repo, "skills-lock.json"), {
+    ...before,
+    skills: {
+      ...before.skills,
+      "committing-to-git": {
+        ...before.skills["committing-to-git"],
+        computedHash: "b".repeat(64),
+      },
+    },
+  });
+  const headBefore = git(["rev-parse", "HEAD"], fixture.repo).stdout.trim();
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "paths",
+      "--evidence",
+      "message",
+      "--basis",
+      "read-current-task",
+      "--path",
+      "skills-lock.json",
+      "--allowed-type",
+      "build",
+      "--verification",
+      "required",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparation = JSON.parse(prepared.stdout);
+  const transaction = readJson(preparation.transaction);
+  const attemptDirectory = dirname(preparation.transaction);
+
+  assert.equal(preparation.route, "concise");
+  assert.equal(preparation.changeUnitCount, 1);
+  assert.equal(transaction.review, null);
+  assert.equal(existsSync(join(attemptDirectory, "content.json")), false);
+  assert.equal(
+    git(["diff", "--cached", "--name-only"], fixture.repo).stdout,
+    "skills-lock.json\n",
+  );
+
+  const committed = runCommitWorkflow(
+    "workflow commit",
+    [
+      "--transaction",
+      preparation.transaction,
+      "--message",
+      "build(skills): Refresh committing-to-git lock hash",
+      "--verification",
+      "required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(committed.status, 0, committed.stderr);
+  const result = JSON.parse(committed.stdout);
+
+  assert.equal(result.commitState, "created");
+  assert.equal(result.report.commit.treeMatches, true);
+  assert.equal(result.report.commit.messageMatches, true);
+  assert.equal(result.report.commit.signed, true);
+  assert.equal(result.report.verification.finalPolicy, "required");
+  assert.equal(
+    result.report.verification.attempts[
+      result.report.verification.effectiveAttempt
+    ].status,
+    "verified",
+  );
+  assert.equal(
+    git(["rev-list", "--count", `${headBefore}..HEAD`], fixture.repo).stdout,
+    "1\n",
+  );
+  assert.equal(
+    git(["show", "--format=", "--name-only", "HEAD"], fixture.repo).stdout,
+    "skills-lock.json\n",
+  );
+});
 
 test("an unchanged promoted draft accepts later direct commit authorization", (t) => {
   const fixture = createRepositoryFixture(t, "draft-promotion-commit-e2e-");
@@ -132,6 +247,473 @@ test("commit after promotion verifies the current real index", (t) => {
   );
 });
 
+test("semantic content finalizes after filling only editable placeholders", (t) => {
+  const fixture = createRepositoryFixture(t, "semantic-content-round-trip-");
+  writeRepositoryFile(fixture.repo, "parser.js", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "parser.js", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      transactionPath,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  const contentPath = join(dirname(transactionPath), "content.json");
+  const content = readJson(contentPath);
+
+  assert.equal(content.schemaVersion, 3);
+  assert.equal("recommendedMode" in content, false);
+  assert.equal("review" in content, false);
+  assert.deepEqual(Object.keys(content).sort(), [
+    "authoringState",
+    "evidenceGroups",
+    "fileNotes",
+    "mode",
+    "schemaVersion",
+    "sharedRationales",
+    "subject",
+    "userExperienceChanges",
+  ]);
+
+  content.authoringState = "complete";
+  content.subject = {
+    type: "fix",
+    scope: "parser",
+    description: "Preserve parser behavior",
+  };
+  content.sharedRationales = [
+    {
+      selection: { all: true },
+      reasons: ["Keep established parser callers stable"],
+    },
+  ];
+  writeJson(contentPath, content);
+
+  const finalized = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(finalized.status, 0, finalized.stderr);
+  const result = JSON.parse(finalized.stdout);
+
+  assert.equal(result.status, "message-ready");
+  assert.match(result.displayText, /^fix\(parser\): Preserve parser behavior/u);
+});
+
+test("structured finalization preserves the helper-selected presentation mode", (t) => {
+  const fixture = createRepositoryFixture(t, "semantic-mode-binding-");
+  writeRepositoryFile(fixture.repo, "parser.js", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "parser.js", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      transactionPath,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  const contentPath = join(dirname(transactionPath), "content.json");
+  const content = readJson(contentPath);
+
+  assert.equal(content.mode, "detailed");
+  content.authoringState = "complete";
+  content.subject = {
+    type: "fix",
+    scope: "parser",
+    description: "Preserve parser behavior",
+  };
+  content.sharedRationales = [
+    {
+      selection: { all: true },
+      reasons: ["Keep established parser callers stable"],
+    },
+  ];
+  content.mode = "bulk";
+  delete content.fileNotes;
+  content.domains = [
+    {
+      selection: { all: true },
+      domain: "Parser behavior",
+    },
+  ];
+  writeJson(contentPath, content);
+
+  const finalized = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(finalized.status, 2, finalized.stderr);
+  assert.equal(
+    JSON.parse(finalized.stdout).code,
+    "MESSAGE_PRESENTATION_MODE_MISMATCH",
+  );
+});
+
+test("verified packet traversal enables a concise message after review", (t) => {
+  const fixture = createRepositoryFixture(t, "review-next-concise-");
+  writeRepositoryFile(fixture.repo, "large.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "large.txt",
+    "reviewed change\n".repeat(8_000),
+  );
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "review",
+      "--basis",
+      "unknown-preexisting",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparation = JSON.parse(prepared.stdout);
+
+  assert.equal(preparation.route, "extended");
+  assert.ok(preparation.reviewQueue.requiredPacketCount > 1);
+  let cursor = null;
+  let deliveredPacketCount = 0;
+  const deliveredPacketIds = new Set();
+
+  for (;;) {
+    const reviewed = runCommitWorkflow(
+      "workflow review-next",
+      [
+        "--transaction",
+        preparation.transaction,
+        ...(cursor === null ? [] : ["--cursor", cursor]),
+      ],
+      fixture.repo,
+    );
+
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    const result = JSON.parse(reviewed.stdout);
+
+    deliveredPacketCount += 1;
+    assert.match(result.packet.id, /^[SIPD][0-9]{6}$/u);
+    assert.equal(deliveredPacketIds.has(result.packet.id), false);
+    deliveredPacketIds.add(result.packet.id);
+    assert.ok(result.packet.byteCount <= 16 * 1024);
+    assert.equal(
+      Buffer.byteLength(result.packet.content, "utf8"),
+      result.packet.byteCount,
+    );
+    assert.match(result.packet.content, /^# Review evidence packet\n/u);
+    assert.equal(
+      result.reviewProgress.deliveredPacketCount,
+      deliveredPacketCount,
+    );
+
+    if (result.reviewProgress.complete) {
+      assert.equal(result.reviewProgress.nextCursor, null);
+      break;
+    }
+
+    cursor = result.reviewProgress.nextCursor;
+    assert.equal(typeof cursor, "string");
+  }
+
+  assert.equal(
+    deliveredPacketCount,
+    preparation.reviewQueue.requiredPacketCount,
+  );
+  const transaction = readJson(preparation.transaction);
+
+  assert.equal(transaction.review.receipt.requiredPacketsReviewed, true);
+  assert.equal(
+    transaction.review.receipt.catalogSha256,
+    transaction.review.catalogSha256,
+  );
+  const messagePath = join(
+    dirname(preparation.transaction),
+    "message-input.txt",
+  );
+
+  writeFileSync(messagePath, "fix(review): Preserve reviewed behavior\n");
+  const checked = runCommitWorkflow(
+    "message check",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(checked.status, 0, `${checked.stderr}\n${checked.stdout}`);
+  const checkedResult = JSON.parse(checked.stdout);
+
+  assert.equal(checkedResult.status, "message-ready");
+  assert.equal(checkedResult.route, "extended");
+  assert.equal(
+    checkedResult.displayText,
+    "fix(review): Preserve reviewed behavior\n",
+  );
+});
+
+test("review packet replay is idempotent and stale cursors do not advance", (t) => {
+  const fixture = createRepositoryFixture(t, "review-next-replay-");
+  writeRepositoryFile(fixture.repo, "large.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "large.txt",
+    "reviewed change\n".repeat(3_000),
+  );
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "review",
+      "--basis",
+      "unknown-preexisting",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const first = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(first.status, 0, first.stderr);
+  const firstResult = JSON.parse(first.stdout);
+  const replay = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(replay.status, 0, replay.stderr);
+  const replayResult = JSON.parse(replay.stdout);
+
+  assert.deepEqual(replayResult.packet, firstResult.packet);
+  assert.deepEqual(replayResult.reviewProgress, firstResult.reviewProgress);
+
+  const second = runCommitWorkflow(
+    "workflow review-next",
+    [
+      "--transaction",
+      transactionPath,
+      "--cursor",
+      firstResult.reviewProgress.nextCursor,
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(second.status, 0, second.stderr);
+  const secondResult = JSON.parse(second.stdout);
+
+  assert.equal(secondResult.reviewProgress.deliveredPacketCount, 2);
+  const stale = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(stale.status, 2, stale.stderr);
+  assert.equal(JSON.parse(stale.stdout).code, "REVIEW_CURSOR_INVALID");
+  assert.equal(
+    readJson(transactionPath).review.traversal.deliveredPacketCount,
+    2,
+  );
+});
+
+test("review traversal rejects a changed packet without advancing", (t) => {
+  const fixture = createRepositoryFixture(t, "review-next-tamper-");
+  writeRepositoryFile(fixture.repo, "large.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "large.txt",
+    "reviewed change\n".repeat(3_000),
+  );
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "review",
+      "--basis",
+      "unknown-preexisting",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const first = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(first.status, 0, first.stderr);
+  const firstResult = JSON.parse(first.stdout);
+  const transaction = readJson(transactionPath);
+  const catalog = readJson(transaction.review.catalogPath);
+  const requiredPacketIds = [
+    ...new Set([
+      ...catalog.requiredSynopsisPacketIds,
+      ...catalog.exactInventoryPacketIds,
+      ...catalog.fullPatchPacketIds,
+    ]),
+  ];
+  const nextPacket = catalog.packets.find(
+    ({ id }) => id === requiredPacketIds[1],
+  );
+
+  writeFileSync(
+    join(dirname(transaction.review.catalogPath), nextPacket.artifact),
+    "tampered\n",
+  );
+  const changed = runCommitWorkflow(
+    "workflow review-next",
+    [
+      "--transaction",
+      transactionPath,
+      "--cursor",
+      firstResult.reviewProgress.nextCursor,
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(changed.status, 2, changed.stderr);
+  assert.equal(JSON.parse(changed.stdout).code, "REVIEW_PACKET_CHANGED");
+  assert.equal(
+    readJson(transactionPath).review.traversal.deliveredPacketCount,
+    1,
+  );
+});
+
+test("semantic structure extension cannot use checked concise text", (t) => {
+  const fixture = createRepositoryFixture(t, "semantic-check-gate-");
+  writeRepositoryFile(fixture.repo, "feature.txt", "before\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "feature.txt", "after\n");
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const transactionPath = JSON.parse(prepared.stdout).transaction;
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      transactionPath,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  writeFileSync(
+    join(dirname(transactionPath), "message-input.txt"),
+    "fix(core): Preserve checked behavior\n",
+  );
+  const checked = runCommitWorkflow(
+    "message check",
+    ["--transaction", transactionPath],
+    fixture.repo,
+  );
+
+  assert.equal(checked.status, 2, checked.stderr);
+  assert.equal(JSON.parse(checked.stdout).code, "MESSAGE_CHECK_NOT_ALLOWED");
+});
+
 test("extended draft finalization survives unchanged promotion", (t) => {
   const fixture = createRepositoryFixture(t, "message-finalize-extended-");
   writeRepositoryFile(fixture.repo, "parser.js", "before\n");
@@ -145,9 +727,9 @@ test("extended draft finalization survives unchanged promotion", (t) => {
       "--scope",
       "full",
       "--evidence",
-      "review",
+      "reuse",
       "--basis",
-      "unknown-preexisting",
+      "authored-current-task",
       "--verification",
       "skipped",
     ],
@@ -156,18 +738,29 @@ test("extended draft finalization survives unchanged promotion", (t) => {
   );
   assert.equal(prepared.status, 0, prepared.stderr);
   const preparation = JSON.parse(prepared.stdout);
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      preparation.transaction,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
   const attempt = dirname(preparation.transaction);
   const contentPath = join(attempt, "content.json");
   const content = readJson(contentPath);
 
-  assert.equal(preparation.route, "extended");
+  assert.equal(JSON.parse(extended.stdout).route, "extended");
   assert.equal(content.authoringState, "draft");
-  assert.equal(content.review.requiredPacketsReviewed, false);
+  assert.equal("review" in content, false);
+  assert.equal("recommendedMode" in content, false);
   assert.equal(existsSync(join(attempt, "commit-message.template.txt")), false);
 
   content.authoringState = "complete";
-  delete content.recommendedMode;
-  content.review.requiredPacketsReviewed = true;
   content.subject = {
     type: "fix",
     scope: "parser",
@@ -250,7 +843,6 @@ test("extended finalization converges through one evidence delta", (t) => {
   const content = readJson(contentPath);
 
   content.authoringState = "complete";
-  delete content.recommendedMode;
   content.evidenceGroups = [
     {
       selection: { all: true },
@@ -283,9 +875,29 @@ test("extended finalization converges through one evidence delta", (t) => {
   assert.ok(delta.evidenceDelta.newlyRequiredPacketCount > 0);
   assert.equal(existsSync(delta.evidenceDelta.firstQueuePage), true);
 
-  const revised = readJson(contentPath);
-  revised.review.requiredPacketsReviewed = true;
-  writeJson(contentPath, revised);
+  let cursor = null;
+
+  for (;;) {
+    const reviewed = runCommitWorkflow(
+      "workflow review-next",
+      [
+        "--transaction",
+        transactionPath,
+        ...(cursor === null ? [] : ["--cursor", cursor]),
+      ],
+      fixture.repo,
+    );
+
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    const reviewResult = JSON.parse(reviewed.stdout);
+
+    if (reviewResult.reviewProgress.complete) {
+      break;
+    }
+
+    cursor = reviewResult.reviewProgress.nextCursor;
+  }
+
   const second = runCommitWorkflow(
     "message finalize",
     ["--transaction", transactionPath],
@@ -300,4 +912,196 @@ test("extended finalization converges through one evidence delta", (t) => {
     readJson(transactionPath).review.receipt.requiredPacketsReviewed,
     true,
   );
+});
+
+test("an evidence revision delivers only packets not covered by the prior receipt", (t) => {
+  const fixture = createRepositoryFixture(t, "message-finalize-delta-only-");
+  writeRepositoryFile(fixture.repo, "first.txt", "before first\n");
+  writeRepositoryFile(fixture.repo, "second.txt", "before second\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(
+    fixture.repo,
+    "first.txt",
+    "reviewed first change\n".repeat(3_000),
+  );
+  writeRepositoryFile(
+    fixture.repo,
+    "second.txt",
+    "reviewed second change\n".repeat(3_000),
+  );
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "actual",
+      "--scope",
+      "full",
+      "--evidence",
+      "reuse",
+      "--basis",
+      "authored-current-task",
+      "--verification",
+      "skipped",
+    ],
+    fixture.repo,
+    { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
+  );
+
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const preparation = JSON.parse(prepared.stdout);
+  const extended = runCommitWorkflow(
+    "workflow extend",
+    [
+      "--transaction",
+      preparation.transaction,
+      "--reason",
+      "semantic-structure-required",
+    ],
+    fixture.repo,
+  );
+
+  assert.equal(extended.status, 0, extended.stderr);
+  const firstReviewGroups = [
+    {
+      selection: { destinationPaths: ["first.txt"] },
+      policy: "review",
+      basis: { kind: "unknown-preexisting", note: "Ownership uncertain" },
+    },
+    {
+      selection: { remaining: true },
+      policy: "reuse",
+      basis: { kind: "read-current-task", note: null },
+    },
+  ];
+  const contentPath = join(dirname(preparation.transaction), "content.json");
+  const content = readJson(contentPath);
+
+  content.authoringState = "complete";
+  content.evidenceGroups = firstReviewGroups;
+  content.subject = {
+    type: "fix",
+    scope: "review",
+    description: "Preserve both reviewed changes",
+  };
+  content.sharedRationales = [
+    {
+      selection: { all: true },
+      reasons: ["Keep both reviewed outcomes consistent"],
+    },
+  ];
+  writeJson(contentPath, content);
+
+  const firstEvidenceRequest = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(firstEvidenceRequest.status, 1, firstEvidenceRequest.stderr);
+  let cursor = null;
+  const initiallyReviewed = new Set();
+
+  for (;;) {
+    const reviewed = runCommitWorkflow(
+      "workflow review-next",
+      [
+        "--transaction",
+        preparation.transaction,
+        ...(cursor === null ? [] : ["--cursor", cursor]),
+      ],
+      fixture.repo,
+    );
+
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    const result = JSON.parse(reviewed.stdout);
+
+    initiallyReviewed.add(result.packet.id);
+
+    if (result.reviewProgress.complete) {
+      break;
+    }
+
+    cursor = result.reviewProgress.nextCursor;
+  }
+
+  const firstFinalization = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(firstFinalization.status, 0, firstFinalization.stderr);
+  const revisedContent = readJson(contentPath);
+
+  revisedContent.evidenceGroups = [
+    firstReviewGroups[0],
+    {
+      selection: { remaining: true },
+      policy: "review",
+      basis: { kind: "unknown-preexisting", note: "Now requires review" },
+    },
+  ];
+  writeJson(contentPath, revisedContent);
+  const secondEvidenceRequest = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(secondEvidenceRequest.status, 1, secondEvidenceRequest.stderr);
+  const evidenceRequired = JSON.parse(secondEvidenceRequest.stdout);
+  const pending = readJson(preparation.transaction).review.deliveryPacketIds;
+
+  assert.equal(evidenceRequired.status, "evidence-required");
+  assert.equal(
+    pending.length,
+    evidenceRequired.evidenceDelta.newlyRequiredPacketCount,
+  );
+  assert.ok(pending.length > 0);
+  assert.equal(
+    pending.some((id) => initiallyReviewed.has(id)),
+    false,
+  );
+
+  cursor = null;
+  const deltaPackets = [];
+
+  for (;;) {
+    const reviewed = runCommitWorkflow(
+      "workflow review-next",
+      [
+        "--transaction",
+        preparation.transaction,
+        ...(cursor === null ? [] : ["--cursor", cursor]),
+      ],
+      fixture.repo,
+    );
+
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    const result = JSON.parse(reviewed.stdout);
+
+    deltaPackets.push(result.packet.id);
+    assert.equal(result.reviewProgress.requiredPacketCount, pending.length);
+
+    if (result.reviewProgress.complete) {
+      break;
+    }
+
+    cursor = result.reviewProgress.nextCursor;
+  }
+
+  assert.deepEqual(deltaPackets, pending);
+  assert.equal(
+    deltaPackets.some((id) => initiallyReviewed.has(id)),
+    false,
+  );
+
+  const secondFinalization = runCommitWorkflow(
+    "message finalize",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(secondFinalization.status, 0, secondFinalization.stderr);
+  assert.equal(JSON.parse(secondFinalization.stdout).status, "message-ready");
 });

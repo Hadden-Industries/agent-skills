@@ -12,8 +12,10 @@ import { activeGitOperations, indexMatchesTree } from "../git/gitRepository.js";
 import {
   bindReviewCoverage,
   canonicalizeEvidencePlan,
+  createVerifiedReviewReceipt,
   findReviewCatalogRevisionPath,
   readReviewCatalog,
+  requiredReviewPacketIds,
   reviseReviewCatalog,
   verifyReviewReceipt,
 } from "../inspection/reviewCatalog.js";
@@ -47,11 +49,9 @@ import {
 
 const CONTENT_NAME = "content.json";
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
-const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const COMPLETE_COMMON_KEYS = [
   "schemaVersion",
   "authoringState",
-  "review",
   "evidenceGroups",
   "subject",
   "sharedRationales",
@@ -108,10 +108,10 @@ function assertSelectionContainer(entry, label, extraKeys = []) {
 }
 
 function assertCompleteContentShape(content) {
-  if (!isPlainObject(content) || content.schemaVersion !== 2) {
+  if (!isPlainObject(content) || content.schemaVersion !== 3) {
     fail(
       "INVALID_MESSAGE_CONTENT",
-      "Extended finalization requires schema-version-2 semantic content.",
+      "Extended finalization requires schema-version-3 semantic content.",
     );
   }
 
@@ -137,30 +137,6 @@ function assertCompleteContentShape(content) {
     ],
     "Complete semantic content",
   );
-  assertExactKeys(
-    content.review,
-    [
-      "schemaVersion",
-      "catalogSha256",
-      "evidencePlanSha256",
-      "requiredPacketsReviewed",
-      "additionalPacketIds",
-    ],
-    "Review receipt",
-  );
-
-  if (
-    content.review.schemaVersion !== 1 ||
-    !SHA256_PATTERN.test(content.review.catalogSha256) ||
-    !SHA256_PATTERN.test(content.review.evidencePlanSha256) ||
-    typeof content.review.requiredPacketsReviewed !== "boolean" ||
-    !Array.isArray(content.review.additionalPacketIds) ||
-    new Set(content.review.additionalPacketIds).size !==
-      content.review.additionalPacketIds.length
-  ) {
-    fail("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
-  }
-
   assertExactKeys(
     content.subject,
     ["type", "scope", "description"],
@@ -380,18 +356,16 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   return canonical;
 }
 
-function receiptCoverage(transaction, content, catalog) {
-  const candidates = [
-    content.review.requiredPacketsReviewed === true ? content.review : null,
+function receiptCoverage(transaction, catalog) {
+  const receipt =
     transaction.review.receipt?.requiredPacketsReviewed === true
       ? transaction.review.receipt
-      : null,
-  ].filter(Boolean);
-  const receipt = candidates.find((candidate) =>
-    findReviewCatalogRevisionPath(catalog.catalogPath, candidate.catalogSha256),
-  );
+      : null;
 
-  if (!receipt) {
+  if (
+    !receipt ||
+    !findReviewCatalogRevisionPath(catalog.catalogPath, receipt.catalogSha256)
+  ) {
     return { receipt: null, coverage: null };
   }
 
@@ -511,16 +485,6 @@ function normalizeSemanticSelections(content) {
   return content;
 }
 
-function carryForwardReceipt(catalog) {
-  return {
-    schemaVersion: 1,
-    catalogSha256: catalog.catalogSha256,
-    evidencePlanSha256: catalog.evidencePlanSha256,
-    requiredPacketsReviewed: true,
-    additionalPacketIds: [],
-  };
-}
-
 function updateReviewTransaction(transactionPath, review, status) {
   const transaction = readTransaction(transactionPath);
 
@@ -579,7 +543,7 @@ function requireEvidence(
       firstQueuePage:
         firstPage === null
           ? null
-          : resolve(transaction.attemptDirectory, "review", firstPage.artifact),
+          : resolve(transaction.attemptDirectory, firstPage.artifact),
       firstQueuePageSha256: firstPage?.sha256 ?? null,
     },
     displayText: null,
@@ -640,6 +604,16 @@ export async function finalizeMessageWorkflow({
   });
   const content = decodeContent(opened.bytes);
 
+  if (
+    new Set(["detailed", "bulk"]).has(content?.mode) &&
+    content.mode !== transaction.review.structuredMessageMode
+  ) {
+    fail(
+      "MESSAGE_PRESENTATION_MODE_MISMATCH",
+      `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`,
+    );
+  }
+
   assertCompleteContentShape(content);
   const snapshot = readExactRecordedSnapshot(transactionPath);
 
@@ -658,10 +632,11 @@ export async function finalizeMessageWorkflow({
   });
   const planChanged =
     authoredPlan.evidencePlanSha256 !== recordedPlan.evidencePlanSha256;
-  const prior = receiptCoverage(transaction, content, currentCatalog);
+  const prior = receiptCoverage(transaction, currentCatalog);
   let catalog = currentCatalog;
   let evidencePlan = recordedPlan;
   let review = transaction.review;
+  let receipt = prior.receipt;
   const normalized = normalizeSemanticSelections(structuredClone(content));
 
   if (planChanged) {
@@ -706,16 +681,17 @@ export async function finalizeMessageWorkflow({
         catalogSha256: catalog.catalogSha256,
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        // Keep the helper-owned delivery round distinct from the catalog's
+        // full requirements so unchanged, previously verified packets are
+        // never sent back through the agent's context window.
+        deliveryPacketIds: revision.evidenceDelta.requiredPacketIds,
         queue: revision.evidenceDelta.queue,
-        receipt: prior.receipt,
+        receipt: null,
+        traversal: null,
       };
       normalized.evidenceGroups = canonicalContentGroups(evidencePlan);
 
       if (revision.evidenceDelta.requiredPacketCount > 0) {
-        normalized.review = {
-          ...carryForwardReceipt(catalog),
-          requiredPacketsReviewed: false,
-        };
         return requireEvidence(
           transactionPath,
           transaction,
@@ -726,19 +702,19 @@ export async function finalizeMessageWorkflow({
         );
       }
 
-      normalized.review = carryForwardReceipt(catalog);
-      verifyReviewReceipt({
-        catalogPath: catalog.catalogPath,
-        receipt: normalized.review,
+      receipt = createVerifiedReviewReceipt({
+        catalog,
+        reviewedPacketIds: requiredReviewPacketIds(catalog),
       });
+      review = { ...review, queue: null, receipt };
     } finally {
       cleanupEvidenceSpools(records);
     }
   } else {
     if (
-      content.review.requiredPacketsReviewed !== true ||
-      content.review.catalogSha256 !== currentCatalog.catalogSha256 ||
-      content.review.evidencePlanSha256 !== recordedPlan.evidencePlanSha256
+      receipt?.requiredPacketsReviewed !== true ||
+      receipt.catalogSha256 !== currentCatalog.catalogSha256 ||
+      receipt.evidencePlanSha256 !== recordedPlan.evidencePlanSha256
     ) {
       fail(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
@@ -749,7 +725,7 @@ export async function finalizeMessageWorkflow({
     try {
       verifyReviewReceipt({
         catalogPath: currentCatalog.catalogPath,
-        receipt: content.review,
+        receipt,
       });
     } catch (error) {
       fail(
@@ -765,6 +741,7 @@ export async function finalizeMessageWorkflow({
     content: normalized,
     reviewCatalog: catalog,
     evidencePlan,
+    reviewReceipt: receipt,
     repositoryTypePolicy: transaction.repositoryTypePolicy,
   });
   const nextRevision = (transaction.message?.revision ?? 0) + 1;
@@ -788,7 +765,7 @@ export async function finalizeMessageWorkflow({
   review = {
     ...review,
     queue: null,
-    receipt: normalized.review,
+    receipt,
   };
   updateReviewTransaction(transactionPath, review, transaction.status);
   const canonical = replaceCanonicalMessage({

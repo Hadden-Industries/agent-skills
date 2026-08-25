@@ -221,7 +221,7 @@ test("checked file notes use the same ordinal-derived alignment and reject place
   );
 });
 
-test("approved bytes are preserved exactly and direct text is concise-only", () => {
+test("approved bytes are preserved and checked text supports either route", () => {
   const bytes = Buffer.from(
     "fix(parser): Preserve exact approved bytes\n\nRationale:\n  - Keep two spaces here\n",
   );
@@ -234,6 +234,15 @@ test("approved bytes are preserved exactly and direct text is concise-only", () 
   });
 
   assert.equal(Buffer.from(result.displayText).equals(bytes), true);
+  const extended = validateApprovedMessage({
+    manifest: manifestFixture(1),
+    route: "extended",
+    bytes,
+    repositoryTypePolicy: { allowedTypes: [] },
+    messageSource: "checked-file",
+  });
+
+  assert.equal(extended.route, "extended");
   errorCode(
     () =>
       validateApprovedMessage({
@@ -241,7 +250,7 @@ test("approved bytes are preserved exactly and direct text is concise-only", () 
         route: "extended",
         bytes,
         repositoryTypePolicy: { allowedTypes: [] },
-        messageSource: "checked-file",
+        messageSource: "approved-subject",
       }),
     "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
   );

@@ -143,6 +143,18 @@ export const COST_PROFILES = Object.freeze({
     agentManagedArtifactWrites: 1,
     approvalTurns: 1,
   },
+  "trivial-metadata-direct": {
+    route: "concise",
+    highLevelHelperCalls: 2,
+    maximumPreapprovalHelperCalls: 1,
+    opaqueTransactionHandlePassThroughs: 1,
+    agentManagedArtifactReads: 0,
+    agentManagedArtifactWrites: 0,
+    maximumManualArtifactHashCalls: 0,
+    maximumHelperSourceInspections: 0,
+    maximumOptionalCheckCalls: 0,
+    approvalTurns: 1,
+  },
   "verification-recovery": {
     route: "recovery",
     maximumCommitCreations: 0,
@@ -623,6 +635,51 @@ function createKnownContextInventory(repository) {
     hint: "Add new agent skills, update existing skill",
     selectedPaths: ["skills-lock.json"],
     excludedPaths: ["README.md", "package-lock.json"],
+  };
+}
+
+function skillLockContents(computedHash) {
+  return `${JSON.stringify(
+    {
+      skills: {
+        "committing-to-git": {
+          source: "Hadden-Industries/agent-skills",
+          ref: "main",
+          sourceType: "github",
+          skillPath: "skills/committing-to-git/SKILL.md",
+          computedHash,
+        },
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function createTrivialLockHash(repository) {
+  const priorHash = "a".repeat(64);
+  const currentHash = "b".repeat(64);
+
+  writeRepositoryFile(repository, "skills-lock.json", skillLockContents(priorHash));
+  commitAll(repository, "seed trivial lock hash fixture");
+  writeRepositoryFile(
+    repository,
+    "skills-lock.json",
+    skillLockContents(currentHash),
+  );
+
+  return {
+    selectedPaths: ["skills-lock.json"],
+    excludedPaths: [],
+    changeUnitCount: 1,
+    changedProperty: "skills.committing-to-git.computedHash",
+    priorHash,
+    currentHash,
+    expectedSubject: "build(skills): Refresh committing-to-git lock hash",
+    expectedEvidencePolicy: "message",
+    expectedEvidenceBasis: "read-current-task",
+    maximumApprovalTurns: 1,
+    pushAuthorized: false,
   };
 }
 
@@ -2141,6 +2198,10 @@ const SCENARIOS = new Map([
   [
     "unsupported-old-attempt",
     createScenarioDefinition(createUnsupportedAttempt, "invalid-input"),
+  ],
+  [
+    "trivial-lock-hash-direct",
+    createScenarioDefinition(createTrivialLockHash, "trivial-metadata-direct"),
   ],
   [
     "prose-check-claim-rejected",

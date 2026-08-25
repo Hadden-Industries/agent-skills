@@ -63,9 +63,8 @@ function evidenceGroups() {
 
 function detailedContent(overrides = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "complete",
-    review: reviewReceipt(),
     evidenceGroups: evidenceGroups(),
     subject: {
       type: "refactor",
@@ -82,9 +81,8 @@ function detailedContent(overrides = {}) {
 
 function bulkContent(overrides = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "complete",
-    review: reviewReceipt(),
     evidenceGroups: evidenceGroups(),
     subject: {
       type: "build",
@@ -117,6 +115,7 @@ function renderStructured(manifest, content) {
       evidencePlanSha256: PLAN_SHA256,
       groups: evidenceGroups(),
     },
+    reviewReceipt: reviewReceipt(),
     repositoryTypePolicy: { allowedTypes: [] },
   });
 }
@@ -288,7 +287,7 @@ test("a thousand-file scaffold and bulk render stay selector-sized", () => {
   const scaffold = scaffoldContent(manifest, catalog, evidencePlan);
   const rendered = renderStructured(manifest, bulkContent());
 
-  assert.equal(scaffold.recommendedMode, "bulk");
+  assert.equal(scaffold.mode, "bulk");
   assert.ok(Buffer.byteLength(JSON.stringify(scaffold)) < 8 * 1024);
   assert.match(
     rendered.displayText,
@@ -317,7 +316,7 @@ test("forty-nine unusually long paths recommend selector-sized bulk content", ()
     { evidencePlanSha256: PLAN_SHA256, groups: evidenceGroups() },
   );
 
-  assert.equal(scaffold.recommendedMode, "bulk");
+  assert.equal(scaffold.mode, "bulk");
   assert.ok(Buffer.byteLength(JSON.stringify(scaffold)) < 8 * 1024);
 });
 
@@ -354,6 +353,7 @@ test("evidence binding ignores key and selector-value presentation order", () =>
           },
         ],
       },
+      reviewReceipt: reviewReceipt(),
       repositoryTypePolicy: { allowedTypes: [] },
     }),
   );

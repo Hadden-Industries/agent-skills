@@ -25,7 +25,7 @@ function manifestFixture() {
   const path = "src/parser.js";
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     indexTreeOid: FULL_OID,
     changeUnitCount: 1,
     changeUnits: [
@@ -124,9 +124,18 @@ function createMessageTransaction(t, { route = "concise" } = {}) {
         evidencePlanPath: join(workspace.attemptDirectory, "plan.json"),
         evidencePlanSha256: "e".repeat(64),
         extendedReason: "review-policy",
+        deliveryPacketIds: [],
         queue: null,
-        receipt: null,
+        receipt: {
+          schemaVersion: 1,
+          catalogSha256: "d".repeat(64),
+          evidencePlanSha256: "e".repeat(64),
+          requiredPacketsReviewed: true,
+          additionalPacketIds: [],
+        },
         semanticStructureRequired: false,
+        structuredMessageMode: "detailed",
+        traversal: null,
       },
     });
   }

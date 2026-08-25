@@ -16,6 +16,7 @@ import { TextDecoder } from "node:util";
 import { activeGitOperations, indexMatchesTree } from "../git/gitRepository.js";
 import {
   canonicalizeEvidencePlan,
+  createVerifiedReviewReceipt,
   createReviewCatalog,
   writeReviewPacketQueue,
 } from "../inspection/reviewCatalog.js";
@@ -250,6 +251,7 @@ function extensionResult(transaction) {
     capsuleSha256: transaction.review.coveredCapsuleSha256,
     extendedReason: transaction.review.extendedReason,
     reviewQueue: transaction.review.queue,
+    structuredMessageMode: transaction.review.structuredMessageMode,
   };
 }
 
@@ -356,11 +358,20 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
             packetIds,
             queueKind: "delta",
             outputDirectory: reviewDirectory,
+            publicArtifactPrefix: "review",
           });
+    const structuredContent = scaffoldContent(manifest, catalog, evidencePlan);
+    const reviewReceipt =
+      packetIds.length === 0
+        ? createVerifiedReviewReceipt({
+            catalog,
+            reviewedPacketIds: [],
+          })
+        : null;
     ensureTransactionOwnedJson({
       transactionPath,
       artifactName: "content.json",
-      value: scaffoldContent(manifest, catalog, evidencePlan),
+      value: structuredContent,
     });
     const completed = advanceTransaction(transactionPath, "evidence-ready", {
       ...transaction,
@@ -375,9 +386,12 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
         coveredCapsuleSha256: transaction.inlineEvidence.capsuleSha256,
         extendedReason: reason,
+        deliveryPacketIds: packetIds,
         queue,
-        receipt: null,
+        receipt: reviewReceipt,
         semanticStructureRequired: reason === "semantic-structure-required",
+        structuredMessageMode: structuredContent.mode,
+        traversal: null,
       },
     });
 

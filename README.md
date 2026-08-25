@@ -26,9 +26,12 @@ The repository follows one core rule:
 
 The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
 
-- the public CLI is organized around `workflow prepare`, optional review/message finalization, draft promotion, optional helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
-- concise preparation reuses grounded current-task evidence or returns bounded message evidence inline, while extended preparation creates hash-bound packets only for unresolved uncertainty;
-- a transport-safe ASCII subject can go directly from preparation and exact approval to commit; agent-authored body sections and requested inventories use the structured finalizer, while nonportable subjects and exact user- or repository-supplied bytes use the one fixed transaction-local `message-input.txt` plus `message check`; arbitrary external message paths remain unsupported;
+- the public CLI is organized around `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
+- a targeted exact-path diff can establish a small dependency, integrity-hash, lock-entry, or metadata-scalar change without extended ceremony; concise preparation then returns complete bounded evidence inline;
+- extended preparation creates hash-bound packets only for unresolved uncertainty, and `workflow review-next` returns one complete verified packet plus an opaque replay-safe cursor until the helper records a catalog-bound receipt;
+- evidence depth and presentation depth are independent: a reviewed change may use a concise checked subject, while an already understood change may use a structured body when that adds durable information;
+- a transport-safe ASCII subject can go directly from preparation and exact approval to commit with no workflow-artifact reads; schema-version-3 `content.json` contains only editable semantics for agent-authored bodies and inventories, while helper-owned review and rendering state remains in the transaction;
+- nonportable subjects and exact user- or repository-supplied bytes use the one fixed transaction-local `message-input.txt` plus `message check`; arbitrary external message paths remain unsupported;
 - every checked or structured proposal reaches `message-ready` before it is shown for exact approval, so formatter corrections stay inside authorship and requested sections are not discarded to avoid another approval round;
 - the agent treats a strong user hint as direction to improve against evidence, not as a demand for exact Conventional Commit type, scope, wording, rationale, UX consequence, or path selection;
 - draft `full` and `paths` isolate the real index, actual preparation records the exact intended tree, and only an unchanged draft can cross to actual through `workflow promote`;
@@ -1363,8 +1366,8 @@ npm test
 `npm test` uses the exact dependency graph recorded in `package-lock.json`, while `package.json` permits compatible dependency updates. These tests cover skills that ship executable scripts and the repository tooling that builds or installs them. Skill contract tests run published executables the way an agent does - as subprocesses against throwaway inputs or Git repositories - and assert that their JSON output still conforms to the source schemas.
 
 This matters because a skill's instructions branch on specific output fields.
-`committing-to-git` passes a versioned snapshot, bounded inspection ledger,
-semantic content worksheet, validation result, witnessed check receipts,
+`committing-to-git` passes a versioned snapshot, transaction-bound packet stream,
+semantic-only content input, validation result, witnessed check receipts,
 exact-commit signature result, optional publication result, and post-commit
 report between its public routes in one published workflow bundle. If one output changes without its
 schema and consumer, the workflow can silently stage, inspect, approve, verify,

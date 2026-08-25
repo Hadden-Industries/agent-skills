@@ -1283,9 +1283,6 @@ function createInlineEvidenceCapsule({
   if (!evidencePlan || evidencePlan.manifestSha256 !== manifestDigest(manifest) || !Array.isArray(evidencePlan.groups)) {
     throw new Error("Evidence plan does not match the exact manifest.");
   }
-  if (evidencePlan.groups.some(({ policy }) => policy === "review")) {
-    return extended("review-policy");
-  }
   const anomalyReason = manifestExtendedReason(manifest);
   if (anomalyReason !== null) {
     return extended(anomalyReason);
@@ -2503,6 +2500,47 @@ function validateInlineEvidence(inlineEvidence) {
     throw new Error("Inline evidence capsule must be an object.");
   }
 }
+function validateReviewTraversal(traversal) {
+  if (traversal === null) {
+    return;
+  }
+  assertExactKeys2(
+    traversal,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "deliveredPacketCount",
+      "lastRequestCursor",
+      "nextCursor",
+      "complete"
+    ],
+    "Review traversal"
+  );
+  if (traversal.schemaVersion !== 1 || !SHA256_PATTERN2.test(traversal.catalogSha256) || !Number.isSafeInteger(traversal.deliveredPacketCount) || traversal.deliveredPacketCount < 1 || !(traversal.lastRequestCursor === null || typeof traversal.lastRequestCursor === "string") || traversal.lastRequestCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.lastRequestCursor) || !(traversal.nextCursor === null || typeof traversal.nextCursor === "string") || traversal.nextCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.nextCursor) || typeof traversal.complete !== "boolean" || traversal.complete !== (traversal.nextCursor === null)) {
+    throw new Error("Review traversal is invalid.");
+  }
+}
+function validateReviewReceipt(receipt, review) {
+  if (receipt === null) {
+    return;
+  }
+  assertExactKeys2(
+    receipt,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "evidencePlanSha256",
+      "requiredPacketsReviewed",
+      "additionalPacketIds"
+    ],
+    "Review receipt"
+  );
+  if (receipt.schemaVersion !== 1 || receipt.catalogSha256 !== review.catalogSha256 || receipt.evidencePlanSha256 !== review.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length || receipt.additionalPacketIds.some(
+    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
+  )) {
+    throw new Error("Review receipt is invalid for the current review state.");
+  }
+}
 function validateReviewState(review) {
   if (review === null) {
     return;
@@ -2513,13 +2551,18 @@ function validateReviewState(review) {
     "evidencePlanPath",
     "evidencePlanSha256",
     "extendedReason",
+    "deliveryPacketIds",
     "queue",
     "receipt",
-    "semanticStructureRequired"
+    "semanticStructureRequired",
+    "structuredMessageMode",
+    "traversal"
   ];
   const optional = review.coveredCapsuleSha256 === void 0 ? [] : ["coveredCapsuleSha256"];
   assertExactKeys2(review, [...required, ...optional], "Review state");
-  if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN2.test(review.catalogSha256) || !SHA256_PATTERN2.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN2.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || typeof review.semanticStructureRequired !== "boolean") {
+  if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN2.test(review.catalogSha256) || !SHA256_PATTERN2.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN2.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || !Array.isArray(review.deliveryPacketIds) || new Set(review.deliveryPacketIds).size !== review.deliveryPacketIds.length || review.deliveryPacketIds.some(
+    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
+  ) || typeof review.semanticStructureRequired !== "boolean" || !(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(review.structuredMessageMode)) {
     throw new Error(
       "Review state contains invalid identities or routing facts."
     );
@@ -2528,6 +2571,19 @@ function validateReviewState(review) {
     if (review[field] !== null && (typeof review[field] !== "object" || Array.isArray(review[field]))) {
       throw new Error(`Review state ${field} must be an object or null.`);
     }
+  }
+  validateReviewTraversal(review.traversal);
+  validateReviewReceipt(review.receipt, review);
+  if (review.traversal !== null && (review.deliveryPacketIds.length === 0 || review.traversal.catalogSha256 !== review.catalogSha256 || review.traversal.deliveredPacketCount > review.deliveryPacketIds.length || review.traversal.complete !== (review.traversal.deliveredPacketCount === review.deliveryPacketIds.length))) {
+    throw new Error(
+      "Review traversal does not match the current delivery packet set."
+    );
+  }
+  const deliveryComplete = review.deliveryPacketIds.length === 0 || review.traversal?.complete === true;
+  if (review.receipt !== null !== deliveryComplete) {
+    throw new Error(
+      "Review receipt presence does not match helper-owned delivery completion."
+    );
   }
 }
 function validateMessageState(message) {
@@ -2847,8 +2903,8 @@ function validatePublicationAttempt(attempt) {
 }
 function validateTransaction(transaction) {
   assertExactKeys2(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
-  if (transaction.schemaVersion !== 2) {
-    throw new Error("Transaction schemaVersion must be 2.");
+  if (transaction.schemaVersion !== 3) {
+    throw new Error("Transaction schemaVersion must be 3.");
   }
   if (!PHASES.has(transaction.phase)) {
     throw new Error(
@@ -2942,7 +2998,7 @@ function validateTransaction(transaction) {
   if (transaction.message !== null) {
     const sourceMatchesRoute = transaction.route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(
       transaction.message.source
-    ) || transaction.route === "extended" && transaction.message.source === "finalized-extended";
+    ) || transaction.route === "extended" && transaction.message.source === "finalized-extended" || transaction.route === "extended" && transaction.message.source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true;
     if (!sourceMatchesRoute) {
       throw new Error(
         "Canonical message source does not match the transaction route."
@@ -3018,7 +3074,7 @@ function validateTransaction(transaction) {
 }
 function initialTransaction(repositoryRoot2, attemptDirectory) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "allocated",
     repositoryRoot: repositoryRoot2,
     attemptDirectory,
@@ -3298,7 +3354,7 @@ function updateTransaction(transactionPath, expectedPhase, nextState) {
   replaceJsonAtomically(absoluteTransactionPath, candidate);
   return readTransaction(absoluteTransactionPath);
 }
-var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN2, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
+var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN2, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, REVIEW_PACKET_ID_PATTERN, REVIEW_CURSOR_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
 var init_transactionWorkspace = __esm({
   "src/committing-to-git/transaction/transactionWorkspace.js"() {
     init_checkReceipt();
@@ -3313,6 +3369,8 @@ var init_transactionWorkspace = __esm({
     TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
     WINDOWS_RENAME_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
     SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
+    REVIEW_PACKET_ID_PATTERN = /^[SIPD][0-9]{6}$/u;
+    REVIEW_CURSOR_PATTERN = /^review-v1-[0-9a-f]{64}$/u;
     SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
     OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
     MESSAGE_SOURCES = /* @__PURE__ */ new Set([
@@ -4916,17 +4974,21 @@ var init_createSnapshot = __esm({
 import { createHash as createHash6 } from "node:crypto";
 import {
   closeSync as closeSync4,
+  constants as fsConstants3,
   createReadStream,
   existsSync as existsSync7,
+  fstatSync as fstatSync4,
   fsyncSync as fsyncSync4,
+  lstatSync as lstatSync3,
   mkdirSync as mkdirSync5,
   openSync as openSync4,
   readFileSync as readFileSync3,
   readdirSync as readdirSync2,
+  realpathSync as realpathSync3,
   writeFileSync as writeFileSync5,
   unlinkSync as unlinkSync2
 } from "node:fs";
-import { dirname as dirname5, join as join6, relative as relative3, resolve as resolve6, sep } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute6, join as join6, relative as relative3, resolve as resolve6, sep } from "node:path";
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -5676,6 +5738,44 @@ function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
     currentPath = resolve6(outputDirectory, document.priorCatalogArtifact);
   }
 }
+function requiredReviewPacketIds(catalog) {
+  return requiredPacketIds(catalog);
+}
+function createVerifiedReviewReceipt({
+  catalog,
+  reviewedPacketIds,
+  additionalPacketIds = []
+}) {
+  if (!Array.isArray(reviewedPacketIds) || !Array.isArray(additionalPacketIds) || new Set(reviewedPacketIds).size !== reviewedPacketIds.length || new Set(additionalPacketIds).size !== additionalPacketIds.length) {
+    throw new Error(
+      "Reviewed and additional packet IDs must be unique arrays."
+    );
+  }
+  const reviewed = new Set(reviewedPacketIds);
+  const required = requiredPacketIds(catalog);
+  const missing = required.find((id) => !reviewed.has(id));
+  if (missing) {
+    throw new Error(`Required review packet ${missing} was not delivered.`);
+  }
+  for (const id of [...reviewedPacketIds, ...additionalPacketIds]) {
+    packetById(catalog, id);
+  }
+  const requiredSet = new Set(required);
+  const receipt = {
+    schemaVersion: 1,
+    catalogSha256: catalog.catalogSha256,
+    evidencePlanSha256: catalog.evidencePlanSha256,
+    requiredPacketsReviewed: true,
+    additionalPacketIds: [
+      .../* @__PURE__ */ new Set([
+        ...additionalPacketIds,
+        ...reviewedPacketIds.filter((id) => !requiredSet.has(id))
+      ])
+    ].sort()
+  };
+  verifyReviewReceipt({ catalogPath: catalog.catalogPath, receipt });
+  return receipt;
+}
 function bindReviewCoverage(catalog, coverage) {
   const covered = { ...catalog, priorCoverage: coverage };
   return withCatalogIdentity(covered, catalog.catalogPath);
@@ -5687,15 +5787,66 @@ function packetById(catalog, id) {
   }
   return packet;
 }
-function verifyPacket(outputDirectory, packet) {
+function failPacket(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
+}
+function readVerifiedPacket(outputDirectory, packet) {
   const path = resolve6(outputDirectory, packet.artifact);
-  const bytes = readFileSync3(path);
+  const contained = relative3(outputDirectory, path);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute6(contained)) {
+    failPacket(
+      "REVIEW_PACKET_ESCAPES_CATALOG",
+      `Review packet ${packet.id} escapes its catalog directory.`
+    );
+  }
+  const initial = lstatSync3(path);
+  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync3(path) !== path) {
+    failPacket(
+      "REVIEW_PACKET_REPLACED",
+      `Review packet ${packet.id} is not a stable regular file.`
+    );
+  }
+  if (!Number.isSafeInteger(packet.byteCount) || packet.byteCount < 1 || packet.byteCount > MAXIMUM_PACKET_BYTES || initial.size !== packet.byteCount) {
+    failPacket(
+      "REVIEW_PACKET_CHANGED",
+      `Review packet ${packet.id} has an unexpected byte count.`
+    );
+  }
+  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
+  const descriptor = openSync4(path, fsConstants3.O_RDONLY | noFollow);
+  let bytes;
+  try {
+    const before = fstatSync4(descriptor);
+    bytes = readFileSync3(descriptor);
+    const after = fstatSync4(descriptor);
+    const final = lstatSync3(path);
+    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync3(path) !== path) {
+      failPacket(
+        "REVIEW_PACKET_CHANGED",
+        `Review packet ${packet.id} changed while it was read.`
+      );
+    }
+  } finally {
+    closeSync4(descriptor);
+  }
   const actual = sha256Bytes(bytes);
-  if (actual !== packet.sha256) {
-    throw new Error(
+  if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
+    failPacket(
+      "REVIEW_PACKET_CHANGED",
       `Review packet ${packet.id} changed after catalog creation.`
     );
   }
+  return bytes;
+}
+function verifyPacket(outputDirectory, packet) {
+  readVerifiedPacket(outputDirectory, packet);
+}
+function readVerifiedReviewPacket(catalog, id) {
+  const packet = packetById(catalog, id);
+  const bytes = readVerifiedPacket(catalogOutputDirectory(catalog), packet);
+  return { packet, bytes };
 }
 function coverageHashes(catalog) {
   const coverage = catalog.priorCoverage;
@@ -5801,11 +5952,17 @@ function pagePayload({ catalog, queueKind, records, nextPage }) {
     nextPage
   };
 }
-function partitionQueueRecords(catalog, records, maximumPageBytes, queueKind) {
+function publicReviewArtifact(publicArtifactPrefix, artifact) {
+  return publicArtifactPrefix === null ? artifact : `${publicArtifactPrefix}/${artifact}`;
+}
+function partitionQueueRecords(catalog, records, maximumPageBytes, queueKind, publicArtifactPrefix) {
   const partitions = [];
   let current = [];
   const placeholder = {
-    artifact: `queues/${queueKind}-${"0".repeat(12)}-Q000000.json`,
+    artifact: publicReviewArtifact(
+      publicArtifactPrefix,
+      `queues/${queueKind}-${"0".repeat(12)}-Q000000.json`
+    ),
     sha256: "0".repeat(64)
   };
   for (const record of records) {
@@ -5837,7 +5994,8 @@ function writeReviewPacketQueue({
   packetIds,
   queueKind,
   outputDirectory,
-  maximumPageBytes = MAXIMUM_PACKET_BYTES
+  maximumPageBytes = MAXIMUM_PACKET_BYTES,
+  publicArtifactPrefix = null
 }) {
   if (!(/* @__PURE__ */ new Set(["initial", "delta"])).has(queueKind)) {
     throw new Error("Review queue kind must be initial or delta.");
@@ -5845,17 +6003,25 @@ function writeReviewPacketQueue({
   if (!Array.isArray(packetIds) || new Set(packetIds).size !== packetIds.length) {
     throw new Error("Review queue packet IDs must be a unique array.");
   }
+  if (publicArtifactPrefix !== null && (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u.test(publicArtifactPrefix) || publicArtifactPrefix.split("/").some((component) => component === "." || component === ".."))) {
+    throw new Error("Review queue public artifact prefix is invalid.");
+  }
   if (packetIds.length === 0) {
     return null;
   }
-  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha25612 }) => ({ id, artifact, sha256: sha25612 })).sort(
+  const records = packetIds.map((id) => packetById(catalog, id)).map(({ id, artifact, sha256: sha25612 }) => ({
+    id,
+    artifact: publicReviewArtifact(publicArtifactPrefix, artifact),
+    sha256: sha25612
+  })).sort(
     (left, right) => Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact))
   );
   const partitions = partitionQueueRecords(
     catalog,
     records,
     maximumPageBytes,
-    queueKind
+    queueKind,
+    publicArtifactPrefix
   );
   const queuesDirectory = join6(outputDirectory, "queues");
   if (!existsSync7(queuesDirectory)) {
@@ -5865,7 +6031,8 @@ function writeReviewPacketQueue({
   let nextPage = null;
   for (let index = partitions.length - 1; index >= 0; index -= 1) {
     const ordinal = String(index + 1).padStart(6, "0");
-    const artifact = `queues/${queueKind}-${catalog.catalogSha256.slice(0, 12)}-Q${ordinal}.json`;
+    const storedArtifact = `queues/${queueKind}-${catalog.catalogSha256.slice(0, 12)}-Q${ordinal}.json`;
+    const artifact = publicReviewArtifact(publicArtifactPrefix, storedArtifact);
     const payload = pagePayload({
       catalog,
       queueKind,
@@ -5876,7 +6043,7 @@ function writeReviewPacketQueue({
     if (bytes.length > maximumPageBytes) {
       throw new Error(`Review queue page ${ordinal} exceeds its byte budget.`);
     }
-    writeImmutableSmallFile(join6(outputDirectory, artifact), bytes);
+    writeImmutableSmallFile(join6(outputDirectory, storedArtifact), bytes);
     const page = {
       artifact,
       sha256: sha256Bytes(bytes),
@@ -6093,7 +6260,8 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
     catalog: persisted,
     packetIds: deltaIds,
     queueKind: "delta",
-    outputDirectory
+    outputDirectory,
+    publicArtifactPrefix: "review"
   });
   const supersededQueue = supersedePriorQueue({
     outputDirectory,
@@ -6985,11 +7153,11 @@ function validateApprovedMessage({
   messageSource,
   structuredContent = null
 }) {
-  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && messageSource === "structured-finalizer";
+  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
   if (!sourceAllowed) {
     fail(
       "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
-      "Direct or checked text is valid only for a concise transaction; extended messages require structured finalization."
+      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
     );
   }
   const bytes = canonicalBytes(inputBytes);
@@ -7180,10 +7348,10 @@ function assertEvidencePlanBinding(content, evidencePlan) {
     );
   }
 }
-function assertCompleteContent(content, reviewCatalog, evidencePlan) {
-  if (!content || content.schemaVersion !== 2) {
+function assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt) {
+  if (!content || content.schemaVersion !== 3) {
     const error = new Error(
-      "Only complete schema-version-2 semantic content can be rendered."
+      "Only complete schema-version-3 semantic content can be rendered."
     );
     error.code = "INCOMPLETE_SEMANTIC_CONTENT";
     throw error;
@@ -7193,7 +7361,7 @@ function assertCompleteContent(content, reviewCatalog, evidencePlan) {
     if (content.subject === null) {
       missing.push("subject");
     }
-    if (content.review?.requiredPacketsReviewed !== true) {
+    if (reviewReceipt?.requiredPacketsReviewed !== true) {
       missing.push("review receipt");
     }
     if (content.mode === "bulk" && (content.domains?.length ?? 0) === 0) {
@@ -7211,7 +7379,7 @@ function assertCompleteContent(content, reviewCatalog, evidencePlan) {
     error.code = "MISSING_SUBJECT_DECISION";
     throw error;
   }
-  if (!content.review || content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== reviewCatalog?.catalogSha256 || content.review.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
+  if (!reviewReceipt || reviewReceipt.requiredPacketsReviewed !== true || reviewReceipt.catalogSha256 !== reviewCatalog?.catalogSha256 || reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
     const error = new Error(
       "Complete semantic content requires a current reviewed receipt."
     );
@@ -7291,9 +7459,10 @@ function renderCommitMessage({
   content,
   reviewCatalog,
   evidencePlan,
+  reviewReceipt,
   repositoryTypePolicy = { allowedTypes: null }
 }) {
-  assertCompleteContent(content, reviewCatalog, evidencePlan);
+  assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt);
   const coverage = resolveSemanticCoverage(manifest, content);
   const sharedReasons = uniqueReasons(coverage.sharedRationales);
   const sharedReasonSet = new Set(sharedReasons);
@@ -7376,27 +7545,14 @@ function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
     changeUnitCount: manifest.changeUnitCount,
     projectedDetailedBytes: projectedDetailedInventoryBytes(manifest)
   });
-  const requiredPacketCount = [
-    ...reviewCatalog.requiredSynopsisPacketIds ?? [],
-    ...reviewCatalog.exactInventoryPacketIds ?? [],
-    ...reviewCatalog.fullPatchPacketIds ?? []
-  ].length;
   const common = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "draft",
-    review: {
-      schemaVersion: 1,
-      catalogSha256: reviewCatalog.catalogSha256,
-      evidencePlanSha256: evidencePlan.evidencePlanSha256,
-      requiredPacketsReviewed: requiredPacketCount === 0,
-      additionalPacketIds: []
-    },
     evidenceGroups: scaffoldEvidenceGroups(evidencePlan),
     subject: null,
     sharedRationales: [],
     userExperienceChanges: [],
-    mode: recommendedMode,
-    recommendedMode
+    mode: recommendedMode
   };
   return recommendedMode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
 }
@@ -7413,21 +7569,21 @@ var init_commitMessageRenderer = __esm({
 import { createHash as createHash8, randomUUID as randomUUID3 } from "node:crypto";
 import {
   closeSync as closeSync5,
-  constants as fsConstants3,
+  constants as fsConstants4,
   existsSync as existsSync8,
-  fstatSync as fstatSync4,
+  fstatSync as fstatSync5,
   fsyncSync as fsyncSync5,
-  lstatSync as lstatSync3,
+  lstatSync as lstatSync4,
   mkdirSync as mkdirSync6,
   openSync as openSync5,
   readFileSync as readFileSync4,
-  realpathSync as realpathSync3,
+  realpathSync as realpathSync4,
   renameSync as renameSync4,
   rmSync as rmSync3,
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync6
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, relative as relative4, resolve as resolve7, sep as sep2 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute7, join as join7, relative as relative4, resolve as resolve7, sep as sep2 } from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
 function fail2(code, message, options) {
   throw new CanonicalMessageError(code, message, options);
@@ -7443,7 +7599,7 @@ function flushDirectory3(path) {
   if (process.platform === "win32") {
     return;
   }
-  const descriptor = openSync5(path, fsConstants3.O_RDONLY);
+  const descriptor = openSync5(path, fsConstants4.O_RDONLY);
   try {
     fsyncSync5(descriptor);
   } finally {
@@ -7452,7 +7608,7 @@ function flushDirectory3(path) {
 }
 function assertContained(attemptDirectory, path) {
   const contained = relative4(attemptDirectory, path);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute6(contained)) {
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute7(contained)) {
     fail2(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `Derived message artifact escapes its transaction: ${path}`
@@ -7465,14 +7621,14 @@ function artifactPath(transaction, name) {
   return path;
 }
 function ensureDirectory2(path, label) {
-  const stat = lstatSync3(path);
+  const stat = lstatSync4(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail2(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} was replaced or is not a directory: ${path}`
     );
   }
-  if (realpathSync3(path) !== resolve7(path)) {
+  if (realpathSync4(path) !== resolve7(path)) {
     fail2(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path: ${path}`
@@ -7503,13 +7659,13 @@ function sameIdentity(left, right) {
   return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
 }
 function openReadOnlyNoFollow3(path) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
-  return openSync5(path, fsConstants3.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
+  return openSync5(path, fsConstants4.O_RDONLY + noFollow);
 }
 function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
   let initial;
   try {
-    initial = lstatSync3(path, { bigint: true });
+    initial = lstatSync4(path, { bigint: true });
   } catch (error) {
     if (error.code === "ENOENT") {
       fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
@@ -7529,7 +7685,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
   }
   const descriptor = openReadOnlyNoFollow3(path);
   try {
-    const before = fstatSync4(descriptor, { bigint: true });
+    const before = fstatSync5(descriptor, { bigint: true });
     const initialIdentity = statIdentity2(initial);
     const openedIdentity = statIdentity2(before);
     if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
@@ -7540,7 +7696,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
     }
     afterOpen?.({ descriptor, identity: openedIdentity, path });
     const bytes = readFileSync4(descriptor);
-    const after = fstatSync4(descriptor, { bigint: true });
+    const after = fstatSync5(descriptor, { bigint: true });
     const finalIdentity = statIdentity2(after);
     if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || bytes.length > maximumBytes) {
       fail2(
@@ -7549,7 +7705,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
       );
     }
     if (!allowPathReplacement) {
-      const pathStat = lstatSync3(path, { bigint: true });
+      const pathStat = lstatSync4(path, { bigint: true });
       if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity2(pathStat))) {
         fail2(
           "MESSAGE_INPUT_CHANGED",
@@ -7617,7 +7773,7 @@ function cleanupTransactionOwnedInput({
     };
   }
   try {
-    const opened = fstatSync4(descriptor, { bigint: true });
+    const opened = fstatSync5(descriptor, { bigint: true });
     if (!opened.isFile() || !sameIdentity(identity2, statIdentity2(opened))) {
       return {
         removed: false,
@@ -7632,7 +7788,7 @@ function cleanupTransactionOwnedInput({
     closeSync5(descriptor);
   }
   try {
-    const finalPathStat = lstatSync3(path, { bigint: true });
+    const finalPathStat = lstatSync4(path, { bigint: true });
     if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity2, statIdentity2(finalPathStat))) {
       return {
         removed: false,
@@ -7661,10 +7817,10 @@ function cleanupTransactionOwnedInput({
   }
 }
 function writeNewFile2(path, bytes) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants3.O_NOFOLLOW;
+  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
   const descriptor = openSync5(
     path,
-    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL + noFollow,
+    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL + noFollow,
     384
   );
   try {
@@ -7728,7 +7884,7 @@ function currentPathMatches(path, identity2) {
   let descriptor;
   try {
     descriptor = openReadOnlyNoFollow3(path);
-    const stat = fstatSync4(descriptor, { bigint: true });
+    const stat = fstatSync5(descriptor, { bigint: true });
     return stat.isFile() && sameIdentity(identity2, statIdentity2(stat));
   } catch {
     return false;
@@ -8142,7 +8298,7 @@ function assertReplacementRoute(transaction, source) {
       `Unknown canonical message source ${JSON.stringify(source)}.`
     );
   }
-  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase);
+  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase);
   if (!allowed || transaction.commit !== null) {
     fail2(
       "MESSAGE_REPLACEMENT_NOT_ALLOWED",
@@ -8257,7 +8413,7 @@ var init_canonicalMessageState = __esm({
 
 // src/committing-to-git/signature/signaturePreflight.js
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { closeSync as closeSync6, fstatSync as fstatSync5, openSync as openSync6 } from "node:fs";
+import { closeSync as closeSync6, fstatSync as fstatSync6, openSync as openSync6 } from "node:fs";
 function runGitConfig(root, args) {
   return spawnSync2("git", args, {
     cwd: root,
@@ -8283,7 +8439,7 @@ function defaultTrustSourceProbe(path) {
   let descriptor = null;
   try {
     descriptor = openSync6(path, "r");
-    const stat = fstatSync5(descriptor);
+    const stat = fstatSync6(descriptor);
     return stat.isFile() ? { state: "readable", errorCode: null } : { state: "invalid-file-type", errorCode: null };
   } catch (error) {
     const errorCode = typeof error.code === "string" ? error.code : null;
@@ -8432,12 +8588,12 @@ __export(prepareWorkflow_exports, {
 import { createHash as createHash9, randomUUID as randomUUID4 } from "node:crypto";
 import {
   closeSync as closeSync7,
-  constants as fsConstants4,
+  constants as fsConstants5,
   createReadStream as createReadStream2,
-  fstatSync as fstatSync6,
+  fstatSync as fstatSync7,
   fsyncSync as fsyncSync6,
   existsSync as existsSync9,
-  lstatSync as lstatSync4,
+  lstatSync as lstatSync5,
   mkdirSync as mkdirSync7,
   openSync as openSync7,
   readFileSync as readFileSync5,
@@ -8767,14 +8923,14 @@ function normalizeEvidencePlan(payload) {
 }
 function readBoundedJson(path, label) {
   const absolutePath = resolve8(path);
-  const initialPathStat = lstatSync4(absolutePath);
+  const initialPathStat = lstatSync5(absolutePath);
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
     fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
-  const descriptor = openSync7(absolutePath, fsConstants4.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
+  const descriptor = openSync7(absolutePath, fsConstants5.O_RDONLY + noFollow);
   try {
-    const before = fstatSync6(descriptor);
+    const before = fstatSync7(descriptor);
     if (!before.isFile()) {
       fail3("INVALID_JSON_INPUT", `${label} must be a regular file.`);
     }
@@ -8785,8 +8941,8 @@ function readBoundedJson(path, label) {
       );
     }
     const bytes = readFileSync5(descriptor);
-    const after = fstatSync6(descriptor);
-    const finalPathStat = lstatSync4(absolutePath);
+    const after = fstatSync7(descriptor);
+    const finalPathStat = lstatSync5(absolutePath);
     if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
       fail3("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
     }
@@ -9273,7 +9429,7 @@ function scopeSummary(kind, normalizedScope, selectedPaths) {
 function writeOwnedInput(path, bytes) {
   const descriptor = openSync7(
     path,
-    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+    fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
     384
   );
   try {
@@ -9283,7 +9439,7 @@ function writeOwnedInput(path, bytes) {
     closeSync7(descriptor);
   }
   if (process.platform !== "win32") {
-    const directoryDescriptor = openSync7(dirname7(path), fsConstants4.O_RDONLY);
+    const directoryDescriptor = openSync7(dirname7(path), fsConstants5.O_RDONLY);
     try {
       fsyncSync6(directoryDescriptor);
     } finally {
@@ -9387,7 +9543,7 @@ async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
   try {
     const descriptor = openSync7(
       path,
-      fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+      fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
       384
     );
     let result;
@@ -9538,7 +9694,7 @@ async function routePreparedEvidence({
       records,
       evidencePlan
     );
-    routing = evidencePlan.groups.some(({ policy }) => policy === "review") ? { route: "extended", capsule: null, extendedReason: "review-policy" } : inlineManifest === null ? {
+    routing = inlineManifest === null ? {
       route: "extended",
       capsule: null,
       extendedReason: "required-evidence-over-budget"
@@ -9647,12 +9803,22 @@ async function routePreparedEvidence({
       catalog,
       packetIds,
       queueKind: "initial",
-      outputDirectory: reviewDirectory
+      outputDirectory: reviewDirectory,
+      publicArtifactPrefix: "review"
     });
+    const structuredContent = scaffoldContent(
+      anchoredManifest,
+      catalog,
+      evidencePlan
+    );
+    const reviewReceipt = packetIds.length === 0 ? createVerifiedReviewReceipt({
+      catalog,
+      reviewedPacketIds: []
+    }) : null;
     ensureTransactionOwnedJson({
       transactionPath,
       artifactName: "content.json",
-      value: scaffoldContent(anchoredManifest, catalog, evidencePlan)
+      value: structuredContent
     });
     const completed = advanceTransaction(transactionPath, "snapshot-created", {
       ...common,
@@ -9666,9 +9832,12 @@ async function routePreparedEvidence({
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
         extendedReason: routing.extendedReason,
+        deliveryPacketIds: packetIds,
         queue: reviewQueue,
-        receipt: null,
-        semanticStructureRequired: false
+        receipt: reviewReceipt,
+        semanticStructureRequired: false,
+        structuredMessageMode: structuredContent.mode,
+        traversal: null
       }
     });
     return completed;
@@ -9697,7 +9866,8 @@ function successEnvelope(transaction, summary) {
     evidencePlanSha256: transaction.initialEvidencePlan.sha256,
     ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
       extendedReason: transaction.review.extendedReason,
-      reviewQueue: transaction.review.queue
+      reviewQueue: transaction.review.queue,
+      structuredMessageMode: transaction.review.structuredMessageMode
     }
   };
 }
@@ -10154,10 +10324,10 @@ __export(extendReviewWorkflow_exports, {
 });
 import {
   closeSync as closeSync8,
-  constants as fsConstants5,
+  constants as fsConstants6,
   existsSync as existsSync10,
-  fstatSync as fstatSync7,
-  lstatSync as lstatSync5,
+  fstatSync as fstatSync8,
+  lstatSync as lstatSync6,
   mkdirSync as mkdirSync8,
   openSync as openSync8,
   readFileSync as readFileSync6,
@@ -10170,20 +10340,20 @@ function fail4(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
 }
 function readFixedEvidencePlan(path) {
-  const initialPathStat = lstatSync5(path);
+  const initialPathStat = lstatSync6(path);
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile() || initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
     fail4(
       "INVALID_EVIDENCE_PLAN_INPUT",
       "The fixed evidence-plan input must be a bounded non-symbolic regular file."
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  const descriptor = openSync8(path, fsConstants5.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants6.O_NOFOLLOW;
+  const descriptor = openSync8(path, fsConstants6.O_RDONLY + noFollow);
   try {
-    const before = fstatSync7(descriptor);
+    const before = fstatSync8(descriptor);
     const bytes = readFileSync6(descriptor);
-    const after = fstatSync7(descriptor);
-    const finalPathStat = lstatSync5(path);
+    const after = fstatSync8(descriptor);
+    const finalPathStat = lstatSync6(path);
     if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
       fail4(
         "EVIDENCE_PLAN_INPUT_CHANGED",
@@ -10315,7 +10485,8 @@ function extensionResult(transaction) {
     evidencePlanSha256: transaction.review.evidencePlanSha256,
     capsuleSha256: transaction.review.coveredCapsuleSha256,
     extendedReason: transaction.review.extendedReason,
-    reviewQueue: transaction.review.queue
+    reviewQueue: transaction.review.queue,
+    structuredMessageMode: transaction.review.structuredMessageMode
   };
 }
 async function extendReviewWorkflow({ transactionPath, reason }) {
@@ -10397,12 +10568,18 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
       catalog,
       packetIds,
       queueKind: "delta",
-      outputDirectory: reviewDirectory
+      outputDirectory: reviewDirectory,
+      publicArtifactPrefix: "review"
     });
+    const structuredContent = scaffoldContent(manifest, catalog, evidencePlan);
+    const reviewReceipt = packetIds.length === 0 ? createVerifiedReviewReceipt({
+      catalog,
+      reviewedPacketIds: []
+    }) : null;
     ensureTransactionOwnedJson({
       transactionPath,
       artifactName: "content.json",
-      value: scaffoldContent(manifest, catalog, evidencePlan)
+      value: structuredContent
     });
     const completed = advanceTransaction(transactionPath, "evidence-ready", {
       ...transaction,
@@ -10417,9 +10594,12 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
         coveredCapsuleSha256: transaction.inlineEvidence.capsuleSha256,
         extendedReason: reason,
+        deliveryPacketIds: packetIds,
         queue,
-        receipt: null,
-        semanticStructureRequired: reason === "semantic-structure-required"
+        receipt: reviewReceipt,
+        semanticStructureRequired: reason === "semantic-structure-required",
+        structuredMessageMode: structuredContent.mode,
+        traversal: null
       }
     });
     if (reason === "evidence-uncertainty") {
@@ -10529,6 +10709,363 @@ var init_extendReviewWorkflow = __esm({
   }
 });
 
+// src/committing-to-git/workflow/reviewNextWorkflow.js
+var reviewNextWorkflow_exports = {};
+__export(reviewNextWorkflow_exports, {
+  parseReviewNextArguments: () => parseReviewNextArguments,
+  reviewNextWorkflow: () => reviewNextWorkflow,
+  runReviewNextCommand: () => runReviewNextCommand
+});
+import { createHash as createHash10 } from "node:crypto";
+import { lstatSync as lstatSync7, realpathSync as realpathSync5 } from "node:fs";
+import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve10, sep as sep3 } from "node:path";
+import { TextDecoder as TextDecoder7 } from "node:util";
+function fail5(code, message, options) {
+  throw new ReviewNextError(code, message, options);
+}
+function isContained(parent, candidate) {
+  const contained = relative5(parent, candidate);
+  return contained !== "" && contained !== ".." && !contained.startsWith(`..${sep3}`) && !isAbsolute8(contained);
+}
+function readCurrentCatalog(transaction) {
+  if (transaction.review === null) {
+    fail5(
+      "REVIEW_STATE_REQUIRED",
+      "The transaction has no extended review state."
+    );
+  }
+  const reviewDirectory = resolve10(transaction.attemptDirectory, "review");
+  const catalogPath = resolve10(transaction.review.catalogPath);
+  if (!isContained(transaction.attemptDirectory, catalogPath) || !isContained(reviewDirectory, catalogPath)) {
+    fail5(
+      "REVIEW_CATALOG_ESCAPES_TRANSACTION",
+      "The current review catalog is outside the fixed review directory."
+    );
+  }
+  const stat = lstatSync7(catalogPath);
+  if (stat.isSymbolicLink() || !stat.isFile() || realpathSync5(catalogPath) !== catalogPath) {
+    fail5(
+      "REVIEW_CATALOG_REPLACED",
+      "The current review catalog must remain a non-link regular file."
+    );
+  }
+  const catalog = readReviewCatalog(catalogPath);
+  if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
+    fail5(
+      "REVIEW_CATALOG_MISMATCH",
+      "The current review catalog does not match the transaction snapshot and evidence plan."
+    );
+  }
+  return catalog;
+}
+function assertReviewNextTransaction(transaction, transactionPath) {
+  if (transaction.route !== "extended" || !(/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
+    fail5(
+      "REVIEW_NEXT_NOT_ALLOWED",
+      `Packet review requires a precommit extended review-pending transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
+      {
+        exitCode: 1,
+        details: { transaction: resolve10(transactionPath) }
+      }
+    );
+  }
+}
+function cursorFor({ catalogSha256, nextIndex, priorPacketSha256 }) {
+  const identity2 = JSON.stringify({
+    schemaVersion: 1,
+    catalogSha256,
+    nextIndex,
+    priorPacketSha256
+  });
+  const digest = createHash10("sha256").update(identity2).digest("hex");
+  return `review-v1-${digest}`;
+}
+function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
+  const deliverySet = new Set(deliveryPacketIds);
+  const canonicalDeliveryOrder = requiredPacketIds2.filter(
+    (id) => deliverySet.has(id)
+  );
+  if (canonicalDeliveryOrder.length !== deliveryPacketIds.length || canonicalDeliveryOrder.some((id, index) => id !== deliveryPacketIds[index])) {
+    fail5(
+      "REVIEW_DELIVERY_MISMATCH",
+      "The stored delivery packet set is not an ordered subset of the current catalog requirements."
+    );
+  }
+}
+function assertTraversal(traversal, catalog, deliveryPacketIds) {
+  if (traversal === null) {
+    return;
+  }
+  if (traversal.catalogSha256 !== catalog.catalogSha256 || traversal.deliveredPacketCount > deliveryPacketIds.length || traversal.complete !== (traversal.deliveredPacketCount === deliveryPacketIds.length)) {
+    fail5(
+      "REVIEW_TRAVERSAL_MISMATCH",
+      "The stored review traversal does not match the current catalog."
+    );
+  }
+}
+function deliverySelection({ traversal, cursor, requiredPacketIds: requiredPacketIds2 }) {
+  if (requiredPacketIds2.length === 0) {
+    fail5(
+      "REVIEW_PACKETS_EMPTY",
+      "The current review has no packets to deliver."
+    );
+  }
+  if (traversal === null) {
+    if (cursor !== null) {
+      fail5(
+        "REVIEW_CURSOR_INVALID",
+        "The first review packet must be requested without a cursor."
+      );
+    }
+    return { packetIndex: 0, replay: false };
+  }
+  if (cursor === traversal.lastRequestCursor) {
+    return {
+      packetIndex: traversal.deliveredPacketCount - 1,
+      replay: true
+    };
+  }
+  if (!traversal.complete && cursor === traversal.nextCursor) {
+    return {
+      packetIndex: traversal.deliveredPacketCount,
+      replay: false
+    };
+  }
+  fail5(
+    "REVIEW_CURSOR_INVALID",
+    "The review cursor is stale, unknown, or does not belong to the next packet."
+  );
+}
+function assertResultBudget(result) {
+  const byteCount = Buffer.byteLength(`${JSON.stringify(result)}
+`, "utf8");
+  if (byteCount > MAXIMUM_REVIEW_RESULT_BYTES) {
+    fail5(
+      "REVIEW_RESULT_BUDGET_EXCEEDED",
+      `Review result is ${byteCount} bytes; maximum is ${MAXIMUM_REVIEW_RESULT_BYTES}.`,
+      { details: { byteCount, maximumBytes: MAXIMUM_REVIEW_RESULT_BYTES } }
+    );
+  }
+  return result;
+}
+function reviewResult({
+  transaction,
+  transactionPath,
+  packet,
+  content,
+  traversal,
+  requiredPacketCount
+}) {
+  return assertResultBudget({
+    schemaVersion: 1,
+    status: transaction.status,
+    phase: transaction.phase,
+    terminalDisposition: transaction.terminalDisposition,
+    transaction: resolve10(transactionPath),
+    route: transaction.route,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    packet: {
+      id: packet.id,
+      kind: packet.kind,
+      sha256: packet.sha256,
+      byteCount: packet.byteCount,
+      content
+    },
+    reviewProgress: {
+      deliveredPacketCount: traversal.deliveredPacketCount,
+      requiredPacketCount,
+      complete: traversal.complete,
+      nextCursor: traversal.nextCursor
+    }
+  });
+}
+function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
+  if (typeof transactionPath !== "string" || transactionPath.length === 0) {
+    fail5(
+      "MISSING_ARGUMENT",
+      "--transaction is required for workflow review-next."
+    );
+  }
+  let transaction = readTransaction(transactionPath);
+  assertReviewNextTransaction(transaction, transactionPath);
+  const catalog = readCurrentCatalog(transaction);
+  const requiredPacketIds2 = requiredReviewPacketIds(catalog);
+  const deliveryPacketIds = transaction.review.deliveryPacketIds;
+  const traversal = transaction.review.traversal;
+  assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2);
+  assertTraversal(traversal, catalog, deliveryPacketIds);
+  const selection = deliverySelection({
+    traversal,
+    cursor,
+    requiredPacketIds: deliveryPacketIds
+  });
+  const packetId = deliveryPacketIds[selection.packetIndex];
+  const { packet, bytes } = readVerifiedReviewPacket(catalog, packetId);
+  let content;
+  try {
+    content = STRICT_UTF8_DECODER6.decode(bytes);
+  } catch {
+    fail5(
+      "REVIEW_PACKET_ENCODING_INVALID",
+      `Review packet ${packet.id} is not strict UTF-8.`
+    );
+  }
+  let currentTraversal = traversal;
+  if (!selection.replay) {
+    const deliveredPacketCount = selection.packetIndex + 1;
+    const complete = deliveredPacketCount === deliveryPacketIds.length;
+    const nextCursor = complete ? null : cursorFor({
+      catalogSha256: catalog.catalogSha256,
+      nextIndex: deliveredPacketCount,
+      priorPacketSha256: packet.sha256
+    });
+    currentTraversal = {
+      schemaVersion: 1,
+      catalogSha256: catalog.catalogSha256,
+      deliveredPacketCount,
+      lastRequestCursor: cursor,
+      nextCursor,
+      complete
+    };
+    const receipt = complete ? createVerifiedReviewReceipt({
+      catalog,
+      // Receipt construction revalidates every current packet locally;
+      // only the delta above is exposed again to the reviewing agent.
+      reviewedPacketIds: requiredPacketIds2
+    }) : null;
+    transaction = updateTransaction(transactionPath, transaction.phase, {
+      ...transaction,
+      review: {
+        ...transaction.review,
+        receipt,
+        traversal: currentTraversal
+      }
+    });
+  }
+  return reviewResult({
+    transaction,
+    transactionPath,
+    packet,
+    content,
+    traversal: currentTraversal,
+    requiredPacketCount: deliveryPacketIds.length
+  });
+}
+function parseReviewNextArguments(argv) {
+  const values = /* @__PURE__ */ new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (!(/* @__PURE__ */ new Set(["--transaction", "--cursor", "--format"])).has(token)) {
+      fail5("UNKNOWN_ARGUMENT", `Unknown workflow review-next flag ${token}.`);
+    }
+    if (value === void 0 || value.length === 0) {
+      fail5("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+    }
+    if (values.has(token)) {
+      fail5("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+    }
+    values.set(token, value);
+  }
+  if (!values.has("--transaction")) {
+    fail5(
+      "MISSING_ARGUMENT",
+      "--transaction is required for workflow review-next."
+    );
+  }
+  const format = values.get("--format") ?? "json";
+  if (!FORMATS.has(format)) {
+    fail5("INVALID_FORMAT", "--format must be json or text.");
+  }
+  return {
+    transactionPath: values.get("--transaction"),
+    cursor: values.get("--cursor") ?? null,
+    format
+  };
+}
+function errorResult2(error, transactionPath = null) {
+  return {
+    schemaVersion: 1,
+    status: error.exitCode === 1 ? "stopped" : "invalid",
+    phase: error.details?.phase ?? null,
+    terminalDisposition: null,
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve10(transactionPath) : null),
+    route: error.details?.route ?? null,
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    code: error.code,
+    message: error.message
+  };
+}
+function textResult3(result) {
+  if (result.packet) {
+    return [
+      result.packet.content.replace(/\n$/u, ""),
+      "",
+      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
+      `Next cursor: ${result.reviewProgress.nextCursor ?? "complete"}`,
+      ""
+    ].join("\n");
+  }
+  return [
+    `Status: ${result.status}`,
+    `Code: ${result.code}`,
+    `Message: ${result.message}`,
+    ""
+  ].join("\n");
+}
+async function runReviewNextCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let options = null;
+  try {
+    options = parseReviewNextArguments(argv);
+    const result = reviewNextWorkflow(options);
+    stdout.write(
+      options.format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+`
+    );
+    return 0;
+  } catch (caught) {
+    const error = caught instanceof ReviewNextError ? caught : new ReviewNextError(
+      caught.code ?? "REVIEW_NEXT_FAILED",
+      caught.message
+    );
+    const result = assertResultBudget(
+      errorResult2(error, options?.transactionPath)
+    );
+    stderr.write(`${error.code}: ${error.message}
+`);
+    stdout.write(
+      options?.format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+`
+    );
+    return error.exitCode;
+  }
+}
+var FORMATS, MAXIMUM_REVIEW_RESULT_BYTES, STRICT_UTF8_DECODER6, ReviewNextError;
+var init_reviewNextWorkflow = __esm({
+  "src/committing-to-git/workflow/reviewNextWorkflow.js"() {
+    init_reviewCatalog();
+    init_transactionWorkspace();
+    FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
+    MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
+    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    ReviewNextError = class extends Error {
+      constructor(code, message, { exitCode = 2, details = {} } = {}) {
+        super(message);
+        this.name = "ReviewNextError";
+        this.code = code;
+        this.exitCode = exitCode;
+        this.details = details;
+      }
+    };
+  }
+});
+
 // src/committing-to-git/workflow/resumePreparationWorkflow.js
 var resumePreparationWorkflow_exports = {};
 __export(resumePreparationWorkflow_exports, {
@@ -10536,27 +11073,27 @@ __export(resumePreparationWorkflow_exports, {
   resumePreparationWorkflow: () => resumePreparationWorkflow,
   runResumePreparationCommand: () => runResumePreparationCommand
 });
-import { createHash as createHash10 } from "node:crypto";
-import { existsSync as existsSync11, lstatSync as lstatSync6, readFileSync as readFileSync7, unlinkSync as unlinkSync6 } from "node:fs";
-import { join as join8, relative as relative5, resolve as resolve10 } from "node:path";
-function fail5(code, message, { exitCode = 2, details = {} } = {}) {
+import { createHash as createHash11 } from "node:crypto";
+import { existsSync as existsSync11, lstatSync as lstatSync8, readFileSync as readFileSync7, unlinkSync as unlinkSync6 } from "node:fs";
+import { join as join8, relative as relative6, resolve as resolve11 } from "node:path";
+function fail6(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
 }
 function sha2563(bytes) {
-  return createHash10("sha256").update(bytes).digest("hex");
+  return createHash11("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve10(attemptDirectory, name);
-  const relation = relative5(attemptDirectory, path);
-  if (resolve10(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
-    fail5(
+  const expected = resolve11(attemptDirectory, name);
+  const relation = relative6(attemptDirectory, path);
+  if (resolve11(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} has an invalid recorded path.`
     );
   }
-  const stat = lstatSync6(path);
+  const stat = lstatSync8(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} was replaced or is not a file.`
     );
@@ -10565,7 +11102,7 @@ function assertContainedExactPath(attemptDirectory, path, name) {
 function validatePersistedSnapshot(transaction) {
   const snapshot = transaction.snapshot;
   if (snapshot === null || typeof snapshot.path !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.sha256) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(snapshot.indexTreeOid) || !Number.isSafeInteger(snapshot.changeUnitCount) || snapshot.changeUnitCount < 1 || typeof snapshot.indexInstallationRequired !== "boolean") {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       "Transaction snapshot facts are invalid."
     );
@@ -10577,7 +11114,7 @@ function validatePersistedSnapshot(transaction) {
   );
   const bytes = readFileSync7(snapshot.path);
   if (sha2563(bytes) !== snapshot.sha256) {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json digest does not match."
     );
@@ -10586,13 +11123,13 @@ function validatePersistedSnapshot(transaction) {
   try {
     manifest = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       `snapshot.json is invalid JSON: ${error.message}`
     );
   }
   if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json does not match the persisted transaction facts."
     );
@@ -10602,7 +11139,7 @@ function validatePersistedSnapshot(transaction) {
 function assertRepositoryResumePreconditions(transaction) {
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail5(
+    fail6(
       "ACTIVE_GIT_OPERATION",
       `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
       { exitCode: 1 }
@@ -10617,7 +11154,7 @@ function assertRepositoryResumePreconditions(transaction) {
     }
   ).stdout;
   if (conflicts.length > 0) {
-    fail5(
+    fail6(
       "UNRESOLVED_CONFLICTS",
       "Preparation cannot resume while unresolved conflicts remain.",
       { exitCode: 1 }
@@ -10625,7 +11162,7 @@ function assertRepositoryResumePreconditions(transaction) {
   }
   const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
   if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    fail5("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
+    fail6("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
       exitCode: 1
     });
   }
@@ -10636,7 +11173,7 @@ function resultEnvelope(transaction) {
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve10(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve11(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -10660,7 +11197,7 @@ function assertSnapshotIndexState(transaction, manifest) {
   if (snapshot.preparedIndexPath) {
     const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
     if (!indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)) {
-      fail5(
+      fail6(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index changed before resume.",
         { exitCode: 1 }
@@ -10671,7 +11208,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       snapshot.indexTreeOid,
       manifestEnvironment(manifest)
     )) {
-      fail5(
+      fail6(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index no longer matches the snapshot tree.",
         { exitCode: 1 }
@@ -10679,7 +11216,7 @@ function assertSnapshotIndexState(transaction, manifest) {
     }
   }
   if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
-    fail5("INDEX_DRIFT", "The real index changed after snapshot creation.", {
+    fail6("INDEX_DRIFT", "The real index changed after snapshot creation.", {
       exitCode: 1
     });
   }
@@ -10706,7 +11243,7 @@ async function finishEvidenceRouting({
 }
 async function resumePreparationWorkflow({ transactionPath }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0 || Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-    fail5(
+    fail6(
       "INVALID_TRANSACTION_PATH",
       `Transaction path must be at most ${MAXIMUM_TRANSACTION_PATH_BYTES} UTF-8 bytes.`
     );
@@ -10724,10 +11261,10 @@ async function resumePreparationWorkflow({ transactionPath }) {
     return finishEvidenceRouting({ transactionPath, transaction, manifest: manifest2 });
   }
   if (transaction.phase !== "allocated") {
-    fail5(
+    fail6(
       "RESUME_NOT_ALLOWED",
       `Preparation cannot resume from phase ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve10(transactionPath) } }
+      { exitCode: 1, details: { transaction: resolve11(transactionPath) } }
     );
   }
   const manifest = validatePersistedSnapshot(transaction);
@@ -10755,13 +11292,13 @@ async function resumePreparationWorkflow({ transactionPath }) {
         });
       }
     } catch (error) {
-      fail5(
+      fail6(
         "INDEX_INSTALLATION_INTERRUPTED",
         `Prepared index installation resume failed: ${error.message}`,
         {
           exitCode: 1,
           details: {
-            transaction: resolve10(transactionPath),
+            transaction: resolve11(transactionPath),
             phase: "allocated",
             recoveryRequired: true
           }
@@ -10769,7 +11306,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
       );
     }
     if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshot.indexTreeOid) {
-      fail5(
+      fail6(
         "INDEX_INSTALLATION_MISMATCH",
         "Resumed index installation does not match the persisted snapshot.",
         { exitCode: 1 }
@@ -10789,22 +11326,22 @@ function parseResumeArguments(argv) {
     const token = argv[index];
     const value = argv[index + 1];
     if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail5("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
+      fail6("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
     }
     if (value === void 0 || value.length === 0) {
-      fail5("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+      fail6("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
     }
     if (values.has(token)) {
-      fail5("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+      fail6("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
     }
     values.set(token, value);
   }
   if (!values.has("--transaction")) {
-    fail5("MISSING_TRANSACTION", "--transaction is required.");
+    fail6("MISSING_TRANSACTION", "--transaction is required.");
   }
   const format = values.get("--format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail5("INVALID_FORMAT", "--format must be json or text.");
+    fail6("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("--transaction"), format };
 }
@@ -10823,7 +11360,7 @@ function errorEnvelope2(error) {
     message: error.message
   };
 }
-function textResult3(result) {
+function textResult4(result) {
   return [
     `Status: ${result.status}`,
     ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
@@ -10838,7 +11375,7 @@ async function runResumePreparationCommand(argv, { stdout = process.stdout, stde
     format = options.format;
     const result = await resumePreparationWorkflow(options);
     stdout.write(
-      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
 `
     );
     return 0;
@@ -10848,7 +11385,7 @@ async function runResumePreparationCommand(argv, { stdout = process.stdout, stde
     stderr.write(`${error.code}: ${error.message}
 `);
     stdout.write(
-      format === "text" ? textResult3(result) : `${JSON.stringify(result)}
+      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
 `
     );
     return error.exitCode;
@@ -10871,19 +11408,19 @@ __export(promoteDraftWorkflow_exports, {
   recoverDraftPromotion: () => recoverDraftPromotion,
   runPromoteDraftCommand: () => runPromoteDraftCommand
 });
-import { createHash as createHash11 } from "node:crypto";
+import { createHash as createHash12 } from "node:crypto";
 import { existsSync as existsSync12 } from "node:fs";
-import { isAbsolute as isAbsolute7, join as join9, resolve as resolve11 } from "node:path";
-import { TextDecoder as TextDecoder7 } from "node:util";
-function fail6(code, message, options) {
+import { isAbsolute as isAbsolute9, join as join9, resolve as resolve12 } from "node:path";
+import { TextDecoder as TextDecoder8 } from "node:util";
+function fail7(code, message, options) {
   throw new PromotionError(code, message, options);
 }
 function sha2564(bytes) {
-  return createHash11("sha256").update(bytes).digest("hex");
+  return createHash12("sha256").update(bytes).digest("hex");
 }
 function samePath2(left, right) {
-  const normalizedLeft = resolve11(left);
-  const normalizedRight = resolve11(right);
+  const normalizedLeft = resolve12(left);
+  const normalizedRight = resolve12(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function sameValue(left, right) {
@@ -10891,7 +11428,7 @@ function sameValue(left, right) {
 }
 function realIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve11(isAbsolute7(gitPath) ? gitPath : join9(root, gitPath));
+  return resolve12(isAbsolute9(gitPath) ? gitPath : join9(root, gitPath));
 }
 function readDraftManifest(transactionPath, transaction) {
   const input = readTransactionOwnedFile({
@@ -10902,16 +11439,16 @@ function readDraftManifest(transactionPath, transaction) {
     allowPathReplacement: false
   });
   if (!samePath2(input.path, transaction.snapshot?.path ?? "") || sha2564(input.bytes) !== transaction.snapshot?.sha256) {
-    fail6(
+    fail7(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The draft snapshot no longer matches its transaction identity."
     );
   }
   let manifest;
   try {
-    manifest = JSON.parse(STRICT_UTF8_DECODER6.decode(input.bytes));
+    manifest = JSON.parse(STRICT_UTF8_DECODER7.decode(input.bytes));
   } catch (error) {
-    fail6(
+    fail7(
       "SNAPSHOT_ARTIFACT_INVALID",
       `The draft snapshot is not canonical UTF-8 JSON: ${error.message}`
     );
@@ -10923,7 +11460,7 @@ function readDraftManifest(transactionPath, transaction) {
     manifest.temporaryObjectDirectory ?? "",
     transaction.snapshot.temporaryObjectDirectory
   )) {
-    fail6(
+    fail7(
       "DRAFT_SNAPSHOT_INVALID",
       "The transaction and its draft snapshot do not describe one promotable scope and tree."
     );
@@ -10939,7 +11476,7 @@ function portableIdentityMatches(portable, identity2) {
 function recordedPaths(transaction) {
   const encoded = transaction.scope?.expandedPathBytesBase64;
   if (!Array.isArray(encoded)) {
-    fail6(
+    fail7(
       "DRAFT_SCOPE_INVALID",
       "The draft transaction does not contain its normalized literal path scope."
     );
@@ -10953,7 +11490,7 @@ function recordedPaths(transaction) {
       return bytes;
     });
   } catch (error) {
-    fail6(
+    fail7(
       "DRAFT_SCOPE_INVALID",
       `The recorded literal path scope is invalid: ${error.message}`
     );
@@ -10983,7 +11520,7 @@ function assertDraftArtifacts(transaction, manifest) {
     matches = false;
   }
   if (!matches) {
-    fail6(
+    fail7(
       "DRAFT_SNAPSHOT_DRIFT",
       "The attempt-local draft index or object tree no longer matches the reviewed snapshot.",
       { exitCode: 1 }
@@ -10995,7 +11532,7 @@ function assertReviewedState(transactionPath, transaction) {
   if (transaction.route === "concise") {
     const inlineEvidence = transaction.inlineEvidence;
     if (inlineEvidence.manifestSha256 !== reviewedManifestSha256 || inlineEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan.sha256 || inlineEvidence.capsuleSha256 !== sha256Bytes(stableJsonBytes(inlineEvidence.capsule))) {
-      fail6(
+      fail7(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The concise evidence capsule no longer matches its recorded hashes.",
         {
@@ -11017,13 +11554,13 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       catalog = readReviewCatalog(transaction.review.catalogPath);
     } catch (error) {
-      fail6(
+      fail7(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         `The extended review catalog cannot be reused: ${error.message}`
       );
     }
     if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.manifestSha256 !== reviewedManifestSha256) {
-      fail6(
+      fail7(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The extended review catalog no longer matches the draft manifest.",
         {
@@ -11042,13 +11579,13 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       message = readCanonicalMessage(transactionPath);
     } catch (error) {
-      fail6(
+      fail7(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         `The canonical message cannot be reused: ${error.message}`
       );
     }
     if (!sameValue(message.transactionState, transaction.message)) {
-      fail6(
+      fail7(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         "The canonical message no longer matches its transaction hashes."
       );
@@ -11059,7 +11596,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   const root = transaction.repositoryRoot;
   const currentHeadAnchor = captureHeadAnchor(root);
   if (!sameValue(currentHeadAnchor, transaction.headAnchor)) {
-    fail6(
+    fail7(
       "PROMOTION_HEAD_DRIFT",
       "HEAD no longer matches the complete draft anchor.",
       {
@@ -11073,7 +11610,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"]).stdout;
   if (conflicts.length > 0) {
-    fail6(
+    fail7(
       "PROMOTION_UNRESOLVED_CONFLICTS",
       "Draft promotion is blocked while unresolved conflicts remain.",
       { exitCode: 1 }
@@ -11081,7 +11618,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const operations = activeGitOperations(root);
   if (operations.length > 0) {
-    fail6(
+    fail7(
       "PROMOTION_ACTIVE_GIT_OPERATION",
       `Draft promotion is blocked during an active ${operations.join(", ")} operation.`,
       { exitCode: 1, details: { activeOperations: operations } }
@@ -11094,7 +11631,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     transaction.snapshot.promotion.preparedIndexIdentity
   );
   if (manifest.scopeKind === "paths" && stagedStatePresent(root) && !installedPromotionIndexObserved) {
-    fail6(
+    fail7(
       "PROMOTION_BLOCKED_STAGED_STATE",
       "Path draft promotion requires the unrelated real staged state to be absent.",
       {
@@ -11106,7 +11643,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     );
   }
   if (manifest.scopeKind === "staged" && !portableIdentityMatches(manifest.sourceIndexIdentity, stagedSourceIdentity)) {
-    fail6(
+    fail7(
       "PROMOTION_STAGED_SOURCE_DRIFT",
       "The real staged index no longer has the draft's recorded source digest.",
       {
@@ -11168,7 +11705,7 @@ function finalizePromotion({
   const actualHeadAnchor = captureHeadAnchor(current.repositoryRoot);
   const actualTreeOid = writeIndexTree(current.repositoryRoot);
   if (actualTreeOid !== current.snapshot.indexTreeOid || !sameValue(actualHeadAnchor, current.headAnchor) || installation.preparedIndexTreeOid !== current.snapshot.indexTreeOid || !sameValue(installation.headAnchor, current.headAnchor)) {
-    fail6(
+    fail7(
       "PROMOTION_INSTALLATION_DRIFT",
       "The installed real index does not match the draft tree and head anchor.",
       { exitCode: 1, details: { recoveryRequired: true } }
@@ -11196,7 +11733,7 @@ function successEnvelope2(transaction) {
     status: "promoted",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve11(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve12(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -11216,7 +11753,7 @@ function assertPromotableTransaction(transaction) {
   if (transaction.mode !== "draft" || !PROMOTABLE_STATES.has(
     JSON.stringify([transaction.phase, transaction.status])
   )) {
-    fail6(
+    fail7(
       "PROMOTION_STATE_INVALID",
       "Only an active evidence-ready or message-ready draft can be promoted.",
       { exitCode: 1 }
@@ -11236,11 +11773,11 @@ function persistRecoveryObservation({
   return updatePromotionRecord(transactionPath, transaction, { promotion });
 }
 function recoverDraftPromotion({ transactionPath }) {
-  const canonicalTransactionPath = resolve11(transactionPath);
+  const canonicalTransactionPath = resolve12(transactionPath);
   const transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   if (transaction.snapshot?.promotion === void 0 || transaction.snapshot.promotion === null) {
-    fail6(
+    fail7(
       "PROMOTION_RECOVERY_NOT_REQUIRED",
       "The draft transaction has no journaled promotion to recover.",
       { exitCode: 1 }
@@ -11289,7 +11826,7 @@ function continuePreparedPromotion({
   ) || !indexMatchesTree(transaction.repositoryRoot, promotion.indexTreeOid, {
     GIT_INDEX_FILE: promotion.preparedIndexPath
   })) {
-    fail6(
+    fail7(
       "PROMOTION_PREPARED_STATE_DRIFT",
       "The prepared promotion index no longer matches its recorded identity and tree.",
       { exitCode: 1, details: { recoveryRequired: true } }
@@ -11304,7 +11841,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     persistRecoveryObservation({ transactionPath, transaction, recovery });
-    fail6(
+    fail7(
       "PROMOTION_RECOVERY_OBSERVED",
       "The interrupted index installation was observed without replay; retry promotion only from this recorded result.",
       {
@@ -11325,7 +11862,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     if (recovery.status === "ambiguous" || recovery.resumeAllowed !== true) {
-      fail6(
+      fail7(
         "PROMOTION_INDEX_STATE_AMBIGUOUS",
         "The real index matches neither recorded side of the promotion installation.",
         { exitCode: 1, details: { recoveryRequired: true } }
@@ -11376,7 +11913,7 @@ function continuePreparedPromotion({
     }
   }
   if (installation.status !== "installed") {
-    fail6(
+    fail7(
       "PROMOTION_INDEX_INSTALLATION_INCOMPLETE",
       "The journaled real-index installation is not complete.",
       { exitCode: 1, details: { recoveryRequired: true } }
@@ -11394,9 +11931,9 @@ function promoteDraftWorkflow({
   indexFailureInjector
 }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail6("TRANSACTION_REQUIRED", "A transaction path is required.");
+    fail7("TRANSACTION_REQUIRED", "A transaction path is required.");
   }
-  const canonicalTransactionPath = resolve11(transactionPath);
+  const canonicalTransactionPath = resolve12(transactionPath);
   let transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   const manifest = readDraftManifest(canonicalTransactionPath, transaction);
@@ -11433,7 +11970,7 @@ function promoteDraftWorkflow({
   if (manifest.scopeKind === "staged") {
     const actualTreeOid = writeIndexTree(transaction.repositoryRoot);
     if (actualTreeOid !== manifest.indexTreeOid) {
-      fail6(
+      fail7(
         "PROMOTION_STAGED_SOURCE_DRIFT",
         "The real staged tree no longer equals the draft tree.",
         { exitCode: 1 }
@@ -11490,7 +12027,7 @@ function promoteDraftWorkflow({
     throw drift;
   }
   if (prepared.indexTreeOid !== manifest.indexTreeOid) {
-    fail6(
+    fail7(
       "PROMOTION_TREE_DRIFT",
       "The current selected content no longer recreates the reviewed draft tree.",
       {
@@ -11507,7 +12044,7 @@ function promoteDraftWorkflow({
     checked.currentIndexIdentity,
     afterPreparation.currentIndexIdentity
   )) {
-    fail6(
+    fail7(
       "PROMOTION_INDEX_DRIFT",
       "The real index changed while the promotion tree was prepared.",
       { exitCode: 1 }
@@ -11539,28 +12076,28 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token?.startsWith("--")) {
-      fail6("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+      fail7("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
     }
     const name = token.slice(2);
     if (!(/* @__PURE__ */ new Set(["transaction", "format"])).has(name)) {
-      fail6("UNKNOWN_ARGUMENT", `Unknown workflow promote flag --${name}.`);
+      fail7("UNKNOWN_ARGUMENT", `Unknown workflow promote flag --${name}.`);
     }
     if (values.has(name)) {
-      fail6("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+      fail7("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
     }
     const value = argv[index + 1];
     if (value === void 0 || value.startsWith("--")) {
-      fail6("INVALID_ARGUMENT", `--${name} requires a value.`);
+      fail7("INVALID_ARGUMENT", `--${name} requires a value.`);
     }
     values.set(name, value);
     index += 1;
   }
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail6("INVALID_FORMAT", "--format must be json or text.");
+    fail7("INVALID_FORMAT", "--format must be json or text.");
   }
   if (!values.get("transaction")) {
-    fail6("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail7("TRANSACTION_REQUIRED", "--transaction is required.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -11598,7 +12135,7 @@ function errorEnvelope3(error, transactionPath = null) {
     )
   };
 }
-function textResult4(result) {
+function textResult5(result) {
   const lines = [`Status: ${result.status}`];
   if (result.code) {
     lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
@@ -11618,10 +12155,10 @@ function runPromoteDraftCommand(argv, { stdout = process.stdout, stderr = proces
   try {
     const options = parseArguments(argv);
     format = options.format;
-    transactionPath = resolve11(options.transactionPath);
+    transactionPath = resolve12(options.transactionPath);
     const result = promoteDraftWorkflow({ transactionPath });
     stdout.write(
-      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
+      format === "text" ? textResult5(result) : `${JSON.stringify(result)}
 `
     );
     return 0;
@@ -11631,13 +12168,13 @@ function runPromoteDraftCommand(argv, { stdout = process.stdout, stderr = proces
     stderr.write(`${error.code}: ${error.message}
 `);
     stdout.write(
-      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
+      format === "text" ? textResult5(result) : `${JSON.stringify(result)}
 `
     );
     return error.exitCode;
   }
 }
-var STRICT_UTF8_DECODER6, FULL_OID_PATTERN4, PROMOTABLE_STATES, PromotionError;
+var STRICT_UTF8_DECODER7, FULL_OID_PATTERN4, PROMOTABLE_STATES, PromotionError;
 var init_promoteDraftWorkflow = __esm({
   "src/committing-to-git/workflow/promoteDraftWorkflow.js"() {
     init_gitRepository();
@@ -11648,7 +12185,7 @@ var init_promoteDraftWorkflow = __esm({
     init_indexInstallation();
     init_transactionWorkspace();
     init_prepareWorkflow();
-    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
     FULL_OID_PATTERN4 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
     PROMOTABLE_STATES = /* @__PURE__ */ new Set([
       JSON.stringify(["evidence-ready", "prepared"]),
@@ -11760,12 +12297,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve24, reject) {
+        return new Promise(function(resolve25, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve24(is);
+              resolve25(is);
             }
           });
         });
@@ -11831,27 +12368,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve24, reject) => {
+      const step = (i) => new Promise((resolve25, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve24(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve25(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve24(subStep(p, i, 0));
+        resolve25(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve24, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve25, reject) => {
         if (ii === pathExt.length)
-          return resolve24(step(i + 1));
+          return resolve25(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve24(p + ext);
+              return resolve25(p + ext);
           }
-          return resolve24(subStep(p, i, ii + 1));
+          return resolve25(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -12164,35 +12701,35 @@ var require_cross_spawn = __commonJS({
 });
 
 // src/committing-to-git/checks/checkOutputCapture.js
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 import {
   closeSync as closeSync9,
   existsSync as existsSync13,
   fsyncSync as fsyncSync7,
-  lstatSync as lstatSync7,
+  lstatSync as lstatSync9,
   mkdirSync as mkdirSync9,
   openSync as openSync9,
-  realpathSync as realpathSync4,
+  realpathSync as realpathSync6,
   writeFileSync as writeFileSync9
 } from "node:fs";
-import { join as join10, relative as relative6, resolve as resolve12 } from "node:path";
+import { join as join10, relative as relative7, resolve as resolve13 } from "node:path";
 function assertContained2(parent, child) {
-  const path = relative6(parent, child);
+  const path = relative7(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
     throw new Error(`Check output path escapes its transaction: ${child}`);
   }
 }
 function ensureDirectory3(path, label) {
-  const stat = lstatSync7(path);
+  const stat = lstatSync9(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync4(path) !== resolve12(path)) {
+  if (realpathSync6(path) !== resolve13(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function processLogDirectory(attemptDirectory) {
-  const normalizedAttempt = resolve12(attemptDirectory);
+  const normalizedAttempt = resolve13(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
   const directory = join10(normalizedAttempt, "process-logs");
   assertContained2(normalizedAttempt, directory);
@@ -12226,7 +12763,7 @@ function appendTail(current, chunk, maximumBytes) {
 }
 function channelCapture() {
   return {
-    hash: createHash12("sha256"),
+    hash: createHash13("sha256"),
     totalByteCount: 0,
     head: Buffer.alloc(0),
     rollingTail: Buffer.alloc(0)
@@ -12274,10 +12811,10 @@ function finalizeChannel(directory, receiptId, channel, capture) {
       sha256: capture.hash.digest("hex"),
       headPath,
       headByteCount: capture.head.length,
-      headSha256: headPath === null ? null : createHash12("sha256").update(capture.head).digest("hex"),
+      headSha256: headPath === null ? null : createHash13("sha256").update(capture.head).digest("hex"),
       tailPath,
       tailByteCount: tail.length,
-      tailSha256: tailPath === null ? null : createHash12("sha256").update(tail).digest("hex"),
+      tailSha256: tailPath === null ? null : createHash13("sha256").update(tail).digest("hex"),
       truncated: capture.totalByteCount > capture.head.length + tail.length
     },
     head: capture.head,
@@ -12408,8 +12945,8 @@ var init_checkOutputCapture = __esm({
 });
 
 // src/committing-to-git/report/commitReport.js
-import { createHash as createHash13 } from "node:crypto";
-import { TextDecoder as TextDecoder8 } from "node:util";
+import { createHash as createHash14 } from "node:crypto";
+import { TextDecoder as TextDecoder9 } from "node:util";
 function hasExactKeys(value, keys) {
   return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
@@ -12610,7 +13147,7 @@ function commitFacts(root, commitOid, headAnchor = null) {
       committer: { name: fields[5], email: fields[6] },
       subject: fields[7],
       message: object.messageBytes.toString("utf8"),
-      messageSha256: createHash13("sha256").update(object.messageBytes).digest("hex"),
+      messageSha256: createHash14("sha256").update(object.messageBytes).digest("hex"),
       signed: object.signed,
       signatureHeaders: object.signatureHeaders,
       branch: headAnchor?.targetRef ?? (branchResult?.status === 0 ? branchResult.stdout.toString("utf8").trim() : null),
@@ -12794,7 +13331,7 @@ function bytesAfterSpaces2(field, count) {
 }
 function safeByteDisplay(bytes) {
   try {
-    const decoded = STRICT_UTF8_DECODER7.decode(bytes);
+    const decoded = STRICT_UTF8_DECODER8.decode(bytes);
     if (SAFE_TERMINAL_TEXT.test(decoded)) {
       return decoded;
     }
@@ -12809,7 +13346,7 @@ function pathFact(bytes) {
     display: safeByteDisplay(bytes),
     bytesBase64: bytes.toString("base64"),
     byteCount: bytes.length,
-    sha256: createHash13("sha256").update(bytes).digest("hex")
+    sha256: createHash14("sha256").update(bytes).digest("hex")
   };
 }
 function compactPathSample(bytes) {
@@ -12821,7 +13358,7 @@ function compactPathSample(bytes) {
     prefix: safeByteDisplay(prefix),
     suffix: safeByteDisplay(suffix),
     byteCount: bytes.length,
-    sha256: createHash13("sha256").update(bytes).digest("hex")
+    sha256: createHash14("sha256").update(bytes).digest("hex")
   };
 }
 function statusEntries(field) {
@@ -12877,7 +13414,7 @@ function statusEntries(field) {
 async function observeWorkspaceEntries(root, { scope, enumerateAllUntracked = false, onEntry, stream = streamGit } = {}) {
   const scopeKind = typeof scope === "string" ? scope : scope?.kind;
   const untrackedMode = enumerateAllUntracked || scopeKind === "full" ? "all" : "normal";
-  const digest = createHash13("sha256");
+  const digest = createHash14("sha256");
   let pending = Buffer.alloc(0);
   let discardRenameSource = false;
   let observedEntries = 0;
@@ -13077,7 +13614,7 @@ function collectCommitReport({
       expectedTreeOid: manifest.indexTreeOid,
       actualTreeOid: commit.treeOid,
       treeMatches: commit.treeMatches,
-      expectedMessageSha256: createHash13("sha256").update(approvedMessageBytes).digest("hex"),
+      expectedMessageSha256: createHash14("sha256").update(approvedMessageBytes).digest("hex"),
       actualMessageSha256: commit.messageSha256,
       messageMatches: commit.messageMatches,
       signatureHeaderPresent: commit.signed,
@@ -13297,7 +13834,7 @@ function renderCommitReport(report) {
   lines.push("");
   return lines.join("\n");
 }
-var CHECK_OUTCOMES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER7, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
+var CHECK_OUTCOMES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER8, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
 var init_commitReport = __esm({
   "src/committing-to-git/report/commitReport.js"() {
     init_checkReceipt();
@@ -13314,7 +13851,7 @@ var init_commitReport = __esm({
     SSH_FINGERPRINT_PATTERN2 = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
     OPENPGP_FINGERPRINT_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
     UUID_V4_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
     SAFE_TERMINAL_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
     MAXIMUM_INLINE_WORKSPACE_BYTES = 48 * 1024;
     MAXIMUM_COMPACT_DIRECTORY_SAMPLES = 16;
@@ -13323,45 +13860,45 @@ var init_commitReport = __esm({
 });
 
 // src/committing-to-git/transaction/transactionRecovery.js
-import { createHash as createHash14, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash15, randomUUID as randomUUID5 } from "node:crypto";
 import {
   closeSync as closeSync10,
-  constants as fsConstants6,
+  constants as fsConstants7,
   existsSync as existsSync14,
   fsyncSync as fsyncSync8,
-  lstatSync as lstatSync8,
+  lstatSync as lstatSync10,
   openSync as openSync10,
   readFileSync as readFileSync8,
   readdirSync as readdirSync3,
-  realpathSync as realpathSync5,
+  realpathSync as realpathSync7,
   rmSync as rmSync4,
   unlinkSync as unlinkSync7,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute8, join as join11, relative as relative7, resolve as resolve13 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute10, join as join11, relative as relative8, resolve as resolve14 } from "node:path";
 function sha2565(bytes) {
-  return createHash14("sha256").update(bytes).digest("hex");
+  return createHash15("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
-  const normalizedLeft = resolve13(left);
-  const normalizedRight = resolve13(right);
+  const normalizedLeft = resolve14(left);
+  const normalizedRight = resolve14(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function assertContained3(parent, child, { allowSame = false } = {}) {
-  const path = relative7(parent, child);
-  if (!allowSame && path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute8(path)) {
+  const path = relative8(parent, child);
+  if (!allowSame && path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute10(path)) {
     throw new Error(`Recovery target escapes its transaction: ${child}`);
   }
 }
 function validateAttemptDirectory(transaction) {
-  const attempt = resolve13(transaction.attemptDirectory);
+  const attempt = resolve14(transaction.attemptDirectory);
   if (!ATTEMPT_PATTERN.test(basename2(attempt))) {
     throw new Error(
       "Transaction attempt directory does not contain its UUID handle."
     );
   }
-  const stat = lstatSync8(attempt);
-  if (stat.isSymbolicLink() || !stat.isDirectory() || !samePath3(realpathSync5(attempt), attempt)) {
+  const stat = lstatSync10(attempt);
+  if (stat.isSymbolicLink() || !stat.isDirectory() || !samePath3(realpathSync7(attempt), attempt)) {
     throw new Error("Transaction attempt directory was replaced.");
   }
   return attempt;
@@ -13377,18 +13914,18 @@ function acquireTransactionStateLock({
   const transaction = readTransaction(transactionPath);
   const attemptDirectory = validateAttemptDirectory(transaction);
   const path = join11(attemptDirectory, "transaction-state.lock");
-  const noFollow = process.platform === "win32" ? 0 : fsConstants6.O_NOFOLLOW;
+  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
   let descriptor;
   const openLock = () => openSync10(
     path,
-    fsConstants6.O_WRONLY + fsConstants6.O_CREAT + fsConstants6.O_EXCL + noFollow,
+    fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL + noFollow,
     384
   );
   try {
     descriptor = openLock();
   } catch (error) {
     if (error.code === "EEXIST") {
-      const stat = lstatSync8(path);
+      const stat = lstatSync10(path);
       let owner;
       try {
         owner = JSON.parse(readFileSync8(path, "utf8"));
@@ -13453,7 +13990,7 @@ function acquireTransactionStateLock({
   return { path, token, operation, attemptDirectory };
 }
 function releaseTransactionStateLock(lock) {
-  const stat = lstatSync8(lock.path);
+  const stat = lstatSync10(lock.path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error("Transaction-state lock was replaced.");
   }
@@ -13730,7 +14267,7 @@ function recoverCommitOutcome({
   });
 }
 function validateTreeNoLinks(root, path = root) {
-  const stat = lstatSync8(path);
+  const stat = lstatSync10(path);
   if (stat.isSymbolicLink()) {
     throw new Error(`Cleanup refuses a link or reparse target: ${path}`);
   }
@@ -13744,7 +14281,7 @@ function validateTreeNoLinks(root, path = root) {
   }
 }
 function cleanupIdentity(path) {
-  const stat = lstatSync8(path, { bigint: true });
+  const stat = lstatSync10(path, { bigint: true });
   return {
     device: String(stat.dev),
     inode: String(stat.ino),
@@ -13777,7 +14314,7 @@ function removeOwnedTarget(attempt, path, removeOperation) {
   if (!sameCleanupIdentity(before, after)) {
     throw new Error(`Cleanup target changed before deletion: ${path}`);
   }
-  const directory = lstatSync8(path).isDirectory();
+  const directory = lstatSync10(path).isDirectory();
   removeWithRetry(
     path,
     directory ? { recursive: true } : void 0,
@@ -13941,14 +14478,14 @@ __export(runCheckWorkflow_exports, {
   runCheckWorkflow: () => runCheckWorkflow,
   runCheckWorkflowCommand: () => runCheckWorkflowCommand
 });
-import { createHash as createHash15 } from "node:crypto";
-import { lstatSync as lstatSync9, realpathSync as realpathSync6 } from "node:fs";
-import { isAbsolute as isAbsolute9, relative as relative8, resolve as resolve14 } from "node:path";
-function fail7(code, message, options) {
+import { createHash as createHash16 } from "node:crypto";
+import { lstatSync as lstatSync11, realpathSync as realpathSync8 } from "node:fs";
+import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve15 } from "node:path";
+function fail8(code, message, options) {
   throw new CheckWorkflowError(code, message, options);
 }
 function sha2566(bytes) {
-  return createHash15("sha256").update(bytes).digest("hex");
+  return createHash16("sha256").update(bytes).digest("hex");
 }
 function readSnapshot(transactionPath, transaction) {
   const input = readTransactionOwnedFile({
@@ -13958,16 +14495,16 @@ function readSnapshot(transactionPath, transaction) {
     label: "Recorded snapshot",
     allowPathReplacement: false
   });
-  if (resolve14(input.path) !== resolve14(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
-    fail7(
+  if (resolve15(input.path) !== resolve15(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
+    fail8(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
   }
   try {
-    return JSON.parse(STRICT_UTF8_DECODER8.decode(input.bytes));
+    return JSON.parse(STRICT_UTF8_DECODER9.decode(input.bytes));
   } catch (error) {
-    fail7(
+    fail8(
       "SNAPSHOT_ARTIFACT_INVALID",
       `Snapshot JSON is invalid: ${error.message}`
     );
@@ -13981,22 +14518,22 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   try {
     validateCheckContext(context);
   } catch (error) {
-    fail7("CHECK_CONTEXT_INVALID", error.message);
+    fail8("CHECK_CONTEXT_INVALID", error.message);
   }
-  const candidate = resolve14(repositoryRoot2, requestedDirectory);
-  const stat = lstatSync9(candidate);
+  const candidate = resolve15(repositoryRoot2, requestedDirectory);
+  const stat = lstatSync11(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail7(
+    fail8(
       "CHECK_CONTEXT_INVALID",
       "Check working directory must be a real directory within the repository."
     );
   }
-  const actual = realpathSync6(candidate);
-  const repositoryRelative = relative8(repositoryRoot2, actual);
+  const actual = realpathSync8(candidate);
+  const repositoryRelative = relative9(repositoryRoot2, actual);
   if (repositoryRelative === ".." || repositoryRelative.startsWith(
     `..${process.platform === "win32" ? "\\" : "/"}`
-  ) || isAbsolute9(repositoryRelative)) {
-    fail7(
+  ) || isAbsolute11(repositoryRelative)) {
+    fail8(
       "CHECK_CONTEXT_INVALID",
       "Check working directory resolves outside the repository."
     );
@@ -14012,7 +14549,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
 function nextReceiptId(transaction) {
   const ordinal = transaction.checkAttempts.length + 1;
   if (ordinal > 999999) {
-    fail7(
+    fail8(
       "CHECK_ATTEMPT_LIMIT_REACHED",
       "A transaction cannot record more than 999,999 check attempts."
     );
@@ -14025,7 +14562,7 @@ function replaceAttempt(transactionPath, receiptId, transform) {
     (attempt) => attempt.receiptId === receiptId
   );
   if (index < 0) {
-    fail7(
+    fail8(
       "CHECK_RECEIPT_NOT_FOUND",
       `Check receipt ${receiptId} is not part of this transaction.`
     );
@@ -14046,7 +14583,7 @@ function appendAttempt(transactionPath, transaction, attempt) {
 function assertRetryContract(transaction, retryAfterAttempt) {
   const latest = transaction.checkAttempts.at(-1) ?? null;
   if (latest !== null && latest.launchState !== "completed") {
-    fail7(
+    fail8(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${latest.receiptId} has no durable outcome; confirm no child remains live before retrying.`,
       { exitCode: 4, details: { receiptId: latest.receiptId } }
@@ -14054,7 +14591,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
   }
   if (retryAfterAttempt === null) {
     if (latest?.completion?.outcome === "unknown" && latest.resolution !== null) {
-      fail7(
+      fail8(
         "CHECK_RETRY_LINK_REQUIRED",
         `A retry must name the resolved unknown receipt ${latest.receiptId}.`
       );
@@ -14062,7 +14599,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
     return;
   }
   if (latest === null || latest.receiptId !== retryAfterAttempt || latest.completion?.outcome !== "unknown" || latest.resolution === null) {
-    fail7(
+    fail8(
       "CHECK_RETRY_INVALID",
       "A retry may name only the latest explicitly resolved unknown check."
     );
@@ -14082,7 +14619,7 @@ function checkRecoveryResult({
     status,
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve14(transactionPath),
+    transaction: resolve15(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14117,7 +14654,7 @@ function recoverCheckAttempt({
     });
   }
   if (resolution !== "confirmed-no-live-child") {
-    fail7(
+    fail8(
       "CHECK_RECOVERY_RESOLUTION_INVALID",
       "An interrupted check accepts only confirmed-no-live-child resolution."
     );
@@ -14130,7 +14667,7 @@ function recoverCheckAttempt({
       indexLockInspector
     });
   } catch (error) {
-    fail7(
+    fail8(
       "CHECK_CHILD_STILL_LIVE",
       `The interrupted check cannot be resolved yet: ${error.message}`,
       {
@@ -14141,7 +14678,7 @@ function recoverCheckAttempt({
   }
   const finishedAt = now();
   if (typeof finishedAt !== "string" || !Number.isFinite(Date.parse(finishedAt))) {
-    fail7(
+    fail8(
       "CHECK_CLOCK_INVALID",
       "Check recovery clock returned an invalid time."
     );
@@ -14225,7 +14762,7 @@ function resultFor({ transactionPath, transaction, attempt, code, exitCode }) {
     status: code === null ? "check-passed" : code === "CHECK_SCOPE_DRIFT" ? "stopped" : "check-failed",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve14(transactionPath),
+    transaction: resolve15(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14252,11 +14789,11 @@ async function runCheckWorkflow({
   try {
     validateCheckCommand(command);
   } catch (error) {
-    fail7("CHECK_COMMAND_INVALID", error.message);
+    fail8("CHECK_COMMAND_INVALID", error.message);
   }
   let transaction = readTransaction(transactionPath);
   if (!ACTIVE_CHECK_PHASES.has(transaction.phase)) {
-    fail7(
+    fail8(
       "CHECK_PHASE_INVALID",
       `Transaction phase ${transaction.phase} cannot run a precommit check.`
     );
@@ -14283,7 +14820,7 @@ async function runCheckWorkflow({
       status: "stopped",
       phase: stopped.phase,
       terminalDisposition: stopped.terminalDisposition,
-      transaction: resolve14(transactionPath),
+      transaction: resolve15(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -14298,7 +14835,7 @@ async function runCheckWorkflow({
   const receiptId = nextReceiptId(transaction);
   const started = now();
   if (!(started instanceof Date) || !Number.isFinite(started.getTime())) {
-    fail7(
+    fail8(
       "CHECK_CLOCK_INVALID",
       "Check workflow clock returned an invalid time."
     );
@@ -14407,7 +14944,7 @@ async function runCheckWorkflow({
       output: capture.output
     }));
   } catch (error) {
-    fail7(
+    fail8(
       "CHECK_OUTCOME_UNKNOWN",
       `The check child may have run, but its terminal receipt could not be recorded: ${error.message}`,
       {
@@ -14464,7 +15001,7 @@ async function runCheckWorkflow({
 function parseArguments2(argv) {
   const separator = argv.indexOf("--");
   if (separator < 0 || separator === argv.length - 1) {
-    fail7(
+    fail8(
       "CHECK_COMMAND_REQUIRED",
       "workflow check requires -- followed by an executable and argument vector."
     );
@@ -14484,14 +15021,14 @@ function parseArguments2(argv) {
     const key = flagArguments[index];
     const value = flagArguments[index + 1];
     if (typeof key !== "string" || !key.startsWith("--") || typeof value !== "string") {
-      fail7(
+      fail8(
         "CHECK_ARGUMENTS_INVALID",
         "workflow check options require --name value pairs before the command separator."
       );
     }
     const name = key.slice(2);
     if (!allowed.has(name) || flags.has(name)) {
-      fail7(
+      fail8(
         "CHECK_ARGUMENTS_INVALID",
         `Unknown or repeated workflow check option: ${key}.`
       );
@@ -14501,14 +15038,14 @@ function parseArguments2(argv) {
   const timeoutText = flags.get("timeout-ms") ?? null;
   const timeoutMilliseconds = timeoutText === null ? null : Number(timeoutText);
   if (timeoutMilliseconds !== null && (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds < 1 || timeoutMilliseconds > MAXIMUM_CHECK_TIMEOUT_MILLISECONDS)) {
-    fail7(
+    fail8(
       "CHECK_TIMEOUT_INVALID",
       "Check timeout must be an integer from 1 through 86,400,000 milliseconds."
     );
   }
   const format = flags.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail7("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
+    fail8("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
   }
   return {
     transactionPath: flags.get("transaction") ?? null,
@@ -14529,7 +15066,7 @@ function invalidResult(error, transactionPath) {
     status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
     phase: null,
     terminalDisposition: null,
-    transaction: typeof transactionPath === "string" ? resolve14(transactionPath) : null,
+    transaction: typeof transactionPath === "string" ? resolve15(transactionPath) : null,
     route: null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14553,7 +15090,7 @@ async function runCheckWorkflowCommand(argv, { stdout = process.stdout, stderr =
   try {
     options = parseArguments2(argv);
     if (typeof options.transactionPath !== "string") {
-      fail7(
+      fail8(
         "CHECK_TRANSACTION_REQUIRED",
         "workflow check requires --transaction <transaction.json>."
       );
@@ -14579,7 +15116,7 @@ async function runCheckWorkflowCommand(argv, { stdout = process.stdout, stderr =
     return result.exitCode;
   }
 }
-var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER8, CheckWorkflowError;
+var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER9, CheckWorkflowError;
 var init_runCheckWorkflow = __esm({
   "src/committing-to-git/workflow/runCheckWorkflow.js"() {
     import_cross_spawn = __toESM(require_cross_spawn(), 1);
@@ -14595,7 +15132,7 @@ var init_runCheckWorkflow = __esm({
       "message-ready"
     ]);
     MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1e3;
-    STRICT_UTF8_DECODER8 = new TextDecoder("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER9 = new TextDecoder("utf-8", { fatal: true });
     CheckWorkflowError = class extends Error {
       constructor(code, message, { exitCode = 2, details = {} } = {}) {
         super(message);
@@ -14615,22 +15152,22 @@ __export(checkDetailWorkflow_exports, {
   checkDetailWorkflow: () => checkDetailWorkflow,
   runCheckDetailCommand: () => runCheckDetailCommand
 });
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import {
   closeSync as closeSync11,
-  constants as fsConstants7,
-  fstatSync as fstatSync8,
-  lstatSync as lstatSync10,
+  constants as fsConstants8,
+  fstatSync as fstatSync9,
+  lstatSync as lstatSync12,
   openSync as openSync11,
   readFileSync as readFileSync9,
-  realpathSync as realpathSync7
+  realpathSync as realpathSync9
 } from "node:fs";
-import { join as join12, resolve as resolve15 } from "node:path";
-function fail8(code, message, options) {
+import { join as join12, resolve as resolve16 } from "node:path";
+function fail9(code, message, options) {
   throw new CheckDetailError(code, message, options);
 }
 function sha2567(bytes) {
-  return createHash16("sha256").update(bytes).digest("hex");
+  return createHash17("sha256").update(bytes).digest("hex");
 }
 function identity(stat) {
   return {
@@ -14646,7 +15183,7 @@ function contentFor(bytes) {
   try {
     return {
       encoding: "utf8",
-      value: STRICT_UTF8_DECODER9.decode(bytes)
+      value: STRICT_UTF8_DECODER10.decode(bytes)
     };
   } catch {
     return {
@@ -14697,7 +15234,7 @@ function detailResult({
     status: "check-detail",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve15(transactionPath),
+    transaction: resolve16(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
@@ -14737,12 +15274,12 @@ function readBoundSegment({
   recordedSha256
 }) {
   const expectedPath = join12(
-    resolve15(transaction.attemptDirectory),
+    resolve16(transaction.attemptDirectory),
     "process-logs",
     `check-${receiptId}-${stream}-${segment}.bin`
   );
-  if (resolve15(recordedPath) !== expectedPath) {
-    fail8(
+  if (resolve16(recordedPath) !== expectedPath) {
+    fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
       { exitCode: 1 }
@@ -14750,39 +15287,39 @@ function readBoundSegment({
   }
   let initial;
   try {
-    initial = lstatSync10(expectedPath, { bigint: true });
+    initial = lstatSync12(expectedPath, { bigint: true });
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_UNAVAILABLE",
       `The retained output segment is unavailable: ${error.code ?? error.message}.`,
       { exitCode: 1 }
     );
   }
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync7(expectedPath) !== resolve15(expectedPath)) {
-    fail8(
+  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve16(expectedPath)) {
+    fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output segment was replaced or is not a regular file.",
       { exitCode: 1 }
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
+  const noFollow = process.platform === "win32" ? 0 : fsConstants8.O_NOFOLLOW;
   let descriptor;
   try {
-    descriptor = openSync11(expectedPath, fsConstants7.O_RDONLY + noFollow);
+    descriptor = openSync11(expectedPath, fsConstants8.O_RDONLY + noFollow);
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_UNAVAILABLE",
       `The retained output segment cannot be opened: ${error.code ?? error.message}.`,
       { exitCode: 1 }
     );
   }
   try {
-    const before = fstatSync8(descriptor, { bigint: true });
+    const before = fstatSync9(descriptor, { bigint: true });
     const bytes = readFileSync9(descriptor);
-    const after = fstatSync8(descriptor, { bigint: true });
-    const final = lstatSync10(expectedPath, { bigint: true });
+    const after = fstatSync9(descriptor, { bigint: true });
+    const final = lstatSync12(expectedPath, { bigint: true });
     if (!before.isFile() || !after.isFile() || final.isSymbolicLink() || !final.isFile() || !sameIdentity2(identity(initial), identity(before)) || !sameIdentity2(identity(before), identity(after)) || !sameIdentity2(identity(after), identity(final)) || bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
-      fail8(
+      fail9(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
         "The retained output segment no longer matches its witnessed receipt.",
         { exitCode: 1 }
@@ -14793,7 +15330,7 @@ function readBoundSegment({
     if (error instanceof CheckDetailError) {
       throw error;
     }
-    fail8(
+    fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       `The retained output segment changed while it was read: ${error.message}.`,
       { exitCode: 1 }
@@ -14810,25 +15347,25 @@ function checkDetailWorkflow({
   offset = 0
 }) {
   if (typeof receiptId !== "string" || !RECEIPT_ID_PATTERN2.test(receiptId)) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_RECEIPT_INVALID",
       "Check detail requires a canonical receipt ID such as C000001."
     );
   }
   if (!(/* @__PURE__ */ new Set(["stdout", "stderr"])).has(stream)) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_STREAM_INVALID",
       "Check detail stream must be stdout or stderr."
     );
   }
   if (!(/* @__PURE__ */ new Set(["head", "tail"])).has(segment)) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_SEGMENT_INVALID",
       "Check detail segment must be head or tail."
     );
   }
   if (!Number.isSafeInteger(offset) || offset < 0) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset must be a non-negative safe integer."
     );
@@ -14838,14 +15375,14 @@ function checkDetailWorkflow({
     (candidate) => candidate.receiptId === receiptId
   );
   if (attempt === void 0) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_RECEIPT_NOT_FOUND",
       `Receipt ${receiptId} is not part of this transaction.`,
       { exitCode: 1 }
     );
   }
   if (attempt.output === null) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_UNAVAILABLE",
       `Receipt ${receiptId} has no retained process output.`,
       { exitCode: 1 }
@@ -14857,7 +15394,7 @@ function checkDetailWorkflow({
   const recordedSha256 = channel[`${segment}Sha256`];
   if (recordedByteCount === 0) {
     if (offset !== 0) {
-      fail8(
+      fail9(
         "CHECK_DETAIL_OFFSET_INVALID",
         "Check detail offset exceeds the empty retained segment."
       );
@@ -14880,7 +15417,7 @@ function checkDetailWorkflow({
     recordedSha256
   });
   if (offset > bytes.length) {
-    fail8(
+    fail9(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset exceeds the retained segment."
     );
@@ -14908,7 +15445,7 @@ function parseFlags(argv) {
     const token = argv[index];
     const value = argv[index + 1];
     if (typeof token !== "string" || !token.startsWith("--") || typeof value !== "string") {
-      fail8(
+      fail9(
         "CHECK_DETAIL_ARGUMENTS_INVALID",
         "workflow check-detail options require --name value pairs."
       );
@@ -14922,7 +15459,7 @@ function parseFlags(argv) {
       "offset",
       "format"
     ])).has(name) || values.has(name)) {
-      fail8(
+      fail9(
         "CHECK_DETAIL_ARGUMENTS_INVALID",
         `Unknown or repeated workflow check-detail option: ${token}.`
       );
@@ -14937,7 +15474,7 @@ function invalidResult2(error, transactionPath) {
     status: "invalid",
     phase: null,
     terminalDisposition: null,
-    transaction: typeof transactionPath === "string" ? resolve15(transactionPath) : null,
+    transaction: typeof transactionPath === "string" ? resolve16(transactionPath) : null,
     route: null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14962,14 +15499,14 @@ function runCheckDetailCommand(argv, { stdout = process.stdout, stderr = process
     flags = parseFlags(argv);
     const format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail8(
+      fail9(
         "CHECK_DETAIL_FORMAT_INVALID",
         "Check detail output format must be json or text."
       );
     }
     const transactionPath = flags.get("transaction");
     if (typeof transactionPath !== "string") {
-      fail8(
+      fail9(
         "CHECK_DETAIL_TRANSACTION_REQUIRED",
         "workflow check-detail requires --transaction <transaction.json>."
       );
@@ -15001,12 +15538,12 @@ function runCheckDetailCommand(argv, { stdout = process.stdout, stderr = process
     return result.exitCode;
   }
 }
-var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER9, RECEIPT_ID_PATTERN2, CheckDetailError;
+var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER10, RECEIPT_ID_PATTERN2, CheckDetailError;
 var init_checkDetailWorkflow = __esm({
   "src/committing-to-git/workflow/checkDetailWorkflow.js"() {
     init_transactionWorkspace();
     CHECK_DETAIL_PAGE_BYTES = 16 * 1024;
-    STRICT_UTF8_DECODER9 = new TextDecoder("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER10 = new TextDecoder("utf-8", { fatal: true });
     RECEIPT_ID_PATTERN2 = /^C[0-9]{6}$/u;
     CheckDetailError = class extends Error {
       constructor(code, message, { exitCode = 2, details = {} } = {}) {
@@ -15021,10 +15558,10 @@ var init_checkDetailWorkflow = __esm({
 });
 
 // src/committing-to-git/snapshot/verifySnapshot.js
-import { resolve as resolve16 } from "node:path";
+import { resolve as resolve17 } from "node:path";
 function samePath4(left, right) {
-  const normalizedLeft = resolve16(left);
-  const normalizedRight = resolve16(right);
+  const normalizedLeft = resolve17(left);
+  const normalizedRight = resolve17(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function manifestEnvironment2(manifest) {
@@ -15110,21 +15647,21 @@ var init_verifySnapshot = __esm({
 });
 
 // src/committing-to-git/git/gitProcessTranscript.js
-import { createHash as createHash17 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 import {
   closeSync as closeSync12,
   existsSync as existsSync15,
   fsyncSync as fsyncSync9,
-  lstatSync as lstatSync11,
+  lstatSync as lstatSync13,
   mkdirSync as mkdirSync10,
   openSync as openSync12,
   readFileSync as readFileSync10,
-  realpathSync as realpathSync8,
+  realpathSync as realpathSync10,
   writeSync
 } from "node:fs";
-import { dirname as dirname8, join as join13, relative as relative9, resolve as resolve17 } from "node:path";
+import { dirname as dirname8, join as join13, relative as relative10, resolve as resolve18 } from "node:path";
 function assertContained4(parent, child) {
-  const path = relative9(parent, child);
+  const path = relative10(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
     throw new Error(
       `Process transcript path escapes its transaction: ${child}`
@@ -15132,16 +15669,16 @@ function assertContained4(parent, child) {
   }
 }
 function ensureDirectory4(path, label) {
-  const stat = lstatSync11(path);
+  const stat = lstatSync13(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync8(path) !== resolve17(path)) {
+  if (realpathSync10(path) !== resolve18(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function openTranscript(attemptDirectory, operation, instanceId) {
-  const normalizedAttempt = resolve17(attemptDirectory);
+  const normalizedAttempt = resolve18(attemptDirectory);
   ensureDirectory4(normalizedAttempt, "Transaction attempt directory");
   const directory = join13(normalizedAttempt, "process-logs");
   assertContained4(normalizedAttempt, directory);
@@ -15180,12 +15717,12 @@ function appendTail2(current, chunk, maximumBytes) {
   return combined.length <= maximumBytes ? combined : combined.subarray(combined.length - maximumBytes);
 }
 function completionDigest(value) {
-  return createHash17("sha256").update(`${JSON.stringify(value)}
+  return createHash18("sha256").update(`${JSON.stringify(value)}
 `, "utf8").digest("hex");
 }
 function captureGitProcessTranscript({
   transactionPath,
-  attemptDirectory = dirname8(resolve17(transactionPath)),
+  attemptDirectory = dirname8(resolve18(transactionPath)),
   operation,
   instanceId = null,
   child,
@@ -15208,8 +15745,8 @@ function captureGitProcessTranscript({
       "Git transcript capture requires one streaming child process."
     );
   }
-  const normalizedAttempt = resolve17(attemptDirectory);
-  const normalizedTransactionPath = resolve17(transactionPath);
+  const normalizedAttempt = resolve18(attemptDirectory);
+  const normalizedTransactionPath = resolve18(transactionPath);
   if (dirname8(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
@@ -15218,10 +15755,10 @@ function captureGitProcessTranscript({
     operation,
     instanceId
   );
-  const transcriptHash = createHash17("sha256");
+  const transcriptHash = createHash18("sha256");
   const channelHashes = {
-    stdout: createHash17("sha256"),
-    stderr: createHash17("sha256")
+    stdout: createHash18("sha256"),
+    stderr: createHash18("sha256")
   };
   const channelByteCounts = { stdout: 0, stderr: 0 };
   const headLimit = Math.min(16 * 1024, diagnosticBudget);
@@ -15549,24 +16086,24 @@ __export(createCommitWorkflow_exports, {
   runRetryVerificationCommand: () => runRetryVerificationCommand
 });
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash18, randomUUID as randomUUID6 } from "node:crypto";
+import { createHash as createHash19, randomUUID as randomUUID6 } from "node:crypto";
 import {
   closeSync as closeSync13,
-  constants as fsConstants8,
+  constants as fsConstants9,
   fsyncSync as fsyncSync10,
-  lstatSync as lstatSync12,
+  lstatSync as lstatSync14,
   openSync as openSync13,
   readFileSync as readFileSync11,
   renameSync as renameSync5,
   writeFileSync as writeFileSync11
 } from "node:fs";
-import { dirname as dirname9, join as join14, resolve as resolve18 } from "node:path";
-import { TextDecoder as TextDecoder9 } from "node:util";
-function fail9(code, message, options) {
+import { dirname as dirname9, join as join14, resolve as resolve19 } from "node:path";
+import { TextDecoder as TextDecoder10 } from "node:util";
+function fail10(code, message, options) {
   throw new CommitWorkflowError(code, message, options);
 }
 function sha2568(bytes) {
-  return createHash18("sha256").update(bytes).digest("hex");
+  return createHash19("sha256").update(bytes).digest("hex");
 }
 function canonicalJsonBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -15577,7 +16114,7 @@ function assertNoGitStorageOverrides2(environment) {
     (name) => environment[name] !== void 0 && environment[name] !== ""
   );
   if (active.length > 0) {
-    fail9(
+    fail10(
       "GIT_STORAGE_OVERRIDE_REJECTED",
       `Commit refuses Git storage overrides: ${active.join(", ")}.`
     );
@@ -15591,16 +16128,16 @@ function readSnapshot2(transactionPath, transaction) {
     label: "Recorded snapshot",
     allowPathReplacement: false
   });
-  if (resolve18(input.path) !== resolve18(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
-    fail9(
+  if (resolve19(input.path) !== resolve19(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
+    fail10(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
   }
   try {
-    return JSON.parse(STRICT_UTF8_DECODER10.decode(input.bytes));
+    return JSON.parse(STRICT_UTF8_DECODER11.decode(input.bytes));
   } catch (error) {
-    fail9(
+    fail10(
       "SNAPSHOT_ARTIFACT_INVALID",
       `Snapshot JSON is invalid: ${error.message}`
     );
@@ -15608,7 +16145,7 @@ function readSnapshot2(transactionPath, transaction) {
 }
 function directMessage(transactionPath, transaction, manifest, approvedSubject) {
   if (typeof approvedSubject !== "string" || !canUseDirectSubjectTransport(approvedSubject)) {
-    fail9(
+    fail10(
       "MESSAGE_REQUIRES_CHECKED_FILE",
       "This message must be supplied through the fixed message-input.txt check route."
     );
@@ -15625,7 +16162,7 @@ function directMessage(transactionPath, transaction, manifest, approvedSubject) 
       messageSource: "approved-subject"
     });
   } catch (error) {
-    fail9(error.code ?? "MESSAGE_INVALID", error.message);
+    fail10(error.code ?? "MESSAGE_INVALID", error.message);
   }
   return replaceCanonicalMessage({
     transactionPath,
@@ -15652,18 +16189,18 @@ function selectCanonicalMessage({
   }
   if (transaction.phase === "message-ready") {
     if (approvedSubject !== null && approvedSubject !== void 0) {
-      fail9(
+      fail10(
         "MESSAGE_ALREADY_RECORDED",
         "A message-ready transaction must use its recorded canonical bytes."
       );
     }
     const message = readCanonicalMessage(transactionPath);
     if (message === null) {
-      fail9("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
+      fail10("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
     }
     return message;
   }
-  fail9(
+  fail10(
     "COMMIT_PHASE_INVALID",
     `Transaction phase ${transaction.phase} cannot create a commit.`
   );
@@ -15690,13 +16227,13 @@ function preflightCommitVerification({
     const failure = describeSshTrustSourceFailure(
       transaction.signaturePreflight.trustSource
     );
-    fail9("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
+    fail10("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
       exitCode: 1,
       details: {
         status: "capability-required",
         phase: transaction.phase,
         terminalDisposition: transaction.terminalDisposition,
-        transaction: resolve18(transactionPath),
+        transaction: resolve19(transactionPath),
         route: transaction.route,
         commitState: "absent",
         publicationState: "not-requested",
@@ -15718,7 +16255,7 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
     acknowledgedFailedCheckIds
   );
   if (readiness.activeAttemptIds.length > 0) {
-    fail9(
+    fail10(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
       {
@@ -15731,14 +16268,14 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
     );
   }
   if (readiness.retryRequiredIds.length > 0) {
-    fail9(
+    fail10(
       "CHECK_RETRY_REQUIRED",
       `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
       { exitCode: 1, details: { receiptIds: readiness.retryRequiredIds } }
     );
   }
   if (readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
-    fail9(
+    fail10(
       "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
       "Failed-check acknowledgements must name each current non-passing witnessed receipt exactly once.",
       {
@@ -15751,7 +16288,7 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
     );
   }
   if (readiness.missingAcknowledgementIds.length > 0) {
-    fail9(
+    fail10(
       "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
       `Exact commit authorization must acknowledge non-passing check ${readiness.missingAcknowledgementIds.join(", ")}.`,
       {
@@ -15794,7 +16331,7 @@ function atomicWrite(path, bytes) {
   const candidate = join14(dirname9(path), `.report-${randomUUID6()}.tmp`);
   const descriptor = openSync13(
     candidate,
-    fsConstants8.O_WRONLY + fsConstants8.O_CREAT + fsConstants8.O_EXCL,
+    fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL,
     384
   );
   try {
@@ -15804,7 +16341,7 @@ function atomicWrite(path, bytes) {
     closeSync13(descriptor);
   }
   if (lstatSafe(path)?.isSymbolicLink()) {
-    fail9(
+    fail10(
       "REPORT_PATH_REPLACED",
       `Report output was replaced by a link: ${path}`
     );
@@ -15813,7 +16350,7 @@ function atomicWrite(path, bytes) {
 }
 function lstatSafe(path) {
   try {
-    return lstatSync12(path);
+    return lstatSync14(path);
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
@@ -15852,7 +16389,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve18(transactionPath),
+    transaction: resolve19(transactionPath),
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit.commitOid,
@@ -15868,7 +16405,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
 function readRecordedReport(transactionPath) {
   const transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.report === null) {
-    fail9(
+    fail10(
       "REPORT_NOT_RECORDED",
       "Transaction does not contain a final local report."
     );
@@ -15896,7 +16433,7 @@ async function completeRecordedCommit({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "commit-pending" || transaction.commit?.commitOid === null || transaction.commit?.comparison === null) {
-    fail9(
+    fail10(
       "COMMIT_NOT_READY_FOR_REPORT",
       "A matching recorded commit is required before verification and reporting.",
       { exitCode: 3 }
@@ -15904,7 +16441,7 @@ async function completeRecordedCommit({
   }
   const finalPolicy = verificationPolicyOverride ?? transaction.verification?.finalPolicy ?? transaction.verificationPolicy;
   if (!VERIFICATION_POLICIES3.has(finalPolicy)) {
-    fail9(
+    fail10(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -15951,7 +16488,7 @@ async function completeRecordedCommit({
   let displayText = renderCommitReport(report);
   if (Buffer.byteLength(
     JSON.stringify({
-      transaction: resolve18(transactionPath),
+      transaction: resolve19(transactionPath),
       report,
       displayText
     })
@@ -15965,7 +16502,7 @@ async function completeRecordedCommit({
   const reportBytes = canonicalJsonBytes3(report);
   const textBytes = Buffer.from(displayText, "utf8");
   if (reportBytes.length + textBytes.length > MAXIMUM_COMMIT_RESULT_BYTES) {
-    fail9(
+    fail10(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The commit exists, but its final result exceeds the bounded report budget.",
       { exitCode: 3 }
@@ -16052,7 +16589,7 @@ async function completeRecordedCommit({
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail9(
+    fail10(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The complete serialized commit result exceeds the bounded report budget.",
       { exitCode: 3 }
@@ -16067,7 +16604,7 @@ function incompleteKnownCommitResult(transactionPath, error, recovery) {
     status: "commit-blocked",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve18(transactionPath),
+    transaction: resolve19(transactionPath),
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null,
@@ -16097,7 +16634,7 @@ async function createCommitWorkflow({
   assertNoGitStorageOverrides2(environment);
   let transaction = readTransaction(transactionPath);
   if (transaction.mode !== "actual") {
-    fail9(
+    fail10(
       "DRAFT_REQUIRES_PROMOTION",
       "A draft transaction must be promoted before commit creation."
     );
@@ -16107,7 +16644,7 @@ async function createCommitWorkflow({
     acknowledgedFailedCheckIds
   );
   if (verificationPolicyOverride !== null && !VERIFICATION_POLICIES3.has(verificationPolicyOverride)) {
-    fail9(
+    fail10(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -16146,7 +16683,7 @@ async function createCommitWorkflow({
       status: "stopped",
       phase: stopped.phase,
       terminalDisposition: stopped.terminalDisposition,
-      transaction: resolve18(transactionPath),
+      transaction: resolve19(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -16290,7 +16827,7 @@ async function createCommitWorkflow({
         status: "outcome-unknown",
         phase: current.phase,
         terminalDisposition: current.terminalDisposition,
-        transaction: resolve18(transactionPath),
+        transaction: resolve19(transactionPath),
         route: current.route,
         commitState: current.commit?.commitOid ? "created" : "unknown",
         publicationState: "not-requested",
@@ -16311,7 +16848,7 @@ function retrySignatureVerificationWorkflow({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.commit?.commitOid === null) {
-    fail9(
+    fail10(
       "VERIFICATION_RETRY_NOT_ALLOWED",
       "Verification retry requires one already reported commit.",
       { exitCode: 3 }
@@ -16358,7 +16895,7 @@ function retrySignatureVerificationWorkflow({
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve18(transactionPath),
+    transaction: resolve19(transactionPath),
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit.commitOid,
@@ -16377,11 +16914,11 @@ function parseFlags2(argv, repeatable = /* @__PURE__ */ new Set()) {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token?.startsWith("--")) {
-      fail9("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+      fail10("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
     }
     const name = token.slice(2);
     if (values.has(name) && !repeatable.has(name)) {
-      fail9("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+      fail10("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
     }
     if (booleans.has(name)) {
       values.set(name, true);
@@ -16389,7 +16926,7 @@ function parseFlags2(argv, repeatable = /* @__PURE__ */ new Set()) {
     }
     const value = argv[index + 1];
     if (value === void 0 || value.startsWith("--")) {
-      fail9("INVALID_ARGUMENT", `--${name} requires a value.`);
+      fail10("INVALID_ARGUMENT", `--${name} requires a value.`);
     }
     if (repeatable.has(name)) {
       values.set(name, [...values.get(name) ?? [], value]);
@@ -16421,16 +16958,16 @@ async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = 
     ]);
     for (const name of flags.keys()) {
       if (!allowed.has(name)) {
-        fail9("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
+        fail10("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
       }
     }
     format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail9("INVALID_FORMAT", "--format must be json or text.");
+      fail10("INVALID_FORMAT", "--format must be json or text.");
     }
     const transactionPath = flags.get("transaction");
     if (!transactionPath) {
-      fail9("TRANSACTION_REQUIRED", "--transaction is required.");
+      fail10("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = await createCommitWorkflow({
       transactionPath,
@@ -16473,16 +17010,16 @@ async function runRetryVerificationCommand(argv, { stdout = process.stdout, stde
     const allowed = /* @__PURE__ */ new Set(["transaction", "verification", "format"]);
     for (const name of flags.keys()) {
       if (!allowed.has(name)) {
-        fail9("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
+        fail10("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
       }
     }
     format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail9("INVALID_FORMAT", "--format must be json or text.");
+      fail10("INVALID_FORMAT", "--format must be json or text.");
     }
     const transactionPath = flags.get("transaction");
     if (!transactionPath) {
-      fail9("TRANSACTION_REQUIRED", "--transaction is required.");
+      fail10("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = retrySignatureVerificationWorkflow({
       transactionPath,
@@ -16513,7 +17050,7 @@ async function runRetryVerificationCommand(argv, { stdout = process.stdout, stde
     return error.exitCode;
   }
 }
-var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER10, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
+var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER11, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
 var init_createCommitWorkflow = __esm({
   "src/committing-to-git/workflow/createCommitWorkflow.js"() {
     init_checkReceipt();
@@ -16527,7 +17064,7 @@ var init_createCommitWorkflow = __esm({
     init_transactionRecovery();
     init_transactionWorkspace();
     MAXIMUM_COMMIT_RESULT_BYTES = MAXIMUM_REPORT_RESULT_BYTES;
-    STRICT_UTF8_DECODER10 = new TextDecoder9("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER11 = new TextDecoder10("utf-8", { fatal: true });
     VERIFICATION_POLICIES3 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
     STORAGE_OVERRIDE_NAMES2 = [
       "GIT_DIR",
@@ -16559,13 +17096,13 @@ __export(reportDetailWorkflow_exports, {
   reportDetailWorkflow: () => reportDetailWorkflow,
   runReportDetailCommand: () => runReportDetailCommand
 });
-import { createHash as createHash19, randomBytes, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash20, randomBytes, randomUUID as randomUUID7 } from "node:crypto";
 import {
   closeSync as closeSync14,
-  constants as fsConstants9,
+  constants as fsConstants10,
   existsSync as existsSync16,
   fsyncSync as fsyncSync11,
-  lstatSync as lstatSync13,
+  lstatSync as lstatSync15,
   mkdirSync as mkdirSync11,
   openSync as openSync14,
   readFileSync as readFileSync12,
@@ -16574,13 +17111,13 @@ import {
   unlinkSync as unlinkSync8,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join15, resolve as resolve19 } from "node:path";
-import { TextDecoder as TextDecoder10 } from "node:util";
-function fail10(code, message, exitCode = 2) {
+import { join as join15, resolve as resolve20 } from "node:path";
+import { TextDecoder as TextDecoder11 } from "node:util";
+function fail11(code, message, exitCode = 2) {
   throw new ReportDetailError(code, message, exitCode);
 }
 function sha2569(value) {
-  return createHash19("sha256").update(value).digest("hex");
+  return createHash20("sha256").update(value).digest("hex");
 }
 function canonicalBytes2(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -16588,7 +17125,7 @@ function canonicalBytes2(value) {
 }
 function safeDisplay(bytes) {
   try {
-    const decoded = STRICT_UTF8_DECODER11.decode(bytes);
+    const decoded = STRICT_UTF8_DECODER12.decode(bytes);
     if (SAFE_TERMINAL_TEXT2.test(decoded)) {
       return decoded;
     }
@@ -16612,9 +17149,9 @@ function detailEntry(entry, ordinal) {
   };
 }
 function directoryIdentity(path) {
-  const stat = lstatSync13(path, { bigint: true });
+  const stat = lstatSync15(path, { bigint: true });
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail10(
+    fail11(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -16631,9 +17168,9 @@ function validDirectoryIdentity(identity2) {
   );
 }
 function assertRegularFile(path, label) {
-  const stat = lstatSync13(path);
+  const stat = lstatSync15(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail10("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
+    fail11("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
   }
 }
 function readJson(path, label) {
@@ -16641,7 +17178,7 @@ function readJson(path, label) {
   try {
     return JSON.parse(readFileSync12(path, "utf8"));
   } catch (error) {
-    fail10("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
+    fail11("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
   }
 }
 function validateReadyActive(transactionPath, active) {
@@ -16671,16 +17208,16 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve19(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
-    fail10("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve20(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+    fail11("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
 }
 function writeNew(path, value) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants9.O_NOFOLLOW;
+  const noFollow = process.platform === "win32" ? 0 : fsConstants10.O_NOFOLLOW;
   const descriptor = openSync14(
     path,
-    fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL + noFollow,
+    fsConstants10.O_WRONLY + fsConstants10.O_CREAT + fsConstants10.O_EXCL + noFollow,
     384
   );
   try {
@@ -16720,23 +17257,23 @@ function encodeCursor(active, nextOrdinal) {
     "utf8"
   ).toString("base64url");
   if (Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail10("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
+    fail11("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
   }
   return cursor;
 }
 function decodeCursor(cursor, active) {
   if (typeof cursor !== "string" || cursor.length === 0 || Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail10("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   let decoded;
   try {
     const bytes = Buffer.from(cursor, "base64url");
     if (bytes.toString("base64url") !== cursor) {
-      fail10("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+      fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
     }
     decoded = JSON.parse(bytes.toString("utf8"));
   } catch {
-    fail10("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   const keys = Object.keys(decoded).sort();
   const expectedKeys = [
@@ -16755,7 +17292,7 @@ function decodeCursor(cursor, active) {
     ])
   );
   if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || decoded.schemaVersion !== 1 || decoded.transactionDigest !== active.transactionDigest || decoded.startingReportDigest !== active.startingReportDigest || decoded.observationDigest !== active.observationDigest || !Number.isSafeInteger(decoded.nextOrdinal) || decoded.nextOrdinal < 1 || decoded.signature !== expectedSignature) {
-    fail10(
+    fail11(
       "DETAIL_CURSOR_INVALID",
       "Report-detail cursor is stale, tampered, or belongs to another transaction."
     );
@@ -16764,7 +17301,7 @@ function decodeCursor(cursor, active) {
 }
 function observationDirectory(transaction, active) {
   if (!UUID_V4_PATTERN3.test(active.observationId)) {
-    fail10("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
+    fail11("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
   }
   return join15(
     transaction.attemptDirectory,
@@ -16781,7 +17318,7 @@ function assertObservationDirectory(transaction, active) {
   const path = observationDirectory(transaction, active);
   const observedIdentity = directoryIdentity(path);
   if (!validDirectoryIdentity(active.observationDirectoryIdentity) || JSON.stringify(observedIdentity) !== JSON.stringify(active.observationDirectoryIdentity)) {
-    fail10(
+    fail11(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -16885,7 +17422,7 @@ function boundedPageResult(transactionPath, active, page, requestCursor) {
   const result = {
     schemaVersion: 1,
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve19(transactionPath),
+    transaction: resolve20(transactionPath),
     startingReportDigest: active.startingReportDigest,
     observation: {
       observedAt: active.observedAt,
@@ -16904,7 +17441,7 @@ function boundedPageResult(transactionPath, active, page, requestCursor) {
   };
   result.displayText = renderDetailPage(result);
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail10(
+    fail11(
       "DETAIL_RESULT_BUDGET_EXCEEDED",
       "Workspace detail page exceeds the serialized result budget."
     );
@@ -16920,14 +17457,14 @@ function readPageForRequest(transaction, active, cursor) {
   const ordinal = cursor === null ? 0 : decodeCursor(cursor, active);
   const descriptor = active.pages.find((page2) => page2.startOrdinal === ordinal);
   if (!descriptor) {
-    fail10("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
+    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
   }
   const page = readJson(
     pagePath(transaction, active, descriptor.index),
     "Workspace detail page"
   );
   if (sha2569(canonicalBytes2(page)) !== descriptor.sha256) {
-    fail10("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
+    fail11("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
   }
   return { ...page, index: descriptor.index };
 }
@@ -16965,19 +17502,19 @@ function validateCompletedResult(result, transactionPath) {
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || result.schemaVersion !== 1 || result.status !== "detail-complete" || result.transaction !== resolve19(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || typeof result.displayText !== "string" || result.exitCode !== 0 || result.displayText !== renderDetailPage(result)) {
-    fail10("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+  if (!hasExactKeys3(result, resultKeys) || result.schemaVersion !== 1 || result.status !== "detail-complete" || result.transaction !== resolve20(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || typeof result.displayText !== "string" || result.exitCode !== 0 || result.displayText !== renderDetailPage(result)) {
+    fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
 function replayCompletion(completed, cursor, transactionPath) {
   if (JSON.stringify(Object.keys(completed ?? {}).sort()) !== JSON.stringify(
     ["schemaVersion", "requestCursorDigest", "result"].sort()
   ) || completed.schemaVersion !== 1 || !SHA256_PATTERN4.test(completed.requestCursorDigest) || canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail10("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+    fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
   validateCompletedResult(completed.result, transactionPath);
   if (completed.requestCursorDigest !== cursorRequestDigest(cursor)) {
-    fail10(
+    fail11(
       "DETAIL_STATE_CONFLICT",
       "A completed detail observation is retained; use its final cursor or request --refresh.",
       1
@@ -16993,7 +17530,7 @@ async function readWorkspaceDetailPage({
   }
 }) {
   if (refresh && cursor !== null) {
-    fail10(
+    fail11(
       "DETAIL_ARGUMENT_CONFLICT",
       "--cursor and --refresh are mutually exclusive."
     );
@@ -17006,14 +17543,14 @@ async function readWorkspaceDetailPage({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail10("DETAIL_STATE_CONFLICT", error.message, 1);
+      fail11("DETAIL_STATE_CONFLICT", error.message, 1);
     }
     throw error;
   }
   try {
     const transaction = readTransaction(transactionPath);
     if (!(/* @__PURE__ */ new Set(["reported", "published"])).has(transaction.phase)) {
-      fail10(
+      fail11(
         "DETAIL_PHASE_INVALID",
         "Workspace detail requires a reported or published transaction.",
         1
@@ -17050,7 +17587,7 @@ async function readWorkspaceDetailPage({
     let active;
     if (existsSync16(activePath)) {
       if (cursor === null || refresh) {
-        fail10(
+        fail11(
           "DETAIL_STATE_CONFLICT",
           "A workspace detail observation is already active.",
           1
@@ -17058,7 +17595,7 @@ async function readWorkspaceDetailPage({
       }
       active = readJson(activePath, "Active workspace detail journal");
       if (active.state !== "ready") {
-        fail10(
+        fail11(
           "DETAIL_STATE_CONFLICT",
           "The workspace detail observation was interrupted before paging.",
           1
@@ -17067,7 +17604,7 @@ async function readWorkspaceDetailPage({
       active = validateReadyActive(transactionPath, active);
     } else {
       if (cursor !== null) {
-        fail10(
+        fail11(
           "DETAIL_CURSOR_INVALID",
           "No active workspace detail observation accepts this cursor."
         );
@@ -17076,7 +17613,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve19(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve20(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -17102,7 +17639,7 @@ async function readWorkspaceDetailPage({
         result: bounded.result
       };
       if (canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-        fail10(
+        fail11(
           "DETAIL_RESULT_BUDGET_EXCEEDED",
           "Completed detail replay exceeds the serialized result budget."
         );
@@ -17134,11 +17671,11 @@ function parseFlags3(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token?.startsWith("--")) {
-      fail10("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+      fail11("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
     }
     const name = token.slice(2);
     if (values.has(name)) {
-      fail10("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+      fail11("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
     }
     if (name === "refresh") {
       values.set(name, true);
@@ -17146,7 +17683,7 @@ function parseFlags3(argv) {
     }
     const value = argv[index + 1];
     if (value === void 0 || value.startsWith("--")) {
-      fail10("INVALID_ARGUMENT", `--${name} requires a value.`);
+      fail11("INVALID_ARGUMENT", `--${name} requires a value.`);
     }
     values.set(name, value);
     index += 1;
@@ -17164,16 +17701,16 @@ async function runReportDetailCommand(argv, { stdout = process.stdout, stderr = 
     const allowed = /* @__PURE__ */ new Set(["transaction", "cursor", "refresh", "format"]);
     for (const name of flags.keys()) {
       if (!allowed.has(name)) {
-        fail10("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
+        fail11("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
       }
     }
     format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail10("INVALID_FORMAT", "--format must be json or text.");
+      fail11("INVALID_FORMAT", "--format must be json or text.");
     }
     const transactionPath = flags.get("transaction");
     if (!transactionPath) {
-      fail10("TRANSACTION_REQUIRED", "--transaction is required.");
+      fail11("TRANSACTION_REQUIRED", "--transaction is required.");
     }
     const result = await reportDetailWorkflow({
       transactionPath,
@@ -17201,7 +17738,7 @@ Message: ${error.message}
     return error.exitCode;
   }
 }
-var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER11, SAFE_TERMINAL_TEXT2, ReportDetailError;
+var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER12, SAFE_TERMINAL_TEXT2, ReportDetailError;
 var init_reportDetailWorkflow = __esm({
   "src/committing-to-git/workflow/reportDetailWorkflow.js"() {
     init_commitReport();
@@ -17213,7 +17750,7 @@ var init_reportDetailWorkflow = __esm({
     MAXIMUM_PAGE_MODEL_BYTES = 40 * 1024;
     UUID_V4_PATTERN3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
     SHA256_PATTERN4 = /^[0-9a-f]{64}$/u;
-    STRICT_UTF8_DECODER11 = new TextDecoder10("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER12 = new TextDecoder11("utf-8", { fatal: true });
     SAFE_TERMINAL_TEXT2 = /^[^\p{Cc}\p{Cf}]*$/u;
     ReportDetailError = class extends Error {
       constructor(code, message, exitCode = 2) {
@@ -17236,23 +17773,23 @@ __export(publishWorkflow_exports, {
   runPublishCommand: () => runPublishCommand
 });
 import { spawn as spawn3 } from "node:child_process";
-import { createHash as createHash20, randomUUID as randomUUID8 } from "node:crypto";
+import { createHash as createHash21, randomUUID as randomUUID8 } from "node:crypto";
 import {
   closeSync as closeSync15,
-  constants as fsConstants10,
+  constants as fsConstants11,
   fsyncSync as fsyncSync12,
-  lstatSync as lstatSync14,
+  lstatSync as lstatSync16,
   openSync as openSync15,
   readFileSync as readFileSync13,
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname10, join as join16, resolve as resolve20 } from "node:path";
-function fail11(code, message, options) {
+import { dirname as dirname10, join as join16, resolve as resolve21 } from "node:path";
+function fail12(code, message, options) {
   throw new PublishWorkflowError(code, message, options);
 }
 function sha25610(bytes) {
-  return createHash20("sha256").update(bytes).digest("hex");
+  return createHash21("sha256").update(bytes).digest("hex");
 }
 function canonicalBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -17268,7 +17805,7 @@ function atomicWrite2(path, bytes) {
   const candidate = join16(dirname10(path), `.publication-${randomUUID8()}.tmp`);
   const descriptor = openSync15(
     candidate,
-    fsConstants10.O_WRONLY + fsConstants10.O_CREAT + fsConstants10.O_EXCL,
+    fsConstants11.O_WRONLY + fsConstants11.O_CREAT + fsConstants11.O_EXCL,
     384
   );
   try {
@@ -17278,9 +17815,9 @@ function atomicWrite2(path, bytes) {
     closeSync15(descriptor);
   }
   try {
-    const current = lstatSync14(path);
+    const current = lstatSync16(path);
     if (current.isSymbolicLink() || !current.isFile()) {
-      fail11("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
+      fail12("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
     }
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -17324,7 +17861,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
     (attempt) => attempt.attemptId === attemptId
   );
   if (index < 0 || index !== transaction.publicationAttempts.length - 1) {
-    fail11(
+    fail12(
       "PUBLICATION_ATTEMPT_STALE",
       "Only the latest publication attempt may acquire new journal facts.",
       { exitCode: 4 }
@@ -17340,20 +17877,20 @@ function updateAttempt(transactionPath, attemptId, transform) {
 }
 function validateDestination(root, remote, destination, readOnlyRunner = runReadOnlyGit) {
   if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter2(remote)) {
-    fail11(
+    fail12(
       "PUBLICATION_REMOTE_INVALID",
       "--remote must name one configured non-option Git remote."
     );
   }
   if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter2(destination)) {
-    fail11(
+    fail12(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination must be a full refs/heads/... branch ref."
     );
   }
   const remotes = readOnlyRunner(root, "remote-names").stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
   if (!remotes.includes(remote)) {
-    fail11(
+    fail12(
       "PUBLICATION_REMOTE_UNKNOWN",
       `Configured Git remote ${JSON.stringify(remote)} does not exist.`
     );
@@ -17362,7 +17899,7 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
     allowFailure: true
   });
   if (refCheck.status !== 0) {
-    fail11(
+    fail12(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination is not a valid full branch ref."
     );
@@ -17370,7 +17907,7 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
 }
 function assertPublicationAllowed(transaction) {
   if (transaction.commit?.commitOid === null || transaction.commit?.commitOid === void 0 || !FULL_OID_PATTERN7.test(transaction.commit.commitOid) || transaction.commit.comparison === null || !transaction.commit.comparison.parentMatches || !transaction.commit.comparison.treeMatches || !transaction.commit.comparison.messageMatches || !transaction.commit.comparison.signatureHeaderPresent || transaction.verification?.blocksPush !== false || transaction.report?.publicationAllowed !== true) {
-    fail11(
+    fail12(
       "PUBLICATION_BLOCKED",
       "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
       { exitCode: 3 }
@@ -17380,16 +17917,16 @@ function assertPublicationAllowed(transaction) {
 function readPersistedReport(transaction) {
   let stat;
   try {
-    stat = lstatSync14(transaction.report.jsonPath);
+    stat = lstatSync16(transaction.report.jsonPath);
   } catch (error) {
-    fail11(
+    fail12(
       "REPORT_ARTIFACT_MISMATCH",
       `The persisted report cannot be inspected: ${error.message}`,
       { exitCode: 3 }
     );
   }
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail11(
+    fail12(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report path was replaced or is not regular.",
       { exitCode: 3 }
@@ -17397,7 +17934,7 @@ function readPersistedReport(transaction) {
   }
   const bytes = readFileSync13(transaction.report.jsonPath);
   if (sha25610(bytes) !== transaction.report.jsonSha256) {
-    fail11(
+    fail12(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report no longer matches its transaction digest.",
       { exitCode: 3 }
@@ -17410,7 +17947,7 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
     return false;
   }
   try {
-    const textStat = lstatSync14(transaction.report.textPath);
+    const textStat = lstatSync16(transaction.report.textPath);
     return !textStat.isSymbolicLink() && textStat.isFile() && sha25610(readFileSync13(transaction.report.textPath)) === transaction.report.textSha256;
   } catch (error) {
     if (error.code === "ENOENT") {
@@ -17445,7 +17982,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
     status: exitCode === 0 ? "published" : exitCode === 1 ? "rejected" : exitCode === 3 ? "commit-blocked" : "outcome-unknown",
     phase: transaction.phase,
     terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve20(transactionPath),
+    transaction: resolve21(transactionPath),
     route: transaction.route,
     commitState: "created",
     commitOid: transaction.commit.commitOid,
@@ -17484,7 +18021,7 @@ function boundedAugmentedModel(transactionPath, transaction, publication) {
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail11(
+    fail12(
       "PUBLICATION_RESULT_BUDGET_EXCEEDED",
       "Publication result exceeds the serialized report budget.",
       { exitCode: publication.status === "unknown" ? 4 : 3 }
@@ -17629,7 +18166,7 @@ function appendAttempt2(transactionPath, transaction, attempt) {
 function validateRetry(transaction, retryAfterAttempt, remote, destination) {
   const prior = latestAttempt(transaction);
   if (transaction.phase !== "publication-pending" || prior === null || prior.attemptId !== retryAfterAttempt || prior.retryPermitted !== true || prior.resolution?.kind !== "confirmed-no-live-child" || prior.remote !== remote || prior.destination !== destination || prior.commitOid !== transaction.commit.commitOid) {
-    fail11(
+    fail12(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The retry token does not bind the latest resolved unknown publication attempt.",
       { exitCode: 4 }
@@ -17641,7 +18178,7 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
       childIdentity: prior.childIdentity
     });
   } catch (error) {
-    fail11(
+    fail12(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       `The resolved publication child state no longer permits retry: ${error.message}`,
       { exitCode: 4 }
@@ -17669,7 +18206,7 @@ async function publishWorkflow({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail11("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 1 });
+      fail12("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 1 });
     }
     throw error;
   }
@@ -17678,7 +18215,7 @@ async function publishWorkflow({
     let transaction = readTransaction(transactionPath);
     if (transaction.phase === "published") {
       if (retryAfterAttempt !== null) {
-        fail11(
+        fail12(
           "PUBLICATION_RETRY_NOT_PERMITTED",
           "A historical retry token cannot be reused after publication completed.",
           { exitCode: 4 }
@@ -17696,20 +18233,20 @@ async function publishWorkflow({
       );
     }
     if (retryAfterAttempt !== null && !UUID_V4_PATTERN4.test(retryAfterAttempt)) {
-      fail11(
+      fail12(
         "PUBLICATION_RETRY_INVALID",
         "--retry-after-attempt must be the exact helper UUID."
       );
     }
     if (retryAfterAttempt === null && transaction.phase !== "reported") {
-      fail11(
+      fail12(
         "PUBLICATION_RECOVERY_REQUIRED",
         "A pending publication must be recovered and explicitly resolved before retry.",
         { exitCode: 4 }
       );
     }
     if (retryAfterAttempt !== null && transaction.phase === "reported") {
-      fail11(
+      fail12(
         "PUBLICATION_RETRY_UNEXPECTED",
         "--retry-after-attempt is not accepted for an ordinary reported transaction."
       );
@@ -17965,7 +18502,7 @@ async function recoverPublicationOutcome({
   indexLockInspector
 }) {
   if (resolution !== null && resolution !== "confirmed-no-live-child") {
-    fail11(
+    fail12(
       "PUBLICATION_RESOLUTION_INVALID",
       "Publication recovery accepts only confirmed-no-live-child.",
       { exitCode: 4 }
@@ -17979,14 +18516,14 @@ async function recoverPublicationOutcome({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail11("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 4 });
+      fail12("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 4 });
     }
     throw error;
   }
   try {
     let transaction = readTransaction(transactionPath);
     if (transaction.phase !== "publication-pending") {
-      fail11(
+      fail12(
         "PUBLICATION_RECOVERY_NOT_REQUIRED",
         "Publication recovery requires the pending publication phase.",
         { exitCode: 1 }
@@ -18075,7 +18612,7 @@ async function recoverPublicationOutcome({
           ...indexLockInspector ? { indexLockInspector } : {}
         });
       } catch (error) {
-        fail11(
+        fail12(
           "PUBLICATION_RESOLUTION_CONTRADICTED",
           `No-live-child confirmation is contradicted: ${error.message}`,
           { exitCode: 4 }
@@ -18110,15 +18647,15 @@ function parseFlags4(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token?.startsWith("--")) {
-      fail11("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
+      fail12("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
     }
     const name = token.slice(2);
     const value = argv[index + 1];
     if (values.has(name)) {
-      fail11("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
+      fail12("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
     }
     if (value === void 0 || value.startsWith("--")) {
-      fail11("INVALID_ARGUMENT", `--${name} requires a value.`);
+      fail12("INVALID_ARGUMENT", `--${name} requires a value.`);
     }
     values.set(name, value);
     index += 1;
@@ -18142,16 +18679,16 @@ async function runPublishCommand(argv, { stdout = process.stdout, stderr = proce
     ]);
     for (const name of flags.keys()) {
       if (!allowed.has(name)) {
-        fail11("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
+        fail12("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
       }
     }
     format = flags.get("format") ?? "json";
     if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail11("INVALID_FORMAT", "--format must be json or text.");
+      fail12("INVALID_FORMAT", "--format must be json or text.");
     }
     for (const required of ["transaction", "remote", "destination"]) {
       if (!flags.get(required)) {
-        fail11("INVALID_ARGUMENT", `--${required} is required.`);
+        fail12("INVALID_ARGUMENT", `--${required} is required.`);
       }
     }
     const result = await publishWorkflow({
@@ -18217,7 +18754,7 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve21 } from "node:path";
+import { resolve as resolve22 } from "node:path";
 function invalid(code, message, exitCode = 2) {
   throw new CommitWorkflowError(code, message, { exitCode });
 }
@@ -18267,7 +18804,7 @@ async function recoverTransactionWorkflow({
         status: "commit-blocked",
         phase: current.phase,
         terminalDisposition: current.terminalDisposition,
-        transaction: resolve21(transactionPath),
+        transaction: resolve22(transactionPath),
         route: current.route,
         commitState: "created",
         commitOid: current.commit.commitOid,
@@ -18299,7 +18836,7 @@ async function recoverTransactionWorkflow({
       status: transaction.status,
       phase: transaction.phase,
       terminalDisposition: transaction.terminalDisposition,
-      transaction: resolve21(transactionPath),
+      transaction: resolve22(transactionPath),
       route: transaction.route,
       commitState: transaction.commit?.commitOid ? "created" : "absent",
       commitOid: transaction.commit?.commitOid ?? null,
@@ -18446,26 +18983,26 @@ __export(checkMessageWorkflow_exports, {
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-import { createHash as createHash21 } from "node:crypto";
-import { resolve as resolve22 } from "node:path";
-import { TextDecoder as TextDecoder11 } from "node:util";
-function fail12(code, message, options) {
+import { createHash as createHash22 } from "node:crypto";
+import { resolve as resolve23 } from "node:path";
+import { TextDecoder as TextDecoder12 } from "node:util";
+function fail13(code, message, options) {
   throw new MessageWorkflowError(code, message, options);
 }
 function sha25611(bytes) {
-  return createHash21("sha256").update(bytes).digest("hex");
+  return createHash22("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER12.decode(bytes);
+    text = STRICT_UTF8_DECODER13.decode(bytes);
   } catch {
-    fail12("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail13("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail12("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+    fail13("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
   }
 }
 function sameHeadAnchor(manifest, headAnchor) {
@@ -18483,22 +19020,22 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve22(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve22(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail12(
+  const expectedPath = resolve23(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve23(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail13(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
   if (sha25611(bytes) !== transaction.snapshot.sha256) {
-    fail12(
+    fail13(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve22(manifest.repositoryRoot) !== resolve22(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
-    fail12(
+  if (resolve23(manifest.repositoryRoot) !== resolve23(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+    fail13(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -18516,7 +19053,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail12(
+    fail13(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -18531,21 +19068,22 @@ function commonResult(transactionPath, route, status, phase) {
     phase,
     terminalDisposition: null,
     route,
-    transaction: resolve22(transactionPath),
+    transaction: resolve23(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false
   };
 }
-function checkedResult({ transactionPath, canonical, validation, warnings }) {
+function checkedResult({
+  transactionPath,
+  route,
+  canonical,
+  validation,
+  warnings
+}) {
   return {
-    ...commonResult(
-      transactionPath,
-      "concise",
-      "message-ready",
-      "message-ready"
-    ),
+    ...commonResult(transactionPath, route, "message-ready", "message-ready"),
     messageSource: "checked-file",
     messageRevision: canonical.messageRevision,
     messageSha256: canonical.messageSha256,
@@ -18559,10 +19097,12 @@ function prospectiveCheckedResult({
   revision,
   validation,
   displayText,
-  inputPath
+  inputPath,
+  route
 }) {
   return checkedResult({
     transactionPath,
+    route,
     canonical: {
       messageRevision: revision,
       messageSha256: validation.messageSha256,
@@ -18579,11 +19119,14 @@ function prospectiveCheckedResult({
   });
 }
 function assertCheckTransaction(transaction, transactionPath) {
-  if (transaction.route !== "concise" || !(/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail12(
+  const conciseAllowed = transaction.route === "concise" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase);
+  const receipt = transaction.review?.receipt;
+  const extendedAllowed = transaction.route === "extended" && (/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) && transaction.review.semanticStructureRequired === false && receipt?.requiredPacketsReviewed === true && receipt.catalogSha256 === transaction.review.catalogSha256 && receipt.evidencePlanSha256 === transaction.review.evidencePlanSha256;
+  if (!conciseAllowed && !extendedAllowed || transaction.commit !== null) {
+    fail13(
       "MESSAGE_CHECK_NOT_ALLOWED",
-      `Message checking requires a precommit concise evidence-ready or message-ready transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve22(transactionPath) } }
+      `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
+      { details: { transaction: resolve23(transactionPath) } }
     );
   }
 }
@@ -18593,7 +19136,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail12("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail13("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -18608,7 +19151,7 @@ function checkMessageWorkflow({
   assertCheckTransaction(transaction, transactionPath);
   const validation = validateApprovedMessage({
     manifest,
-    route: "concise",
+    route: transaction.route,
     bytes: opened.bytes,
     repositoryTypePolicy: transaction.repositoryTypePolicy,
     messageSource: "checked-file"
@@ -18620,7 +19163,8 @@ function checkMessageWorkflow({
       revision: nextRevision,
       validation,
       displayText: validation.displayText,
-      inputPath: opened.path
+      inputPath: opened.path,
+      route: transaction.route
     })
   );
   const canonical = replaceCanonicalMessage({
@@ -18636,6 +19180,7 @@ function checkMessageWorkflow({
   });
   const result = checkedResult({
     transactionPath,
+    route: transaction.route,
     canonical,
     validation,
     warnings: cleanup.warning === null ? [] : [cleanup.warning]
@@ -18648,25 +19193,25 @@ function parseMessageWorkflowArguments(argv, command) {
     const token = argv[index];
     const value = argv[index + 1];
     if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail12("UNKNOWN_ARGUMENT", `Unknown message ${command} flag ${token}.`);
+      fail13("UNKNOWN_ARGUMENT", `Unknown message ${command} flag ${token}.`);
     }
     if (value === void 0 || value.length === 0) {
-      fail12("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
+      fail13("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
     }
     if (values.has(token)) {
-      fail12("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
+      fail13("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
     }
     values.set(token, value);
   }
   if (!values.has("--transaction")) {
-    fail12(
+    fail13(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command}.`
     );
   }
   const format = values.get("--format") ?? "json";
-  if (!FORMATS.has(format)) {
-    fail12("INVALID_FORMAT", "--format must be json or text.");
+  if (!FORMATS2.has(format)) {
+    fail13("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("--transaction"), format };
 }
@@ -18676,7 +19221,7 @@ function messageErrorResult(error, transactionPath = null) {
     status: error.exitCode === 1 ? "evidence-required" : "invalid",
     phase: error.details?.phase ?? null,
     terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve22(transactionPath) : null),
+    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve23(transactionPath) : null),
     route: error.details?.route ?? null,
     commitState: "absent",
     publicationState: "not-requested",
@@ -18725,17 +19270,17 @@ async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
     return error.exitCode;
   }
 }
-var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER12, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS, MessageWorkflowError;
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER13, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS2, MessageWorkflowError;
 var init_checkMessageWorkflow = __esm({
   "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
     init_approvedMessage();
     init_canonicalMessageState();
     init_transactionWorkspace();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER12 = new TextDecoder11("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER13 = new TextDecoder12("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
-    FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
+    FORMATS2 = /* @__PURE__ */ new Set(["json", "text"]);
     MessageWorkflowError = class extends Error {
       constructor(code, message, { exitCode = 2, details = {} } = {}) {
         super(message);
@@ -18756,14 +19301,14 @@ __export(finalizeMessageWorkflow_exports, {
 });
 import {
   existsSync as existsSync17,
-  lstatSync as lstatSync15,
+  lstatSync as lstatSync17,
   readFileSync as readFileSync14,
-  realpathSync as realpathSync9,
+  realpathSync as realpathSync11,
   writeFileSync as writeFileSync14
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute10, join as join17, relative as relative10, resolve as resolve23, sep as sep3 } from "node:path";
-import { TextDecoder as TextDecoder12 } from "node:util";
-function fail13(code, message, { exitCode = 2, details = {} } = {}) {
+import { basename as basename3, isAbsolute as isAbsolute12, join as join17, relative as relative11, resolve as resolve24, sep as sep4 } from "node:path";
+import { TextDecoder as TextDecoder13 } from "node:util";
+function fail14(code, message, { exitCode = 2, details = {} } = {}) {
   throw new MessageWorkflowError(code, message, { exitCode, details });
 }
 function isPlainObject4(value) {
@@ -18771,12 +19316,12 @@ function isPlainObject4(value) {
 }
 function assertExactKeys5(value, keys, label) {
   if (!isPlainObject4(value)) {
-    fail13("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
+    fail14("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail13(
+    fail14(
       "INVALID_MESSAGE_CONTENT",
       `${label} contains missing or unknown members.`,
       { details: { label, expected, actual } }
@@ -18786,14 +19331,14 @@ function assertExactKeys5(value, keys, label) {
 function decodeContent(bytes) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER13.decode(bytes);
+    text = STRICT_UTF8_DECODER14.decode(bytes);
   } catch {
-    fail13("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail14("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail13(
+    fail14(
       "INVALID_MESSAGE_CONTENT",
       `The fixed content.json is invalid JSON: ${error.message}`
     );
@@ -18803,20 +19348,20 @@ function assertSelectionContainer(entry, label, extraKeys = []) {
   assertExactKeys5(entry, ["selection", ...extraKeys], label);
 }
 function assertCompleteContentShape(content) {
-  if (!isPlainObject4(content) || content.schemaVersion !== 2) {
-    fail13(
+  if (!isPlainObject4(content) || content.schemaVersion !== 3) {
+    fail14(
       "INVALID_MESSAGE_CONTENT",
-      "Extended finalization requires schema-version-2 semantic content."
+      "Extended finalization requires schema-version-3 semantic content."
     );
   }
   if (content.authoringState !== "complete") {
-    fail13(
+    fail14(
       "INCOMPLETE_SEMANTIC_CONTENT",
       "Set authoringState to complete only after every semantic decision and required review is complete."
     );
   }
   if (!(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(content.mode)) {
-    fail13(
+    fail14(
       "INVALID_MESSAGE_CONTENT",
       "Semantic message mode must be detailed or bulk."
     );
@@ -18830,26 +19375,12 @@ function assertCompleteContentShape(content) {
     "Complete semantic content"
   );
   assertExactKeys5(
-    content.review,
-    [
-      "schemaVersion",
-      "catalogSha256",
-      "evidencePlanSha256",
-      "requiredPacketsReviewed",
-      "additionalPacketIds"
-    ],
-    "Review receipt"
-  );
-  if (content.review.schemaVersion !== 1 || !SHA256_PATTERN5.test(content.review.catalogSha256) || !SHA256_PATTERN5.test(content.review.evidencePlanSha256) || typeof content.review.requiredPacketsReviewed !== "boolean" || !Array.isArray(content.review.additionalPacketIds) || new Set(content.review.additionalPacketIds).size !== content.review.additionalPacketIds.length) {
-    fail13("INVALID_MESSAGE_CONTENT", "Review receipt fields are invalid.");
-  }
-  assertExactKeys5(
     content.subject,
     ["type", "scope", "description"],
     "Commit subject"
   );
   if (!Array.isArray(content.evidenceGroups) || content.evidenceGroups.length === 0) {
-    fail13(
+    fail14(
       "INVALID_MESSAGE_CONTENT",
       "Evidence groups must be a nonempty array."
     );
@@ -18871,7 +19402,7 @@ function assertCompleteContentShape(content) {
     ["fileNotes", content.mode === "detailed" ? content.fileNotes : []]
   ]) {
     if (!Array.isArray(entries)) {
-      fail13("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
+      fail14("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
     }
     entries.forEach(
       (entry, index) => assertSelectionContainer(entry, `${field} entry ${index + 1}`, [
@@ -18880,11 +19411,11 @@ function assertCompleteContentShape(content) {
     );
   }
   if (!Array.isArray(content.userExperienceChanges)) {
-    fail13("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
+    fail14("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
   }
   if (content.mode === "bulk") {
     if (!Array.isArray(content.domains) || content.domains.length === 0) {
-      fail13(
+      fail14(
         "MISSING_SEMANTIC_DECISIONS",
         "Complete bulk content requires at least one semantic domain."
       );
@@ -18898,10 +19429,10 @@ function assertCompleteContentShape(content) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve23(path);
-  const contained = relative10(attemptDirectory, absolute);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep3}`) || isAbsolute10(contained)) {
-    fail13(
+  const absolute = resolve24(path);
+  const contained = relative11(attemptDirectory, absolute);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep4}`) || isAbsolute12(contained)) {
+    fail14(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -18910,15 +19441,15 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync15(absolute);
+  const stat = lstatSync17(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail13(
+    fail14(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
-  if (realpathSync9(absolute) !== absolute) {
-    fail13(
+  if (realpathSync11(absolute) !== absolute) {
+    fail14(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -18927,32 +19458,32 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail13(
+    fail14(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve23(transactionPath),
+          transaction: resolve24(transactionPath),
           route: transaction.route
         }
       }
     );
   }
   if (!(/* @__PURE__ */ new Set(["review-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail13(
+    fail14(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve23(transactionPath),
+          transaction: resolve24(transactionPath),
           route: transaction.route
         }
       }
     );
   }
 }
-function readCurrentCatalog(transaction) {
-  const expectedReviewDirectory = resolve23(
+function readCurrentCatalog2(transaction) {
+  const expectedReviewDirectory = resolve24(
     transaction.attemptDirectory,
     "review"
   );
@@ -18961,15 +19492,15 @@ function readCurrentCatalog(transaction) {
     transaction.review.catalogPath,
     "Current review catalog"
   );
-  if (relative10(expectedReviewDirectory, catalogPath).startsWith(`..${sep3}`) || isAbsolute10(relative10(expectedReviewDirectory, catalogPath))) {
-    fail13(
+  if (relative11(expectedReviewDirectory, catalogPath).startsWith(`..${sep4}`) || isAbsolute12(relative11(expectedReviewDirectory, catalogPath))) {
+    fail14(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail13(
+    fail14(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -18992,9 +19523,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   });
   let stored;
   try {
-    stored = JSON.parse(STRICT_UTF8_DECODER13.decode(opened.bytes));
+    stored = JSON.parse(STRICT_UTF8_DECODER14.decode(opened.bytes));
   } catch (error) {
-    fail13(
+    fail14(
       "INVALID_EVIDENCE_PLAN",
       `Current evidence plan is invalid JSON: ${error.message}`
     );
@@ -19004,22 +19535,16 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail13(
+    fail14(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
   }
   return canonical;
 }
-function receiptCoverage(transaction, content, catalog) {
-  const candidates = [
-    content.review.requiredPacketsReviewed === true ? content.review : null,
-    transaction.review.receipt?.requiredPacketsReviewed === true ? transaction.review.receipt : null
-  ].filter(Boolean);
-  const receipt = candidates.find(
-    (candidate) => findReviewCatalogRevisionPath(catalog.catalogPath, candidate.catalogSha256)
-  );
-  if (!receipt) {
+function receiptCoverage(transaction, catalog) {
+  const receipt = transaction.review.receipt?.requiredPacketsReviewed === true ? transaction.review.receipt : null;
+  if (!receipt || !findReviewCatalogRevisionPath(catalog.catalogPath, receipt.catalogSha256)) {
     return { receipt: null, coverage: null };
   }
   const revisionPath = findReviewCatalogRevisionPath(
@@ -19032,7 +19557,7 @@ function receiptCoverage(transaction, content, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail13(
+    fail14(
       "REVIEW_RECEIPT_INVALID",
       `Review receipt is invalid: ${error.message}`
     );
@@ -19040,13 +19565,13 @@ function receiptCoverage(transaction, content, catalog) {
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail13("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail14("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       exitCode: 1
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail13(
+    fail14(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { exitCode: 1 }
@@ -19057,7 +19582,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail13(
+    fail14(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -19074,7 +19599,7 @@ function writeEvidencePlanRevision2(transaction, evidencePlan) {
   const bytes = stableJsonBytes(evidencePlan);
   if (existsSync17(path)) {
     if (!readFileSync14(path).equals(bytes)) {
-      fail13(
+      fail14(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
       );
@@ -19115,15 +19640,6 @@ function normalizeSemanticSelections(content) {
   }
   return content;
 }
-function carryForwardReceipt(catalog) {
-  return {
-    schemaVersion: 1,
-    catalogSha256: catalog.catalogSha256,
-    evidencePlanSha256: catalog.evidencePlanSha256,
-    requiredPacketsReviewed: true,
-    additionalPacketIds: []
-  };
-}
 function updateReviewTransaction(transactionPath, review, status) {
   const transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -19160,7 +19676,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     phase: "review-pending",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -19168,7 +19684,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     canonical: false,
     evidenceDelta: {
       newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage: firstPage === null ? null : resolve23(transaction.attemptDirectory, "review", firstPage.artifact),
+      firstQueuePage: firstPage === null ? null : resolve24(transaction.attemptDirectory, firstPage.artifact),
       firstQueuePageSha256: firstPage?.sha256 ?? null
     },
     displayText: null
@@ -19190,7 +19706,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     terminalDisposition: null,
     route: "extended",
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -19209,7 +19725,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail13("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail14("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -19222,12 +19738,18 @@ async function finalizeMessageWorkflow({
     allowPathReplacement: true
   });
   const content = decodeContent(opened.bytes);
+  if ((/* @__PURE__ */ new Set(["detailed", "bulk"])).has(content?.mode) && content.mode !== transaction.review.structuredMessageMode) {
+    fail14(
+      "MESSAGE_PRESENTATION_MODE_MISMATCH",
+      `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`
+    );
+  }
   assertCompleteContentShape(content);
   const snapshot = readExactRecordedSnapshot(transactionPath);
   transaction = snapshot.transaction;
   assertFinalizeTransaction(transaction, transactionPath);
   const manifest = snapshot.manifest;
-  const currentCatalog = readCurrentCatalog(transaction);
+  const currentCatalog = readCurrentCatalog2(transaction);
   const recordedPlan = readCurrentEvidencePlan(
     transactionPath,
     transaction,
@@ -19238,10 +19760,11 @@ async function finalizeMessageWorkflow({
     groups: content.evidenceGroups
   });
   const planChanged = authoredPlan.evidencePlanSha256 !== recordedPlan.evidencePlanSha256;
-  const prior = receiptCoverage(transaction, content, currentCatalog);
+  const prior = receiptCoverage(transaction, currentCatalog);
   let catalog = currentCatalog;
   let evidencePlan = recordedPlan;
   let review = transaction.review;
+  let receipt = prior.receipt;
   const normalized = normalizeSemanticSelections(structuredClone(content));
   if (planChanged) {
     assertLiveSnapshotAnchor(transaction, manifest);
@@ -19281,15 +19804,16 @@ async function finalizeMessageWorkflow({
         catalogSha256: catalog.catalogSha256,
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
+        // Keep the helper-owned delivery round distinct from the catalog's
+        // full requirements so unchanged, previously verified packets are
+        // never sent back through the agent's context window.
+        deliveryPacketIds: revision.evidenceDelta.requiredPacketIds,
         queue: revision.evidenceDelta.queue,
-        receipt: prior.receipt
+        receipt: null,
+        traversal: null
       };
       normalized.evidenceGroups = canonicalContentGroups(evidencePlan);
       if (revision.evidenceDelta.requiredPacketCount > 0) {
-        normalized.review = {
-          ...carryForwardReceipt(catalog),
-          requiredPacketsReviewed: false
-        };
         return requireEvidence(
           transactionPath,
           transaction,
@@ -19299,17 +19823,17 @@ async function finalizeMessageWorkflow({
           revision.evidenceDelta
         );
       }
-      normalized.review = carryForwardReceipt(catalog);
-      verifyReviewReceipt({
-        catalogPath: catalog.catalogPath,
-        receipt: normalized.review
+      receipt = createVerifiedReviewReceipt({
+        catalog,
+        reviewedPacketIds: requiredReviewPacketIds(catalog)
       });
+      review = { ...review, queue: null, receipt };
     } finally {
       cleanupEvidenceSpools(records);
     }
   } else {
-    if (content.review.requiredPacketsReviewed !== true || content.review.catalogSha256 !== currentCatalog.catalogSha256 || content.review.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail13(
+    if (receipt?.requiredPacketsReviewed !== true || receipt.catalogSha256 !== currentCatalog.catalogSha256 || receipt.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
+      fail14(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -19317,10 +19841,10 @@ async function finalizeMessageWorkflow({
     try {
       verifyReviewReceipt({
         catalogPath: currentCatalog.catalogPath,
-        receipt: content.review
+        receipt
       });
     } catch (error) {
-      fail13(
+      fail14(
         "REVIEW_RECEIPT_INVALID",
         `Review receipt is invalid: ${error.message}`
       );
@@ -19332,6 +19856,7 @@ async function finalizeMessageWorkflow({
     content: normalized,
     reviewCatalog: catalog,
     evidencePlan,
+    reviewReceipt: receipt,
     repositoryTypePolicy: transaction.repositoryTypePolicy
   });
   const nextRevision = (transaction.message?.revision ?? 0) + 1;
@@ -19354,7 +19879,7 @@ async function finalizeMessageWorkflow({
   review = {
     ...review,
     queue: null,
-    receipt: normalized.review
+    receipt
   };
   updateReviewTransaction(transactionPath, review, transaction.status);
   const canonical = replaceCanonicalMessage({
@@ -19389,7 +19914,7 @@ async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {})
     return error.exitCode;
   }
 }
-var CONTENT_NAME, STRICT_UTF8_DECODER13, SHA256_PATTERN5, COMPLETE_COMMON_KEYS;
+var CONTENT_NAME, STRICT_UTF8_DECODER14, COMPLETE_COMMON_KEYS;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
     init_gitRepository();
@@ -19402,12 +19927,10 @@ var init_finalizeMessageWorkflow = __esm({
     init_prepareWorkflow();
     init_checkMessageWorkflow();
     CONTENT_NAME = "content.json";
-    STRICT_UTF8_DECODER13 = new TextDecoder12("utf-8", { fatal: true });
-    SHA256_PATTERN5 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER14 = new TextDecoder13("utf-8", { fatal: true });
     COMPLETE_COMMON_KEYS = [
       "schemaVersion",
       "authoringState",
-      "review",
       "evidenceGroups",
       "subject",
       "sharedRationales",
@@ -19433,6 +19956,10 @@ var COMMANDS = /* @__PURE__ */ new Map([
       () => Promise.resolve().then(() => (init_extendReviewWorkflow(), extendReviewWorkflow_exports)),
       "runExtendReviewCommand"
     ]
+  ],
+  [
+    "workflow review-next",
+    [() => Promise.resolve().then(() => (init_reviewNextWorkflow(), reviewNextWorkflow_exports)), "runReviewNextCommand"]
   ],
   [
     "workflow resume",
@@ -19546,6 +20073,15 @@ evidence, policy, and mutation inputs cannot be reconstructed or overridden.
 Extends one unchanged concise snapshot. Evidence uncertainty consumes only the
 fixed evidence-plan-input.json. Semantic structure carries existing evidence
 forward without accepting or reading a new plan.
+`
+  ],
+  [
+    "workflow review-next",
+    `Usage: commitWorkflow.mjs workflow review-next --transaction <transaction.json> [--cursor <opaque-cursor>] [--format <json|text>]
+
+Returns exactly one complete, bounded, digest-verified review packet from the
+current transaction. The helper advances only through its returned opaque
+cursor, safely replays the latest delivery, and records review completion.
 `
   ],
   [
@@ -19674,6 +20210,7 @@ Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
+  commitWorkflow.mjs workflow review-next [options]
   commitWorkflow.mjs workflow promote [options]
   commitWorkflow.mjs message check [options]
   commitWorkflow.mjs message finalize [options]
@@ -19730,7 +20267,7 @@ function unsupportedAttemptResult(args) {
   }
   try {
     const payload = JSON.parse(readFileSync15(args[index + 1], "utf8"));
-    if (payload?.schemaVersion !== 2) {
+    if (payload?.schemaVersion !== 3) {
       return invalidResult3(
         "UNSUPPORTED_ATTEMPT_VERSION",
         `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,

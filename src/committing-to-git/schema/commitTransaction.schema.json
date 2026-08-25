@@ -30,7 +30,7 @@
     "publicationAttempts"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "phase": {
       "enum": [
         "allocated",
@@ -593,9 +593,12 @@
         "evidencePlanPath",
         "evidencePlanSha256",
         "extendedReason",
+        "deliveryPacketIds",
         "queue",
         "receipt",
-        "semanticStructureRequired"
+        "semanticStructureRequired",
+        "structuredMessageMode",
+        "traversal"
       ],
       "properties": {
         "catalogPath": { "type": "string", "minLength": 1 },
@@ -624,9 +627,90 @@
             "semantic-structure-required"
           ]
         },
+        "deliveryPacketIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[SIPD][0-9]{6}$"
+          }
+        },
         "queue": { "type": ["object", "null"] },
-        "receipt": { "type": ["object", "null"] },
-        "semanticStructureRequired": { "type": "boolean" }
+        "receipt": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "catalogSha256",
+                "evidencePlanSha256",
+                "requiredPacketsReviewed",
+                "additionalPacketIds"
+              ],
+              "properties": {
+                "schemaVersion": { "const": 1 },
+                "catalogSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "evidencePlanSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "requiredPacketsReviewed": { "const": true },
+                "additionalPacketIds": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[SIPD][0-9]{6}$"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "semanticStructureRequired": { "type": "boolean" },
+        "structuredMessageMode": { "enum": ["detailed", "bulk"] },
+        "traversal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "catalogSha256",
+                "deliveredPacketCount",
+                "lastRequestCursor",
+                "nextCursor",
+                "complete"
+              ],
+              "properties": {
+                "schemaVersion": { "const": 1 },
+                "catalogSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "deliveredPacketCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastRequestCursor": {
+                  "type": ["string", "null"],
+                  "pattern": "^review-v1-[0-9a-f]{64}$"
+                },
+                "nextCursor": {
+                  "type": ["string", "null"],
+                  "pattern": "^review-v1-[0-9a-f]{64}$"
+                },
+                "complete": { "type": "boolean" }
+              }
+            }
+          ]
+        }
       }
     },
     "messageState": {

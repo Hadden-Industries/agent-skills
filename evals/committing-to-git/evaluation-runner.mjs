@@ -44,7 +44,7 @@ import {
 
 const MATRIX_CASE_IDS = Object.freeze([
   4, 7, 18, 28, 35, 36, 37, 39, 40, 41, 42, 47, 49, 50, 53, 54, 55, 67, 68, 69,
-  70, 71, 72, 73, 74, 75,
+  70, 71, 72, 73, 74, 75, 76,
 ]);
 const ARMS = Object.freeze(["no-skill", "old-skill", "new-skill"]);
 const MODELS = Object.freeze([

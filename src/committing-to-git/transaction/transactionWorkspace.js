@@ -42,6 +42,8 @@ const FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const REVIEW_PACKET_ID_PATTERN = /^[SIPD][0-9]{6}$/u;
+const REVIEW_CURSOR_PATTERN = /^review-v1-[0-9a-f]{64}$/u;
 const SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
 const OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const MESSAGE_SOURCES = new Set([
@@ -496,6 +498,80 @@ function validateInlineEvidence(inlineEvidence) {
   }
 }
 
+function validateReviewTraversal(traversal) {
+  if (traversal === null) {
+    return;
+  }
+
+  assertExactKeys(
+    traversal,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "deliveredPacketCount",
+      "lastRequestCursor",
+      "nextCursor",
+      "complete",
+    ],
+    "Review traversal",
+  );
+
+  if (
+    traversal.schemaVersion !== 1 ||
+    !SHA256_PATTERN.test(traversal.catalogSha256) ||
+    !Number.isSafeInteger(traversal.deliveredPacketCount) ||
+    traversal.deliveredPacketCount < 1 ||
+    !(
+      traversal.lastRequestCursor === null ||
+      typeof traversal.lastRequestCursor === "string"
+    ) ||
+    (traversal.lastRequestCursor !== null &&
+      !REVIEW_CURSOR_PATTERN.test(traversal.lastRequestCursor)) ||
+    !(
+      traversal.nextCursor === null || typeof traversal.nextCursor === "string"
+    ) ||
+    (traversal.nextCursor !== null &&
+      !REVIEW_CURSOR_PATTERN.test(traversal.nextCursor)) ||
+    typeof traversal.complete !== "boolean" ||
+    traversal.complete !== (traversal.nextCursor === null)
+  ) {
+    throw new Error("Review traversal is invalid.");
+  }
+}
+
+function validateReviewReceipt(receipt, review) {
+  if (receipt === null) {
+    return;
+  }
+
+  assertExactKeys(
+    receipt,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "evidencePlanSha256",
+      "requiredPacketsReviewed",
+      "additionalPacketIds",
+    ],
+    "Review receipt",
+  );
+
+  if (
+    receipt.schemaVersion !== 1 ||
+    receipt.catalogSha256 !== review.catalogSha256 ||
+    receipt.evidencePlanSha256 !== review.evidencePlanSha256 ||
+    receipt.requiredPacketsReviewed !== true ||
+    !Array.isArray(receipt.additionalPacketIds) ||
+    new Set(receipt.additionalPacketIds).size !==
+      receipt.additionalPacketIds.length ||
+    receipt.additionalPacketIds.some(
+      (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id),
+    )
+  ) {
+    throw new Error("Review receipt is invalid for the current review state.");
+  }
+}
+
 function validateReviewState(review) {
   if (review === null) {
     return;
@@ -507,9 +583,12 @@ function validateReviewState(review) {
     "evidencePlanPath",
     "evidencePlanSha256",
     "extendedReason",
+    "deliveryPacketIds",
     "queue",
     "receipt",
     "semanticStructureRequired",
+    "structuredMessageMode",
+    "traversal",
   ];
   const optional =
     review.coveredCapsuleSha256 === undefined ? [] : ["coveredCapsuleSha256"];
@@ -526,7 +605,14 @@ function validateReviewState(review) {
     (review.coveredCapsuleSha256 !== undefined &&
       !SHA256_PATTERN.test(review.coveredCapsuleSha256)) ||
     !EXTENDED_REASONS.has(review.extendedReason) ||
-    typeof review.semanticStructureRequired !== "boolean"
+    !Array.isArray(review.deliveryPacketIds) ||
+    new Set(review.deliveryPacketIds).size !==
+      review.deliveryPacketIds.length ||
+    review.deliveryPacketIds.some(
+      (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id),
+    ) ||
+    typeof review.semanticStructureRequired !== "boolean" ||
+    !new Set(["detailed", "bulk"]).has(review.structuredMessageMode)
   ) {
     throw new Error(
       "Review state contains invalid identities or routing facts.",
@@ -540,6 +626,33 @@ function validateReviewState(review) {
     ) {
       throw new Error(`Review state ${field} must be an object or null.`);
     }
+  }
+
+  validateReviewTraversal(review.traversal);
+  validateReviewReceipt(review.receipt, review);
+
+  if (
+    review.traversal !== null &&
+    (review.deliveryPacketIds.length === 0 ||
+      review.traversal.catalogSha256 !== review.catalogSha256 ||
+      review.traversal.deliveredPacketCount > review.deliveryPacketIds.length ||
+      review.traversal.complete !==
+        (review.traversal.deliveredPacketCount ===
+          review.deliveryPacketIds.length))
+  ) {
+    throw new Error(
+      "Review traversal does not match the current delivery packet set.",
+    );
+  }
+
+  const deliveryComplete =
+    review.deliveryPacketIds.length === 0 ||
+    review.traversal?.complete === true;
+
+  if ((review.receipt !== null) !== deliveryComplete) {
+    throw new Error(
+      "Review receipt presence does not match helper-owned delivery completion.",
+    );
   }
 }
 
@@ -1131,8 +1244,8 @@ function validatePublicationAttempt(attempt) {
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
-  if (transaction.schemaVersion !== 2) {
-    throw new Error("Transaction schemaVersion must be 2.");
+  if (transaction.schemaVersion !== 3) {
+    throw new Error("Transaction schemaVersion must be 3.");
   }
 
   if (!PHASES.has(transaction.phase)) {
@@ -1276,7 +1389,11 @@ export function validateTransaction(transaction) {
           transaction.message.source,
         )) ||
       (transaction.route === "extended" &&
-        transaction.message.source === "finalized-extended");
+        transaction.message.source === "finalized-extended") ||
+      (transaction.route === "extended" &&
+        transaction.message.source === "checked-file" &&
+        transaction.review?.semanticStructureRequired === false &&
+        transaction.review?.receipt?.requiredPacketsReviewed === true);
 
     if (!sourceMatchesRoute) {
       throw new Error(
@@ -1390,7 +1507,7 @@ export function validateTransaction(transaction) {
 
 function initialTransaction(repositoryRoot, attemptDirectory) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "allocated",
     repositoryRoot,
     attemptDirectory,

@@ -47,6 +47,11 @@ const MESSAGE_FORMAT_REFERENCE = join(
   "references",
   "message-format.md",
 );
+const INSPECTION_RECOVERY_REFERENCE = join(
+  dirname(CANONICAL_SKILL),
+  "references",
+  "inspection-recovery.md",
+);
 
 const REMOVED_COMMANDS = [
   "snapshot create",
@@ -94,6 +99,7 @@ test("unified workflow help exposes only the proportional command groups", () =>
   assert.match(result.stdout, /workflow prepare/u);
   assert.match(result.stdout, /workflow resume/u);
   assert.match(result.stdout, /workflow extend/u);
+  assert.match(result.stdout, /workflow review-next/u);
   assert.match(result.stdout, /workflow promote/u);
   assert.match(result.stdout, /workflow check/u);
   assert.match(result.stdout, /workflow check-detail/u);
@@ -262,6 +268,50 @@ test("canonical skill preserves proportional authoring and recovery boundaries",
   ]) {
     assert.doesNotMatch(source, pattern);
   }
+});
+
+test("canonical guidance keeps small known changes and packet review proportional", () => {
+  const skill = readFileSync(CANONICAL_SKILL, "utf8");
+  const inspection = readFileSync(INSPECTION_RECOVERY_REFERENCE, "utf8");
+  const messageFormat = readFileSync(MESSAGE_FORMAT_REFERENCE, "utf8");
+
+  assert.match(skill, /Age is not uncertainty/iu);
+  assert.match(skill, /targeted exact-path diff/iu);
+  assert.match(
+    skill,
+    /dependency.+integrity hash.+lock entry.+metadata scalar/isu,
+  );
+  assert.match(skill, /`message` with `read-current-task`/u);
+  assert.match(skill, /do not choose `review` because it predates this turn/iu);
+  assert.match(skill, /workflow review-next/iu);
+  assert.match(
+    skill,
+    /Never open queue paths, hash artifacts manually, or inspect helper source/iu,
+  );
+  assert.match(
+    skill,
+    /Optional checks must answer a material unresolved question/iu,
+  );
+  assert.match(
+    inspection,
+    /transaction-bound reader, never raw queue or packet paths/iu,
+  );
+  assert.match(inspection, /exactly one complete packet of at most 16 KiB/iu);
+  assert.match(inspection, /replays the same packet and progress/iu);
+  assert.match(inspection, /earlier stale cursor fails without advancing/iu);
+  assert.match(
+    inspection,
+    /traverse that bounded delta through `workflow review-next`/iu,
+  );
+  assert.match(messageFormat, /schema-version-3 semantic input only/iu);
+  assert.match(
+    messageFormat,
+    /review receipt and recommendation state remain in the transaction/iu,
+  );
+  assert.match(
+    messageFormat,
+    /Evidence depth and presentation depth are independent/iu,
+  );
 });
 
 test("high-level report-detail and publish help expose bounded transaction routes", () => {
@@ -764,7 +814,7 @@ test("workflow preparation validates one-time scope and evidence inputs", (t) =>
   assert.equal(existsSync(persistedPlan), false);
 });
 
-test("one-file explicit review returns a bounded initial queue without mutable acknowledgement artifacts", (t) => {
+test("one-file explicit review stays inline when its complete evidence fits", (t) => {
   const fixture = createRepositoryFixture(t, "workflow-prepare-review-");
 
   writeRepositoryFile(fixture.repo, "unknown.txt", "before\n");
@@ -792,22 +842,20 @@ test("one-file explicit review returns a bounded initial queue without mutable a
   const output = JSON.parse(result.stdout);
   const attemptDirectory = dirname(output.transaction);
 
-  assert.equal(output.phase, "review-pending");
-  assert.equal(output.route, "extended");
-  assert.equal(output.extendedReason, "review-policy");
-  assert.ok(output.reviewQueue.requiredPacketCount > 0);
+  assert.equal(output.phase, "evidence-ready");
+  assert.equal(output.route, "concise");
+  assert.equal(output.capsule.unresolved.length, 0);
+  assert.equal(output.capsule.evidence.length, 1);
+  assert.equal(output.capsule.evidence[0].policy, "review");
+  assert.equal(output.capsule.evidence[0].patchComplete, true);
+  assert.match(output.capsule.evidence[0].patchText, /-before\n\+after/u);
+  assert.equal("reviewQueue" in output, false);
+  assert.equal(existsSync(join(attemptDirectory, "review")), false);
+  assert.equal(existsSync(join(attemptDirectory, "content.json")), false);
   assert.equal(existsSync(join(attemptDirectory, "inspection")), false);
-  assert.equal(
-    existsSync(join(attemptDirectory, "review", "ledger.json")),
-    false,
-  );
-  assert.equal(
-    existsSync(join(attemptDirectory, "review", "inventory.md")),
-    false,
-  );
 });
 
-test("an over-budget message patch selects extended without returning a partial capsule", (t) => {
+test("extended review artifacts resolve from the transaction directory", (t) => {
   const fixture = createRepositoryFixture(t, "workflow-prepare-over-budget-");
 
   writeRepositoryFile(fixture.repo, "large.txt", "before\n");
@@ -841,6 +889,27 @@ test("an over-budget message patch selects extended without returning a partial 
   assert.equal(output.extendedReason, "required-evidence-over-budget");
   assert.equal("capsule" in output, false);
   assert.ok(output.reviewQueue.requiredPacketCount > 1);
+  const attemptDirectory = dirname(output.transaction);
+  const firstPageArtifact = output.reviewQueue.firstPage.artifact;
+
+  assert.match(firstPageArtifact, /^review\/queues\//u);
+  assert.equal(existsSync(join(attemptDirectory, firstPageArtifact)), true);
+  const firstPage = JSON.parse(
+    readFileSync(join(attemptDirectory, firstPageArtifact), "utf8"),
+  );
+
+  for (const packet of firstPage.packets) {
+    assert.match(packet.artifact, /^review\/packets\//u);
+    assert.equal(existsSync(join(attemptDirectory, packet.artifact)), true);
+  }
+
+  if (firstPage.nextPage !== null) {
+    assert.match(firstPage.nextPage.artifact, /^review\/queues\//u);
+    assert.equal(
+      existsSync(join(attemptDirectory, firstPage.nextPage.artifact)),
+      true,
+    );
+  }
 });
 
 test("invalid UTF-8 message evidence routes to lossless extended packets", (t) => {

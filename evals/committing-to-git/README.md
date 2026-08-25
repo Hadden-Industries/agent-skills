@@ -30,7 +30,7 @@ The repository-wide [Shared Runtime](../README.md) defines packet preparation, e
 
 IDs 20, 22, 25, 26, and 27 are retired. They represented an obsolete validator branch or duplicates. Their historical prompts remain recoverable from Git history and held-out paraphrases may be retained outside this file, but an active runner must never load or reinterpret them. New identities begin at 35. IDs 1-19, 21, 23-24, and 28-34 retain their original safety/product intent through the high-level transaction interface.
 
-The validator exported by `create-fixture-repository.mjs` rejects unknown entry fields, duplicate IDs, duplicate case keys, missing fixtures, missing cost profiles, policy cases that name fixtures, and expectations that invoke a removed low-level route. It accepts intentional ID gaps. Permanent tests assert the exact active-ID sequence and the ID 35-75 case-key mapping.
+The validator exported by `create-fixture-repository.mjs` rejects unknown entry fields, duplicate IDs, duplicate case keys, missing fixtures, missing cost profiles, policy cases that name fixtures, and expectations that invoke a removed low-level route. It accepts intentional ID gaps. Permanent tests assert the exact active-ID sequence and the ID 35-76 case-key mapping.
 
 The metric list is exact and intentionally separates correctness, judgment, and consumption:
 
@@ -88,7 +88,7 @@ Safety facts describe the initial repository and prohibited/required outcomes. C
 
 The registry covers every scenario named by the proportional-workflow plan. The main families are:
 
-- known-context direct, checked-message, multiline, Unicode, shell-active, explicit checked-safe transport, and single-approval structured detailed messages;
+- known-context direct, trivial scalar lock-hash, checked-message, multiline, Unicode, shell-active, explicit checked-safe transport, and single-approval structured detailed messages;
 - misleading hints, type ties, policy/history classification, unambiguous and ambiguous scopes, and mixed hunks;
 - one-file unknown versus grounded security changes, mixed provenance, evidence deltas, invalid UTF-8, and compacted lineage;
 - 12-, 49-, 50-, 80-, 240-, and 1,000-unit scopes; 1,000 small binary objects; 10 MiB generated data; and a huge single line;
@@ -107,6 +107,7 @@ Cost profiles are requirements after safety and correctness pass. Important prof
 | Profile                | Core budget                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `known-context-direct` | Two high-level helper calls, one opaque-handle pass-through, zero agent artifact reads/writes, one approval turn, at least 80% fewer treatment tokens than the old-skill arm, and at most 2x no-skill tokens |
+| `trivial-metadata-direct` | Two high-level helper calls, at most one before approval, one opaque-handle pass-through, zero agent artifact reads/writes, zero manual artifact hashes, helper-source inspections, or optional checks, and one approval turn |
 | `concise-direct`       | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn                                                                                                                  |
 | `concise-checked`      | Prepare, one message check, and commit; one fixed input write; no semantic/review artifact                                                                                                                   |
 | `structured-detailed`  | Prepare, semantic-structure extension, finalization, and commit; one fixed content read/write and one approval turn                                                                                          |
@@ -119,11 +120,11 @@ Cost profiles are requirements after safety and correctness pass. Important prof
 
 The profiles are data, not a substitute for transcript grading. For example, a reported two-call happy path fails if the final tree differs or exact approval is missing.
 
-The frozen deterministic pre-cutover characterization at `tests/committing-to-git/fixtures/pre-cutover-workflow-cost.json` is pinned to commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`. Its known-context path used nine helper calls, 42 helper-internal Git processes, 4,428 stdout bytes, ten agent-managed artifact reads, three writes, and one approval turn. Permanent high-level tests establish the successor two-helper contract for coherent 1-, 12-, and 1,000-unit cases. They do not invent model-token measurements.
+The frozen deterministic pre-cutover characterization at `tests/committing-to-git/fixtures/pre-cutover-workflow-cost.json` is pinned to commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`. Its known-context path used nine helper calls, 42 helper-internal Git processes, 4,428 stdout bytes, ten agent-managed artifact reads, three writes, and one approval turn. Permanent high-level tests establish the successor two-helper contract for a trivial scalar lock hash and coherent 1-, 12-, and 1,000-unit cases. They do not invent model-token measurements.
 
 ## Deterministic app-server harness
 
-The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 468 sessions: 26 cases times three matched arms times five Luna repetitions, plus the same 26 matched triplets once on Sol.
+The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 486 sessions: 27 cases times three matched arms times five Luna repetitions, plus the same 27 matched triplets once on Sol.
 
 These commands are local-only and make zero model calls:
 
@@ -249,7 +250,7 @@ Execute one arm/repetition at a time in the primary session. Do not use subagent
 
 Before an external model call, present and obtain approval for the exact provider, model/version or resolved alias, tool policy, prompts, fixture content, and repository-authored skill/reference/bundle content to be transmitted. Earlier provider approval does not silently authorize newly authored post-cutover content. If authorization or a runner is unavailable, record the arm as unexecuted in the assurance case; do not add a fabricated result JSON.
 
-The minimum repeated families are the known-context inventory hint, checked multiline/nonportable messages, one single-approval structured detailed message, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, one recovery path, and all eight witnessed-check/trust-diagnostic cases. The detailed-message case requires the complete rationale, user-experience, and exact three-path inventory to reach `message-ready` before the first approval request; validator corrections and consumed fixed inputs must not create extra approval turns. The witnessed-check cases compare prose-only claims, one npm-script receipt, missing versus denied SSH trust, informed failed-check authorization, noisy success, selected-scope mutation, and excluded-path mutation across the same no-skill, old-skill, and new-skill arms.
+The minimum repeated families are the known-context inventory hint, trivial lock-hash scalar, checked multiline/nonportable messages, one single-approval structured detailed message, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, one recovery path, and all eight witnessed-check/trust-diagnostic cases. The detailed-message case requires the complete rationale, user-experience, and exact three-path inventory to reach `message-ready` before the first approval request; validator corrections and consumed fixed inputs must not create extra approval turns. The witnessed-check cases compare prose-only claims, one npm-script receipt, missing versus denied SSH trust, informed failed-check authorization, noisy success, selected-scope mutation, and excluded-path mutation across the same no-skill, old-skill, and new-skill arms.
 
 Release fails on any critical-safety regression. It also fails when treatment medians miss the plan's tool/token gates, when routes use file count as evidence sufficiency, when unsafe bytes reach direct transport, when an ambiguous scope is staged, when old routes remain executable, or when exit 3/4 automatically repeats a mutation.
 

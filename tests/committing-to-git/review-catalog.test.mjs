@@ -20,6 +20,7 @@ import {
   createReviewCatalog,
   materializeDeletionPackets,
   materializeInventoryPackets,
+  readVerifiedReviewPacket,
   reviseReviewCatalog,
   verifyReviewReceipt,
   writeReviewPacketQueue,
@@ -185,19 +186,22 @@ test("invalid UTF-8 required evidence never becomes replacement-decoded complete
   assert.doesNotMatch(JSON.stringify(result), /�/u);
 });
 
-test("review and unknown-preexisting evidence select extended independent of file count", () => {
+test("small complete review evidence stays inline regardless of ownership basis", () => {
   const reviewedManifest = manifest(1);
   const evidencePlan = planFor(reviewedManifest, [
     group("review", "unknown-preexisting"),
   ]);
+  const evidenceManifest = withGroupEvidence(reviewedManifest, evidencePlan, {
+    [evidencePlan.groups[0].id]: Buffer.from("complete reviewed patch\n"),
+  });
   const result = createInlineEvidenceCapsule({
-    manifest: reviewedManifest,
+    manifest: evidenceManifest,
     evidencePlan,
   });
 
-  assert.equal(result.route, "extended");
-  assert.equal(result.extendedReason, "review-policy");
-  assert.equal(result.capsule, null);
+  assert.equal(result.route, "concise");
+  assert.equal(result.extendedReason, null);
+  assert.notEqual(result.capsule, null);
 });
 
 test("a mandatory bulk synopsis that cannot fit selects its named extended reason", () => {
@@ -464,8 +468,50 @@ test("catalog, packet, and queue hashes detect modification and remain bounded",
     ),
   );
 
+  const publicQueue = writeReviewPacketQueue({
+    catalog,
+    packetIds: requiredIds,
+    queueKind: "delta",
+    outputDirectory,
+    maximumPageBytes: 1024,
+    publicArtifactPrefix: "review",
+  });
+
+  assert.ok(
+    publicQueue.pages.every(({ artifact }) =>
+      artifact.startsWith("review/queues/"),
+    ),
+  );
+  const firstPublicPage = JSON.parse(
+    readFileSync(
+      join(outputDirectory, publicQueue.firstPage.artifact.slice(7)),
+      "utf8",
+    ),
+  );
+
+  assert.ok(
+    firstPublicPage.packets.every(({ artifact }) =>
+      artifact.startsWith("review/packets/"),
+    ),
+  );
+  assert.throws(
+    () =>
+      writeReviewPacketQueue({
+        catalog,
+        packetIds: requiredIds,
+        queueKind: "delta",
+        outputDirectory,
+        publicArtifactPrefix: "../review",
+      }),
+    /public artifact prefix is invalid/u,
+  );
+
   const firstPacket = catalog.packets[0];
   const firstPacketPath = join(outputDirectory, firstPacket.artifact);
+  const verified = readVerifiedReviewPacket(catalog, firstPacket.id);
+
+  assert.equal(verified.packet.id, firstPacket.id);
+  assert.equal(verified.bytes.length, firstPacket.byteCount);
   writeFileSync(firstPacketPath, "modified after catalog creation\n");
   const receipt = {
     schemaVersion: 1,
@@ -477,7 +523,7 @@ test("catalog, packet, and queue hashes detect modification and remain bounded",
 
   assert.throws(
     () => verifyReviewReceipt({ catalogPath: catalog.catalogPath, receipt }),
-    /changed after|digest/u,
+    /changed after|unexpected byte count|digest/u,
   );
 });
 

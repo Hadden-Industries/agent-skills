@@ -73,7 +73,7 @@ const ACTIVE_IDS = [
   ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
     (id) => !RETIRED_IDS.has(id),
   ),
-  ...Array.from({ length: 41 }, (_, index) => index + 35),
+  ...Array.from({ length: 42 }, (_, index) => index + 35),
 ];
 const NEW_CASE_KEYS = new Map([
   [35, "known-context-skill-inventory-hint"],
@@ -117,6 +117,7 @@ const NEW_CASE_KEYS = new Map([
   [73, "selected-scope-check-mutation"],
   [74, "excluded-path-check-mutation"],
   [75, "detailed-message-single-approval"],
+  [76, "trivial-lock-hash-direct"],
 ]);
 const REMOVED_COMMAND =
   /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;
@@ -196,6 +197,7 @@ const REQUIRED_SCALE_SCENARIOS = [
   "selected-scope-check-mutation",
   "excluded-path-check-mutation",
   "detailed-message-single-approval",
+  "trivial-lock-hash-direct",
 ];
 
 function readJson(path) {
@@ -434,6 +436,18 @@ test("cost profiles encode the concise and extended action budgets", () => {
     agentManagedArtifactWrites: 1,
     approvalTurns: 1,
   });
+  assert.deepEqual(COST_PROFILES["trivial-metadata-direct"], {
+    route: "concise",
+    highLevelHelperCalls: 2,
+    maximumPreapprovalHelperCalls: 1,
+    opaqueTransactionHandlePassThroughs: 1,
+    agentManagedArtifactReads: 0,
+    agentManagedArtifactWrites: 0,
+    maximumManualArtifactHashCalls: 0,
+    maximumHelperSourceInspections: 0,
+    maximumOptionalCheckCalls: 0,
+    approvalTurns: 1,
+  });
   assert.equal(COST_PROFILES["extended-review"].maximumPacketBytes, 16384);
   assert.equal(
     COST_PROFILES["extended-review"].maximumConcurrentPacketReads,
@@ -571,6 +585,31 @@ test("known-context fixture separates the selected scope from unrelated changes"
   assert.equal(metadata.expected.cost.highLevelHelperCalls, 2);
   assert.equal(metadata.expected.cost.agentManagedArtifactReads, 0);
   assert.equal(metadata.expected.cost.agentManagedArtifactWrites, 0);
+});
+
+test("trivial lock hash fixture changes one scalar and forbids review ceremony", (t) => {
+  const { destination, metadata } = generate(t, "trivial-lock-hash-direct");
+  const diff = git(["diff", "--", "skills-lock.json"], destination).stdout;
+
+  assert.equal(
+    git(["status", "--short", "--untracked-files=all"], destination).stdout,
+    " M skills-lock.json\n",
+  );
+  assert.equal(
+    git(["diff", "--numstat", "--", "skills-lock.json"], destination).stdout,
+    "1\t1\tskills-lock.json\n",
+  );
+  assert.match(diff, /^- {6}"computedHash": "a{64}"$/mu);
+  assert.match(diff, /^\+ {6}"computedHash": "b{64}"$/mu);
+  assert.doesNotMatch(diff, /^[+-].*"(?:source|ref|sourceType|skillPath)"/mu);
+  assert.deepEqual(metadata.expected.safety.selectedPaths, [
+    "skills-lock.json",
+  ]);
+  assert.equal(metadata.expected.safety.changeUnitCount, 1);
+  assert.equal(metadata.expected.cost.maximumPreapprovalHelperCalls, 1);
+  assert.equal(metadata.expected.cost.maximumManualArtifactHashCalls, 0);
+  assert.equal(metadata.expected.cost.maximumHelperSourceInspections, 0);
+  assert.equal(metadata.expected.cost.maximumOptionalCheckCalls, 0);
 });
 
 for (const [scenario, count] of [

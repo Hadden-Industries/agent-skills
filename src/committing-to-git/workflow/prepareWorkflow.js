@@ -31,6 +31,7 @@ import {
 } from "../inspection/inlineEvidenceCapsule.js";
 import {
   canonicalizeEvidencePlan,
+  createVerifiedReviewReceipt,
   createReviewCatalog,
   writeReviewPacketQueue,
 } from "../inspection/reviewCatalog.js";
@@ -1545,9 +1546,8 @@ export async function routePreparedEvidence({
       evidencePlan,
     );
 
-    routing = evidencePlan.groups.some(({ policy }) => policy === "review")
-      ? { route: "extended", capsule: null, extendedReason: "review-policy" }
-      : inlineManifest === null
+    routing =
+      inlineManifest === null
         ? {
             route: "extended",
             capsule: null,
@@ -1674,11 +1674,24 @@ export async function routePreparedEvidence({
       packetIds,
       queueKind: "initial",
       outputDirectory: reviewDirectory,
+      publicArtifactPrefix: "review",
     });
+    const structuredContent = scaffoldContent(
+      anchoredManifest,
+      catalog,
+      evidencePlan,
+    );
+    const reviewReceipt =
+      packetIds.length === 0
+        ? createVerifiedReviewReceipt({
+            catalog,
+            reviewedPacketIds: [],
+          })
+        : null;
     ensureTransactionOwnedJson({
       transactionPath,
       artifactName: "content.json",
-      value: scaffoldContent(anchoredManifest, catalog, evidencePlan),
+      value: structuredContent,
     });
     const completed = advanceTransaction(transactionPath, "snapshot-created", {
       ...common,
@@ -1692,9 +1705,12 @@ export async function routePreparedEvidence({
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
         extendedReason: routing.extendedReason,
+        deliveryPacketIds: packetIds,
         queue: reviewQueue,
-        receipt: null,
+        receipt: reviewReceipt,
         semanticStructureRequired: false,
+        structuredMessageMode: structuredContent.mode,
+        traversal: null,
       },
     });
 
@@ -1728,6 +1744,7 @@ function successEnvelope(transaction, summary) {
       : {
           extendedReason: transaction.review.extendedReason,
           reviewQueue: transaction.review.queue,
+          structuredMessageMode: transaction.review.structuredMessageMode,
         }),
   };
 }

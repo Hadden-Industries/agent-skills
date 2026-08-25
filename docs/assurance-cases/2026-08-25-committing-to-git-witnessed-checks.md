@@ -1,4 +1,4 @@
-# Assurance Case: Witnessed Checks, Signature Diagnostics, and Message Approval
+# Assurance Case: Witnessed Checks, Message Approval, and Proportional Latency
 
 Date: 2026-08-25
 
@@ -8,7 +8,7 @@ Release disposition: HOLD
 
 ## 1. Claim and disposition
 
-The `committing-to-git` candidate now records optional verification commands as helper-witnessed transaction evidence instead of accepting an agent-authored summary of checks. It diagnoses SSH trust-source access before a required commit transition, without treating every trust failure as a request for broader filesystem access. It also treats exact approval as the final authoring gate: a checked or structured message must reach `message-ready` before it is shown, and agent-authored body sections or requested inventories go through the structured finalizer.
+The `committing-to-git` candidate now records optional verification commands as helper-witnessed transaction evidence instead of accepting an agent-authored summary of checks. It diagnoses SSH trust-source access before a required commit transition, without treating every trust failure as a request for broader filesystem access. It treats exact approval as the final authoring gate: a checked or structured message must reach `message-ready` before it is shown. It also keeps the cost of reaching that gate proportional: a semantically bounded scalar change can use the direct two-helper route, while genuine extended evidence is delivered through one verified packet call at a time without forcing a structured body.
 
 Fresh deterministic evidence supports the implementation, bundle, schema, recovery, reporting, and documentation claims in this assurance case. It does not prove that an agent will always choose useful checks, understand their output, write a semantically ideal message, or explain a failure well. The candidate therefore remains on HOLD until the new behavioral cases and a human installer review are completed.
 
@@ -20,6 +20,7 @@ This case extends, but does not replace, the broader proportional-workflow case 
 | Check execution, output, drift, recovery, authorization, and report contracts | Fresh executable tests complete | PASS |
 | SSH trust-source state and recovery contracts | Fresh executable tests complete | PASS |
 | Structured detailed-message fixture and one-approval cost contract | Fresh deterministic tests complete | PASS |
+| Trivial scalar fast path, verified packet traversal, and semantic-only scaffold | Fresh deterministic tests complete | PASS |
 | Weakest-model with-skill/without-skill behavioral comparison | Not executed for this cutover | PENDING |
 | Human review of deployable skill content | Not executed | PENDING |
 
@@ -114,21 +115,49 @@ A second approval remains appropriate only when later judgment changes the displ
 
 Evaluation case 75 materializes exactly three staged S3 deletion-synchronization paths alongside unrelated unstaged `skills-lock.json` and `.claude/local-notes.md` changes, then asks for rationale, user-experience effects, and complete `File Changes:` coverage without absorbing the exclusions. Its `structured-detailed` profile allows four high-level helper calls - prepare, semantic-structure extension, finalization, and commit - with one fixed content read, one write, and exactly one approval turn. The case is executable and critical-safety graded. This deterministic fixture proves that the regression is represented and schedulable; it does not prove model compliance until the matched external run occurs.
 
-## 8. Fresh deterministic evidence
+## 8. Proportional trivial commits and bounded review
 
-Every deterministic gate invoked by `npm run verify` completed separately on 2026-08-25 after the source, documentation, evaluation, and test changes. The aggregate wrapper was blocked before launch because its Tessl subprocess attempts optional outbound telemetry; no repository content was sent. Running the local gates separately preserved the same build, test, validation, lint, and diff coverage without granting network access.
+The motivating latency report described one `skills-lock.json` `computedHash` replacement that took about four minutes and 24 assistant tool calls merely to reach approval. Exact scope, signing, verification, recovery, and separate push authorization were not the cause. The disproportionate work came from choosing review solely because the change predated the turn, forcing a small complete patch into extended review, manually resolving and hashing artifacts, inspecting helper source to repair an undocumented path base, editing helper-owned fields in `content.json`, retrying an invalid finalization, and running an optional check that answered no material question.
+
+The correction deliberately does not define a fast path by one file or one changed line. Age, path labels, and file count are not evidence predicates. The skill instead tells the agent to inspect a targeted exact-path diff when a strong hint identifies a small dependency, integrity-hash, lock-entry, or metadata-scalar unit. If that bounded observation resolves the semantics, `message` evidence with `read-current-task` retains the ordinary exact-scope transaction but avoids review ceremony. Optional checks remain available only when they answer a material unresolved question.
+
+When review is genuinely necessary, these contracts now bound agent-facing work:
+
+- complete review evidence stays inline whenever it fits the existing result budget, including an explicit review request;
+- extended review uses `workflow review-next`, which resolves only transaction-owned artifacts, verifies regular-file identity, byte count, catalog membership, and SHA-256, and returns exactly one complete packet of at most 16 KiB;
+- the first call has no cursor, the latest request is replayable after a lost or truncated response, and a stale cursor fails without advancing helper-owned progress;
+- the helper creates a current catalog-bound receipt only after the delivery round completes, so the agent never manually hashes or acknowledges raw files;
+- an evidence-plan revision exposes only newly required packet IDs while retaining verified prior coverage; and
+- raw transaction-relative `review/...` paths remain correct and diagnostic, but they are no longer the normal inspection interface.
+
+Evidence depth and presentation depth are now independent. A completed review may use checked subject-only text; an already understood change may use structured output if a durable rationale, user-experience statement, or inventory is useful. Schema-version-3 `content.json` contains only editable semantic fields. Review receipts, delivery state, rendering recommendation, and detailed-versus-bulk mode stay helper-owned in the transaction, so filling documented placeholders is sufficient for successful finalization.
+
+The deterministic witnesses cover every reported acceptance path:
+
+- an explicit one-file review remains concise when its complete evidence fits;
+- exposed queue and packet paths resolve from the transaction directory with the `review/` prefix;
+- a generated semantic scaffold finalizes after only its editable placeholders are filled;
+- verified packet traversal permits checked concise text after review, rejects changed packets, and makes latest-request replay idempotent;
+- an evidence revision delivers only its uncovered delta and then produces a receipt for the complete current catalog; and
+- a signed one-scalar `skills-lock.json` change prepares one exact path with `message`/`read-current-task`, creates no `content.json`, accepts the exact direct subject, makes one required-verification commit call, verifies the signer, creates exactly one local commit, and does not push.
+
+Evaluation case 76 (`trivial-lock-hash-direct`) adds the corresponding weakest-model comparison. Its `trivial-metadata-direct` budget requires two high-level helper calls, at most one helper call before approval, one opaque transaction pass-through, no agent-managed artifact reads or writes, no manual artifact hashes, no helper-source inspection, no optional checks, one approval turn, one exact-path signed commit, and no push. The fixture and 486-session schedule are deterministic evidence only; no new external model run was made during this implementation.
+
+## 9. Fresh deterministic evidence
+
+Every deterministic gate invoked by `npm run verify` completed in one aggregate run on 2026-08-25 after the source, documentation, evaluation, and test changes. An initial sandboxed invocation stopped during `build:check` because esbuild could not resolve the workspace entry point through that filesystem boundary. The identical build check and then the complete aggregate command passed outside that boundary; the first stop was environmental and did not expose a source failure.
 
 | Gate | Fresh result |
 | --- | --- |
 | Prettier | Passed |
 | ESLint with zero warnings | Passed |
 | Generated bundle drift and canonical `SKILL.md` ASCII checks | Passed |
-| Full repository tests | 701 total; 699 passed; 2 conditional skips; 0 failed |
+| Full repository tests | 711 total; 709 passed; 2 conditional skips; 0 failed |
 | Canonical skill validation | Passed for all 3 deployable skills |
 | Tessl plugin lint | Passed |
 | Git whitespace/diff check | Passed |
 
-The Tessl process returned success and identified the plugin as valid; its optional PostHog flush was denied by the network-restricted sandbox after linting. The two test skips are environment branches outside the witnessed-check implementation. The canonical `committing-to-git` skill is 1,489 whitespace-delimited words and 11,483 characters, beneath its enforced 1,500-word and 12-KiB ceilings.
+The final network-restricted Tessl process returned success and identified the plugin as valid. It also reported that version 0.99.0 was available while the managed wrapper ran 0.98.0. Its optional PostHog flush was denied after the lint verdict; neither diagnostic changed the successful exit. The two test skips are environment branches outside the witnessed-check implementation. The canonical `committing-to-git` skill is 1,497 whitespace-delimited words and 11,578 ASCII bytes, beneath its enforced 1,500-word and 12-KiB ceilings.
 
 Focused evidence includes:
 
@@ -141,7 +170,7 @@ Focused evidence includes:
 
 The published bundle was exercised through the exact transaction-recovery routes that previously failed with `Dynamic require of "child_process" is not supported`. Those routes now pass with the ESM `createRequire` banner in place.
 
-## 9. Edge cases explicitly covered
+## 10. Edge cases explicitly covered
 
 | Risk | Enforced response |
 | --- | --- |
@@ -156,14 +185,20 @@ The published bundle was exercised through the exact transaction-recovery routes
 | Signal or timeout | Separate non-passing outcome, never rewritten as ordinary exit |
 | Crash after launch intent | Unknown until observation and explicit no-live-child resolution |
 | Failed check followed by commit | Exact receipt IDs require informed authorization and remain in report |
-| Old transaction/check artifact | Schema version 2 required; no compatibility reader or migration |
+| Old transaction/check artifact | Transaction version 3 and check-evidence version 2 are required; no compatibility reader or migration |
 | SSH trust path outside sandbox | Request exact-path access only after `permission-denied` |
 | Missing allowed-signers file | Configuration repair, not filesystem escalation |
 | User does not require identity verification | `advisory` or `skipped` remains user-controlled |
 | Detailed message formatter rejects a candidate | Correct privately before approval; preserve requested sections and exact transaction scope |
 | Successful fixed-input validation consumes its input | Treat as expected lifecycle; recreate only for a semantic revision |
+| Small pre-existing scalar change | Inspect one targeted exact-path diff; use message evidence when that resolves semantics |
+| Explicit review whose complete evidence fits | Keep the verified capsule inline rather than manufacturing packet ceremony |
+| Extended packet output is lost or truncated | Replay the latest request; never advance from a partial response |
+| Evidence-plan revision after completed review | Deliver only newly required packets and preserve prior verified coverage |
+| Reviewed change needs only a subject | Use checked concise text after receipt completion; do not force a body |
+| Structured scaffold contains helper-owned state | Impossible in schema version 3; helper state remains in the transaction |
 
-## 10. Residual limits
+## 11. Residual limits
 
 - A command can pass while testing the wrong behavior.
 - Current-worktree checks can observe unrelated files, environment state, network services, caches, and nondeterministic dependencies.
@@ -177,12 +212,12 @@ The published bundle was exercised through the exact transaction-recovery routes
 - The CommonJS interop banner is required as long as a bundled dependency dynamically requires Node built-ins. The regression suite must catch removal or a future dependency-shape change.
 - Deterministic tests cannot establish that the skill's prose causes the least capable supported model to follow the intended route efficiently.
 
-## 11. Pending release evidence
+## 12. Pending release evidence
 
-The deterministic implementation, eight-case witnessed-check tranche, and one detailed-message approval-order regression are ready for behavioral execution, but release remains on HOLD. Before changing this case to PASS:
+The deterministic implementation, eight-case witnessed-check tranche, detailed-message approval-order regression, and trivial-lock latency regression are ready for behavioral execution, but release remains on HOLD. Before changing this case to PASS:
 
 1. run the configured sequential matched no-skill, old-skill, and new-skill sessions on the least capable available model, retaining exact prompts, outputs, tool activity, timing, and failures;
-2. execute all eight witnessed-check cases covering noisy output, failed-check authorization, selected-scope drift, excluded-file mutation, missing trust configuration, permission denial, one npm-script receipt, and prose-only check claims, plus case 75's validation-before-approval behavior;
+2. execute all eight witnessed-check cases covering noisy output, failed-check authorization, selected-scope drift, excluded-file mutation, missing trust configuration, permission denial, one npm-script receipt, and prose-only check claims, plus case 75's validation-before-approval behavior and case 76's two-helper trivial-lock path;
 3. have a human reviewer inspect only the deployable `skills/committing-to-git/` directory and explain the ordinary optional-check path, validation-before-approval route choice, requested-section preservation, the current-worktree limitation, failure authorization, recovery, and verification override; and
 4. update this document with versioned result artifacts and every defect found, rather than inferring behavioral quality from deterministic PASS.
 

@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { renderCommitMessage } from "../../src/committing-to-git/message/commitMessageRenderer.js";
 
-test("the structured renderer binds v2 content and rejects old worksheets", () => {
+test("the structured renderer binds v3 content and rejects old worksheets", () => {
   const path = "src/parser.js";
   const manifest = {
     schemaVersion: 2,
@@ -40,15 +40,8 @@ test("the structured renderer binds v2 content and rejects old worksheets", () =
     groups,
   };
   const content = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "complete",
-    review: {
-      schemaVersion: 1,
-      catalogSha256: catalog.catalogSha256,
-      evidencePlanSha256: evidencePlan.evidencePlanSha256,
-      requiredPacketsReviewed: true,
-      additionalPacketIds: [],
-    },
     evidenceGroups: groups,
     subject: {
       type: "fix",
@@ -65,6 +58,13 @@ test("the structured renderer binds v2 content and rejects old worksheets", () =
     content,
     reviewCatalog: catalog,
     evidencePlan,
+    reviewReceipt: {
+      schemaVersion: 1,
+      catalogSha256: catalog.catalogSha256,
+      evidencePlanSha256: evidencePlan.evidencePlanSha256,
+      requiredPacketsReviewed: true,
+      additionalPacketIds: [],
+    },
     repositoryTypePolicy: { allowedTypes: ["fix"] },
   });
 

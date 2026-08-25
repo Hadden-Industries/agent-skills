@@ -334,7 +334,7 @@ test("removed pre-cutover routes fail uniformly before Git or filesystem effects
   assert.doesNotThrow(() => assertFrozenBaseline(PRE_CUTOVER_BASELINE));
 });
 
-test("every transaction route rejects old versions without migration", (t) => {
+test("every transaction route rejects the previous version without migration", (t) => {
   const fixture = createRepositoryFixture(t, "unsupported-attempt-version-");
   const attemptDirectory = join(fixture.scratch, "old-attempt");
   const transactionPath = join(attemptDirectory, "transaction.json");
@@ -342,7 +342,7 @@ test("every transaction route rejects old versions without migration", (t) => {
   writeRepositoryFile(
     attemptDirectory,
     "transaction.json",
-    '{"schemaVersion":0}\n',
+    '{"schemaVersion":2}\n',
   );
 
   for (const command of [
@@ -369,7 +369,7 @@ test("every transaction route rejects old versions without migration", (t) => {
     assert.equal(output.code, "UNSUPPORTED_ATTEMPT_VERSION", command);
   }
 
-  assert.equal(readFileSync(transactionPath, "utf8"), '{"schemaVersion":0}\n');
+  assert.equal(readFileSync(transactionPath, "utf8"), '{"schemaVersion":2}\n');
 });
 
 test("pre-cutover acknowledgement response scales with the complete old ledger", () => {

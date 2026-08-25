@@ -29,7 +29,7 @@ import { createRepositoryFixture, writeJson } from "./harness.mjs";
 
 const FULL_OID = "a".repeat(40);
 const PRECOMMIT_TEMPLATE = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   phase: "allocated",
   repositoryRoot: resolve("."),
   attemptDirectory: resolve("transaction-attempt"),
@@ -209,7 +209,7 @@ test("transaction workspace owns one UUIDv4 attempt without discovery machinery"
     "transaction.json",
   ]);
   assert.deepEqual(workspace.transaction, {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "allocated",
     repositoryRoot: resolve(fixture.repo),
     attemptDirectory: workspace.attemptDirectory,
@@ -524,9 +524,18 @@ test("transaction validation accepts canonical state families and rejects imposs
                 evidencePlanPath: "evidence-plan.json",
                 evidencePlanSha256: "c".repeat(64),
                 extendedReason: "review-policy",
+                deliveryPacketIds: [],
                 queue: null,
-                receipt: null,
+                receipt: {
+                  schemaVersion: 1,
+                  catalogSha256: "b".repeat(64),
+                  evidencePlanSha256: "c".repeat(64),
+                  requiredPacketsReviewed: true,
+                  additionalPacketIds: [],
+                },
                 semanticStructureRequired: false,
+                structuredMessageMode: "detailed",
+                traversal: null,
               },
             }
           : phase === "message-ready"
@@ -605,6 +614,63 @@ test("transaction validation accepts canonical state families and rejects imposs
       }),
     );
   }
+
+  const pendingReview = {
+    ...structuredClone(template),
+    phase: "review-pending",
+    status: "review-pending",
+    route: "extended",
+    review: {
+      catalogPath: "catalog.json",
+      catalogSha256: "b".repeat(64),
+      evidencePlanPath: "evidence-plan.json",
+      evidencePlanSha256: "c".repeat(64),
+      extendedReason: "review-policy",
+      deliveryPacketIds: ["P000001"],
+      queue: null,
+      receipt: null,
+      semanticStructureRequired: false,
+      structuredMessageMode: "detailed",
+      traversal: null,
+    },
+  };
+  const forgedCompletion = structuredClone(pendingReview);
+
+  forgedCompletion.review.receipt = {
+    schemaVersion: 1,
+    catalogSha256: "b".repeat(64),
+    evidencePlanSha256: "c".repeat(64),
+    requiredPacketsReviewed: true,
+    additionalPacketIds: [],
+  };
+  assert.throws(
+    () => validateTransaction(forgedCompletion),
+    /receipt presence.*delivery completion/u,
+  );
+
+  const missingReceipt = structuredClone(pendingReview);
+
+  missingReceipt.review.traversal = {
+    schemaVersion: 1,
+    catalogSha256: "b".repeat(64),
+    deliveredPacketCount: 1,
+    lastRequestCursor: null,
+    nextCursor: null,
+    complete: true,
+  };
+  assert.throws(
+    () => validateTransaction(missingReceipt),
+    /receipt presence.*delivery completion/u,
+  );
+
+  const mismatchedReceipt = structuredClone(forgedCompletion);
+
+  mismatchedReceipt.review.deliveryPacketIds = [];
+  mismatchedReceipt.review.receipt.evidencePlanSha256 = "d".repeat(64);
+  assert.throws(
+    () => validateTransaction(mismatchedReceipt),
+    /receipt is invalid for the current review state/u,
+  );
 
   assert.throws(
     () =>

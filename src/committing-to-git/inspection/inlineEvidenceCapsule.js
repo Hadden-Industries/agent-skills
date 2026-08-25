@@ -650,10 +650,6 @@ export function createInlineEvidenceCapsule({
     throw new Error("Evidence plan does not match the exact manifest.");
   }
 
-  if (evidencePlan.groups.some(({ policy }) => policy === "review")) {
-    return extended("review-policy");
-  }
-
   const anomalyReason = manifestExtendedReason(manifest);
 
   if (anomalyReason !== null) {

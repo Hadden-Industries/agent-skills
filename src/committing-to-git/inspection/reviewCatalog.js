@@ -1,17 +1,21 @@
 import { createHash } from "node:crypto";
 import {
   closeSync,
+  constants as fsConstants,
   createReadStream,
   existsSync,
+  fstatSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   writeFileSync,
   unlinkSync,
 } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   createScopeSynopsis,
@@ -1333,6 +1337,52 @@ export function requiredReviewPacketIds(catalog) {
   return requiredPacketIds(catalog);
 }
 
+export function createVerifiedReviewReceipt({
+  catalog,
+  reviewedPacketIds,
+  additionalPacketIds = [],
+}) {
+  if (
+    !Array.isArray(reviewedPacketIds) ||
+    !Array.isArray(additionalPacketIds) ||
+    new Set(reviewedPacketIds).size !== reviewedPacketIds.length ||
+    new Set(additionalPacketIds).size !== additionalPacketIds.length
+  ) {
+    throw new Error(
+      "Reviewed and additional packet IDs must be unique arrays.",
+    );
+  }
+
+  const reviewed = new Set(reviewedPacketIds);
+  const required = requiredPacketIds(catalog);
+  const missing = required.find((id) => !reviewed.has(id));
+
+  if (missing) {
+    throw new Error(`Required review packet ${missing} was not delivered.`);
+  }
+
+  for (const id of [...reviewedPacketIds, ...additionalPacketIds]) {
+    packetById(catalog, id);
+  }
+
+  const requiredSet = new Set(required);
+  const receipt = {
+    schemaVersion: 1,
+    catalogSha256: catalog.catalogSha256,
+    evidencePlanSha256: catalog.evidencePlanSha256,
+    requiredPacketsReviewed: true,
+    additionalPacketIds: [
+      ...new Set([
+        ...additionalPacketIds,
+        ...reviewedPacketIds.filter((id) => !requiredSet.has(id)),
+      ]),
+    ].sort(),
+  };
+
+  verifyReviewReceipt({ catalogPath: catalog.catalogPath, receipt });
+  return receipt;
+}
+
 export function bindReviewCoverage(catalog, coverage) {
   const covered = { ...catalog, priorCoverage: coverage };
 
@@ -1349,16 +1399,112 @@ function packetById(catalog, id) {
   return packet;
 }
 
-function verifyPacket(outputDirectory, packet) {
+function failPacket(code, message) {
+  const error = new Error(message);
+
+  error.code = code;
+  throw error;
+}
+
+function readVerifiedPacket(outputDirectory, packet) {
   const path = resolve(outputDirectory, packet.artifact);
-  const bytes = readFileSync(path);
+  const contained = relative(outputDirectory, path);
+
+  if (
+    contained === "" ||
+    contained === ".." ||
+    contained.startsWith(`..${sep}`) ||
+    isAbsolute(contained)
+  ) {
+    failPacket(
+      "REVIEW_PACKET_ESCAPES_CATALOG",
+      `Review packet ${packet.id} escapes its catalog directory.`,
+    );
+  }
+
+  const initial = lstatSync(path);
+
+  if (
+    initial.isSymbolicLink() ||
+    !initial.isFile() ||
+    realpathSync(path) !== path
+  ) {
+    failPacket(
+      "REVIEW_PACKET_REPLACED",
+      `Review packet ${packet.id} is not a stable regular file.`,
+    );
+  }
+
+  if (
+    !Number.isSafeInteger(packet.byteCount) ||
+    packet.byteCount < 1 ||
+    packet.byteCount > MAXIMUM_PACKET_BYTES ||
+    initial.size !== packet.byteCount
+  ) {
+    failPacket(
+      "REVIEW_PACKET_CHANGED",
+      `Review packet ${packet.id} has an unexpected byte count.`,
+    );
+  }
+
+  // O_NOFOLLOW closes the final-component link race on POSIX. Windows does
+  // not expose that flag through Node, so the stable file and path identities
+  // before and after the descriptor read provide the equivalent fail-closed
+  // check available to this cross-platform helper.
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  // Node exposes open(2) flags as integer constants, so bitwise composition is
+  // the API-prescribed way to request both read-only and no-follow semantics.
+  // eslint-disable-next-line no-bitwise
+  const descriptor = openSync(path, fsConstants.O_RDONLY | noFollow);
+  let bytes;
+
+  try {
+    const before = fstatSync(descriptor);
+    bytes = readFileSync(descriptor);
+    const after = fstatSync(descriptor);
+    const final = lstatSync(path);
+
+    if (
+      !before.isFile() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.size !== after.size ||
+      after.dev !== final.dev ||
+      after.ino !== final.ino ||
+      after.size !== final.size ||
+      final.isSymbolicLink() ||
+      realpathSync(path) !== path
+    ) {
+      failPacket(
+        "REVIEW_PACKET_CHANGED",
+        `Review packet ${packet.id} changed while it was read.`,
+      );
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+
   const actual = sha256Bytes(bytes);
 
-  if (actual !== packet.sha256) {
-    throw new Error(
+  if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
+    failPacket(
+      "REVIEW_PACKET_CHANGED",
       `Review packet ${packet.id} changed after catalog creation.`,
     );
   }
+
+  return bytes;
+}
+
+function verifyPacket(outputDirectory, packet) {
+  readVerifiedPacket(outputDirectory, packet);
+}
+
+export function readVerifiedReviewPacket(catalog, id) {
+  const packet = packetById(catalog, id);
+  const bytes = readVerifiedPacket(catalogOutputDirectory(catalog), packet);
+
+  return { packet, bytes };
 }
 
 function coverageHashes(catalog) {
@@ -1506,11 +1652,26 @@ function pagePayload({ catalog, queueKind, records, nextPage }) {
   };
 }
 
-function partitionQueueRecords(catalog, records, maximumPageBytes, queueKind) {
+function publicReviewArtifact(publicArtifactPrefix, artifact) {
+  return publicArtifactPrefix === null
+    ? artifact
+    : `${publicArtifactPrefix}/${artifact}`;
+}
+
+function partitionQueueRecords(
+  catalog,
+  records,
+  maximumPageBytes,
+  queueKind,
+  publicArtifactPrefix,
+) {
   const partitions = [];
   let current = [];
   const placeholder = {
-    artifact: `queues/${queueKind}-${"0".repeat(12)}-Q000000.json`,
+    artifact: publicReviewArtifact(
+      publicArtifactPrefix,
+      `queues/${queueKind}-${"0".repeat(12)}-Q000000.json`,
+    ),
     sha256: "0".repeat(64),
   };
 
@@ -1548,6 +1709,7 @@ export function writeReviewPacketQueue({
   queueKind,
   outputDirectory,
   maximumPageBytes = MAXIMUM_PACKET_BYTES,
+  publicArtifactPrefix = null,
 }) {
   if (!new Set(["initial", "delta"]).has(queueKind)) {
     throw new Error("Review queue kind must be initial or delta.");
@@ -1560,13 +1722,27 @@ export function writeReviewPacketQueue({
     throw new Error("Review queue packet IDs must be a unique array.");
   }
 
+  if (
+    publicArtifactPrefix !== null &&
+    (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u.test(publicArtifactPrefix) ||
+      publicArtifactPrefix
+        .split("/")
+        .some((component) => component === "." || component === ".."))
+  ) {
+    throw new Error("Review queue public artifact prefix is invalid.");
+  }
+
   if (packetIds.length === 0) {
     return null;
   }
 
   const records = packetIds
     .map((id) => packetById(catalog, id))
-    .map(({ id, artifact, sha256 }) => ({ id, artifact, sha256 }))
+    .map(({ id, artifact, sha256 }) => ({
+      id,
+      artifact: publicReviewArtifact(publicArtifactPrefix, artifact),
+      sha256,
+    }))
     .sort((left, right) =>
       Buffer.compare(Buffer.from(left.artifact), Buffer.from(right.artifact)),
     );
@@ -1575,6 +1751,7 @@ export function writeReviewPacketQueue({
     records,
     maximumPageBytes,
     queueKind,
+    publicArtifactPrefix,
   );
   const queuesDirectory = join(outputDirectory, "queues");
 
@@ -1587,7 +1764,8 @@ export function writeReviewPacketQueue({
 
   for (let index = partitions.length - 1; index >= 0; index -= 1) {
     const ordinal = String(index + 1).padStart(6, "0");
-    const artifact = `queues/${queueKind}-${catalog.catalogSha256.slice(0, 12)}-Q${ordinal}.json`;
+    const storedArtifact = `queues/${queueKind}-${catalog.catalogSha256.slice(0, 12)}-Q${ordinal}.json`;
+    const artifact = publicReviewArtifact(publicArtifactPrefix, storedArtifact);
     const payload = pagePayload({
       catalog,
       queueKind,
@@ -1600,7 +1778,7 @@ export function writeReviewPacketQueue({
       throw new Error(`Review queue page ${ordinal} exceeds its byte budget.`);
     }
 
-    writeImmutableSmallFile(join(outputDirectory, artifact), bytes);
+    writeImmutableSmallFile(join(outputDirectory, storedArtifact), bytes);
     const page = {
       artifact,
       sha256: sha256Bytes(bytes),
@@ -1890,6 +2068,7 @@ export function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
           packetIds: deltaIds,
           queueKind: "delta",
           outputDirectory,
+          publicArtifactPrefix: "review",
         });
   const supersededQueue = supersedePriorQueue({
     outputDirectory,

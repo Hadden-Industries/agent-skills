@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Extended Commit Message Semantic Content",
-  "description": "Schema-version-2 worksheet for one immutable extended review catalog and evidence plan.",
+  "description": "Schema-version-3 semantic worksheet; immutable review state remains helper-owned.",
   "oneOf": [
     { "$ref": "#/$defs/draftDetailed" },
     { "$ref": "#/$defs/draftBulk" },
@@ -9,10 +9,6 @@
     { "$ref": "#/$defs/completeBulk" }
   ],
   "$defs": {
-    "sha256": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
-    },
     "subject": {
       "type": "object",
       "additionalProperties": false,
@@ -30,56 +26,6 @@
     },
     "nullableSubject": {
       "oneOf": [{ "$ref": "#/$defs/subject" }, { "type": "null" }]
-    },
-    "reviewDraft": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schemaVersion",
-        "catalogSha256",
-        "evidencePlanSha256",
-        "requiredPacketsReviewed",
-        "additionalPacketIds"
-      ],
-      "properties": {
-        "schemaVersion": { "const": 1 },
-        "catalogSha256": { "$ref": "#/$defs/sha256" },
-        "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
-        "requiredPacketsReviewed": { "type": "boolean" },
-        "additionalPacketIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[SIPD][0-9]{6}$"
-          }
-        }
-      }
-    },
-    "reviewComplete": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schemaVersion",
-        "catalogSha256",
-        "evidencePlanSha256",
-        "requiredPacketsReviewed",
-        "additionalPacketIds"
-      ],
-      "properties": {
-        "schemaVersion": { "const": 1 },
-        "catalogSha256": { "$ref": "#/$defs/sha256" },
-        "evidencePlanSha256": { "$ref": "#/$defs/sha256" },
-        "requiredPacketsReviewed": { "const": true },
-        "additionalPacketIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[SIPD][0-9]{6}$"
-          }
-        }
-      }
     },
     "stringArray": {
       "type": "array",
@@ -203,19 +149,16 @@
       "required": [
         "schemaVersion",
         "authoringState",
-        "review",
         "evidenceGroups",
         "subject",
         "sharedRationales",
         "userExperienceChanges",
         "mode",
-        "recommendedMode",
         "fileNotes"
       ],
       "properties": {
-        "schemaVersion": { "const": 2 },
+        "schemaVersion": { "const": 3 },
         "authoringState": { "const": "draft" },
-        "review": { "$ref": "#/$defs/reviewDraft" },
         "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
         "subject": { "$ref": "#/$defs/nullableSubject" },
         "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
@@ -223,7 +166,6 @@
           "$ref": "#/$defs/userExperienceChanges"
         },
         "mode": { "const": "detailed" },
-        "recommendedMode": { "const": "detailed" },
         "fileNotes": { "$ref": "#/$defs/fileNotes" }
       }
     },
@@ -233,19 +175,16 @@
       "required": [
         "schemaVersion",
         "authoringState",
-        "review",
         "evidenceGroups",
         "subject",
         "sharedRationales",
         "userExperienceChanges",
         "mode",
-        "recommendedMode",
         "domains"
       ],
       "properties": {
-        "schemaVersion": { "const": 2 },
+        "schemaVersion": { "const": 3 },
         "authoringState": { "const": "draft" },
-        "review": { "$ref": "#/$defs/reviewDraft" },
         "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
         "subject": { "$ref": "#/$defs/nullableSubject" },
         "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
@@ -253,7 +192,6 @@
           "$ref": "#/$defs/userExperienceChanges"
         },
         "mode": { "const": "bulk" },
-        "recommendedMode": { "const": "bulk" },
         "domains": { "$ref": "#/$defs/domains" }
       }
     },
@@ -263,7 +201,6 @@
       "required": [
         "schemaVersion",
         "authoringState",
-        "review",
         "evidenceGroups",
         "subject",
         "sharedRationales",
@@ -272,9 +209,8 @@
         "fileNotes"
       ],
       "properties": {
-        "schemaVersion": { "const": 2 },
+        "schemaVersion": { "const": 3 },
         "authoringState": { "const": "complete" },
-        "review": { "$ref": "#/$defs/reviewComplete" },
         "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
         "subject": { "$ref": "#/$defs/subject" },
         "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },
@@ -291,7 +227,6 @@
       "required": [
         "schemaVersion",
         "authoringState",
-        "review",
         "evidenceGroups",
         "subject",
         "sharedRationales",
@@ -300,9 +235,8 @@
         "domains"
       ],
       "properties": {
-        "schemaVersion": { "const": 2 },
+        "schemaVersion": { "const": 3 },
         "authoringState": { "const": "complete" },
-        "review": { "$ref": "#/$defs/reviewComplete" },
         "evidenceGroups": { "$ref": "#/$defs/evidenceGroups" },
         "subject": { "$ref": "#/$defs/subject" },
         "sharedRationales": { "$ref": "#/$defs/rationaleGroups" },

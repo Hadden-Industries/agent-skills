@@ -16,6 +16,10 @@ const COMMANDS = new Map([
     ],
   ],
   [
+    "workflow review-next",
+    [() => import("../workflow/reviewNextWorkflow.js"), "runReviewNextCommand"],
+  ],
+  [
     "workflow resume",
     [
       () => import("../workflow/resumePreparationWorkflow.js"),
@@ -128,6 +132,15 @@ evidence, policy, and mutation inputs cannot be reconstructed or overridden.
 Extends one unchanged concise snapshot. Evidence uncertainty consumes only the
 fixed evidence-plan-input.json. Semantic structure carries existing evidence
 forward without accepting or reading a new plan.
+`,
+  ],
+  [
+    "workflow review-next",
+    `Usage: commitWorkflow.mjs workflow review-next --transaction <transaction.json> [--cursor <opaque-cursor>] [--format <json|text>]
+
+Returns exactly one complete, bounded, digest-verified review packet from the
+current transaction. The helper advances only through its returned opaque
+cursor, safely replays the latest delivery, and records review completion.
 `,
   ],
   [
@@ -257,6 +270,7 @@ Usage:
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
+  commitWorkflow.mjs workflow review-next [options]
   commitWorkflow.mjs workflow promote [options]
   commitWorkflow.mjs message check [options]
   commitWorkflow.mjs message finalize [options]
@@ -318,7 +332,7 @@ function unsupportedAttemptResult(args) {
   try {
     const payload = JSON.parse(readFileSync(args[index + 1], "utf8"));
 
-    if (payload?.schemaVersion !== 2) {
+    if (payload?.schemaVersion !== 3) {
       return invalidResult(
         "UNSUPPORTED_ATTEMPT_VERSION",
         `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,

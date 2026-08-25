@@ -149,10 +149,15 @@ function assertEvidencePlanBinding(content, evidencePlan) {
   }
 }
 
-function assertCompleteContent(content, reviewCatalog, evidencePlan) {
-  if (!content || content.schemaVersion !== 2) {
+function assertCompleteContent(
+  content,
+  reviewCatalog,
+  evidencePlan,
+  reviewReceipt,
+) {
+  if (!content || content.schemaVersion !== 3) {
     const error = new Error(
-      "Only complete schema-version-2 semantic content can be rendered.",
+      "Only complete schema-version-3 semantic content can be rendered.",
     );
     error.code = "INCOMPLETE_SEMANTIC_CONTENT";
     throw error;
@@ -165,7 +170,7 @@ function assertCompleteContent(content, reviewCatalog, evidencePlan) {
       missing.push("subject");
     }
 
-    if (content.review?.requiredPacketsReviewed !== true) {
+    if (reviewReceipt?.requiredPacketsReviewed !== true) {
       missing.push("review receipt");
     }
 
@@ -193,10 +198,10 @@ function assertCompleteContent(content, reviewCatalog, evidencePlan) {
   }
 
   if (
-    !content.review ||
-    content.review.requiredPacketsReviewed !== true ||
-    content.review.catalogSha256 !== reviewCatalog?.catalogSha256 ||
-    content.review.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 ||
+    !reviewReceipt ||
+    reviewReceipt.requiredPacketsReviewed !== true ||
+    reviewReceipt.catalogSha256 !== reviewCatalog?.catalogSha256 ||
+    reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 ||
     reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256
   ) {
     const error = new Error(
@@ -300,9 +305,10 @@ export function renderCommitMessage({
   content,
   reviewCatalog,
   evidencePlan,
+  reviewReceipt,
   repositoryTypePolicy = { allowedTypes: null },
 }) {
-  assertCompleteContent(content, reviewCatalog, evidencePlan);
+  assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt);
   const coverage = resolveSemanticCoverage(manifest, content);
   const sharedReasons = uniqueReasons(coverage.sharedRationales);
   const sharedReasonSet = new Set(sharedReasons);
@@ -413,27 +419,14 @@ export function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
     changeUnitCount: manifest.changeUnitCount,
     projectedDetailedBytes: projectedDetailedInventoryBytes(manifest),
   });
-  const requiredPacketCount = [
-    ...(reviewCatalog.requiredSynopsisPacketIds ?? []),
-    ...(reviewCatalog.exactInventoryPacketIds ?? []),
-    ...(reviewCatalog.fullPatchPacketIds ?? []),
-  ].length;
   const common = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "draft",
-    review: {
-      schemaVersion: 1,
-      catalogSha256: reviewCatalog.catalogSha256,
-      evidencePlanSha256: evidencePlan.evidencePlanSha256,
-      requiredPacketsReviewed: requiredPacketCount === 0,
-      additionalPacketIds: [],
-    },
     evidenceGroups: scaffoldEvidenceGroups(evidencePlan),
     subject: null,
     sharedRationales: [],
     userExperienceChanges: [],
     mode: recommendedMode,
-    recommendedMode,
   };
 
   return recommendedMode === "bulk"

@@ -994,6 +994,11 @@ function assertReplacementRoute(transaction, source) {
       source === "approved-subject" &&
       transaction.phase === "evidence-ready") ||
     (transaction.route === "extended" &&
+      source === "checked-file" &&
+      transaction.review?.semanticStructureRequired === false &&
+      transaction.review?.receipt?.requiredPacketsReviewed === true &&
+      new Set(["review-pending", "message-ready"]).has(transaction.phase)) ||
+    (transaction.route === "extended" &&
       source === "finalized-extended" &&
       new Set(["review-pending", "message-ready"]).has(transaction.phase));
 

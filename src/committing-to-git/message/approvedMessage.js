@@ -621,12 +621,13 @@ export function validateApprovedMessage({
   const sourceAllowed =
     (route === "concise" &&
       new Set(["approved-subject", "checked-file"]).has(messageSource)) ||
-    (route === "extended" && messageSource === "structured-finalizer");
+    (route === "extended" &&
+      new Set(["checked-file", "structured-finalizer"]).has(messageSource));
 
   if (!sourceAllowed) {
     fail(
       "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
-      "Direct or checked text is valid only for a concise transaction; extended messages require structured finalization.",
+      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review.",
     );
   }
 

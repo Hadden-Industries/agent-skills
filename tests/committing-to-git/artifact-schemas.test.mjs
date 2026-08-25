@@ -16,7 +16,7 @@ function schema(name) {
 
 test("transaction and scope schemas expose the strict preparation contracts", () => {
   const transaction = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "allocated",
     repositoryRoot: "C:/repo",
     attemptDirectory:
@@ -298,15 +298,8 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     warnings: [],
   };
   const content = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authoringState: "complete",
-    review: {
-      schemaVersion: 1,
-      catalogSha256: "a".repeat(64),
-      evidencePlanSha256: "b".repeat(64),
-      requiredPacketsReviewed: true,
-      additionalPacketIds: [],
-    },
     evidenceGroups: [
       {
         selection: { all: true },
@@ -509,9 +502,7 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     ...structuredClone(content),
     authoringState: "draft",
     subject: null,
-    recommendedMode: "detailed",
   };
-  draftContent.review.requiredPacketsReviewed = false;
   assert.deepEqual(
     schemaErrors(draftContent, schema("commitMessageContent.schema.json")),
     [],
@@ -527,14 +518,18 @@ test("workflow artifact schemas accept representative cross-script payloads", ()
     /subject|oneOf/u,
   );
 
-  const unreviewedCompleteContent = structuredClone(content);
-  unreviewedCompleteContent.review.requiredPacketsReviewed = false;
+  const helperStateContent = {
+    ...structuredClone(content),
+    review: {
+      requiredPacketsReviewed: true,
+    },
+  };
   assert.match(
     schemaErrors(
-      unreviewedCompleteContent,
+      helperStateContent,
       schema("commitMessageContent.schema.json"),
     ).join("\n"),
-    /requiredPacketsReviewed|oneOf/u,
+    /review|additionalProperties|oneOf/u,
   );
 
   const oldContent = {
