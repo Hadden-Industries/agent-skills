@@ -46,19 +46,21 @@ Loaded repository type policy wins. Otherwise choose the most specific dominant 
 
 Concise eligibility tracks unresolved semantic uncertainty; file count never determines concise eligibility. No path or domain label is an escalation deny-list, including security, migration, deployment, lockfile, generated, or submodule. Escalate only for explicit review, unresolved evidence, or unexplained special Git facts. Oversized inline evidence selects extended, never truncation.
 
-## Approve a concise message
+## Validate before approval
+
+Complete the message before approval. Checked or structured text must be `message-ready`; show `displayText` verbatim. Direct subject transport validates during commit and is only for known-valid text. Reapprove only if bytes or failed-check acknowledgements change.
 
 Before presenting any subject for approval, while authoring the first proposal, apply the supported skill message policy: the description immediately after `: ` must begin with an uppercase Unicode cased letter; optional scope does not change this rule. Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`. If local validation returns `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message to the user, avoiding a capitalization-only second approval. This is an authoring defect, not a repository-specific rejection.
 
-Subject-only fits any coherent scope; add sections only for durable rationale, UX impact, or useful inventory. Apply `canUseDirectSubjectTransport()` before putting the subject in a command. Safe ASCII may go directly to `workflow commit`; otherwise use fixed transaction-local `message-input.txt`, never an arbitrary path.
+Agent-authored bodies or requested inventories use `semantic-structure-required` and `message finalize`; nonportable subjects or exact user/repository bytes use fixed `message-input.txt` and `message check`. Follow [message format](references/message-format.md) and preserve every requested section.
 
-Canonical bytes are strict UTF-8 with exactly one terminal LF. Direct `--message` means only `subject + LF`. Reject CR, C0/C1 controls, format controls, invalid UTF-8, altered normalization, or any approval whose raw bytes differ. Write the fixed input, then run:
+Canonical bytes are strict UTF-8 with one LF. Direct `--message` is `subject + LF` only after `canUseDirectSubjectTransport()` succeeds. Checked text uses the fixed local input:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs message check --transaction <opaque-transaction>
 ```
 
-Success consumes the input and records the latest valid message; failure preserves prior valid state and input. Code enforces declared evidence, tree, and byte facts, not semantic equivalence.
+Success consumes the input; recreate it only for revision. Failure preserves prior valid state and rejected input. Code enforces mechanics, not semantics.
 
 | Revision | Invalidation and route |
 | --- | --- |
@@ -70,7 +72,7 @@ Classify revisions by judgment, not keywords, edit distance, or embeddings.
 
 ## Complete an extended message
 
-When `route: extended`, read packets completely; use [inspection recovery](references/inspection-recovery.md) only for uncertainty, deletions, binary/gitlinks, truncation, or corruption. Later uncertainty on an unchanged concise snapshot uses fixed `evidence-plan-input.json` and `evidence-uncertainty`; structured inventory uses `semantic-structure-required` without new plan/packet reads. Inventory requires structured bulk at 50 units or above 32 KiB; concise may omit it without questioning scope. Write fixed `content.json`, follow [message format](references/message-format.md), then finalize:
+For evidence uncertainty, read packets completely and use [inspection recovery](references/inspection-recovery.md) only for deletion, binary/gitlink, truncation, corruption, or remaining uncertainty. Later uncertainty uses fixed `evidence-plan-input.json`; semantic structure reuses sufficient evidence without packet reads. The renderer chooses detailed inventory below 50 units and within 32 KiB, otherwise counted bulk domains; omit it only when neither requested nor useful. Write fixed `content.json`, then finalize:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs workflow extend --transaction <opaque-transaction> --reason <evidence-uncertainty|semantic-structure-required>

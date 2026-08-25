@@ -73,7 +73,7 @@ const ACTIVE_IDS = [
   ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
     (id) => !RETIRED_IDS.has(id),
   ),
-  ...Array.from({ length: 40 }, (_, index) => index + 35),
+  ...Array.from({ length: 41 }, (_, index) => index + 35),
 ];
 const NEW_CASE_KEYS = new Map([
   [35, "known-context-skill-inventory-hint"],
@@ -116,6 +116,7 @@ const NEW_CASE_KEYS = new Map([
   [72, "noisy-successful-check"],
   [73, "selected-scope-check-mutation"],
   [74, "excluded-path-check-mutation"],
+  [75, "detailed-message-single-approval"],
 ]);
 const REMOVED_COMMAND =
   /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;
@@ -194,6 +195,7 @@ const REQUIRED_SCALE_SCENARIOS = [
   "noisy-successful-check",
   "selected-scope-check-mutation",
   "excluded-path-check-mutation",
+  "detailed-message-single-approval",
 ];
 
 function readJson(path) {
@@ -249,6 +251,41 @@ function generate(t, scenario) {
 
 test("the moved fixture generator resolves this repository as its source worktree", () => {
   assert.equal(resolveSourceWorktree(), realpathSync(REPO_ROOT));
+});
+
+test("detailed message fixture fixes one exact three-file scope with one approval turn", (t) => {
+  const { destination, metadata } = generate(
+    t,
+    "detailed-message-single-approval",
+  );
+  const selectedPaths = [
+    "docs/plans/2026-08-25-s3-managed-deletion-sync.md",
+    "scripts/upload_to_s3.py",
+    "tests/test_upload_content_metadata.py",
+  ];
+
+  assert.deepEqual(metadata.expected.safety.selectedPaths, selectedPaths);
+  assert.deepEqual(metadata.expected.safety.excludedPaths, [
+    ".claude/local-notes.md",
+    "skills-lock.json",
+  ]);
+  assert.deepEqual(
+    git(["diff", "--cached", "--name-only"], destination)
+      .stdout.trim()
+      .split(/\r?\n/u),
+    selectedPaths,
+  );
+  const status = git(
+    ["status", "--short", "--untracked-files=all"],
+    destination,
+  ).stdout;
+  assert.match(status, /^ M skills-lock\.json$/mu);
+  assert.match(status, /^\?\? \.claude\/local-notes\.md$/mu);
+  assert.equal(metadata.expected.cost.profile, "structured-detailed");
+  assert.equal(metadata.expected.cost.route, "extended");
+  assert.equal(metadata.expected.cost.approvalTurns, 1);
+  assert.equal(metadata.expected.cost.highLevelHelperCalls, 4);
+  assert.equal(metadata.expected.cost.agentManagedArtifactWrites, 1);
 });
 
 test("behavior and trigger definitions use their evaluator contracts", () => {
@@ -389,6 +426,14 @@ test("cost profiles encode the concise and extended action budgets", () => {
   });
   assert.equal(COST_PROFILES["concise-checked"].highLevelHelperCalls, 3);
   assert.equal(COST_PROFILES["concise-checked"].agentManagedArtifactWrites, 1);
+  assert.deepEqual(COST_PROFILES["structured-detailed"], {
+    route: "extended",
+    highLevelHelperCalls: 4,
+    opaqueTransactionHandlePassThroughs: 3,
+    agentManagedArtifactReads: 1,
+    agentManagedArtifactWrites: 1,
+    approvalTurns: 1,
+  });
   assert.equal(COST_PROFILES["extended-review"].maximumPacketBytes, 16384);
   assert.equal(
     COST_PROFILES["extended-review"].maximumConcurrentPacketReads,

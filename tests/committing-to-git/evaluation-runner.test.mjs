@@ -503,9 +503,9 @@ test("evaluation runner exports only the migrated orchestration surface", async 
   ]);
 });
 
-test("the seeded matrix remains 450 deterministic matched sessions", () => {
+test("the seeded matrix remains 468 deterministic matched sessions", () => {
   const first = buildEvaluationSchedule("step-3-seed");
-  assert.equal(first.length, 450);
+  assert.equal(first.length, 468);
   assert.deepEqual(first, buildEvaluationSchedule("step-3-seed"));
   assert.notDeepEqual(first, buildEvaluationSchedule("different-seed"));
   for (let index = 0; index < first.length; index += 3) {
@@ -518,7 +518,7 @@ test("the seeded matrix remains 450 deterministic matched sessions", () => {
     EVALUATION_CASE_IDS,
     [
       4, 7, 18, 28, 35, 36, 37, 39, 40, 41, 42, 47, 49, 50, 53, 54, 55, 67, 68,
-      69, 70, 71, 72, 73, 74,
+      69, 70, 71, 72, 73, 74, 75,
     ],
   );
   assert.equal(EVALUATION_MODELS[0].repetitions, 5);
@@ -542,7 +542,7 @@ test("Google policy schedule derives only manifest policy cases and leaves the e
   const schedule = buildPolicyEvaluationSchedule(options);
   assert.equal(schedule.length, 36);
   assert.deepEqual(schedule, buildPolicyEvaluationSchedule(options));
-  assert.equal(buildEvaluationSchedule("step-3-seed").length, 450);
+  assert.equal(buildEvaluationSchedule("step-3-seed").length, 468);
   assert.deepEqual(
     new Set(schedule.map(({ caseId }) => caseId)),
     new Set(caseIds),
@@ -1044,7 +1044,7 @@ test("CLI plan remains deterministic and performs no model execution", () => {
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.modelCalls, 0);
-  assert.equal(output.sessions.length, 450);
+  assert.equal(output.sessions.length, 468);
 });
 
 test("CLI run and preflight reject obsolete path-redirection flags", () => {

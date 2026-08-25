@@ -135,6 +135,14 @@ export const COST_PROFILES = Object.freeze({
     maximumAuthoredUnitIds: 0,
     maximumCanonicalMessageBytes: 32768,
   },
+  "structured-detailed": {
+    route: "extended",
+    highLevelHelperCalls: 4,
+    opaqueTransactionHandlePassThroughs: 3,
+    agentManagedArtifactReads: 1,
+    agentManagedArtifactWrites: 1,
+    approvalTurns: 1,
+  },
   "verification-recovery": {
     route: "recovery",
     maximumCommitCreations: 0,
@@ -748,6 +756,114 @@ function createMessageTransportScenario(repository, message, transport) {
     canonicalMessage: message.endsWith("\n") ? message : `${message}\n`,
     expectedTransport: transport,
     fixedInputName: "message-input.txt",
+  };
+}
+
+function createDetailedMessageSingleApproval(repository) {
+  const selectedPaths = [
+    "docs/plans/2026-08-25-s3-managed-deletion-sync.md",
+    "scripts/upload_to_s3.py",
+    "tests/test_upload_content_metadata.py",
+  ];
+  const excludedPaths = [".claude/local-notes.md", "skills-lock.json"];
+
+  writeRepositoryFile(repository, "README.md", "# S3 upload fixture\n");
+  writeRepositoryFile(repository, "skills-lock.json", '{"skills":[]}\n');
+  commitAll(repository, "seed detailed message fixture");
+  writeRepositoryFile(
+    repository,
+    selectedPaths[0],
+    [
+      "# Managed deletion sync",
+      "",
+      "Directory sources own their non-empty target prefix; explicit file sources do not own sibling keys.",
+      "`--delete` removes only remote-only objects in a directory-owned namespace after local traversal and remote inventory both complete.",
+      "An empty local namespace requires `--force-delete-all`, even when compare mode is force, so an accidental empty traversal cannot erase a prefix.",
+      "Uploads run before key-only deletion batches of at most 1,000 objects. Reports and CloudFront invalidations include confirmed deletions and preserve partial AWS results.",
+      "",
+    ].join("\n"),
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPaths[1],
+    [
+      "def plan_managed_deletions(",
+      "    local_keys,",
+      "    remote_keys,",
+      "    excluded_keys,",
+      "    *,",
+      "    delete=False,",
+      '    target_prefix="",',
+      "    inventory_complete=True,",
+      "    force_delete_all=False,",
+      "):",
+      "    if not delete:",
+      "        return []",
+      "    if not target_prefix:",
+      '        raise ValueError("deletion requires a non-empty target prefix")',
+      "    if not inventory_complete:",
+      '        raise RuntimeError("remote inventory is incomplete")',
+      "    candidates = sorted(set(remote_keys) - set(local_keys) - set(excluded_keys))",
+      "    if not local_keys and candidates and not force_delete_all:",
+      '        raise ValueError("empty namespace deletion requires --force-delete-all")',
+      "    return candidates",
+      "",
+      "",
+      "def deletion_batches(keys, batch_size=1000):",
+      "    for offset in range(0, len(keys), batch_size):",
+      "        yield keys[offset : offset + batch_size]",
+      "",
+    ].join("\n"),
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPaths[2],
+    [
+      "from scripts.upload_to_s3 import deletion_batches, plan_managed_deletions",
+      "",
+      "",
+      "def test_managed_deletion_requires_opt_in():",
+      '    assert plan_managed_deletions([], ["site/old.txt"], [], target_prefix="site/") == []',
+      "",
+      "",
+      "def test_empty_namespace_requires_force_delete_all():",
+      "    try:",
+      '        plan_managed_deletions([], ["site/old.txt"], [], delete=True, target_prefix="site/")',
+      "    except ValueError as error:",
+      '        assert "--force-delete-all" in str(error)',
+      "    else:",
+      '        raise AssertionError("expected the complete-wipe guard")',
+      "",
+      "",
+      "def test_deletion_batches_match_s3_limit():",
+      '    keys = [f"site/{index}.txt" for index in range(1001)]',
+      "    assert [len(batch) for batch in deletion_batches(keys)] == [1000, 1]",
+      "",
+    ].join("\n"),
+  );
+  writeRepositoryFile(
+    repository,
+    "skills-lock.json",
+    '{"skills":["user-owned"]}\n',
+  );
+  writeRepositoryFile(
+    repository,
+    ".claude/local-notes.md",
+    "User-owned local notes must remain uncommitted.\n",
+  );
+  git(repository, ["add", "--", ...selectedPaths]);
+
+  return {
+    selectedPaths,
+    excludedPaths,
+    requestedSections: [
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:",
+    ],
+    approvalAfterStatus: "message-ready",
+    maximumApprovalTurns: 1,
+    pushAuthorized: false,
   };
 }
 
@@ -1506,6 +1622,13 @@ const SCENARIOS = new Map([
         narrowCapabilityAvailable: true,
       }),
       "permission-preflight",
+    ),
+  ],
+  [
+    "detailed-message-single-approval",
+    createScenarioDefinition(
+      createDetailedMessageSingleApproval,
+      "structured-detailed",
     ),
   ],
   [
