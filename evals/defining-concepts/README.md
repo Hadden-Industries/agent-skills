@@ -244,12 +244,17 @@ non-repository directory; `--destination` must not exist. Use `--skill-file`
 only with `with_skill`:
 
 ```text
-node evals/defining-concepts/run-evaluation-session.mjs prepare --prompt-file <prompt.txt> --destination <new-session> --working-dir <empty-dir> --arm <with_skill|without_skill> --provider <codex|claude> --model <model> --effort <effort> --eval-id <id> --repetition <n> [--skill-file <SKILL.md>] [--evaluation-homes-root <root>]
+node evals/defining-concepts/run-evaluation-session.mjs prepare --prompt-file <prompt.txt> --destination <new-session> --working-dir <empty-dir> --arm <with_skill|without_skill> --provider <codex|claude|antigravity> --model <model> --effort <effort> --eval-id <id> --repetition <n> [--skill-file <SKILL.md>] [--evaluation-homes-root <root>] [--antigravity-command <absolute-agy.exe>]
 node evals/defining-concepts/run-evaluation-session.mjs run --prepared-session <new-session> --authorization <authorization.json> --allow-external-model-call [--timeout-ms <ms>]
 ```
 
 Preparation prints the packet digest and starts no model turn. Review and
 authorize the resulting session through the common boundary before `run`.
+Antigravity preparation requires the absolute reviewed CLI executable. It
+pins version `1.1.19`, executable and help bytes, and performs no authentication
+or model probe. Repeatable `--antigravity-prefix-arg` is available for a
+repository-owned launcher or deterministic fake; each prefix file is included
+in the toolchain fingerprint and executable prefix paths must be absolute.
 
 ### Comparison arms
 
@@ -287,11 +292,28 @@ must not coach the treatment with expectations that the baseline does not see.
 ### Suite capabilities
 
 Each prepared session uses a fresh, empty, non-repository working directory,
-disabled persistence, a read-only sandbox, packet-bound instructions, explicit
-network and live-search capabilities, and exactly one controller turn. OpenAI
-runs select the `execution` home role; Anthropic runs use the pinned Claude CLI
-profile. The controller rejects every permission request and never emits a
-continuation.
+disabled persistence, a read-only sandbox, packet-bound instructions, and
+exactly one controller turn. OpenAI runs select the `execution` home role;
+Anthropic runs use the pinned Claude CLI profile. Both retain explicit network
+and live-search capabilities. Their controller rejects every permission request
+and never emits a continuation.
+
+Google runs use the capability-scoped Antigravity profile: no network, web
+search, tool, or subagent use is permitted. The runner composes the isolation
+harness, exact skill text for the treatment arm, and user task into one
+packet-bound user message. It does not depend on workspace/global automatic
+skill discovery. The adapter retains the native `init` tool inventory and fails
+if a tool or subagent step occurs; the inventory itself is not misreported as
+disabled.
+
+This difference is methodologically material. All active behavioral cases
+require live research and exact-URL evidence, so an Antigravity no-tool run
+cannot be pooled with or substituted for the web-capable OpenAI/Anthropic
+matrix and is expected to fail the live-source critical gates. Use it for
+transport, explicit-activation, and policy-reasoning diagnostics until the
+headless CLI exposes a packet-scoped web capability that does not require
+global permission mutation. Label every such result with its capability
+profile.
 
 Retain the full developer input and its digest for both arms. The same baseline
 digest must recur across cases, and the same treatment digest must recur when
@@ -479,6 +501,13 @@ deterministic contract.
   independent verifier must grade reachability and semantics.
 - Some providers do not echo the actual model identifier in their retained
   event stream. A requested model is not provider-confirmed execution evidence.
+- Antigravity 1.1.19 has no reviewed zero-turn authentication/status command.
+  Preparation confirms only executable/version/help identity; an authentication
+  failure consumes the separately authorized attempt and remains provider
+  evidence.
+- Antigravity headless permissions cannot accept controller approval responses.
+  Its no-tool profile measures explicit policy reasoning, not the suite's live
+  web-research behavior.
 - Several cases admit more than one defensible definition. Exact-string grading
   would reward imitation rather than semantic quality.
 - Human judgments about the immediate genus and essential differentia can

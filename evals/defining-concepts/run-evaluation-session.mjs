@@ -18,6 +18,10 @@ import {
   preflightClaudeAuth,
 } from "../../scripts/evaluation/claude-cli.js";
 import {
+  antigravityCliAdapter,
+  inspectAntigravityCliToolchain,
+} from "../../scripts/evaluation/antigravity-cli.js";
+import {
   codexAppServerAdapter,
   inspectCodexAppServerToolchain,
 } from "../../scripts/evaluation/codex-app-server.js";
@@ -50,14 +54,29 @@ BASELINE_CONTAMINATION and stop. Do not mention this harness in an otherwise
 valid final answer.
 `;
 const EMPTY_MCP = '{"mcpServers":{}}';
-const RUNTIME_MODULES = [
+const COMMON_RUNTIME_MODULES = [
   "evals/defining-concepts/run-evaluation-session.mjs",
   "evals/defining-concepts/session-controller.mjs",
   "scripts/evaluation/runtime.js",
-  "scripts/evaluation/evaluation-homes.js",
-  "scripts/evaluation/codex-app-server.js",
-  "scripts/evaluation/claude-cli.js",
 ];
+const PROVIDER_RUNTIME_MODULES = Object.freeze({
+  anthropic: ["scripts/evaluation/claude-cli.js"],
+  google: ["scripts/evaluation/antigravity-cli.js"],
+  openai: [
+    "scripts/evaluation/evaluation-homes.js",
+    "scripts/evaluation/codex-app-server.js",
+  ],
+});
+const ANTIGRAVITY_HARNESS = `# Isolated behavioral evaluation
+
+Do not inspect local files, repository metadata, memories, plugins, commands,
+discoverable skills, web search, or network sources. Do not use tools or
+subagents. Use only the task-specific skill text below when one is present and
+the user task embedded in this exact message.
+If unrelated task-specific skill material becomes visible, output
+BASELINE_CONTAMINATION and stop. Do not mention this harness in an otherwise
+valid final answer.
+`;
 
 function fail(message) {
   throw new Error(message);
@@ -70,6 +89,7 @@ function parseArguments(argv) {
   }
   const values = new Map();
   const repeated = new Map([
+    ["--antigravity-prefix-arg", []],
     ["--codex-prefix-arg", []],
     ["--claude-prefix-arg", []],
   ]);
@@ -148,7 +168,10 @@ function inputRecord(id, role, mediaType, content) {
   };
 }
 
-function fingerprint() {
+function fingerprint(provider) {
+  if (!Object.hasOwn(PROVIDER_RUNTIME_MODULES, provider)) {
+    fail(`Unsupported fingerprint provider: ${provider}`);
+  }
   const git = (argument) =>
     execFileSync("git", ["rev-parse", argument], {
       cwd: REPOSITORY_ROOT,
@@ -158,7 +181,10 @@ function fingerprint() {
   return {
     gitCommit: git("HEAD"),
     gitTree: git("HEAD^{tree}"),
-    modules: RUNTIME_MODULES.map((relativePath) => {
+    modules: [
+      ...COMMON_RUNTIME_MODULES,
+      ...PROVIDER_RUNTIME_MODULES[provider],
+    ].map((relativePath) => {
       const bytes = readFileSync(path.join(REPOSITORY_ROOT, relativePath));
       return {
         path: relativePath,
@@ -186,10 +212,30 @@ function prepareWorkingDirectory(directory) {
   }
 }
 
+function assertOutsideRepository(directory) {
+  let cursor = path.resolve(directory);
+  while (true) {
+    if (existsSync(path.join(cursor, ".git"))) {
+      fail("Antigravity working directory must not be inside a repository");
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return;
+    cursor = parent;
+  }
+}
+
 function instructionText(skill) {
   return skill === null
     ? HARNESS
     : `${HARNESS}\n# Task-specific skill\n\n${skill}`;
+}
+
+function antigravityPrompt(prompt, skill) {
+  const treatment =
+    skill === null
+      ? ""
+      : `\n# Task-specific skill\n\n${skill}${skill.endsWith("\n") ? "" : "\n"}`;
+  return `${ANTIGRAVITY_HARNESS}${treatment}\n# User task\n\n${prompt}`;
 }
 
 function preparedInputs(transmission) {
@@ -221,7 +267,7 @@ async function prepare(options) {
   );
   if (!new Set(["with_skill", "without_skill"]).has(arm))
     fail(`Unsupported arm: ${arm}`);
-  if (!new Set(["codex", "claude"]).has(providerOption))
+  if (!new Set(["antigravity", "codex", "claude"]).has(providerOption))
     fail(`Unsupported provider: ${providerOption}`);
   const skillPath = values.get("--skill-file")
     ? path.resolve(values.get("--skill-file"))
@@ -232,21 +278,36 @@ async function prepare(options) {
     fail("without_skill forbids --skill-file");
   assertNewDirectory(destination, "destination");
   prepareWorkingDirectory(workingDirectory);
+  if (providerOption === "antigravity") {
+    assertOutsideRepository(workingDirectory);
+  }
 
   const prompt = readFileSync(promptPath, "utf8");
   const skill = skillPath === null ? null : readFileSync(skillPath, "utf8");
   const instructions = instructionText(skill);
   const environment = environmentProfile();
-  const provider = providerOption === "codex" ? "openai" : "anthropic";
+  const provider =
+    providerOption === "codex"
+      ? "openai"
+      : providerOption === "claude"
+        ? "anthropic"
+        : "google";
   const capabilities =
     provider === "openai"
       ? { network: true, webSearch: true, tools: [], providerFacilities: [] }
-      : {
-          network: true,
-          webSearch: true,
-          tools: ["WebSearch", "WebFetch"],
-          providerFacilities: [],
-        };
+      : provider === "anthropic"
+        ? {
+            network: true,
+            webSearch: true,
+            tools: ["WebSearch", "WebFetch"],
+            providerFacilities: [],
+          }
+        : {
+            network: false,
+            webSearch: false,
+            tools: [],
+            providerFacilities: ["provider-default-context"],
+          };
   const preparedSessionId = randomBytes(16).toString("hex");
   let toolchain;
   let authentication = null;
@@ -271,7 +332,7 @@ async function prepare(options) {
     });
     if (!inventory.valid)
       fail("evaluation homes root is not initialized and valid");
-  } else {
+  } else if (provider === "anthropic") {
     toolchain = await inspectClaudeCliToolchain({
       command: values.get("--claude-command") ?? "claude",
       prefixArguments: repeated.get("--claude-prefix-arg"),
@@ -284,6 +345,16 @@ async function prepare(options) {
     });
     if (authentication.status !== "authenticated")
       fail("Claude authentication preflight failed");
+  } else {
+    const command = requireValue(values, "--antigravity-command");
+    if (!path.isAbsolute(command)) {
+      fail("--antigravity-command must be an absolute path");
+    }
+    toolchain = await inspectAntigravityCliToolchain({
+      command,
+      prefixArguments: repeated.get("--antigravity-prefix-arg"),
+      environment,
+    });
   }
 
   const settings = JSON.stringify({
@@ -317,22 +388,42 @@ async function prepare(options) {
             settings,
           ),
         ]
-      : [
-          inputRecord("prompt", "user", "text/plain", prompt),
-          inputRecord("instructions", "system", "text/markdown", instructions),
-          inputRecord(
-            "empty-mcp-config",
-            "configuration",
-            "application/json",
-            EMPTY_MCP,
-          ),
-          inputRecord(
-            "runner-settings",
-            "configuration",
-            "application/json",
-            settings,
-          ),
-        ];
+      : provider === "anthropic"
+        ? [
+            inputRecord("prompt", "user", "text/plain", prompt),
+            inputRecord(
+              "instructions",
+              "system",
+              "text/markdown",
+              instructions,
+            ),
+            inputRecord(
+              "empty-mcp-config",
+              "configuration",
+              "application/json",
+              EMPTY_MCP,
+            ),
+            inputRecord(
+              "runner-settings",
+              "configuration",
+              "application/json",
+              settings,
+            ),
+          ]
+        : [
+            inputRecord(
+              "prompt",
+              "user",
+              "text/markdown",
+              antigravityPrompt(prompt, skill),
+            ),
+            inputRecord(
+              "runner-settings",
+              "configuration",
+              "application/json",
+              settings,
+            ),
+          ];
   const isolation =
     provider === "openai"
       ? {
@@ -343,14 +434,23 @@ async function prepare(options) {
           persistence: false,
           environment: { values: environment, secretSources: [] },
         }
-      : {
-          sandbox: "read-only",
-          workingDirectory,
-          instructionSources: [],
-          persistence: false,
-          stableHome: null,
-          environment: { values: environment, secretSources: [] },
-        };
+      : provider === "anthropic"
+        ? {
+            sandbox: "read-only",
+            workingDirectory,
+            instructionSources: [],
+            persistence: false,
+            stableHome: null,
+            environment: { values: environment, secretSources: [] },
+          }
+        : {
+            sandbox: "read-only",
+            workingDirectory,
+            instructionSources: ["packet-bound-user-message"],
+            persistence: false,
+            stableHome: null,
+            environment: { values: environment, secretSources: [] },
+          };
   const transmission = {
     suite: "defining-concepts",
     session: {
@@ -364,9 +464,14 @@ async function prepare(options) {
     provider,
     model,
     effort,
-    transport: provider === "openai" ? "codex-app-server" : "claude-cli",
+    transport:
+      provider === "openai"
+        ? "codex-app-server"
+        : provider === "anthropic"
+          ? "claude-cli"
+          : "antigravity-cli",
     toolchain,
-    runtimeFingerprint: fingerprint(),
+    runtimeFingerprint: fingerprint(provider),
     capabilities,
     isolation,
     harnessControlledInputs: inputs,
@@ -398,8 +503,8 @@ function inputPathMap(directory) {
   );
 }
 
-function assertRuntimeCurrent(expected) {
-  const current = fingerprint();
+function assertRuntimeCurrent(expected, provider) {
+  const current = fingerprint(provider);
   if (!canonicalJsonBytes(current).equals(canonicalJsonBytes(expected))) {
     fail("runtime fingerprint changed after preparation");
   }
@@ -494,6 +599,13 @@ async function run(options) {
         mcpConfig: paths["empty-mcp-config"],
       }),
     });
+  } else if (transmission.provider === "google") {
+    adapter = antigravityCliAdapter;
+    request = Object.freeze({
+      toolchain: transmission.toolchain,
+      controller,
+      timeoutMs,
+    });
   } else {
     fail(`Unsupported prepared provider: ${transmission.provider}`);
   }
@@ -502,7 +614,7 @@ async function run(options) {
     allowExternalModelCall: true,
     authorization,
     assertCurrent: async (current) => {
-      assertRuntimeCurrent(current.runtimeFingerprint);
+      assertRuntimeCurrent(current.runtimeFingerprint, current.provider);
       if (
         sha256Hex(readFileSync(CONTROLLER_PATH)) !==
         current.continuationPolicy.controllerSha256

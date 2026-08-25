@@ -5,7 +5,7 @@ import { performance } from "node:perf_hooks";
 import { TextDecoder } from "node:util";
 
 /**
- * @typedef {"openai" | "anthropic"} EvaluationProvider
+ * @typedef {"openai" | "anthropic" | "google"} EvaluationProvider
  */
 
 /**
@@ -89,6 +89,7 @@ const SESSION_KEYS = Object.freeze([
 const SUITE_ARTIFACT_KEYS = Object.freeze(["mediaType", "relativePath"]);
 const PROVIDER_TRANSPORT = Object.freeze({
   anthropic: "claude-cli",
+  google: "antigravity-cli",
   openai: "codex-app-server",
 });
 const INPUT_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;

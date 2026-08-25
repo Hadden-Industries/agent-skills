@@ -4,7 +4,7 @@ This maintainer-only directory evaluates the deployable skill in `skills/committ
 
 ## Shared Runtime
 
-The repository-wide [Shared Runtime](../README.md) defines packet preparation, exact external-call authorization, evidence files, the Codex adapter, stable evaluation homes, failure classes, historical-schema handling, and sensitive-data rules. This document defines only the `committing-to-git` fixtures, schedule, controller and capability deviations, blinding, grading, and suite commands.
+The repository-wide [Shared Runtime](../README.md) defines packet preparation, exact external-call authorization, evidence files, provider adapters and capability profiles, stable evaluation homes, failure classes, historical-schema handling, and sensitive-data rules. This document defines only the `committing-to-git` fixtures, schedule, controller and capability deviations, blinding, grading, and suite commands.
 
 | Artifact                        | Purpose                                                                                                      |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -152,6 +152,63 @@ For an ambiguous fixture, the predetermined exact scope is disclosed only after 
 
 The suite result retains clarification and `commitAuthorization` decisions, the authoritative final answer, and provider usage. Grade the normalized command/file events together with the independently captured initial and final Git facts; prose never substitutes for the repository state. The runner never pushes.
 
+## Antigravity policy-only harness
+
+Google Antigravity is supported only for the six active policy cases derived from
+the manifest: IDs 3, 12, 15, 17, 23, and 24. This is a text-only reasoning
+profile, not another arm of the executable Git benchmark. It creates no Git
+fixture and permits no command, tool, approval, signing, commit, or push action.
+The control arm receives no treatment; the old-skill and new-skill arms receive
+the complete pinned treatment bundle explicitly composed into the packet-bound
+user message. The runner does not rely on ambient skill discovery.
+
+| Requested behavior                                       | Policy-only disposition                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------- |
+| Manifest case with `execution_mode: executable`          | Rejected during preparation before evidence or model launch |
+| Provider or transport other than Google/Antigravity      | Rejected during preparation or packet validation            |
+| Command, file, approval, tool, or subagent action        | Unsupported; any observed provider step fails the run       |
+| Signing, committing, or pushing                          | Unreachable because no Git fixture or mutation port exists  |
+| Google catalog or zero-turn authentication probe         | Unsupported; `preflight` rejects the prepared Google packet |
+| Dangerous permission, agent, resume, plugin, or MCP flag | Rejected as a reserved provider-control prefix argument     |
+
+Create the matched policy schedule locally without making a model call:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs policy-plan --repository-root C:\absolute\agent-skills --seed SEED --provider google --model gemini-3.5-flash-low --effort low --repetitions 5 --output C:\absolute\policy-plan.json
+```
+
+Prepare one scheduled arm into a new absolute destination, using an existing
+empty working directory outside every Git repository and the absolute reviewed
+Antigravity executable:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs prepare-policy --repository-root C:\absolute\agent-skills --case-id 3 --arm new-skill --provider google --model gemini-3.5-flash-low --effort low --repetition 1 --sequence 1 --seed SEED --working-dir C:\absolute\empty --destination C:\absolute\new-policy-session --antigravity-command C:\absolute\agy.exe
+```
+
+Repeatable `--antigravity-prefix-arg` options are available only for a reviewed
+wrapper toolchain. Preparation pins Antigravity CLI version 1.1.19, its help and
+executable fingerprints, the no-tool capability profile, the complete prompt,
+and every treatment byte into the ordinary shared transmission packet. Review
+and authorize that exact packet through the common authorization boundary, then
+invoke the ordinary `run` command:
+
+```text
+node evals/committing-to-git/run-evaluation-session.mjs run --prepared-session C:\absolute\new-policy-session --authorization C:\absolute\authorization.json --allow-external-model-call
+```
+
+There is no Google `catalog` or zero-turn `preflight` route. The adapter uses
+cached Antigravity credentials, starts exactly one pinned `stream-json` process,
+disables slash commands, requests sandboxing and the `request-review`
+permission mode, and rejects any observed tool or subagent step. Do not use
+`--dangerously-skip-permissions`, change Antigravity settings, or infer provider
+readiness by making an unapproved model call.
+
+Only records labeled `profile: "policy-only"` are valid outputs of this lane.
+Native cumulative Antigravity usage is useful for comparisons within this
+provider and profile, but it is not normalized for direct comparison with
+app-server telemetry. Policy-only results must not be pooled with executable
+fixture results or used to claim Git-state correctness.
+
 After all three records for each matched block exist, create a grading package and separate private arm mapping:
 
 ```text
@@ -213,7 +270,7 @@ Any inconsistent answer is a documentation defect even if deterministic tests pa
 
 ## Historical results
 
-The three `2026-08-22-*.json` files predate schema version 2 and remain immutable historical evidence. They document a Luna policy pilot, a Luna permission-boundary smoke run, and a Gemini explicit-activation run, including their limitations. They are not active post-cutover treatment results and must not be used to claim the successor passed model or human gates.
+The three `2026-08-22-*.json` files predate schema version 2 and remain immutable historical evidence. They document a Luna policy pilot, a Luna permission-boundary smoke run, and a Gemini explicit-activation run, including their limitations. The Gemini record used Antigravity 1.1.18 and is not migrated into the pinned 1.1.19 policy-only profile. These records are not active post-cutover treatment results and must not be used to claim the successor passed model or human gates.
 
 Run deterministic repository verification with:
 

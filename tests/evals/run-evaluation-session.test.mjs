@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +35,13 @@ const fakeCodex = path.join(
   "scripts",
   "fixtures",
   "fake-codex-app-server.mjs",
+);
+const fakeAntigravity = path.join(
+  root,
+  "tests",
+  "scripts",
+  "fixtures",
+  "fake-antigravity-cli.mjs",
 );
 
 function invoke(args) {
@@ -87,6 +100,58 @@ function fixture() {
     skill,
     temporary,
     working,
+  };
+}
+
+function googleFixture() {
+  const temporary = mkdtempSync(
+    path.join(tmpdir(), "defining-concepts-google-"),
+  );
+  const prompt = path.join(temporary, "prompt.txt");
+  const skill = path.join(temporary, "SKILL.md");
+  const destination = path.join(temporary, "prepared");
+  const working = path.join(temporary, "working");
+  const record = path.join(temporary, "provider.jsonl");
+  writeFileSync(prompt, "Define the registry concept Dataset.", "utf8");
+  writeFileSync(skill, "# Test skill\n\nFollow the workflow.\n\n", "utf8");
+  return {
+    destination,
+    prompt,
+    record,
+    skill,
+    temporary,
+    working,
+    prepareArgs: [
+      "prepare",
+      "--prompt-file",
+      prompt,
+      "--destination",
+      destination,
+      "--working-dir",
+      working,
+      "--arm",
+      "with_skill",
+      "--eval-id",
+      "1",
+      "--repetition",
+      "1",
+      "--provider",
+      "antigravity",
+      "--model",
+      "gemini-3.5-flash-low",
+      "--effort",
+      "low",
+      "--skill-file",
+      skill,
+      "--antigravity-command",
+      process.execPath,
+      "--antigravity-prefix-arg",
+      fakeAntigravity,
+      "--antigravity-prefix-arg",
+      "--record-file",
+      "--antigravity-prefix-arg",
+      record,
+    ],
   };
 }
 
@@ -354,4 +419,128 @@ test("Codex preparation binds App Server transport and a managed execution home"
     ).content,
   );
   assert.equal(settings.evaluationHomesRoot, homes);
+});
+
+test("Antigravity preparation binds one explicit post-activation message without a model turn", () => {
+  const context = googleFixture();
+  const result = invoke(context.prepareArgs);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    records(context.record).some(({ mode }) => mode === "model"),
+    false,
+  );
+  const packet = JSON.parse(
+    readFileSync(path.join(context.destination, "packet.json"), "utf8"),
+  );
+  assert.equal(packet.transmission.provider, "google");
+  assert.equal(packet.transmission.transport, "antigravity-cli");
+  assert.equal(packet.transmission.toolchain.version, "1.1.19");
+  assert.deepEqual(packet.transmission.capabilities, {
+    network: false,
+    providerFacilities: ["provider-default-context"],
+    tools: [],
+    webSearch: false,
+  });
+  const userInputs = packet.transmission.harnessControlledInputs.filter(
+    ({ role }) => role === "user",
+  );
+  assert.equal(userInputs.length, 1);
+  assert.match(userInputs[0].content, /# Isolated behavioral evaluation/u);
+  assert.match(userInputs[0].content, /# Task-specific skill/u);
+  assert.match(userInputs[0].content, /# Test skill/u);
+  assert.match(userInputs[0].content, /# User task/u);
+  assert.match(userInputs[0].content, /Define the registry concept Dataset\./u);
+  assert.ok(
+    userInputs[0].content.includes(
+      "# Task-specific skill\n\n# Test skill\n\nFollow the workflow.\n\n\n# User task",
+    ),
+    "the composed prompt must preserve the complete skill text",
+  );
+  assert.deepEqual(
+    packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
+    [
+      "evals/defining-concepts/run-evaluation-session.mjs",
+      "evals/defining-concepts/session-controller.mjs",
+      "scripts/evaluation/runtime.js",
+      "scripts/evaluation/antigravity-cli.js",
+    ],
+  );
+});
+
+test("Antigravity run launches only after exact authorization and retains shared evidence", () => {
+  const context = googleFixture();
+  const prepared = invoke(context.prepareArgs);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const packet = JSON.parse(
+    readFileSync(path.join(context.destination, "packet.json"), "utf8"),
+  );
+  const authorization = path.join(context.temporary, "authorization.json");
+  writeFileSync(
+    authorization,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      decision: "authorized",
+      statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+      allowExternalModel: true,
+      provider: "google",
+      model: packet.transmission.model,
+      effort: packet.transmission.effort,
+      transmissionSha256: packet.transmissionSha256,
+    })}\n`,
+    "utf8",
+  );
+  const result = invoke([
+    "run",
+    "--prepared-session",
+    context.destination,
+    "--authorization",
+    authorization,
+    "--allow-external-model-call",
+    "--timeout-ms",
+    "5000",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    records(context.record).filter(({ mode }) => mode === "model").length,
+    1,
+  );
+  const run = JSON.parse(
+    readFileSync(path.join(context.destination, "run.json"), "utf8"),
+  );
+  assert.equal(run.status, "completed");
+  assert.deepEqual(run.suiteResult, {
+    finalAnswer: "Authoritative Google answer\n",
+  });
+});
+
+test("Antigravity preparation requires an explicit absolute executable", () => {
+  const context = googleFixture();
+  const commandIndex = context.prepareArgs.indexOf("--antigravity-command") + 1;
+  context.prepareArgs[commandIndex] = "agy";
+  const result = invoke(context.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /antigravity-command.*absolute/iu);
+  assert.equal(existsSync(context.destination), false);
+  assert.equal(
+    records(context.record).some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
+test("Antigravity preparation rejects a working directory inside a repository", () => {
+  const context = googleFixture();
+  const repository = path.join(context.temporary, "repository");
+  const working = path.join(repository, "empty-working");
+  mkdirSync(path.join(repository, ".git"), { recursive: true });
+  mkdirSync(working);
+  const workingIndex = context.prepareArgs.indexOf("--working-dir") + 1;
+  context.prepareArgs[workingIndex] = working;
+  const result = invoke(context.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /working directory.*repository/iu);
+  assert.equal(existsSync(context.destination), false);
+  assert.equal(
+    records(context.record).some(({ mode }) => mode === "model"),
+    false,
+  );
 });

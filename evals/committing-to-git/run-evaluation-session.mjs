@@ -6,16 +6,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
   buildEvaluationSchedule,
+  buildPolicyEvaluationSchedule,
   createBlindedGradingBundle,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
+  listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
+  preparePolicyEvaluationSession,
 } from "./evaluation-runner.mjs";
+import { inspectAntigravityCliToolchain } from "../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
 import { evaluationHomesRootFromLocalAppData } from "../../scripts/evaluation/evaluation-homes.js";
 
@@ -34,6 +38,15 @@ function parseOptions(tokens) {
     }
 
     const name = flag.slice(2);
+
+    if (name === "antigravity-prefix-arg") {
+      const value = tokens[index + 1];
+      if (value === undefined) fail(`Option ${flag} requires a value`);
+      options[name] ??= [];
+      options[name].push(value);
+      index += 1;
+      continue;
+    }
 
     if (Object.hasOwn(options, name)) {
       fail(`Duplicate option ${flag}`);
@@ -168,6 +181,17 @@ function codexToolchainCommand(options) {
   return { prefixArguments: [], command: "codex" };
 }
 
+function antigravityToolchainCommand(options) {
+  const command = required(options, "antigravity-command");
+  if (!isAbsolute(command)) {
+    fail("Option --antigravity-command must be an absolute path");
+  }
+  return {
+    command,
+    prefixArguments: options["antigravity-prefix-arg"] ?? [],
+  };
+}
+
 function environmentProfile() {
   const names =
     process.platform === "win32"
@@ -207,6 +231,31 @@ async function runPlan(options) {
 
   writeArtifactOrOutput(options, plan, {
     command: "plan",
+    modelCalls: 0,
+    schemaVersion: 1,
+    sessionCount: plan.sessions.length,
+  });
+}
+
+async function runPolicyPlan(options) {
+  const repositoryRoot = resolve(options["repository-root"] ?? process.cwd());
+  const seed = required(options, "seed");
+  const plan = {
+    command: "policy-plan",
+    modelCalls: 0,
+    schemaVersion: 1,
+    seed,
+    sessions: buildPolicyEvaluationSchedule({
+      seed,
+      provider: required(options, "provider"),
+      model: required(options, "model"),
+      effort: required(options, "effort"),
+      repetitions: positiveInteger(options, "repetitions"),
+      caseIds: listPolicyEvaluationCaseIds(repositoryRoot),
+    }),
+  };
+  writeArtifactOrOutput(options, plan, {
+    command: "policy-plan",
     modelCalls: 0,
     schemaVersion: 1,
     sessionCount: plan.sessions.length,
@@ -292,6 +341,39 @@ async function runPrepare(options) {
     schemaVersion: 1,
     sessionRoot: prepared.preparedSession,
     transmissionSha256: prepared.packet.transmissionSha256,
+  });
+}
+
+async function runPreparePolicy(options) {
+  const environment = environmentProfile();
+  const toolchain = await inspectAntigravityCliToolchain({
+    ...antigravityToolchainCommand(options),
+    environment,
+  });
+  const prepared = await preparePolicyEvaluationSession({
+    arm: required(options, "arm"),
+    caseId: positiveInteger(options, "case-id"),
+    destination: resolve(required(options, "destination")),
+    effort: required(options, "effort"),
+    environment,
+    model: required(options, "model"),
+    provider: required(options, "provider"),
+    repetition: positiveInteger(options, "repetition"),
+    repositoryRoot: resolve(options["repository-root"] ?? process.cwd()),
+    seed: required(options, "seed"),
+    sequence: positiveInteger(options, "sequence"),
+    toolchain,
+    workingDirectory: resolve(required(options, "working-dir")),
+  });
+  writeOutput({
+    command: "prepare-policy",
+    modelCalls: 0,
+    packetPath: join(prepared.preparedSession, "packet.json"),
+    profile: "policy-only",
+    schemaVersion: 1,
+    sessionRoot: prepared.preparedSession,
+    transmissionSha256: prepared.packet.transmissionSha256,
+    workingDirectory: prepared.workingDirectory,
   });
 }
 
@@ -412,6 +494,17 @@ async function main() {
   if (command === "plan") {
     assertAllowedOptions(options, ["seed", "output"]);
     await runPlan(options);
+  } else if (command === "policy-plan") {
+    assertAllowedOptions(options, [
+      "effort",
+      "model",
+      "output",
+      "provider",
+      "repetitions",
+      "repository-root",
+      "seed",
+    ]);
+    await runPolicyPlan(options);
   } else if (command === "catalog") {
     assertAllowedOptions(options, ["repository-root", "codex-home", "output"]);
     await runCatalog(options);
@@ -435,6 +528,23 @@ async function main() {
       "sequence",
     ]);
     await runPrepare(options);
+  } else if (command === "prepare-policy") {
+    assertAllowedOptions(options, [
+      "antigravity-command",
+      "antigravity-prefix-arg",
+      "arm",
+      "case-id",
+      "destination",
+      "effort",
+      "model",
+      "provider",
+      "repetition",
+      "repository-root",
+      "seed",
+      "sequence",
+      "working-dir",
+    ]);
+    await runPreparePolicy(options);
   } else if (command === "run") {
     assertAllowedOptions(options, [
       "prepared-session",
@@ -460,7 +570,7 @@ async function main() {
     await runBlind(options);
   } else {
     fail(
-      "Usage: run-evaluation-session.mjs <plan|catalog|prepare|preflight|run|blind> [options]",
+      "Usage: run-evaluation-session.mjs <plan|policy-plan|catalog|prepare|prepare-policy|preflight|run|blind> [options]",
     );
   }
 }

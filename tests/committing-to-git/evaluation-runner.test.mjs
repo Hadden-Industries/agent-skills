@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -23,13 +24,17 @@ import {
   EVALUATION_CASE_IDS,
   EVALUATION_MODELS,
   PINNED_SKILL_COMMITS,
+  buildPolicyEvaluationSchedule,
   buildEvaluationSchedule,
   createBlindedGradingBundle,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
+  listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
+  preparePolicyEvaluationSession,
 } from "../../evals/committing-to-git/evaluation-runner.mjs";
+import { inspectAntigravityCliToolchain } from "../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
 import {
   initializeEvaluationHomes,
@@ -54,6 +59,13 @@ const RUNNER_CLI = join(
   "evals",
   "committing-to-git",
   "run-evaluation-session.mjs",
+);
+const FAKE_ANTIGRAVITY = join(
+  REPOSITORY_ROOT,
+  "tests",
+  "scripts",
+  "fixtures",
+  "fake-antigravity-cli.mjs",
 );
 
 function temporaryRoot(t, prefix = "committing-to-git-runner-") {
@@ -136,6 +148,43 @@ async function preparedFixture(t, options = {}) {
     toolchain: inspectedToolchain,
   });
   return { homes, prepared, root };
+}
+
+async function policyPreparedFixture(t, options = {}) {
+  const root = temporaryRoot(t, "committing-to-git-policy-");
+  const workingDirectory = join(root, "working");
+  mkdirSync(workingDirectory);
+  const recordFile = join(root, "antigravity.jsonl");
+  const environment = testEnvironment();
+  delete environment.FAKE_APP_SERVER_SCENARIO;
+  environment.EVALUATION_VISIBLE = "policy-packet";
+  const inspectedToolchain = await inspectAntigravityCliToolchain({
+    command: process.execPath,
+    prefixArguments: [
+      FAKE_ANTIGRAVITY,
+      "--record-file",
+      recordFile,
+      "--scenario",
+      options.scenario ?? "happy",
+    ],
+    environment,
+  });
+  const prepared = await preparePolicyEvaluationSession({
+    arm: options.arm ?? "new-skill",
+    caseId: options.caseId ?? 3,
+    destination: join(root, "prepared"),
+    effort: "low",
+    environment,
+    model: "gemini-3.5-flash-low",
+    provider: options.provider ?? "google",
+    repetition: 1,
+    repositoryRoot: REPOSITORY_ROOT,
+    seed: "google-policy-seed",
+    sequence: 1,
+    toolchain: inspectedToolchain,
+    workingDirectory,
+  });
+  return { prepared, recordFile, root, workingDirectory };
 }
 
 function authorization(packet, overrides = {}) {
@@ -442,12 +491,15 @@ test("evaluation runner exports only the migrated orchestration surface", async 
     "EVALUATION_MODELS",
     "PINNED_SKILL_COMMITS",
     "buildEvaluationSchedule",
+    "buildPolicyEvaluationSchedule",
     "captureGitState",
     "createBlindedGradingBundle",
     "discoverRuntimeIsolationCatalog",
     "executePreparedEvaluationSession",
+    "listPolicyEvaluationCaseIds",
     "preflightPreparedEvaluationSession",
     "prepareEvaluationSession",
+    "preparePolicyEvaluationSession",
   ]);
 });
 
@@ -471,6 +523,288 @@ test("the seeded matrix remains 306 deterministic matched sessions", () => {
     "old-skill": "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
     "new-skill": "ec064b1f8177d9542a82f478ca3b1ce5e44ee702",
   });
+});
+
+test("Google policy schedule derives only manifest policy cases and leaves the executable matrix unchanged", () => {
+  const caseIds = listPolicyEvaluationCaseIds(REPOSITORY_ROOT);
+  assert.deepEqual(caseIds, [3, 12, 15, 17, 23, 24]);
+  const options = {
+    seed: "google-policy-seed",
+    provider: "google",
+    model: "gemini-3.5-flash-low",
+    effort: "low",
+    repetitions: 2,
+    caseIds,
+  };
+  const schedule = buildPolicyEvaluationSchedule(options);
+  assert.equal(schedule.length, 36);
+  assert.deepEqual(schedule, buildPolicyEvaluationSchedule(options));
+  assert.equal(buildEvaluationSchedule("step-3-seed").length, 306);
+  assert.deepEqual(
+    new Set(schedule.map(({ caseId }) => caseId)),
+    new Set(caseIds),
+  );
+  assert.deepEqual(
+    new Set(schedule.map(({ arm }) => arm)),
+    new Set(EVALUATION_ARMS),
+  );
+  assert.deepEqual(
+    new Set(schedule.map(({ provider }) => provider)),
+    new Set(["google"]),
+  );
+  assert.deepEqual(
+    new Set(schedule.map(({ profile }) => profile)),
+    new Set(["policy-only"]),
+  );
+});
+
+test("Google policy preparation composes the complete pinned treatment without a Git fixture or model turn", async (t) => {
+  const { prepared, recordFile, workingDirectory } =
+    await policyPreparedFixture(t);
+  const packet = prepared.packet;
+  assert.equal(packet.transmission.provider, "google");
+  assert.equal(packet.transmission.transport, "antigravity-cli");
+  assert.equal(packet.transmission.session.metadata.profile, "policy-only");
+  assert.equal(
+    packet.transmission.isolation.workingDirectory,
+    workingDirectory,
+  );
+  assert.equal(existsSync(join(prepared.preparedSession, "fixture")), false);
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "treatment", "SKILL.md")),
+    true,
+  );
+  const prompt = packet.transmission.harnessControlledInputs.find(
+    ({ role }) => role === "user",
+  ).content;
+  for (const path of [
+    "SKILL.md",
+    "references/inspection-recovery.md",
+    "references/message-format.md",
+    "references/publication-recovery.md",
+    "references/signature-recovery.md",
+    "references/transaction-recovery.md",
+    "scripts/commitWorkflow.mjs",
+  ]) {
+    const beginMarker = `<BEGIN_SKILL_FILE path="${path}">`;
+    const endMarker = `<END_SKILL_FILE path="${path}">`;
+    const content = readFileSync(
+      join(prepared.preparedSession, "treatment", ...path.split("/")),
+      "utf8",
+    );
+    const framingNewline = content.endsWith("\n") ? "" : "\n";
+    assert.ok(
+      prompt.includes(
+        `${beginMarker}\n${content}${framingNewline}${endMarker}`,
+      ),
+      `prompt must preserve every treatment character for ${path}`,
+    );
+  }
+  assert.match(prompt, /# User task/u);
+  assert.match(prompt, /File Changes:/u);
+  const records = existsSync(recordFile)
+    ? readFileSync(recordFile, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map(JSON.parse)
+    : [];
+  assert.equal(
+    records.some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
+test("Google policy preparation rejects executable cases before creating evidence or launching", async (t) => {
+  const root = temporaryRoot(t, "committing-to-git-policy-reject-");
+  const workingDirectory = join(root, "working");
+  mkdirSync(workingDirectory);
+  const recordFile = join(root, "antigravity.jsonl");
+  const environment = { PATH: process.env.PATH ?? "" };
+  const inspectedToolchain = await inspectAntigravityCliToolchain({
+    command: process.execPath,
+    prefixArguments: [FAKE_ANTIGRAVITY, "--record-file", recordFile],
+    environment,
+  });
+  const destination = join(root, "prepared");
+  await assert.rejects(
+    preparePolicyEvaluationSession({
+      arm: "no-skill",
+      caseId: 4,
+      destination,
+      effort: "low",
+      environment,
+      model: "gemini-3.5-flash-low",
+      provider: "google",
+      repetition: 1,
+      repositoryRoot: REPOSITORY_ROOT,
+      seed: "reject-seed",
+      sequence: 1,
+      toolchain: inspectedToolchain,
+      workingDirectory,
+    }),
+    /policy-only|execution_mode|policy case/iu,
+  );
+  assert.equal(existsSync(destination), false);
+  const records = readFileSync(recordFile, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map(JSON.parse);
+  assert.equal(
+    records.some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
+test("policy preparation rejects a non-Google provider before creating evidence", async (t) => {
+  const root = temporaryRoot(t, "committing-to-git-policy-provider-");
+  const workingDirectory = join(root, "working");
+  const destination = join(root, "prepared");
+  mkdirSync(workingDirectory);
+  await assert.rejects(
+    preparePolicyEvaluationSession({
+      arm: "no-skill",
+      caseId: 3,
+      destination,
+      effort: "low",
+      environment: {},
+      model: "gpt-5.6-luna",
+      provider: "openai",
+      repetition: 1,
+      repositoryRoot: REPOSITORY_ROOT,
+      seed: "reject-provider-seed",
+      sequence: 1,
+      toolchain: null,
+      workingDirectory,
+    }),
+    /require.*Google|provider.*Google/iu,
+  );
+  assert.equal(existsSync(destination), false);
+});
+
+test("Google policy execution uses the shared authorization and one-turn evidence path", async (t) => {
+  const { prepared, recordFile } = await policyPreparedFixture(t, {
+    arm: "no-skill",
+  });
+  const result = await executePreparedEvaluationSession({
+    preparedSession: prepared,
+    authorization: authorization(prepared.packet),
+    allowExternalModelCall: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.status, "completed", result.error?.message);
+  assert.deepEqual(result.suiteResult, {
+    finalAnswer: "Authoritative Google answer\n",
+    profile: "policy-only",
+  });
+  const records = readFileSync(recordFile, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map(JSON.parse);
+  assert.equal(records.filter(({ mode }) => mode === "model").length, 1);
+  await assert.rejects(
+    preflightPreparedEvaluationSession({
+      preparedSession: prepared,
+      allowZeroTurnPreflight: true,
+    }),
+    /OpenAI|zero-turn|Antigravity/iu,
+  );
+});
+
+test("CLI policy-plan is deterministic and performs no model execution", () => {
+  const args = [
+    RUNNER_CLI,
+    "policy-plan",
+    "--seed",
+    "cli-policy-seed",
+    "--provider",
+    "google",
+    "--model",
+    "gemini-3.5-flash-low",
+    "--effort",
+    "low",
+    "--repetitions",
+    "2",
+  ];
+  const first = spawnSync(process.execPath, args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+  });
+  const second = spawnSync(process.execPath, args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(first.stdout, second.stdout);
+  const output = JSON.parse(first.stdout);
+  assert.equal(output.command, "policy-plan");
+  assert.equal(output.modelCalls, 0);
+  assert.equal(output.sessions.length, 36);
+});
+
+test("CLI prepare-policy pins Antigravity and creates no fixture or model turn", (t) => {
+  const root = temporaryRoot(t, "committing-to-git-policy-cli-");
+  const destination = join(root, "prepared");
+  const workingDirectory = join(root, "working");
+  const recordFile = join(root, "antigravity.jsonl");
+  mkdirSync(workingDirectory);
+  const result = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "prepare-policy",
+      "--repository-root",
+      REPOSITORY_ROOT,
+      "--case-id",
+      "3",
+      "--arm",
+      "new-skill",
+      "--provider",
+      "google",
+      "--model",
+      "gemini-3.5-flash-low",
+      "--effort",
+      "low",
+      "--repetition",
+      "1",
+      "--sequence",
+      "1",
+      "--seed",
+      "cli-policy-seed",
+      "--working-dir",
+      workingDirectory,
+      "--destination",
+      destination,
+      "--antigravity-command",
+      process.execPath,
+      "--antigravity-prefix-arg",
+      FAKE_ANTIGRAVITY,
+      "--antigravity-prefix-arg",
+      "--record-file",
+      "--antigravity-prefix-arg",
+      recordFile,
+    ],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.command, "prepare-policy");
+  assert.equal(output.modelCalls, 0);
+  assert.equal(output.profile, "policy-only");
+  assert.equal(existsSync(join(destination, "fixture")), false);
+  const packet = JSON.parse(
+    readFileSync(join(destination, "packet.json"), "utf8"),
+  );
+  assert.equal(packet.transmission.provider, "google");
+  assert.equal(packet.transmission.toolchain.version, "1.1.19");
+  const records = readFileSync(recordFile, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map(JSON.parse);
+  assert.equal(
+    records.some(({ mode }) => mode === "model"),
+    false,
+  );
 });
 
 test("preparation writes a common packet without packet-local runtime homes", async (t) => {

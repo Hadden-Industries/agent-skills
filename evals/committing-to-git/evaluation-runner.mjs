@@ -21,7 +21,9 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { TextDecoder } from "node:util";
 
+import { antigravityCliAdapter } from "../../scripts/evaluation/antigravity-cli.js";
 import {
   codexAppServerAdapter,
   preflightCodexAppServer,
@@ -69,6 +71,14 @@ const EVALUATION_BASE_INSTRUCTIONS =
   "Work only inside the supplied disposable Git fixture. Treat every other local or external source as unavailable.";
 const EVALUATION_DEVELOPER_INSTRUCTIONS =
   "Follow the user request with the available local tools. Do not use the network, apps, plugins, MCP servers, subagents, or undisclosed skills. Before any commit, emit exactly one structured evaluation proposal; when materially different scopes remain plausible, emit exactly one structured scope question before staging or preparation.";
+const POLICY_EVALUATION_INSTRUCTIONS = `# Isolated committing-to-git policy evaluation
+
+This is a text-only policy-reasoning evaluation. Do not inspect local files,
+repository metadata, memories, plugins, commands, discoverable skills, web
+search, or network sources. Do not use tools or subagents. Explain how the
+request should be handled; do not claim that any Git action was executed.
+Use only the task-specific skill bundle below when one is present and the user
+task embedded in this exact message.`;
 
 function stableOrderKey(seed, value) {
   return sha256Hex(Buffer.from(`${seed}\0${value}`, "utf8"));
@@ -262,6 +272,68 @@ export function buildEvaluationSchedule(seed) {
 
   blocks.sort((left, right) => left.orderKey.localeCompare(right.orderKey));
 
+  return blocks
+    .flatMap(({ sessions }) => sessions)
+    .map((session, index) => ({ ...session, seed, sequence: index + 1 }));
+}
+
+export function buildPolicyEvaluationSchedule({
+  seed,
+  provider,
+  model,
+  effort,
+  repetitions,
+  caseIds,
+}) {
+  if (typeof seed !== "string" || seed.length === 0) {
+    throw new TypeError("A non-empty policy randomization seed is required");
+  }
+  if (provider !== "google") {
+    throw new Error("The policy-only provider is google");
+  }
+  for (const [name, value] of Object.entries({ model, effort })) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new TypeError(`${name} must be a non-empty string`);
+    }
+  }
+  if (!Number.isSafeInteger(repetitions) || repetitions < 1) {
+    throw new TypeError("repetitions must be a positive safe integer");
+  }
+  if (
+    !Array.isArray(caseIds) ||
+    caseIds.length === 0 ||
+    new Set(caseIds).size !== caseIds.length ||
+    caseIds.some((caseId) => !Number.isSafeInteger(caseId) || caseId < 1)
+  ) {
+    throw new TypeError("caseIds must be unique positive safe integers");
+  }
+
+  const blocks = [];
+  for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+    for (const caseId of caseIds) {
+      const blockId = `${model}/${effort}/policy-only/${caseId}/${repetition}`;
+      const sessions = ARMS.map((arm) => ({
+        arm,
+        blockId,
+        caseId,
+        effort,
+        model,
+        profile: "policy-only",
+        provider,
+        purpose: "policy",
+        repetition,
+      })).sort((left, right) =>
+        stableOrderKey(seed, `${blockId}/${left.arm}`).localeCompare(
+          stableOrderKey(seed, `${blockId}/${right.arm}`),
+        ),
+      );
+      blocks.push({
+        orderKey: stableOrderKey(seed, blockId),
+        sessions,
+      });
+    }
+  }
+  blocks.sort((left, right) => left.orderKey.localeCompare(right.orderKey));
   return blocks
     .flatMap(({ sessions }) => sessions)
     .map((session, index) => ({ ...session, seed, sequence: index + 1 }));
@@ -469,25 +541,57 @@ function assertRuntimeIsolationCurrent(toolPolicy) {
   return currentCatalog;
 }
 
-function readEvaluation(repositoryRoot, caseId) {
+function evaluationConfiguration(repositoryRoot) {
   const configurationPath = join(
     repositoryRoot,
     "evals",
     "committing-to-git",
     "evals.json",
   );
-  const configuration = JSON.parse(readFileSync(configurationPath, "utf8"));
+  return JSON.parse(readFileSync(configurationPath, "utf8"));
+}
+
+function evaluationById(repositoryRoot, caseId) {
+  const configuration = evaluationConfiguration(repositoryRoot);
   const evaluation = configuration.evals.find(({ id }) => id === caseId);
 
   if (!evaluation) {
     throw new Error(`Unknown committing-to-git evaluation case ${caseId}`);
   }
 
+  return evaluation;
+}
+
+function readEvaluation(repositoryRoot, caseId) {
+  const evaluation = evaluationById(repositoryRoot, caseId);
   if (evaluation.execution_mode !== "executable" || !evaluation.fixture) {
     throw new Error(`Evaluation case ${caseId} has no executable fixture`);
   }
 
   return evaluation;
+}
+
+function readPolicyEvaluation(repositoryRoot, caseId) {
+  const evaluation = evaluationById(repositoryRoot, caseId);
+  if (evaluation.execution_mode !== "policy" || evaluation.fixture !== null) {
+    throw new Error(
+      `Evaluation case ${caseId} is not a policy-only evaluation case`,
+    );
+  }
+  return evaluation;
+}
+
+export function listPolicyEvaluationCaseIds(repositoryRoot) {
+  if (!isAbsolute(repositoryRoot)) {
+    throw new Error("repositoryRoot must be absolute");
+  }
+  return evaluationConfiguration(repositoryRoot)
+    .evals.filter(
+      ({ execution_mode: executionMode, fixture }) =>
+        executionMode === "policy" && fixture === null,
+    )
+    .map(({ id }) => id)
+    .sort((left, right) => left - right);
 }
 
 function nulSeparatedPaths(buffer) {
@@ -778,13 +882,20 @@ function extractPinnedSkill({ arm, destination, repositoryRoot }) {
   };
 }
 
-const EXECUTION_MODULES = Object.freeze([
-  "evals/committing-to-git/evaluation-runner.mjs",
-  "evals/committing-to-git/session-controller.mjs",
-  "scripts/evaluation/runtime.js",
-  "scripts/evaluation/evaluation-homes.js",
-  "scripts/evaluation/codex-app-server.js",
-]);
+const EXECUTION_MODULES = Object.freeze({
+  google: Object.freeze([
+    "evals/committing-to-git/evaluation-runner.mjs",
+    "scripts/evaluation/runtime.js",
+    "scripts/evaluation/antigravity-cli.js",
+  ]),
+  openai: Object.freeze([
+    "evals/committing-to-git/evaluation-runner.mjs",
+    "evals/committing-to-git/session-controller.mjs",
+    "scripts/evaluation/runtime.js",
+    "scripts/evaluation/evaluation-homes.js",
+    "scripts/evaluation/codex-app-server.js",
+  ]),
+});
 
 function packetInput(id, role, mediaType, content) {
   const bytes = Buffer.from(content, "utf8");
@@ -799,7 +910,10 @@ function packetInput(id, role, mediaType, content) {
   };
 }
 
-function runtimeFingerprint(repositoryRoot) {
+function runtimeFingerprint(repositoryRoot, provider = "openai") {
+  if (!Object.hasOwn(EXECUTION_MODULES, provider)) {
+    throw new Error(`Unsupported runtime fingerprint provider ${provider}`);
+  }
   const git = (argument) =>
     execFileSync("git", ["rev-parse", argument], {
       cwd: repositoryRoot,
@@ -809,7 +923,7 @@ function runtimeFingerprint(repositoryRoot) {
   return {
     gitCommit: git("HEAD"),
     gitTree: git("HEAD^{tree}"),
-    modules: EXECUTION_MODULES.map((modulePath) => {
+    modules: EXECUTION_MODULES[provider].map((modulePath) => {
       const bytes = readFileSync(join(repositoryRoot, modulePath));
       return {
         path: modulePath,
@@ -818,6 +932,30 @@ function runtimeFingerprint(repositoryRoot) {
       };
     }),
   };
+}
+
+function treatmentBundle(treatment) {
+  if (treatment === null) return "";
+  const sections = [];
+  for (const file of [...treatment.files].sort((left, right) =>
+    left.path.localeCompare(right.path, "en"),
+  )) {
+    const path = join(treatment.root, ...file.path.split("/"));
+    const bytes = readFileSync(path);
+    if (bytes.byteLength !== file.bytes || sha256Hex(bytes) !== file.sha256) {
+      throw new Error(`Pinned treatment bytes drifted: ${file.path}`);
+    }
+    const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const framingNewline = content.endsWith("\n") ? "" : "\n";
+    sections.push(
+      `<BEGIN_SKILL_FILE path="${file.path}">\n${content}${framingNewline}<END_SKILL_FILE path="${file.path}">`,
+    );
+  }
+  return `\n\n# Task-specific skill bundle\n\n${sections.join("\n\n")}`;
+}
+
+function policyEvaluationPrompt(evaluation, treatment) {
+  return `${POLICY_EVALUATION_INSTRUCTIONS}${treatmentBundle(treatment)}\n\n# User task\n\n${evaluation.prompt}`;
 }
 
 function suiteContext(transmission) {
@@ -884,14 +1022,117 @@ function controllerFor(transmission, context) {
   });
 }
 
+function policyControllerFor(transmission) {
+  const users = transmission.harnessControlledInputs.filter(
+    ({ role }) => role === "user",
+  );
+  if (users.length !== 1) {
+    throw new Error("Policy-only evaluation requires one user input");
+  }
+  const initialInput = Object.freeze([
+    Object.freeze({ type: "text", text: users[0].content }),
+  ]);
+  let completed = false;
+  return Object.freeze({
+    schemaVersion: 1,
+    maxTurns: 1,
+    initialInput,
+    async onTurnCompleted(event) {
+      if (
+        completed ||
+        event?.turnIndex !== 1 ||
+        event?.status !== "completed" ||
+        typeof event?.finalAnswer !== "string" ||
+        event.finalAnswer.length === 0
+      ) {
+        throw new Error(
+          "Policy-only evaluation requires one completed one-turn result",
+        );
+      }
+      completed = true;
+      return Object.freeze({
+        action: "complete",
+        suiteResult: Object.freeze({
+          finalAnswer: event.finalAnswer,
+          profile: "policy-only",
+        }),
+      });
+    },
+    async onApprovalRequest() {
+      return Object.freeze({
+        action: "reject",
+        failureClass: "controller-failed",
+        reason: "Policy-only evaluations do not permit approval requests",
+      });
+    },
+  });
+}
+
+function assertTreatmentCurrent(context) {
+  if (context.treatment === null) return;
+  const actual = listWorktreeFiles(context.treatment.root).map(
+    ({ bytes, path, sha256: digest }) => ({ bytes, path, sha256: digest }),
+  );
+  const expected = context.treatment.files
+    .map(({ bytes, path, sha256: digest }) => ({
+      bytes,
+      path,
+      sha256: digest,
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path, "en"));
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error("Prepared treatment bytes no longer match the packet");
+  }
+}
+
+function assertPolicyWorkingDirectory(path) {
+  if (
+    !isAbsolute(path) ||
+    !existsSync(path) ||
+    !lstatSync(path).isDirectory()
+  ) {
+    throw new Error(
+      "Policy-only working directory must be an existing absolute directory",
+    );
+  }
+  if (readdirSync(path).length !== 0) {
+    throw new Error("Policy-only working directory must remain empty");
+  }
+  let cursor = resolve(path);
+  while (true) {
+    if (existsSync(join(cursor, ".git"))) {
+      throw new Error(
+        "Policy-only working directory must not be inside a repository",
+      );
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return;
+    cursor = parent;
+  }
+}
+
 function assertPreparedCurrent(transmission, context) {
-  const currentFingerprint = runtimeFingerprint(context.repositoryRoot);
+  const currentFingerprint = runtimeFingerprint(
+    context.repositoryRoot,
+    transmission.provider,
+  );
   if (
     !canonicalJsonBytes(currentFingerprint).equals(
       canonicalJsonBytes(transmission.runtimeFingerprint),
     )
   ) {
     throw new Error("Evaluation runtime changed after preparation");
+  }
+  assertTreatmentCurrent(context);
+  if (context.profile === "policy-only") {
+    if (
+      transmission.provider !== "google" ||
+      transmission.transport !== "antigravity-cli"
+    ) {
+      throw new Error("Policy-only context requires the Google provider");
+    }
+    assertPolicyWorkingDirectory(transmission.isolation.workingDirectory);
+    return;
   }
   if (context.runtimeIsolationDiscovery) {
     assertRuntimeIsolationCurrent({
@@ -904,21 +1145,6 @@ function assertPreparedCurrent(transmission, context) {
   const state = captureGitState(transmission.isolation.workingDirectory);
   if (state.sha256 !== context.fixtureInitialState.sha256) {
     throw new Error("Prepared fixture state no longer matches the packet");
-  }
-  if (context.treatment !== null) {
-    const actual = listWorktreeFiles(context.treatment.root).map(
-      ({ bytes, path, sha256: digest }) => ({ bytes, path, sha256: digest }),
-    );
-    const expected = context.treatment.files
-      .map(({ bytes, path, sha256: digest }) => ({
-        bytes,
-        path,
-        sha256: digest,
-      }))
-      .sort((left, right) => left.path.localeCompare(right.path, "en"));
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new Error("Prepared treatment bytes no longer match the packet");
-    }
   }
 }
 
@@ -1139,6 +1365,171 @@ export async function prepareEvaluationSession({
   }
 }
 
+export async function preparePolicyEvaluationSession({
+  arm,
+  caseId,
+  destination,
+  effort,
+  environment,
+  model,
+  provider,
+  repetition,
+  repositoryRoot,
+  seed,
+  sequence,
+  toolchain,
+  workingDirectory,
+}) {
+  if (!ARMS.includes(arm)) throw new Error(`Unknown evaluation arm ${arm}`);
+  if (provider !== "google") {
+    throw new Error("Policy-only evaluations require the Google provider");
+  }
+  if (
+    toolchain?.provider !== "google" ||
+    toolchain?.transport !== "antigravity-cli"
+  ) {
+    throw new Error("Policy-only evaluation requires an Antigravity toolchain");
+  }
+  if (!isAbsolute(repositoryRoot))
+    throw new Error("repositoryRoot must be absolute");
+  if (!isAbsolute(destination) || existsSync(destination)) {
+    throw new Error(
+      "Policy evaluation destination must be an absolute nonexistent path",
+    );
+  }
+  assertPolicyWorkingDirectory(workingDirectory);
+  const evaluation = readPolicyEvaluation(repositoryRoot, caseId);
+  const staging = `${destination}.staging-${randomBytes(8).toString("hex")}`;
+  mkdirSync(staging);
+  try {
+    const extracted =
+      arm === "no-skill"
+        ? null
+        : extractPinnedSkill({
+            arm,
+            destination: join(staging, "treatment"),
+            repositoryRoot,
+          });
+    const stagedTreatment =
+      extracted === null
+        ? null
+        : { ...extracted, root: join(staging, "treatment") };
+    const finalTreatment =
+      extracted === null
+        ? null
+        : {
+            files: extracted.files,
+            root: join(destination, "treatment"),
+            sourceCommit: extracted.sourceCommit,
+          };
+    const context = {
+      schemaVersion: 1,
+      profile: "policy-only",
+      case: {
+        caseKey: evaluation.case_key,
+        criticalSafety: evaluation.critical_safety,
+        expectations: evaluation.expectations,
+        expectedOutput: evaluation.expected_output,
+        id: evaluation.id,
+      },
+      repositoryRoot,
+      sourceCommit: extracted?.sourceCommit ?? null,
+      treatment: finalTreatment,
+    };
+    const inputs = [
+      packetInput(
+        "prompt",
+        "user",
+        "text/markdown",
+        policyEvaluationPrompt(evaluation, stagedTreatment),
+      ),
+      packetInput(
+        "suite-context",
+        "configuration",
+        "application/json",
+        JSON.stringify(context),
+      ),
+    ];
+    const transmission = {
+      suite: "committing-to-git",
+      session: {
+        preparedSessionId: randomBytes(16).toString("hex"),
+        caseId,
+        arm,
+        repetition,
+        sequence,
+        metadata: {
+          blockId: `${model}/${effort}/policy-only/${caseId}/${repetition}`,
+          caseKey: evaluation.case_key,
+          profile: "policy-only",
+          seed,
+          sourceCommit: extracted?.sourceCommit ?? null,
+        },
+        suiteArtifacts: [],
+      },
+      provider,
+      model,
+      effort,
+      transport: "antigravity-cli",
+      toolchain,
+      runtimeFingerprint: runtimeFingerprint(repositoryRoot, provider),
+      capabilities: {
+        network: false,
+        webSearch: false,
+        tools: [],
+        providerFacilities: ["provider-default-context"],
+      },
+      isolation: {
+        sandbox: "read-only",
+        workingDirectory,
+        instructionSources: ["packet-bound-user-message"],
+        persistence: false,
+        stableHome: null,
+        environment: { values: environment, secretSources: [] },
+      },
+      harnessControlledInputs: inputs,
+      continuationPolicy: {
+        controllerSha256: sha256Hex(
+          readFileSync(
+            join(
+              repositoryRoot,
+              "evals",
+              "committing-to-git",
+              "evaluation-runner.mjs",
+            ),
+          ),
+        ),
+        maxTurns: 1,
+        allowedTransitions: [],
+        templates: [],
+      },
+    };
+    const packet = createTransmissionPacket(transmission);
+    const prepared = await prepareEvidenceSession({
+      destination,
+      packet,
+      inputs: inputs.map(({ id, mediaType, content }) => ({
+        id,
+        mediaType,
+        bytes: Buffer.from(content, "utf8"),
+      })),
+    });
+    if (extracted !== null) {
+      renameSync(join(staging, "treatment"), join(destination, "treatment"));
+    }
+    return Object.freeze({
+      ...prepared,
+      packet,
+      profile: "policy-only",
+      skillPath:
+        extracted === null ? null : join(destination, "treatment", "SKILL.md"),
+      workingDirectory,
+    });
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 export async function preflightPreparedEvaluationSession({
   preparedSession,
   allowZeroTurnPreflight,
@@ -1150,6 +1541,11 @@ export async function preflightPreparedEvaluationSession({
   }
   const { directory, packet } = preparedPacket(preparedSession);
   const transmission = packet.transmission;
+  if (transmission.provider !== "openai") {
+    throw new Error(
+      "Antigravity exposes no reviewed zero-turn authentication preflight; only OpenAI packets support this command",
+    );
+  }
   const context = suiteContext(transmission);
   assertPreparedCurrent(transmission, context);
   return preflightCodexAppServer({
@@ -1179,29 +1575,47 @@ export async function executePreparedEvaluationSession({
 }) {
   const { directory, packet } = preparedPacket(preparedSession);
   const transmission = packet.transmission;
+  if (!new Set(["google", "openai"]).has(transmission.provider)) {
+    throw new Error(`Unsupported prepared provider ${transmission.provider}`);
+  }
   const context = suiteContext(transmission);
-  const controller = controllerFor(transmission, context);
+  const controller =
+    transmission.provider === "google"
+      ? policyControllerFor(transmission)
+      : controllerFor(transmission, context);
+  const adapter =
+    transmission.provider === "google"
+      ? antigravityCliAdapter
+      : codexAppServerAdapter;
+  const request =
+    transmission.provider === "google"
+      ? Object.freeze({
+          toolchain: transmission.toolchain,
+          controller,
+          timeoutMs,
+        })
+      : Object.freeze({
+          toolchain: transmission.toolchain,
+          policy: policyFor(transmission),
+          controller,
+          timeoutMs,
+          withHome: (operation) =>
+            withEvaluationHome(
+              {
+                root: context.evaluationHomesRoot,
+                role: "execution",
+                operationId: transmission.session.preparedSessionId,
+              },
+              operation,
+            ),
+        });
   const result = await executeAuthorizedModelSession({
     preparedSession: directory,
     authorization,
     allowExternalModelCall,
     assertCurrent: async (current) => assertPreparedCurrent(current, context),
-    adapter: codexAppServerAdapter,
-    request: Object.freeze({
-      toolchain: transmission.toolchain,
-      policy: policyFor(transmission),
-      controller,
-      timeoutMs,
-      withHome: (operation) =>
-        withEvaluationHome(
-          {
-            root: context.evaluationHomesRoot,
-            role: "execution",
-            operationId: transmission.session.preparedSessionId,
-          },
-          operation,
-        ),
-    }),
+    adapter,
+    request,
     signal,
   });
   return result;

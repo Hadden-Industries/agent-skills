@@ -31,6 +31,7 @@ function independentSha256(bytes) {
 
 test("production evaluation modules use the shared SHA-256 owner", async () => {
   for (const relativePath of [
+    "../../scripts/evaluation/antigravity-cli.js",
     "../../scripts/evaluation/claude-cli.js",
     "../../evals/committing-to-git/evaluation-runner.mjs",
   ]) {
@@ -476,6 +477,32 @@ test("createTransmissionPacket binds every transmission domain", () => {
     const changed = createTransmissionPacket(mutateTransmission(mutate));
     assert.notEqual(changed.transmissionSha256, baseline.transmissionSha256);
   }
+});
+
+test("Google transmissions require the Antigravity CLI transport", () => {
+  const transmission = mutateTransmission((value) => {
+    value.provider = "google";
+    value.transport = "antigravity-cli";
+    value.model = "gemini-3.5-flash-low";
+  });
+
+  const packet = createTransmissionPacket(transmission);
+  assert.equal(packet.transmission.provider, "google");
+  assert.equal(packet.transmission.transport, "antigravity-cli");
+  const openai = mutateTransmission((value) => {
+    value.model = transmission.model;
+  });
+  assert.notEqual(
+    packet.transmissionSha256,
+    createTransmissionPacket(openai).transmissionSha256,
+  );
+
+  const mismatched = structuredClone(transmission);
+  mismatched.transport = "claude-cli";
+  assert.throws(
+    () => createTransmissionPacket(mismatched),
+    /transport does not match its provider/u,
+  );
 });
 
 test("array order and string bytes affect the transmission digest", () => {

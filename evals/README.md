@@ -12,7 +12,7 @@ Every new provider session crosses an explicit prepare/authorize/run boundary:
 4. Create an exact authorization artifact for that packet.
 5. Call `executeAuthorizedModelSession(...)`. The common gate acquires evidence first, validates authorization, validates current state, gives one opaque launch capability to the selected adapter, and finalizes terminal evidence.
 
-The public provider adapters are `codexAppServerAdapter` and `claudeCliAdapter`. Suites supply a controller and policy; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes. `preflightCodexAppServer(...)` is a separate zero-turn local protocol check and requires an explicit suite/operator guard.
+The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, and `antigravityCliAdapter`. Suites supply a controller and provider request; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes. `preflightCodexAppServer(...)` is a separate zero-turn local protocol check and requires an explicit suite/operator guard. Antigravity exposes no reviewed zero-turn authentication/status command, so its cached authentication is tested only by a separately authorized model launch.
 
 `evals.json` and `trigger-evals.json` remain the shared manifest surfaces. `npm run build:check` verifies matching skill/suite names, behavioral and trigger shapes, unique normalized cases, contained fixture paths, and the deployable/evaluation boundary. Mechanical validation is not model or semantic evidence.
 
@@ -77,7 +77,11 @@ OpenAI sessions use the Codex App Server adapter. It re-inspects the exact execu
 
 Anthropic sessions use the Claude CLI adapter. It pins one reviewed CLI version/capability profile, uses current documented safe-mode and output flags, preserves normal OAuth/keychain authentication, retains the provider-owned default system prompt outside the harness digest, captures provider output once, and normalizes the same result and closure interface. Unsupported versions or required capabilities fail before execution.
 
-Provider process launch belongs only to these two adapters. The operator login CLI is the sole separate process-launch path and performs no model run. Suite controllers own domain conversation semantics and permission decisions; adapters contain no concept- or Git-specific parser.
+Google sessions use the Antigravity CLI adapter. It pins reviewed version `1.1.19`, the exact executable and prefix files, and the `--help` bytes. It uses one process with `stream-json` input and output, explicit model and effort, terminal sandboxing, disabled slash commands, and request-review permissions. It never passes `--dangerously-skip-permissions`, an agent override, a conversation-resume flag, or permission allow rules. One `init` event and one terminal `result` per turn are required; raw NDJSON and stderr are retained, while final cumulative usage is normalized. Any observed tool or subagent step fails the run.
+
+Antigravity's `init.tools` inventory is evidence of advertised built-in facilities, not a claim that the CLI disabled them. The policy profile proves that no tool step appeared in a completed run; it does not prove that provider-owned tools, default instructions, global customizations, or cached account context were unavailable. An advertised plugin or MCP tool fails closed. Treatment activation is therefore explicit and packet-bound rather than delegated to automatic skill discovery.
+
+Provider process launch belongs only to these three adapters. The operator login CLI is the sole separate Codex process-launch path and performs no model run. Suite controllers own domain conversation semantics and permission decisions; adapters contain no concept- or Git-specific parser.
 
 ## Evaluation Homes
 
@@ -106,10 +110,12 @@ Common terminal execution failures use exactly these classes:
 
 Existing files under `evals/*/results/` are immutable evidence for their recorded runner and schema. Do not rewrite packet digests, retrofit the common envelope, or make an older result claim current runtime, adapter, authorization, or stable-home guarantees. Readers branch on an explicit schema/version; they do not infer a schema from absent fields.
 
+The retained `committing-to-git/results/2026-08-22-gemini-3.5-flash-low.json` record remains a legacy Antigravity 1.1.18 explicit-activation policy experiment. It is not migrated to the 1.1.19 adapter schema and does not establish automatic discovery, dynamic approvals, Git command execution, or current-run parity.
+
 New result sets keep raw provider evidence immutable and derived grading/aggregation separate. Corrections create a new record that names the superseded derivation. Every failed launch, invalid attempt, exclusion, requested model, provider-confirmed model when available, toolchain, seed, repetition, timestamp, and limitation remains visible.
 
 ## Sensitive Evidence
 
-Authentication material never enters packet inputs, transcripts, normalized events, suite artifacts, errors, or run results. The evidence API rejects authentication-bearing member names and scans structured values before persistence. Adapters redact account email, tokens, login URLs, bearer values, secrets, and provider diagnostics; environment policy forbids `OPENAI_API_KEY` and records secret sources as an empty array.
+Authentication material never enters packet inputs, transcripts, normalized events, suite artifacts, errors, or run results. The evidence API rejects authentication-bearing member names and scans structured values before persistence. Adapters redact account email, tokens, login URLs, bearer values, secrets, and provider diagnostics; environment policy forbids provider API-key variables and records secret sources as an empty array. Antigravity uses the CLI's cached credentials without exporting or inspecting their values.
 
 Evidence retains only what is needed to audit the session: account type/authentication-required state, toolchain identity, safe protocol metadata, bounded stderr, usage, timing, controller decisions, and artifact digests. Keep private arm mappings separate from blinded grading packages, and treat exact packet authorization as consent to the declared provider inputs only, never as consent to persist credentials.
