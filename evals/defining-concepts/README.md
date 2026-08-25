@@ -6,19 +6,9 @@ defines representative cases and a reproducible grading protocol. Versioned
 run evidence lives under `results/`; its presence records what occurred and
 does not by itself support a measured-improvement claim.
 
-## Contents
+## Shared Runtime
 
-- [Evaluation status](#evaluation-status)
-- [What each file measures](#what-each-file-measures)
-- [Behavioral coverage](#behavioral-coverage)
-- [Critical gates](#critical-gates)
-- [Grading protocol](#grading-protocol)
-- [Run protocol](#run-protocol)
-- [Retained result layout](#retained-result-layout)
-- [Trigger protocol](#trigger-protocol)
-- [Decision rules](#decision-rules)
-- [Deterministic validation](#deterministic-validation)
-- [Known limitations](#known-limitations)
+The repository-wide [Shared Runtime](../README.md) defines packet preparation, exact external-call authorization, evidence files, provider adapters, stable evaluation homes, failure classes, historical-schema handling, and sensitive-data rules. This document defines only the `defining-concepts` cases, controller/capability deviations, grading, and suite commands.
 
 ## Evaluation status
 
@@ -249,28 +239,17 @@ form, abbreviations, and embedded definitions directly.
 
 ## Run protocol
 
-### External service authorization
-
-Prepare the session before requesting authorization. Preparation inspects the
-selected local toolchain, freezes every harness-controlled input, and writes a
-canonical `packet.json` whose `transmissionSha256` binds the provider, model,
-effort, capabilities, isolation, exact prompt and instruction bytes, runtime
-fingerprints, and one-turn continuation policy. Preparation never performs a
-provider model turn.
-
-The maintainer must authorize that exact digest, provider, model, and effort in
-an authorization JSON file. Execution accepts only:
+Prepare one fresh arm at a time. `--working-dir` must name an empty,
+non-repository directory; `--destination` must not exist. Use `--skill-file`
+only with `with_skill`:
 
 ```text
-run --prepared-session <directory> --authorization <json-file>
-    --allow-external-model-call [--timeout-ms <positive-integer>]
+node evals/defining-concepts/run-evaluation-session.mjs prepare --prompt-file <prompt.txt> --destination <new-session> --working-dir <empty-dir> --arm <with_skill|without_skill> --provider <codex|claude> --model <model> --effort <effort> --eval-id <id> --repetition <n> [--skill-file <SKILL.md>] [--evaluation-homes-root <root>]
+node evals/defining-concepts/run-evaluation-session.mjs run --prepared-session <new-session> --authorization <authorization.json> --allow-external-model-call [--timeout-ms <ms>]
 ```
 
-There are no execution-time provider, model, toolchain, working-directory, or
-capability overrides. Missing, malformed, or mismatched authorization is
-rejected before the single-use launch capability is issued. A failed local
-launcher that sends no request does not consume a model repetition, but its
-shared-runtime failure evidence must still be retained.
+Preparation prints the packet digest and starts no model turn. Review and
+authorize the resulting session through the common boundary before `run`.
 
 ### Comparison arms
 
@@ -305,15 +284,14 @@ The treatment arm must receive the canonical deployable directory and the same
 task prompt, files, web tools, permissions, locale, and time budget. The prompt
 must not coach the treatment with expectations that the baseline does not see.
 
-### Provider isolation
+### Suite capabilities
 
-The suite runner does not invoke Codex `exec` or implement a second Claude
-process parser. OpenAI sessions use the shared Codex App Server adapter and the
-stable `execution` evaluation-home role. Anthropic sessions use the shared
-Claude CLI adapter and its OAuth/keychain authentication profile. Both use a
-fresh, empty, non-repository working directory, disabled persistence, a
-read-only sandbox, packet-bound instructions, explicit network and live-search
-capabilities, one model turn, and the common authorization boundary.
+Each prepared session uses a fresh, empty, non-repository working directory,
+disabled persistence, a read-only sandbox, packet-bound instructions, explicit
+network and live-search capabilities, and exactly one controller turn. OpenAI
+runs select the `execution` home role; Anthropic runs use the pinned Claude CLI
+profile. The controller rejects every permission request and never emits a
+continuation.
 
 Retain the full developer input and its digest for both arms. The same baseline
 digest must recur across cases, and the same treatment digest must recur when
@@ -373,19 +351,6 @@ all sessions if its always-loaded description or invoked body outweighs the
 run saving. Do not infer resource use from transcript length when the host
 provides actual usage data.
 
-### Retained results
-
-Keep raw and derived evidence distinct. Raw outputs, transcripts, and usage
-reports are immutable inputs to grading. Corrections produce a new grading
-record that names the superseded record; they do not rewrite raw runs.
-
-Retain every failure and document exclusions with a reason such as baseline
-contamination or shared web outage. Never retain only the best repetition.
-A launcher error must still produce an empty transcript, stderr diagnostics,
-run metadata, metrics, and timing record. If the runner itself fails before it
-can write those artifacts, retain the partial directory and start a new
-attempt rather than overwriting it.
-
 ## Retained result layout
 
 Store each run set under `results/<run-set-id>/`. The run-set ID is the
@@ -423,36 +388,11 @@ results/<run-set-id>/
             cases/
 ```
 
-Within each repetition, separate the payload sent to the executor from the
-artifacts returned or derived from that execution:
-
-```text
-repetition-01/
-    inputs/
-        manifest.json
-        0001-prompt.txt
-        ... packet-bound instructions and provider inputs
-    outputs/
-        final.md
-        stderr.log
-        transcript.jsonl
-        events.jsonl
-    packet.json
-    authorization.json
-    attempt.json
-    run.json
-    metrics.json
-    timing.json
-    grading.json
-```
-
-New sessions use the shared evaluation-runtime schema. The canonical packet and
-input manifest are the authority for transmitted bytes; `run.json` records the
-normalized status, failure class, safe process closure, suite result, and a
-digest map of retained artifacts. `metrics.json` retains native and normalized
-usage, while `timing.json` retains wall-clock timestamps and duration.
-Historical result directories remain byte-for-byte unchanged and keep their
-original schemas.
+Each repetition directory contains the common runtime evidence plus the
+suite-owned `grading.json`. Raw runs are immutable inputs to grading;
+corrections create a new grading record naming the superseded derivation.
+Retain every failure and exclusion, including baseline contamination and
+shared web outages, rather than selecting only favorable repetitions.
 
 The `.generated` infix marks derived aggregation output. The initial
 `2026-08-24T092645.127Z` aggregate came from the generic aggregation tool and

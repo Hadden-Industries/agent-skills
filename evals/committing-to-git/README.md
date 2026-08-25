@@ -2,6 +2,10 @@
 
 This maintainer-only directory evaluates the deployable skill in `skills/committing-to-git/`. It is deliberately outside the installed skill payload. A deterministic test, a model run, and a human readability review answer different questions; passing one layer never implies that another passed.
 
+## Shared Runtime
+
+The repository-wide [Shared Runtime](../README.md) defines packet preparation, exact external-call authorization, evidence files, the Codex adapter, stable evaluation homes, failure classes, historical-schema handling, and sensitive-data rules. This document defines only the `committing-to-git` fixtures, schedule, controller and capability deviations, blinding, grading, and suite commands.
+
 | Artifact                        | Purpose                                                                                                      |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `evals.json`                    | Active post-cutover behavior cases, safety labels, fixture bindings, and cost-profile bindings               |
@@ -128,40 +132,9 @@ node evals/committing-to-git/run-evaluation-session.mjs prepare --repository-roo
 node evals/committing-to-git/run-evaluation-session.mjs preflight --prepared-session C:\absolute\new-session --allow-zero-turn-preflight
 ```
 
-`plan` records the matched randomized order. `catalog` only reads local skill roots and Codex/repository configuration; it does not edit configuration or start app-server. `prepare` creates the fixture, exact treatment snapshot, canonical common-runtime packet and inputs, and immutable evidence destination in a previously nonexistent directory. It binds the shared evaluation-home root but embeds no credential-home path. `preflight` selects the stable `preflight` role internally, acquires it through the common home manager, starts the installed app-server locally, verifies the packet-bound environment and isolation, and starts one isolated ephemeral thread. Preflight fails if any turn, token-usage, or active external-capability event appears and never sends `turn/start`. The literal `--allow-zero-turn-preflight` flag is required. For case 42, preparation additionally requires `--predetermined-scope-id importer`; the packet retains both plausible scopes but the initial prompt does not reveal the selection.
+`plan` records the matched randomized order. `catalog` only reads local skill roots and Codex/repository configuration; it does not edit configuration or start app-server. `prepare` creates the disposable Git fixture, exact old/new treatment snapshot, and suite inputs in a new common session. `preflight` selects the stable `preflight` role and requires the literal `--allow-zero-turn-preflight` flag. For case 42, preparation additionally requires `--predetermined-scope-id importer`; the packet retains both plausible scopes but the initial prompt does not reveal the selection.
 
-The transmission digest binds the provider, model, effort, inspected toolchain, exact user/base/developer and continuation inputs, fixture initial-state digest and expected facts, exact old/new skill files and source commit when present, predetermined scope policy, capabilities, environment allowlist, and isolation policy. Immediately before preflight or execution, the runner verifies the packet and inputs, rescans the isolation catalog, rehashes the execution modules, revalidates the fixture and treatment, and rejects drift before home acquisition. The shared Codex adapter verifies the stable home, positive-name environment, authentication, disabled ambient skills/hooks/apps, exact thread isolation, and capability events. Command execution and file changes are allowed for the Git task; network, web search, dynamic tools, MCP tools, apps, plugins, subagents, and provider facilities remain prohibited.
-
-Authenticate the installed Codex CLI once against that same keyring before preparing an OpenAI-backed evaluation:
-
-```text
-codex -c 'cli_auth_credentials_store="keyring"' login
-codex -c 'cli_auth_credentials_store="keyring"' login status
-```
-
-Both `preflight` and `run` call app-server `account/read` with `refreshToken: false` before creating a thread. An OpenAI-backed session, or any app-server response that says OpenAI authentication is required, fails as `infrastructure-invalid` with zero model turns when no account is present. Results retain only the account type and the authentication-required flag; account email and plan details are removed from the transcript. Preflight still never sends `turn/start`.
-
-`run` is the only command that can start model turns. Two independent gates are mandatory:
-
-1. the literal `--allow-external-model-call` flag; and
-2. an authorization JSON artifact whose digest matches the still-valid packet exactly.
-
-The authorization artifact has this exact contract:
-
-```json
-{
-  "schemaVersion": 1,
-  "decision": "authorized",
-  "statement": "I authorize exactly one external model session for this provider, model, effort, and transmission SHA-256.",
-  "allowExternalModel": true,
-  "provider": "openai",
-  "model": "gpt-5.6-luna",
-  "effort": "low",
-  "transmissionSha256": "COPY_THE_APPROVED_PACKET_DIGEST_HERE"
-}
-```
-
-Create that artifact only after the user has reviewed and authorized the named provider/model and exact packet contents. The harness never turns a general implementation approval into transmission approval. A missing flag, malformed authorization, digest mismatch, changed packet, changed fixture/treatment, or changed isolation catalog stops before app-server launch or before a model turn, as applicable.
+The Git packet adds the fixture's canonical initial state and expected facts, exact pinned treatment files/source commit, predetermined scope, isolation catalog, schedule metadata, and two exact controller continuations. Immediately before preflight or execution, the suite revalidates runtime modules, catalog, fixture, and treatment. Command execution and file-change events are allowed inside the exact fixture; network, web search, dynamic/MCP tools, apps, plugins, subagents, provider facilities, ambient skills, hooks, and instruction sources are prohibited.
 
 After exact authorization, one session is invoked as follows:
 
@@ -169,15 +142,15 @@ After exact authorization, one session is invoked as follows:
 node evals/committing-to-git/run-evaluation-session.mjs run --prepared-session C:\absolute\new-session --authorization C:\absolute\authorization.json --allow-external-model-call
 ```
 
-The app-server thread is ephemeral and uses `approvalsReviewer: user`. `run` selects the stable `execution` role internally; no CLI flag can redirect its home, packet, toolchain, model, fixture, capabilities, or result paths. Approval requests are decided one at a time: fixture-scoped commands and one-turn exact permissions may be accepted, while network, out-of-fixture, reparse-point escape, and unsupported requests are denied. A valid commit proposal receives exactly this second-turn authorization and never push authorization:
+Review and authorize the prepared session through the common boundary before invoking `run`. The command selects the stable `execution` role internally. The Git controller decides approval requests one at a time: fixture-scoped commands and one-turn exact permissions may be accepted, while network, out-of-fixture, reparse-point escape, and unsupported requests are denied. A valid proposal for the predetermined scope and unchanged Git state receives exactly this second-turn commit authorization and never push authorization:
 
 ```text
 I approve the exact message and authorize creating the proposed local commit for the exact scope shown. Do not push.
 ```
 
-For an ambiguous fixture, the predetermined exact scope is disclosed only after the model emits all plausible exact scopes in the structured question envelope and a fresh Git-state digest proves no staging or other fixture mutation occurred. Invalid proposals, invalid questions, failures, denied requests, and infrastructure-invalid sessions remain retained rather than disappearing from aggregates.
+For an ambiguous fixture, the predetermined exact scope is disclosed only after the model emits all plausible exact scopes in the structured question envelope and a fresh Git-state digest proves no staging or other fixture mutation occurred. Invalid proposals, invalid questions, denied requests, and infrastructure failures remain retained rather than disappearing from aggregates.
 
-The shared evidence destination retains canonical packet and input bytes, raw JSONL transcript, normalized events, permission decisions, completed tool calls, structured conversation gates, cumulative token events, timing, metrics, authorization, one-shot launch attempt, and terminal run record. Infrastructure failures are terminal records rather than missing sessions. Cleanup targets only the ephemeral thread and stable-home lease; the runner never pushes.
+The suite result retains clarification and `commitAuthorization` decisions, the authoritative final answer, and provider usage. Grade the normalized command/file events together with the independently captured initial and final Git facts; prose never substitutes for the repository state. The runner never pushes.
 
 After all three records for each matched block exist, create a grading package and separate private arm mapping:
 
@@ -213,7 +186,7 @@ The primary matrix uses the weakest available production model in an approved ru
 2. old-skill baseline extracted read-only from exact commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`; and
 3. new-skill treatment from the candidate commit.
 
-Execute one arm/repetition at a time in the primary session. Do not use subagents, concurrent model calls, parallel runner processes, or shared fixture mutation. Record a randomization seed, reset to a newly generated repository for each repetition, blind graders to arm labels, and retain failed/infrastructure-invalid runs separately.
+Execute one arm/repetition at a time in the primary session. Do not use subagents, concurrent model calls, parallel runner processes, or shared fixture mutation. Record a randomization seed, reset to a newly generated repository for each repetition, blind graders to arm labels, and retain every failed run separately.
 
 Before an external model call, present and obtain approval for the exact provider, model/version or resolved alias, tool policy, prompts, fixture content, and repository-authored skill/reference/bundle content to be transmitted. Earlier provider approval does not silently authorize newly authored post-cutover content. If authorization or a runner is unavailable, record the arm as unexecuted in the assurance case; do not add a fabricated result JSON.
 
