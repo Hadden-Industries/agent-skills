@@ -1,12 +1,10 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,994 +14,116 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const RUNNER_MODULE = new URL(
-  "../../evals/committing-to-git/evaluation-runner.mjs",
-  import.meta.url,
+import {
+  EXACT_COMMIT_AUTHORIZATION_REPLY,
+  createCommittingToGitController,
+} from "../../evals/committing-to-git/session-controller.mjs";
+import {
+  EVALUATION_ARMS,
+  EVALUATION_CASE_IDS,
+  EVALUATION_MODELS,
+  PINNED_SKILL_COMMITS,
+  buildEvaluationSchedule,
+  createBlindedGradingBundle,
+  discoverRuntimeIsolationCatalog,
+  executePreparedEvaluationSession,
+  preflightPreparedEvaluationSession,
+  prepareEvaluationSession,
+} from "../../evals/committing-to-git/evaluation-runner.mjs";
+import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
+import {
+  initializeEvaluationHomes,
+  withEvaluationHome,
+} from "../../scripts/evaluation/evaluation-homes.js";
+import { EXTERNAL_MODEL_AUTHORIZATION_STATEMENT } from "../../scripts/evaluation/runtime.js";
+
+const REPOSITORY_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
 );
-const OLD_SKILL_COMMIT = "76baa9b25e0afeaa2c62c4cf7042976444edc15e";
-const NEW_SKILL_COMMIT = "ec064b1f8177d9542a82f478ca3b1ce5e44ee702";
 const FAKE_APP_SERVER = join(
-  REPO_ROOT,
+  REPOSITORY_ROOT,
   "tests",
   "committing-to-git",
   "fixtures",
   "fake-app-server.mjs",
 );
 const RUNNER_CLI = join(
-  REPO_ROOT,
+  REPOSITORY_ROOT,
   "evals",
   "committing-to-git",
   "run-evaluation-session.mjs",
 );
 
-async function loadRunner() {
-  try {
-    return await import(RUNNER_MODULE);
-  } catch (error) {
-    assert.fail(
-      `evaluation runner module is unavailable: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+function temporaryRoot(t, prefix = "committing-to-git-runner-") {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 
-function createTemporaryDirectory(t) {
-  const directory = mkdtempSync(join(tmpdir(), "committing-to-git-runner-"));
-
-  t.after(() => {
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  return directory;
-}
-
-async function runFakeSession(t, options = {}) {
-  const { runAppServerSession } = await loadRunner();
-  const fixtureRoot = options.fixtureRoot ?? createTemporaryDirectory(t);
-  const skillRoot = createTemporaryDirectory(t);
-  const skillPath = join(skillRoot, "SKILL.md");
-
-  writeFileSync(skillPath, "# Test committing-to-git skill\n", "utf8");
-
-  const prompt = "Commit the task-authored skill inventory update.";
-  const record = await runAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: {
-        FAKE_APP_SERVER_SCENARIO: options.scenario ?? "authorized",
-      },
-    },
-    approvalContext: { fixtureRoot, readableRoots: [skillRoot] },
-    session: {
-      arm: options.arm ?? "new-skill",
-      authorizationEligible: options.authorizationEligible ?? true,
-      baseInstructions: "Use only the supplied fixture and treatment.",
-      developerInstructions: "Return the deterministic evaluation envelope.",
-      effort: "low",
-      expectedScope: options.expectedScope ?? {
-        kind: "paths",
-        paths: ["skills-lock.json"],
-      },
-      fixtureRoot,
-      model: "gpt-5.6-luna",
-      prompt,
-      provider: "openai",
-      scopeClarification: options.scopeClarification,
-      skill:
-        options.skill === false
-          ? undefined
-          : { name: "committing-to-git", path: skillPath },
-    },
-    timeoutMs: 5_000,
-  });
-
-  return { fixtureRoot, prompt, record, skillPath };
-}
-
-test("the seeded matrix contains 306 sequential sessions in matched triplets", async () => {
-  const { buildEvaluationSchedule } = await loadRunner();
-  const first = buildEvaluationSchedule("step-3-seed");
-  const repeated = buildEvaluationSchedule("step-3-seed");
-  const different = buildEvaluationSchedule("different-seed");
-
-  assert.equal(first.length, 306);
-  assert.deepEqual(first, repeated);
-  assert.notDeepEqual(first, different);
-  assert.deepEqual(
-    first.map(({ sequence }) => sequence),
-    Array.from({ length: 306 }, (_, index) => index + 1),
-  );
-
-  for (let index = 0; index < first.length; index += 3) {
-    const triplet = first.slice(index, index + 3);
-    const [{ caseId, effort, model, repetition }] = triplet;
-
-    assert.deepEqual(
-      new Set(triplet.map(({ arm }) => arm)),
-      new Set(["no-skill", "old-skill", "new-skill"]),
-    );
-    assert.ok(
-      triplet.every(
-        (session) =>
-          session.caseId === caseId &&
-          session.effort === effort &&
-          session.model === model &&
-          session.repetition === repetition,
-      ),
-    );
-  }
-
-  assert.equal(
-    first.filter(({ model }) => model === "gpt-5.6-luna").length,
-    255,
-  );
-  assert.equal(first.filter(({ model }) => model === "gpt-5.6-sol").length, 51);
-});
-
-test("fixture preparation creates a fresh repository with a recorded initial digest", async (t) => {
-  const { materializeEvaluationFixture } = await loadRunner();
-  const parent = createTemporaryDirectory(t);
-  const firstDestination = join(parent, "fixture-one");
-  const secondDestination = join(parent, "fixture-two");
-  const first = materializeEvaluationFixture({
-    caseId: 35,
-    destination: firstDestination,
-    repositoryRoot: REPO_ROOT,
-  });
-  const second = materializeEvaluationFixture({
-    caseId: 35,
-    destination: secondDestination,
-    repositoryRoot: REPO_ROOT,
-  });
-
-  assert.equal(first.evaluation.id, 35);
-  assert.equal(first.metadata.scenario, "known-context-skill-inventory-hint");
-  assert.equal(first.repository, firstDestination);
-  assert.equal(second.repository, secondDestination);
-  assert.ok(existsSync(join(firstDestination, ".git")));
-  assert.ok(existsSync(join(secondDestination, ".git")));
-  assert.match(first.initialState.sha256, /^[0-9a-f]{64}$/u);
-  assert.match(second.initialState.sha256, /^[0-9a-f]{64}$/u);
-  assert.notEqual(firstDestination, secondDestination);
-  assert.throws(
-    () =>
-      materializeEvaluationFixture({
-        caseId: 35,
-        destination: firstDestination,
-        repositoryRoot: REPO_ROOT,
-      }),
-    /already exists/iu,
-  );
-});
-
-test("skill extraction reads the exact old and candidate Git blobs without checkout", async (t) => {
-  const { extractPinnedSkill } = await loadRunner();
-  const parent = createTemporaryDirectory(t);
-  const oldSnapshot = extractPinnedSkill({
-    arm: "old-skill",
-    destination: join(parent, "opaque-a"),
-    repositoryRoot: REPO_ROOT,
-  });
-  const newSnapshot = extractPinnedSkill({
-    arm: "new-skill",
-    destination: join(parent, "opaque-b"),
-    repositoryRoot: REPO_ROOT,
-  });
-
-  assert.equal(oldSnapshot.sourceCommit, OLD_SKILL_COMMIT);
-  assert.equal(newSnapshot.sourceCommit, NEW_SKILL_COMMIT);
-  assert.equal(
-    oldSnapshot.skillEntry.blobOid,
-    "74fe1000b0c8e7e253136df0d726ba2af30eec5f",
-  );
-  assert.equal(
-    newSnapshot.skillEntry.blobOid,
-    "ffe8c6ffa30f44af1bb2076fab0ca7e6e16834cd",
-  );
-  assert.equal(oldSnapshot.skillPath, join(parent, "opaque-a", "SKILL.md"));
-  assert.equal(newSnapshot.skillPath, join(parent, "opaque-b", "SKILL.md"));
-  assert.match(
-    readFileSync(oldSnapshot.skillPath, "utf8"),
-    /Committing to Git/u,
-  );
-  assert.match(
-    readFileSync(newSnapshot.skillPath, "utf8"),
-    /Committing to Git/u,
-  );
-  assert.notEqual(
-    readFileSync(oldSnapshot.skillPath, "utf8"),
-    readFileSync(newSnapshot.skillPath, "utf8"),
-  );
-  assert.ok(
-    oldSnapshot.files.some(({ path }) => path.endsWith("commitWorkflow.mjs")),
-  );
-  assert.ok(
-    newSnapshot.files.some(({ path }) => path.endsWith("commitWorkflow.mjs")),
-  );
-});
-
-test("runtime overrides disable every discovered external context source", async () => {
-  const {
-    buildPreparedRuntimeIsolationOverrides,
-    buildRuntimeIsolationOverrides,
-  } = await loadRunner();
-  const skillPaths = [
-    "C:\\Users\\example\\.agents\\skills\\committing-to-git\\SKILL.md",
-    "C:\\Users\\example\\.codex\\skills\\.system\\skill-creator\\SKILL.md",
-  ];
-  const overrides = buildRuntimeIsolationOverrides({
-    appIds: ["github"],
-    mcpServerIds: ["github", "node_repl"],
-    pluginIds: ["browser@openai-bundled"],
-    skillPaths,
-  });
-
-  assert.ok(overrides.includes("agents.enabled=false"));
-  assert.ok(overrides.includes("apps._default.enabled=false"));
-  assert.ok(overrides.includes('cli_auth_credentials_store="keyring"'));
-  assert.ok(overrides.includes("features.apps=false"));
-  assert.ok(overrides.includes("features.enable_mcp_apps=false"));
-  assert.ok(overrides.includes("features.plugins=false"));
-  assert.ok(overrides.includes('web_search="disabled"'));
-  assert.ok(overrides.includes("tools.web_search=false"));
-  assert.ok(overrides.includes("features.skill_mcp_dependency_install=false"));
-  assert.ok(overrides.includes("project_doc_max_bytes=0"));
-  assert.ok(overrides.includes("project_doc_fallback_filenames=[]"));
-  assert.ok(overrides.includes('sandbox_mode="workspace-write"'));
-  assert.ok(overrides.includes("sandbox_workspace_write.network_access=false"));
-  assert.ok(
-    overrides.includes("sandbox_workspace_write.exclude_slash_tmp=true"),
-  );
-  assert.ok(
-    overrides.includes("sandbox_workspace_write.exclude_tmpdir_env_var=true"),
-  );
+function testEnvironment(scenario = "authorized") {
+  const environment = {
+    FAKE_APP_SERVER_SCENARIO: scenario,
+    PATH: process.env.PATH ?? "",
+  };
   if (process.platform === "win32") {
-    assert.ok(overrides.includes('windows.sandbox="elevated"'));
+    for (const name of [
+      "HOMEDRIVE",
+      "HOMEPATH",
+      "LOGONSERVER",
+      "SYSTEMDRIVE",
+      "SYSTEMROOT",
+      "TEMP",
+      "USERDOMAIN",
+      "USERNAME",
+      "USERPROFILE",
+      "WINDIR",
+    ]) {
+      if (typeof process.env[name] === "string")
+        environment[name] = process.env[name];
+    }
   }
-  assert.ok(!overrides.includes("mcp_servers.codex_apps.enabled=false"));
-  assert.ok(!overrides.includes("mcp_servers.github.enabled=false"));
-  assert.ok(!overrides.includes("mcp_servers.node_repl.enabled=false"));
-  assert.ok(
-    !overrides.includes('plugins."browser@openai-bundled".enabled=false'),
-  );
-  assert.ok(!overrides.includes('apps."github".enabled=false'));
-  assert.ok(
-    overrides.includes(
-      `skills.config=[${skillPaths
-        .sort()
-        .map((path) => `{path=${JSON.stringify(path)},enabled=false}`)
-        .join(",")}]`,
-    ),
-  );
-  const runtimeHomes = {
-    preflight: "C:\\isolated\\runtime-home-preflight",
-    run: "C:\\isolated\\runtime-home-run",
-  };
-  const fixtureRoot = "C:\\isolated\\fixture";
-  const preparedOverrides = buildPreparedRuntimeIsolationOverrides({
-    fixtureRoot,
-    runtimeIsolationCatalog: {
-      appIds: ["github"],
-      mcpServerIds: ["github", "node_repl"],
-      pluginIds: ["browser@openai-bundled"],
-      skillPaths,
-    },
-    runtimeIsolationDiscovery: {
-      codexHome: "C:\\Users\\example\\.codex",
-      repositoryRoot: "C:\\repository",
-    },
-    runtimeHomes,
+  return environment;
+}
+
+let cachedToolchain;
+
+async function toolchain(root) {
+  const environment = { PATH: process.env.PATH ?? "" };
+  if (typeof process.env.PATHEXT === "string") {
+    environment.PATHEXT = process.env.PATHEXT;
+  }
+  cachedToolchain ??= inspectCodexAppServerToolchain({
+    command: process.execPath,
+    prefixArguments: [FAKE_APP_SERVER],
+    scratchRoot: join(root, "toolchain"),
+    environment,
   });
+  return cachedToolchain;
+}
 
-  assert.ok(
-    preparedOverrides.preflight
-      .at(-1)
-      .includes(
-        "C:\\\\isolated\\\\runtime-home-preflight\\\\skills\\\\.system\\\\skill-creator\\\\SKILL.md",
-      ),
-  );
-  assert.ok(
-    preparedOverrides.preflight.includes(
-      `projects.${JSON.stringify(fixtureRoot)}.trust_level="trusted"`,
-    ),
-  );
-  assert.ok(
-    !preparedOverrides.preflight
-      .at(-1)
-      .includes("C:\\\\isolated\\\\runtime-home-run"),
-  );
-  assert.ok(
-    preparedOverrides.run
-      .at(-1)
-      .includes(
-        "C:\\\\isolated\\\\runtime-home-run\\\\skills\\\\.system\\\\skill-creator\\\\SKILL.md",
-      ),
-  );
-  assert.throws(
-    () =>
-      buildRuntimeIsolationOverrides({
-        appIds: [],
-        mcpServerIds: [],
-        pluginIds: [],
-        skillPaths: ["C:\\Users\\example\\.agents\\skills\\committing-to-git"],
-      }),
-    /exact SKILL\.md/iu,
-  );
-});
-
-test("approval policy grants only one-turn fixture-scoped access", async (t) => {
-  const { decideApprovalRequest } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const skillRoot = createTemporaryDirectory(t);
-  const insidePath = join(fixtureRoot, ".git", "index.lock");
-  const skillPath = join(skillRoot, "scripts", "commitWorkflow.mjs");
-  const outsidePath = join(dirname(fixtureRoot), "outside", "secret.txt");
-  const context = { fixtureRoot, readableRoots: [skillRoot] };
-  const commandBase = {
-    cwd: fixtureRoot,
-    itemId: "command-1",
-    startedAtMs: 1,
-    threadId: "thread-1",
-    turnId: "turn-1",
-  };
-  const permissionBase = {
-    cwd: fixtureRoot,
-    itemId: "permission-1",
-    reason: "fixture metadata",
-    startedAtMs: 2,
-    threadId: "thread-1",
-    turnId: "turn-1",
-  };
-
-  assert.deepEqual(
-    decideApprovalRequest(
-      "item/commandExecution/requestApproval",
-      { ...commandBase, command: "git status --short" },
-      context,
-    ),
-    {
-      allowed: true,
-      reason: "fixture-scoped command",
-      response: { decision: "accept" },
-    },
-  );
-
-  assert.deepEqual(
-    decideApprovalRequest(
-      "item/commandExecution/requestApproval",
-      {
-        ...commandBase,
-        additionalPermissions: { network: { enabled: true } },
-        networkApprovalContext: { host: "example.com", protocol: "https" },
-      },
-      context,
-    ).response,
-    { decision: "decline" },
-  );
-  assert.deepEqual(
-    decideApprovalRequest(
-      "item/commandExecution/requestApproval",
-      { ...commandBase, cwd: dirname(fixtureRoot) },
-      context,
-    ).response,
-    { decision: "decline" },
-  );
-
-  const safePermissions = {
-    fileSystem: {
-      entries: [
-        { access: "write", path: { path: insidePath, type: "path" } },
-        { access: "read", path: { path: skillPath, type: "path" } },
-      ],
-    },
-    network: { enabled: false },
-  };
-  const granted = decideApprovalRequest(
-    "item/permissions/requestApproval",
-    { ...permissionBase, permissions: safePermissions },
-    context,
-  );
-
-  assert.equal(granted.allowed, true);
-  assert.deepEqual(granted.response, {
-    permissions: safePermissions,
-    scope: "turn",
-    strictAutoReview: false,
-  });
-
-  const denied = decideApprovalRequest(
-    "item/permissions/requestApproval",
-    {
-      ...permissionBase,
-      permissions: {
-        fileSystem: {
-          entries: [
-            { access: "write", path: { path: outsidePath, type: "path" } },
-          ],
-        },
-      },
-    },
-    context,
-  );
-
-  assert.equal(denied.allowed, false);
-  assert.deepEqual(denied.response, {
-    permissions: {},
-    scope: "turn",
-    strictAutoReview: false,
-  });
-
-  const outsideRoot = createTemporaryDirectory(t);
-  const junction = join(fixtureRoot, "escape-junction");
-  symlinkSync(outsideRoot, junction, "junction");
-  const reparseEscape = decideApprovalRequest(
-    "item/permissions/requestApproval",
-    {
-      ...permissionBase,
-      permissions: {
-        fileSystem: {
-          entries: [
-            {
-              access: "write",
-              path: {
-                path: join(junction, "prospective-secret.txt"),
-                type: "path",
-              },
-            },
-          ],
-        },
-      },
-    },
-    context,
-  );
-
-  assert.equal(reparseEscape.allowed, false);
-});
-
-test("app-server transport records the isolated authorized two-turn flow", async (t) => {
-  const { EXACT_COMMIT_AUTHORIZATION_REPLY } = await loadRunner();
-  const { fixtureRoot, prompt, record, skillPath } = await runFakeSession(t);
-
-  assert.equal(record.status, "completed");
-  assert.equal(record.turns.length, 2);
-  assert.deepEqual(record.authorization, {
-    reply: EXACT_COMMIT_AUTHORIZATION_REPLY,
-    status: "sent",
-  });
-  assert.deepEqual(
-    record.approvals.map(({ allowed, method, response }) => ({
-      allowed,
-      method,
-      response,
-    })),
-    [
-      {
-        allowed: true,
-        method: "item/commandExecution/requestApproval",
-        response: { decision: "accept" },
-      },
-      {
-        allowed: true,
-        method: "item/permissions/requestApproval",
-        response: {
-          permissions: {
-            fileSystem: {
-              entries: [
-                {
-                  access: "write",
-                  path: {
-                    path: join(fixtureRoot, ".git", "index.lock"),
-                    type: "path",
-                  },
-                },
-              ],
-            },
-            network: { enabled: false },
-          },
-          scope: "turn",
-          strictAutoReview: false,
-        },
-      },
-      {
-        allowed: false,
-        method: "item/commandExecution/requestApproval",
-        response: { decision: "decline" },
-      },
-    ],
-  );
-  assert.equal(record.tokenUsage.total.inputTokens, 120);
-  assert.equal(record.tokenUsage.total.outputTokens, 40);
-  assert.equal(record.tokenUsage.total.totalTokens, 160);
-  assert.equal(record.toolCalls.length, 2);
-  assert.equal(record.failedCommands.length, 0);
-  assert.equal(record.permissionRequests.length, 3);
-  assert.equal(record.timing.turnDurationMs, 120);
-  assert.ok(record.timing.wallDurationMs >= 0);
-
-  const outbound = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message);
-  const methods = outbound.map(({ method }) => method).filter(Boolean);
-
-  assert.ok(methods.includes("initialize"));
-  assert.ok(methods.includes("initialized"));
-  assert.ok(methods.includes("skills/list"));
-  assert.ok(methods.includes("thread/start"));
-  assert.equal(methods.filter((method) => method === "turn/start").length, 2);
-  assert.ok(methods.includes("thread/delete"));
-
-  const threadStart = outbound.find(({ method }) => method === "thread/start");
-  assert.equal(threadStart.params.approvalsReviewer, "user");
-  assert.equal(threadStart.params.approvalPolicy, "on-request");
-  assert.equal(threadStart.params.sandbox, "workspace-write");
-  assert.equal(threadStart.params.ephemeral, true);
-  assert.deepEqual(threadStart.params.runtimeWorkspaceRoots, [fixtureRoot]);
-  assert.deepEqual(threadStart.params.dynamicTools, []);
-  assert.deepEqual(threadStart.params.environments, []);
-
-  const turns = outbound.filter(({ method }) => method === "turn/start");
-  assert.deepEqual(turns[0].params.input, [
-    { text: prompt, type: "text" },
-    { name: "committing-to-git", path: skillPath, type: "skill" },
-  ]);
-  assert.deepEqual(turns[0].params.sandboxPolicy, {
-    excludeSlashTmp: true,
-    excludeTmpdirEnvVar: true,
-    networkAccess: false,
-    type: "workspaceWrite",
-    writableRoots: [fixtureRoot],
-  });
-  assert.equal(turns[0].params.approvalsReviewer, "user");
-  assert.equal(turns[0].params.approvalPolicy, "on-request");
-  assert.deepEqual(turns[0].params.environments, []);
-  assert.deepEqual(turns[0].params.runtimeWorkspaceRoots, [fixtureRoot]);
-  assert.deepEqual(turns[1].params.input, [
-    { text: EXACT_COMMIT_AUTHORIZATION_REPLY, type: "text" },
-  ]);
-});
-
-test("session checks OpenAI authentication before a turn without retaining account identity", async (t) => {
-  const { record } = await runFakeSession(t);
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-  const serializedRecord = JSON.stringify(record);
-
-  assert.deepEqual(record.authentication, {
-    accountType: "chatgpt",
-    requiresOpenaiAuth: true,
-  });
-  assert.deepEqual(
-    record.transcript.find(
-      ({ direction, message }) =>
-        direction === "client->server" && message.method === "account/read",
-    ).message.params,
-    { refreshToken: false },
-  );
-  assert.ok(
-    outboundMethods.indexOf("account/read") <
-      outboundMethods.indexOf("thread/start"),
-  );
-  assert.ok(
-    outboundMethods.indexOf("account/read") <
-      outboundMethods.indexOf("turn/start"),
-  );
-  assert.doesNotMatch(serializedRecord, /evaluation-runner@example\.invalid/u);
-  assert.doesNotMatch(serializedRecord, /"planType":"pro"/u);
-});
-
-test("session rejects missing OpenAI authentication before creating a thread", async (t) => {
-  const { record } = await runFakeSession(t, { scenario: "unauthenticated" });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /OpenAI authentication/iu);
-  assert.deepEqual(record.authentication, {
-    accountType: null,
-    requiresOpenaiAuth: true,
-  });
-  assert.ok(outboundMethods.includes("account/read"));
-  assert.ok(!outboundMethods.includes("thread/start"));
-  assert.ok(!outboundMethods.includes("turn/start"));
-  assert.equal(record.turns.length, 0);
-});
-
-test("the no-skill control sends the exact prompt without a skill input", async (t) => {
-  const { prompt, record } = await runFakeSession(t, {
-    arm: "no-skill",
-    authorizationEligible: false,
-    skill: false,
-  });
-  const initialTurn = record.transcript
-    .filter(
-      ({ direction, message }) =>
-        direction === "client->server" && message.method === "turn/start",
-    )
-    .at(0);
-
-  assert.equal(record.status, "completed");
-  assert.equal(record.turns.length, 1);
-  assert.deepEqual(record.authorization, {
-    reason: "session is not authorization-eligible",
-    status: "withheld",
-  });
-  assert.deepEqual(initialTurn.message.params.input, [
-    { text: prompt, type: "text" },
-  ]);
-});
-
-test("preflight rejects leaked skills and instruction sources before a turn", async (t) => {
-  const { record } = await runFakeSession(t, { scenario: "leaked-skill" });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /enabled skill/iu);
-  assert.ok(outboundMethods.includes("skills/list"));
-  assert.ok(!outboundMethods.includes("thread/start"));
-  assert.ok(!outboundMethods.includes("turn/start"));
-  assert.equal(record.turns.length, 0);
-});
-
-test("thread preflight deletes a thread with leaked instruction sources before a turn", async (t) => {
-  const { record } = await runFakeSession(t, {
-    scenario: "leaked-instructions",
-  });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /instruction source/iu);
-  assert.ok(outboundMethods.includes("thread/start"));
-  assert.ok(outboundMethods.includes("thread/delete"));
-  assert.ok(!outboundMethods.includes("turn/start"));
-  assert.equal(record.turns.length, 0);
-});
-
-test("app-server preflight starts and deletes an isolated thread without a turn", async (t) => {
-  const { preflightAppServerSession } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const record = await preflightAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "authorized" },
-    },
-    fixtureRoot,
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    timeoutMs: 5_000,
-  });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "ready");
-  assert.equal(record.modelTurns, 0);
-  assert.deepEqual(record.authentication, {
-    accountType: "chatgpt",
-    requiresOpenaiAuth: true,
-  });
-  assert.ok(outboundMethods.includes("initialize"));
-  assert.ok(outboundMethods.includes("account/read"));
-  assert.ok(outboundMethods.includes("skills/list"));
-  assert.ok(outboundMethods.includes("thread/start"));
-  assert.ok(outboundMethods.includes("thread/delete"));
-  assert.ok(!outboundMethods.includes("turn/start"));
-});
-
-test("preflight rejects missing OpenAI authentication without a model turn", async (t) => {
-  const { preflightAppServerSession } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const record = await preflightAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "unauthenticated" },
-    },
-    fixtureRoot,
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    timeoutMs: 5_000,
-  });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /OpenAI authentication/iu);
-  assert.deepEqual(record.authentication, {
-    accountType: null,
-    requiresOpenaiAuth: true,
-  });
-  assert.equal(record.modelTurns, 0);
-  assert.ok(outboundMethods.includes("account/read"));
-  assert.ok(!outboundMethods.includes("thread/start"));
-  assert.ok(!outboundMethods.includes("turn/start"));
-});
-
-test("preflight accepts implicit fixture roots and records ephemeral cleanup", async (t) => {
-  const { preflightAppServerSession } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const record = await preflightAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "implicit-cwd" },
-    },
-    fixtureRoot,
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    timeoutMs: 5_000,
-  });
-
-  assert.equal(record.status, "ready");
-  assert.equal(record.modelTurns, 0);
-  assert.deepEqual(record.threadStart.runtimeWorkspaceRoots, []);
-  assert.deepEqual(record.threadStart.sandbox.writableRoots, []);
-  assert.equal(record.threadCleanup.status, "already-ephemeral");
-});
-
-test("preflight accepts a read-only thread baseline before per-turn workspace policy", async (t) => {
-  const { preflightAppServerSession } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const record = await preflightAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "read-only-baseline" },
-    },
-    fixtureRoot,
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    timeoutMs: 5_000,
-  });
-
-  assert.equal(record.status, "ready");
-  assert.equal(record.modelTurns, 0);
-  assert.equal(record.threadStart.sandbox.type, "readOnly");
-  assert.equal(record.threadStart.sandbox.networkAccess, false);
-});
-
-test("preflight fails closed when an external capability starts", async (t) => {
-  const { preflightAppServerSession } = await loadRunner();
-  const fixtureRoot = createTemporaryDirectory(t);
-  const record = await preflightAppServerSession({
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "external-capability" },
-    },
-    fixtureRoot,
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    timeoutMs: 5_000,
-  });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /external capability/iu);
-  assert.ok(!outboundMethods.includes("turn/start"));
-  assert.equal(record.modelTurns, 0);
-});
-
-test("session fails closed before a turn when an external capability starts", async (t) => {
-  const { record } = await runFakeSession(t, {
-    scenario: "external-capability",
-  });
-  const outboundMethods = record.transcript
-    .filter(({ direction }) => direction === "client->server")
-    .map(({ message }) => message.method)
-    .filter(Boolean);
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.match(record.error.message, /external capability/iu);
-  assert.ok(!outboundMethods.includes("turn/start"));
-  assert.equal(record.turns.length, 0);
-});
-
-test("an invalid proposal is retained but never receives commit authorization", async (t) => {
-  const { record } = await runFakeSession(t, { scenario: "invalid-proposal" });
-  const turnStarts = record.transcript.filter(
-    ({ direction, message }) =>
-      direction === "client->server" && message.method === "turn/start",
-  );
-
-  assert.equal(record.status, "completed");
-  assert.equal(record.turns.length, 1);
-  assert.deepEqual(record.authorization, {
-    reason: "proposal message must end with exactly one LF",
-    status: "withheld",
-  });
-  assert.equal(turnStarts.length, 1);
-  assert.match(
-    record.turns[0].finalAgentMessage,
-    /EVALUATION_COMMIT_PROPOSAL/u,
-  );
-});
-
-test("the external-call gate binds approval to the exact transmission packet", async () => {
-  const {
-    EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-    assertExternalModelAuthorization,
-    createTransmissionPacket,
-  } = await loadRunner();
-  const transmission = {
-    content: {
-      fixture: { sha256: "a".repeat(64) },
-      prompt: "Commit the exact fixture change.",
-      skill: { sha256: "b".repeat(64) },
-    },
+async function preparedFixture(t, options = {}) {
+  const root = temporaryRoot(t);
+  const homes = join(root, "evaluation-homes-v1");
+  if (options.initializeHomes !== false) {
+    await initializeEvaluationHomes({ root: homes });
+  }
+  const environment = testEnvironment(options.scenario);
+  const inspectedToolchain = await toolchain(root);
+  const prepared = await prepareEvaluationSession({
+    arm: options.arm ?? "no-skill",
+    authorizationEligible: options.authorizationEligible ?? true,
+    caseId: options.caseId ?? 35,
+    destination: join(root, "prepared"),
     effort: "low",
+    evaluationHomesRoot: homes,
+    environment,
     model: "gpt-5.6-luna",
+    predeterminedScopeId: options.predeterminedScopeId,
     provider: "openai",
-    toolPolicy: { networkAccess: false, workspaceWrite: true },
-  };
-  const packet = createTransmissionPacket(transmission);
-  const repeated = createTransmissionPacket({
-    toolPolicy: transmission.toolPolicy,
-    provider: transmission.provider,
-    model: transmission.model,
-    effort: transmission.effort,
-    content: transmission.content,
-  });
-  const authorization = {
-    decision: "authorized",
-    schemaVersion: 1,
-    statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-    transmissionSha256: packet.transmissionSha256,
-  };
-
-  assert.match(packet.transmissionSha256, /^[0-9a-f]{64}$/u);
-  assert.equal(packet.transmissionSha256, repeated.transmissionSha256);
-  assert.throws(
-    () =>
-      assertExternalModelAuthorization({
-        allowExternalModelCall: false,
-        authorization,
-        packet,
-      }),
-    /explicit --allow-external-model-call/iu,
-  );
-  assert.throws(
-    () =>
-      assertExternalModelAuthorization({
-        allowExternalModelCall: true,
-        authorization: {
-          ...authorization,
-          transmissionSha256: "0".repeat(64),
-        },
-        packet,
-      }),
-    /does not match/iu,
-  );
-  assert.throws(
-    () =>
-      assertExternalModelAuthorization({
-        allowExternalModelCall: true,
-        authorization,
-        packet: {
-          ...packet,
-          transmission: {
-            ...packet.transmission,
-            model: "gpt-5.6-sol",
-          },
-        },
-      }),
-    /packet digest is invalid/iu,
-  );
-  assert.equal(
-    assertExternalModelAuthorization({
-      allowExternalModelCall: true,
-      authorization,
-      packet,
-    }),
-    packet.transmissionSha256,
-  );
-});
-
-test("run-record persistence is exclusive and retains infrastructure failures", async (t) => {
-  const { writeRunRecordExclusive } = await loadRunner();
-  const destination = join(createTemporaryDirectory(t), "result.json");
-  const failure = {
-    error: { message: "preflight found enabled skill" },
-    status: "infrastructure-invalid",
-    transcript: [{ direction: "server->client", sequence: 1 }],
-  };
-
-  writeRunRecordExclusive(destination, failure);
-
-  assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), failure);
-  assert.throws(
-    () => writeRunRecordExclusive(destination, { status: "completed" }),
-    /already exists/iu,
-  );
-  assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), failure);
-});
-
-test("session preparation binds a fresh fixture and pinned treatment into one packet", async (t) => {
-  const { buildPreparedRuntimeIsolationOverrides, prepareEvaluationSession } =
-    await loadRunner();
-  const parent = createTemporaryDirectory(t);
-  const destination = join(parent, "prepared-session");
-  const prepared = prepareEvaluationSession({
-    arm: "old-skill",
-    authorizationEligible: true,
-    caseId: 35,
-    destination,
-    effort: "low",
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    repetition: 2,
-    repositoryRoot: REPO_ROOT,
-    seed: "packet-seed",
-    sequence: 17,
-  });
-  const persisted = JSON.parse(readFileSync(prepared.packetPath, "utf8"));
-
-  assert.deepEqual(persisted, prepared.packet);
-  assert.equal(prepared.fixtureRoot, join(destination, "fixture"));
-  assert.equal(prepared.skillPath, join(destination, "treatment", "SKILL.md"));
-  assert.deepEqual(prepared.packet.transmission.toolPolicy.runtimeHomes, {
-    preflight: join(destination, "runtime-home-preflight"),
-    run: join(destination, "runtime-home-run"),
-  });
-  assert.deepEqual(
-    readdirSync(prepared.packet.transmission.toolPolicy.runtimeHomes.preflight),
-    [],
-  );
-  assert.deepEqual(
-    readdirSync(prepared.packet.transmission.toolPolicy.runtimeHomes.run),
-    [],
-  );
-  assert.equal(
-    prepared.packet.transmission.case.prompt,
-    "Commit only the task's skills-lock.json update. Hint: Add new agent skills, update existing skill. Leave unrelated README.md and package-lock.json changes alone.",
-  );
-  assert.deepEqual(prepared.packet.transmission.expectedScope, {
-    kind: "paths",
-    paths: ["skills-lock.json"],
-  });
-  assert.equal(
-    prepared.packet.transmission.treatment.sourceCommit,
-    OLD_SKILL_COMMIT,
-  );
-  assert.equal(
-    prepared.packet.transmission.treatment.files.find(
-      ({ path }) => path === "SKILL.md",
-    ).blobOid,
-    "74fe1000b0c8e7e253136df0d726ba2af30eec5f",
-  );
-  assert.equal(prepared.packet.transmission.authorizationEligible, true);
-  assert.equal(prepared.packet.transmission.order.seed, "packet-seed");
-  assert.equal(prepared.packet.transmission.order.sequence, 17);
-  assert.equal(prepared.packet.transmission.order.repetition, 2);
-  assert.match(
-    prepared.packet.transmission.fixture.initialState.sha256,
-    /^[0-9a-f]{64}$/u,
-  );
-  assert.deepEqual(prepared.packet.transmission.toolPolicy, {
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    dynamicTools: [],
-    environments: [],
-    networkAccess: false,
+    repetition: 1,
+    repositoryRoot: REPOSITORY_ROOT,
     runtimeIsolationCatalog: {
       appIds: [],
       mcpServerIds: [],
@@ -1011,478 +131,655 @@ test("session preparation binds a fresh fixture and pinned treatment into one pa
       skillPaths: [],
     },
     runtimeIsolationDiscovery: null,
-    runtimeIsolationOverrides: buildPreparedRuntimeIsolationOverrides({
-      fixtureRoot: prepared.fixtureRoot,
-      runtimeIsolationCatalog: {
-        appIds: [],
-        mcpServerIds: [],
-        pluginIds: [],
-        skillPaths: [],
-      },
-      runtimeIsolationDiscovery: null,
-      runtimeHomes: {
-        preflight: join(destination, "runtime-home-preflight"),
-        run: join(destination, "runtime-home-run"),
-      },
-    }),
-    runtimeHomes: {
-      preflight: join(destination, "runtime-home-preflight"),
-      run: join(destination, "runtime-home-run"),
-    },
-    runtimeWorkspaceRoots: [prepared.fixtureRoot],
-    sandbox: "workspace-write",
-    sequential: true,
-    writableRoots: [prepared.fixtureRoot],
-  });
-});
-
-test("ambiguous preparation pins the predetermined scope without answering it early", async (t) => {
-  const { prepareEvaluationSession } = await loadRunner();
-  const destination = join(createTemporaryDirectory(t), "ambiguous-session");
-  const prepared = prepareEvaluationSession({
-    arm: "no-skill",
-    authorizationEligible: true,
-    caseId: 42,
-    destination,
-    effort: "low",
-    model: "gpt-5.6-luna",
-    predeterminedScopeId: "importer",
-    provider: "openai",
-    repetition: 1,
-    repositoryRoot: REPO_ROOT,
-    seed: "ambiguous-seed",
+    seed: "task-6-seed",
     sequence: 1,
+    toolchain: inspectedToolchain,
   });
+  return { homes, prepared, root };
+}
 
-  assert.equal(prepared.skillPath, null);
-  assert.deepEqual(prepared.packet.transmission.expectedScope, {
-    kind: "paths",
-    paths: [
-      "src/import/shared-1.js",
-      "src/import/shared-2.js",
-      "src/import/shared-3.js",
-    ],
-  });
-  assert.deepEqual(prepared.packet.transmission.scopeClarification, {
-    options: {
-      exporter: [
-        "src/export/shared-1.js",
-        "src/export/shared-2.js",
-        "src/export/shared-3.js",
-      ],
-      importer: [
-        "src/import/shared-1.js",
-        "src/import/shared-2.js",
-        "src/import/shared-3.js",
-      ],
-    },
-    predeterminedScopeId: "importer",
-  });
-  assert.doesNotMatch(
-    prepared.packet.transmission.case.prompt,
-    /src\/import\/shared-1\.js/u,
-  );
-});
-
-test("ambiguous scope selection is sent only after a valid question and unchanged state", async (t) => {
-  const { materializeEvaluationFixture } = await loadRunner();
-  const parent = createTemporaryDirectory(t);
-  const fixtureRoot = join(parent, "ambiguous-fixture");
-  const fixture = materializeEvaluationFixture({
-    caseId: 42,
-    destination: fixtureRoot,
-    repositoryRoot: REPO_ROOT,
-  });
-  const scopeClarification = {
-    options: fixture.metadata.expected.safety.materiallyPlausibleScopes,
-    predeterminedScopeId: "importer",
-  };
-  const { record } = await runFakeSession(t, {
-    expectedScope: {
-      kind: "paths",
-      paths: scopeClarification.options.importer,
-    },
-    fixtureRoot,
-    scenario: "ambiguous",
-    scopeClarification,
-  });
-  const turnStarts = record.transcript
-    .filter(
-      ({ direction, message }) =>
-        direction === "client->server" && message.method === "turn/start",
-    )
-    .map(({ message }) => message);
-
-  assert.equal(record.status, "completed");
-  assert.equal(record.turns.length, 3);
-  assert.equal(record.clarification.status, "sent");
-  assert.equal(record.clarification.stateUnchanged, true);
-  assert.deepEqual(record.clarification.selectedScope, {
-    id: "importer",
-    paths: [
-      "src/import/shared-1.js",
-      "src/import/shared-2.js",
-      "src/import/shared-3.js",
-    ],
-  });
-  assert.match(
-    turnStarts[1].params.input[0].text,
-    /^<EVALUATION_SCOPE_SELECTION>\n/iu,
-  );
-  assert.match(turnStarts[1].params.input[0].text, /"scopeId":"importer"/u);
-  assert.equal(turnStarts[2].params.input[0].text, record.authorization.reply);
-  assert.deepEqual(record.authorization.status, "sent");
-  assert.equal(record.approvals.length, 3);
-});
-
-test("prepared execution gates before launch and persists final state on failure", async (t) => {
-  const {
-    EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-    executePreparedEvaluationSession,
-    prepareEvaluationSession,
-  } = await loadRunner();
-  const destination = join(createTemporaryDirectory(t), "gated-session");
-  const prepared = prepareEvaluationSession({
-    arm: "no-skill",
-    authorizationEligible: true,
-    caseId: 35,
-    destination,
-    effort: "low",
-    model: "gpt-5.6-luna",
-    provider: "openai",
-    repetition: 1,
-    repositoryRoot: REPO_ROOT,
-    seed: "gated-seed",
-    sequence: 1,
-  });
-  const authorization = {
-    decision: "authorized",
+function authorization(packet, overrides = {}) {
+  return {
     schemaVersion: 1,
+    decision: "authorized",
     statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-    transmissionSha256: prepared.packet.transmissionSha256,
+    allowExternalModel: true,
+    provider: packet.transmission.provider,
+    model: packet.transmission.model,
+    effort: packet.transmission.effort,
+    transmissionSha256: packet.transmissionSha256,
+    ...overrides,
   };
-  const resultPath = join(destination, "result.json");
-  let launched = false;
+}
 
-  await assert.rejects(
-    () =>
-      executePreparedEvaluationSession({
-        allowExternalModelCall: false,
-        appServer: { args: [], command: "must-not-launch" },
-        authorization,
-        packet: prepared.packet,
-        resultPath,
-        sessionRunner: async () => {
-          launched = true;
-          return { status: "completed" };
-        },
-      }),
-    /explicit --allow-external-model-call/iu,
+function observedLaunchOrder(prepared, homes, result) {
+  const events = ["evidence-acquired"];
+  if (!existsSync(join(prepared.preparedSession, "authorization.json"))) {
+    return events;
+  }
+  events.push("authorization-validated");
+  if (result.failureClass === "preflight-rejected") return events;
+  events.push("current-state-validated");
+  const operationId = prepared.packet.transmission.session.preparedSessionId;
+  const history = existsSync(join(homes, ".history"))
+    ? readdirSync(join(homes, ".history"))
+    : [];
+  if (!history.some((name) => name.startsWith(`${operationId}-execution-`))) {
+    return events;
+  }
+  events.push("home-acquired");
+  if (!existsSync(join(prepared.preparedSession, "attempt.json")))
+    return events;
+  events.push("launch-consumed");
+  const transcript = join(
+    prepared.preparedSession,
+    "outputs",
+    "transcript.jsonl",
   );
-  assert.equal(launched, false);
-  assert.equal(existsSync(resultPath), false);
+  if (existsSync(transcript) && readFileSync(transcript).byteLength > 0) {
+    events.push("app-server-spawned");
+  }
+  return events;
+}
 
-  const record = await executePreparedEvaluationSession({
-    allowExternalModelCall: true,
-    appServer: {
-      args: [FAKE_APP_SERVER],
-      command: process.execPath,
-      env: { FAKE_APP_SERVER_SCENARIO: "leaked-skill" },
-    },
-    authorization,
-    packet: prepared.packet,
-    resultPath,
-    timeoutMs: 5_000,
+test("controller sends exact authorization once after a valid proposal", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const state = Object.freeze({ sha256: "a".repeat(64) });
+  const controller = createCommittingToGitController({
+    session: Object.freeze({
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "packet-bound Git task" }),
+      ]),
+      fixtureRoot,
+      expectedScope: Object.freeze({
+        kind: "paths",
+        paths: Object.freeze(["skills-lock.json"]),
+      }),
+      scopeClarification: null,
+      authorizationEligible: true,
+      approvalPolicy: Object.freeze({ readableRoots: Object.freeze([]) }),
+    }),
+    observeGitState: () => state,
   });
-  const persisted = JSON.parse(readFileSync(resultPath, "utf8"));
-
-  assert.equal(record.status, "infrastructure-invalid");
-  assert.equal(record.session.status, "infrastructure-invalid");
-  assert.match(record.session.error.message, /enabled skill/iu);
-  assert.equal(record.initialState.sha256, record.finalState.sha256);
-  assert.equal(record.transmissionSha256, prepared.packet.transmissionSha256);
-  assert.deepEqual(persisted, record);
-  assert.ok(record.session.transcript.length > 0);
+  const decision = await controller.onTurnCompleted({
+    turnIndex: 1,
+    status: "completed",
+    finalAnswer:
+      '<EVALUATION_COMMIT_PROPOSAL>\n{"message":"chore(skills): Update inventory\\n","push":false,"scope":{"kind":"paths","paths":["skills-lock.json"]}}\n</EVALUATION_COMMIT_PROPOSAL>',
+    nativeUsage: null,
+    nativeEventRange: { first: 4, last: 9 },
+  });
+  assert.equal(controller.maxTurns, 2);
+  assert.deepEqual(decision, {
+    action: "continue",
+    transitionId: "exact-commit-authorization",
+    input: [{ type: "text", text: EXACT_COMMIT_AUTHORIZATION_REPLY }],
+  });
+  const completed = await controller.onTurnCompleted({
+    turnIndex: 2,
+    status: "completed",
+    finalAnswer: "Commit created locally.",
+    nativeUsage: null,
+    nativeEventRange: { first: 10, last: 14 },
+  });
+  assert.deepEqual(completed.suiteResult.commitAuthorization, {
+    reply: EXACT_COMMIT_AUTHORIZATION_REPLY,
+    status: "sent",
+  });
 });
 
-test("blind grading packages retain failures without treatment identities", async () => {
-  const { createBlindedGradingBundle } = await loadRunner();
-  const blockId = "gpt-5.6-luna/low/35/1";
-  const records = [
-    {
-      arm: "no-skill",
-      case: { caseKey: "known-context-skill-inventory-hint", id: 35 },
-      effort: "low",
-      model: "gpt-5.6-luna",
-      order: { blockId, repetition: 1, seed: "blind-seed", sequence: 1 },
-      provider: "openai",
-      session: {
-        status: "completed",
-        transcript: [
-          {
-            direction: "server->client",
-            message: { method: "turn/completed" },
-            sequence: 1,
-          },
-        ],
-        turns: [{ finalAgentMessage: "control behavior retained" }],
-      },
-      sourceCommit: null,
-      status: "completed",
+test("controller withholds invalid proposals and changed-scope replies", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  let observations = 0;
+  const controller = createCommittingToGitController({
+    session: Object.freeze({
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "packet-bound Git task" }),
+      ]),
+      fixtureRoot,
+      expectedScope: Object.freeze({
+        kind: "paths",
+        paths: Object.freeze(["skills-lock.json"]),
+      }),
+      scopeClarification: Object.freeze({
+        options: Object.freeze({
+          inventory: Object.freeze(["skills-lock.json"]),
+          skill: Object.freeze(["skills/committing-to-git/SKILL.md"]),
+        }),
+        predeterminedScopeId: "inventory",
+      }),
+      authorizationEligible: true,
+      approvalPolicy: Object.freeze({ readableRoots: Object.freeze([]) }),
+    }),
+    observeGitState: () => {
+      observations += 1;
+      return { sha256: (observations === 1 ? "a" : "b").repeat(64) };
     },
-    {
-      arm: "old-skill",
-      case: { caseKey: "known-context-skill-inventory-hint", id: 35 },
-      effort: "low",
-      model: "gpt-5.6-luna",
-      order: { blockId, repetition: 1, seed: "blind-seed", sequence: 2 },
-      provider: "openai",
-      session: {
-        status: "infrastructure-invalid",
-        transcript: [
-          {
-            direction: "client->server",
-            message: {
-              method: "turn/start",
-              params: {
-                input: [
-                  { text: "same prompt", type: "text" },
-                  {
-                    name: "committing-to-git",
-                    path: "C:\\opaque\\old-extraction\\SKILL.md",
-                    type: "skill",
-                  },
-                ],
-              },
-            },
-            sequence: 1,
-          },
-        ],
-        turns: [{ finalAgentMessage: "failure behavior retained" }],
-      },
-      sourceCommit: OLD_SKILL_COMMIT,
-      status: "infrastructure-invalid",
-    },
-    {
-      arm: "new-skill",
-      case: { caseKey: "known-context-skill-inventory-hint", id: 35 },
-      effort: "low",
-      model: "gpt-5.6-luna",
-      order: { blockId, repetition: 1, seed: "blind-seed", sequence: 3 },
-      provider: "openai",
-      session: {
-        status: "completed",
-        transcript: [],
-        turns: [{ finalAgentMessage: "treatment behavior retained" }],
-      },
-      sourceCommit: NEW_SKILL_COMMIT,
-      status: "completed",
-    },
-  ];
-  const first = createBlindedGradingBundle({ records, seed: "blind-seed" });
-  const repeated = createBlindedGradingBundle({
-    records,
-    seed: "blind-seed",
   });
-  const gradingJson = JSON.stringify(first.gradingPackage);
+  const result = await controller.onTurnCompleted({
+    turnIndex: 1,
+    status: "completed",
+    finalAnswer:
+      '<EVALUATION_SCOPE_QUESTION>\n{"options":{"inventory":["skills-lock.json"],"skill":["skills/committing-to-git/SKILL.md"]}}\n</EVALUATION_SCOPE_QUESTION>',
+    nativeUsage: null,
+    nativeEventRange: { first: 1, last: 2 },
+  });
+  assert.equal(observations, 2);
+  assert.deepEqual(result.suiteResult.clarification, {
+    reason: "fixture state changed before scope clarification",
+    stateUnchanged: false,
+    status: "withheld",
+  });
+});
 
-  assert.deepEqual(first, repeated);
+test("controller sends only the exact predetermined scope reply", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const options = Object.freeze({
+    inventory: Object.freeze(["skills-lock.json"]),
+    skill: Object.freeze(["skills/committing-to-git/SKILL.md"]),
+  });
+  const session = Object.freeze({
+    initialInput: Object.freeze([
+      Object.freeze({ type: "text", text: "task" }),
+    ]),
+    fixtureRoot,
+    expectedScope: Object.freeze({ kind: "paths", paths: options.inventory }),
+    scopeClarification: Object.freeze({
+      options,
+      predeterminedScopeId: "inventory",
+    }),
+    authorizationEligible: true,
+    approvalPolicy: Object.freeze({ readableRoots: Object.freeze([]) }),
+  });
+  const unchanged = () => ({ sha256: "a".repeat(64) });
+  const valid = createCommittingToGitController({
+    session,
+    observeGitState: unchanged,
+  });
+  const reply =
+    '<EVALUATION_SCOPE_SELECTION>\n{"paths":["skills-lock.json"],"scopeId":"inventory"}\n</EVALUATION_SCOPE_SELECTION>';
   assert.deepEqual(
-    new Set(first.gradingPackage.sessions.map(({ armLabel }) => armLabel)),
-    new Set(["A", "B", "C"]),
+    await valid.onTurnCompleted({
+      turnIndex: 1,
+      status: "completed",
+      finalAnswer:
+        '<EVALUATION_SCOPE_QUESTION>\n{"options":{"skill":["skills/committing-to-git/SKILL.md"],"inventory":["skills-lock.json"]}}\n</EVALUATION_SCOPE_QUESTION>',
+    }),
+    {
+      action: "continue",
+      transitionId: "predetermined-scope-selection",
+      input: [{ type: "text", text: reply }],
+    },
+  );
+
+  const invalid = createCommittingToGitController({
+    session,
+    observeGitState: unchanged,
+  });
+  const rejected = await invalid.onTurnCompleted({
+    turnIndex: 1,
+    status: "completed",
+    finalAnswer:
+      '<EVALUATION_SCOPE_QUESTION>\n{"options":{"inventory":["skills-lock.json"],"extra":["other.txt"]}}\n</EVALUATION_SCOPE_QUESTION>',
+  });
+  assert.equal(rejected.action, "complete");
+  assert.equal(rejected.suiteResult.clarification.status, "withheld");
+  assert.match(
+    rejected.suiteResult.clarification.reason,
+    /every exact plausible scope/u,
+  );
+});
+
+test("controller withholds authorization for invalid output or changed Git state", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const session = Object.freeze({
+    initialInput: Object.freeze([
+      Object.freeze({ type: "text", text: "task" }),
+    ]),
+    fixtureRoot,
+    expectedScope: Object.freeze({
+      kind: "paths",
+      paths: Object.freeze(["skills-lock.json"]),
+    }),
+    scopeClarification: null,
+    authorizationEligible: true,
+    approvalPolicy: Object.freeze({ readableRoots: Object.freeze([]) }),
+  });
+  const malformed = createCommittingToGitController({
+    session,
+    observeGitState: () => ({ sha256: "a".repeat(64) }),
+  });
+  const malformedResult = await malformed.onTurnCompleted({
+    turnIndex: 1,
+    status: "completed",
+    finalAnswer: "No structured proposal.",
+  });
+  assert.equal(
+    malformedResult.suiteResult.commitAuthorization.status,
+    "withheld",
+  );
+  assert.match(
+    malformedResult.suiteResult.commitAuthorization.reason,
+    /exactly one/u,
+  );
+
+  let observations = 0;
+  const changed = createCommittingToGitController({
+    session,
+    observeGitState: () => ({
+      sha256: (observations++ === 0 ? "a" : "b").repeat(64),
+    }),
+  });
+  const changedResult = await changed.onTurnCompleted({
+    turnIndex: 1,
+    status: "completed",
+    finalAnswer:
+      '<EVALUATION_COMMIT_PROPOSAL>\n{"message":"chore(skills): Update inventory\\n","push":false,"scope":{"kind":"paths","paths":["skills-lock.json"]}}\n</EVALUATION_COMMIT_PROPOSAL>',
+  });
+  assert.deepEqual(changedResult.suiteResult.commitAuthorization, {
+    reason: "fixture state changed before commit authorization",
+    status: "withheld",
+  });
+});
+
+test("controller grants only fixture-scoped one-turn permissions", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const controller = createCommittingToGitController({
+    session: Object.freeze({
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "task" }),
+      ]),
+      fixtureRoot,
+      expectedScope: Object.freeze({
+        kind: "paths",
+        paths: Object.freeze(["a.txt"]),
+      }),
+      scopeClarification: null,
+      authorizationEligible: false,
+      approvalPolicy: Object.freeze({ readableRoots: Object.freeze([]) }),
+    }),
+    observeGitState: () => ({ sha256: "a".repeat(64) }),
+  });
+  const permissions = { fileSystem: { write: [join(fixtureRoot, "a.txt")] } };
+  assert.deepEqual(
+    await controller.onApprovalRequest({
+      kind: "filesystem",
+      cwd: fixtureRoot,
+      permissions,
+      turnIndex: 1,
+      nativeEventIndex: 2,
+      command: null,
+    }),
+    {
+      decision: "allow",
+      permissions,
+      reason: "fixture-scoped turn permission",
+      scope: "turn",
+    },
   );
   assert.deepEqual(
-    new Set(Object.values(first.mapping.blocks[blockId])),
-    new Set(["no-skill", "old-skill", "new-skill"]),
+    await controller.onApprovalRequest({
+      kind: "network",
+      cwd: fixtureRoot,
+      permissions: { network: { enabled: true } },
+      turnIndex: 1,
+      nativeEventIndex: 3,
+      command: "curl example.test",
+    }),
+    {
+      decision: "deny",
+      reason: "network, external, or out-of-fixture access denied",
+    },
+  );
+});
+
+test("evaluation runner exports only the migrated orchestration surface", async () => {
+  const runner =
+    await import("../../evals/committing-to-git/evaluation-runner.mjs");
+  assert.deepEqual(Object.keys(runner).sort(), [
+    "EVALUATION_ARMS",
+    "EVALUATION_CASE_IDS",
+    "EVALUATION_MODELS",
+    "PINNED_SKILL_COMMITS",
+    "buildEvaluationSchedule",
+    "captureGitState",
+    "createBlindedGradingBundle",
+    "discoverRuntimeIsolationCatalog",
+    "executePreparedEvaluationSession",
+    "preflightPreparedEvaluationSession",
+    "prepareEvaluationSession",
+  ]);
+});
+
+test("the seeded matrix remains 306 deterministic matched sessions", () => {
+  const first = buildEvaluationSchedule("step-3-seed");
+  assert.equal(first.length, 306);
+  assert.deepEqual(first, buildEvaluationSchedule("step-3-seed"));
+  assert.notDeepEqual(first, buildEvaluationSchedule("different-seed"));
+  for (let index = 0; index < first.length; index += 3) {
+    assert.deepEqual(
+      new Set(first.slice(index, index + 3).map(({ arm }) => arm)),
+      new Set(EVALUATION_ARMS),
+    );
+  }
+  assert.deepEqual(
+    EVALUATION_CASE_IDS,
+    [4, 7, 18, 28, 35, 36, 37, 39, 40, 41, 42, 47, 49, 50, 53, 54, 55],
+  );
+  assert.equal(EVALUATION_MODELS[0].repetitions, 5);
+  assert.deepEqual(PINNED_SKILL_COMMITS, {
+    "old-skill": "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
+    "new-skill": "ec064b1f8177d9542a82f478ca3b1ce5e44ee702",
+  });
+});
+
+test("preparation writes a common packet without packet-local runtime homes", async (t) => {
+  const { prepared } = await preparedFixture(t, {
+    arm: "old-skill",
+    initializeHomes: false,
+  });
+  assert.equal(existsSync(join(prepared.preparedSession, "packet.json")), true);
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "inputs", "manifest.json")),
+    true,
   );
   assert.equal(
-    first.gradingPackage.sessions.filter(
-      ({ status }) => status === "infrastructure-invalid",
-    ).length,
-    1,
+    existsSync(join(prepared.preparedSession, "fixture", ".git")),
+    true,
   );
-  assert.match(gradingJson, /failure behavior retained/u);
-  assert.doesNotMatch(gradingJson, /old-skill|new-skill/iu);
-  assert.doesNotMatch(gradingJson, new RegExp(OLD_SKILL_COMMIT, "u"));
-  assert.doesNotMatch(gradingJson, new RegExp(NEW_SKILL_COMMIT, "u"));
-  assert.doesNotMatch(gradingJson, /old-extraction/iu);
-  assert.doesNotMatch(gradingJson, /"type":"skill"/u);
-  assert.doesNotMatch(gradingJson, /"sourceCommit"/u);
-  assert.doesNotMatch(gradingJson, /"arm":/u);
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "treatment", "SKILL.md")),
+    true,
+  );
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "runtime-home-preflight")),
+    false,
+  );
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "runtime-home-run")),
+    false,
+  );
+  const packet = JSON.parse(
+    readFileSync(join(prepared.preparedSession, "packet.json"), "utf8"),
+  );
+  assert.equal(packet.canonicalization, "RFC8785");
+  assert.equal(packet.transmission.transport, "codex-app-server");
+  assert.equal(packet.transmission.capabilities.network, false);
+  assert.equal(packet.transmission.session.arm, "old-skill");
+  assert.equal(packet.transmission.continuationPolicy.maxTurns, 2);
+  assert.match(packet.transmissionSha256, /^[0-9a-f]{64}$/u);
+  assert.match(
+    packet.transmission.harnessControlledInputs.find(
+      ({ id }) => id === "developer-instructions",
+    ).content,
+    /# Task-specific skill/u,
+  );
 });
 
-test("read-only catalog discovery produces exact app-server isolation arguments", async (t) => {
-  const {
-    assertRuntimeIsolationCurrent,
-    buildCodexAppServerArguments,
-    buildPreparedRuntimeIsolationOverrides,
-    discoverRuntimeIsolationCatalog,
-  } = await loadRunner();
-  const root = createTemporaryDirectory(t);
+test("digest rejection occurs before home acquisition or App Server launch", async (t) => {
+  const { homes, prepared } = await preparedFixture(t, {
+    initializeHomes: false,
+  });
+  const result = await executePreparedEvaluationSession({
+    preparedSession: prepared,
+    authorization: authorization(prepared.packet, {
+      transmissionSha256: "0".repeat(64),
+    }),
+    allowExternalModelCall: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "authorization-rejected");
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "attempt.json")),
+    false,
+  );
+  assert.equal(existsSync(homes), false);
+  assert.deepEqual(observedLaunchOrder(prepared, homes, result), [
+    "evidence-acquired",
+  ]);
+});
+
+test("fixture drift is rejected after authorization and before home acquisition", async (t) => {
+  const { homes, prepared } = await preparedFixture(t, {
+    initializeHomes: false,
+  });
+  writeFileSync(join(prepared.fixtureRoot, "drift.txt"), "changed\n", "utf8");
+  const result = await executePreparedEvaluationSession({
+    preparedSession: prepared,
+    authorization: authorization(prepared.packet),
+    allowExternalModelCall: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.failureClass, "preflight-rejected");
+  assert.deepEqual(observedLaunchOrder(prepared, homes, result), [
+    "evidence-acquired",
+    "authorization-validated",
+  ]);
+});
+
+test("preflight uses the stable preflight role and starts no model turn", async (t) => {
+  const { homes, prepared } = await preparedFixture(t, {
+    scenario: "authorized",
+  });
+  const result = await preflightPreparedEvaluationSession({
+    preparedSession: prepared,
+    allowZeroTurnPreflight: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.status, "completed", result.error?.message);
+  assert.equal(
+    readdirSync(join(homes, ".history")).some((name) =>
+      name.includes("-preflight-"),
+    ),
+    true,
+  );
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "attempt.json")),
+    false,
+  );
+});
+
+test("authorized execution uses the stable execution role and common evidence", async (t) => {
+  const { homes, prepared } = await preparedFixture(t, {
+    scenario: "authorized",
+  });
+  const result = await executePreparedEvaluationSession({
+    preparedSession: prepared,
+    authorization: authorization(prepared.packet),
+    allowExternalModelCall: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.status, "completed", result.error?.message);
+  assert.equal(result.suiteResult.commitAuthorization.status, "sent");
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "attempt.json")),
+    true,
+  );
+  assert.equal(
+    existsSync(join(prepared.preparedSession, "outputs", "events.jsonl")),
+    true,
+  );
+  assert.equal(
+    readdirSync(join(homes, ".history")).some((name) =>
+      name.includes("-execution-"),
+    ),
+    true,
+  );
+  assert.deepEqual(observedLaunchOrder(prepared, homes, result), [
+    "evidence-acquired",
+    "authorization-validated",
+    "current-state-validated",
+    "home-acquired",
+    "launch-consumed",
+    "app-server-spawned",
+  ]);
+});
+
+test("execution-home contention stops after current-state validation", async (t) => {
+  const { homes, prepared } = await preparedFixture(t);
+  await withEvaluationHome(
+    { root: homes, role: "execution", operationId: "f".repeat(32) },
+    async () => {
+      const result = await executePreparedEvaluationSession({
+        preparedSession: prepared,
+        authorization: authorization(prepared.packet),
+        allowExternalModelCall: true,
+        timeoutMs: 5_000,
+      });
+      assert.equal(result.failureClass, "provider-failed");
+      assert.equal(
+        existsSync(join(prepared.preparedSession, "run.json")),
+        true,
+      );
+      assert.deepEqual(observedLaunchOrder(prepared, homes, result), [
+        "evidence-acquired",
+        "authorization-validated",
+        "current-state-validated",
+      ]);
+      return {
+        value: null,
+        release: {
+          status: "safe",
+          exitStatus: "not-started",
+          exitCode: null,
+          exitSignal: null,
+          stdioStatus: "not-opened",
+          protocolStatus: "not-opened",
+          terminationActions: [],
+          descendantStatus: "none-observed",
+        },
+      };
+    },
+  );
+});
+
+test("blinding retains failures while removing treatment identities", () => {
+  const records = EVALUATION_ARMS.map((arm, index) => ({
+    arm,
+    case: { id: 35 },
+    effort: "low",
+    model: "gpt-5.6-luna",
+    order: { blockId: "gpt-5.6-luna/low/35/1", sequence: index + 1 },
+    provider: "openai",
+    sourceCommit: PINNED_SKILL_COMMITS[arm] ?? null,
+    status: index === 0 ? "failed" : "completed",
+    transmissionSha256: String(index).repeat(64),
+  }));
+  const bundle = createBlindedGradingBundle({ records, seed: "blind-seed" });
+  assert.equal(bundle.gradingPackage.sessions.length, 3);
+  assert.match(JSON.stringify(bundle.gradingPackage), /failed/u);
+  assert.doesNotMatch(
+    JSON.stringify(bundle.gradingPackage),
+    /old-skill|new-skill|no-skill/u,
+  );
+});
+
+test("catalog discovery remains read-only and deterministic", (t) => {
+  const root = temporaryRoot(t);
   const codexHome = join(root, "codex-home");
-  const repositoryRoot = join(root, "repository");
-  const globalSkill = join(codexHome, "skills", "global", "SKILL.md");
-  const pluginSkill = join(
+  const emptyRepository = join(root, "repository");
+  writeFileSync(join(root, "placeholder"), "", "utf8");
+  const first = discoverRuntimeIsolationCatalog({
     codexHome,
-    "plugins",
-    "cache",
-    "openai-bundled",
-    "browser",
-    "1.0.0",
-    "skills",
-    "browser",
-    "SKILL.md",
-  );
-  const repositorySkill = join(
-    repositoryRoot,
-    ".agents",
-    "skills",
-    "local",
-    "SKILL.md",
-  );
-
-  for (const path of [globalSkill, pluginSkill, repositorySkill]) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, "# isolated\n", "utf8");
-  }
-  writeFileSync(
-    join(codexHome, "config.toml"),
-    [
-      "[mcp_servers.github]",
-      "enabled = true",
-      "[apps.github]",
-      "enabled = true",
-      "",
-    ].join("\n"),
-    "utf8",
-  );
-
-  const catalog = discoverRuntimeIsolationCatalog({
+    repositoryRoot: emptyRepository,
+  });
+  const second = discoverRuntimeIsolationCatalog({
     codexHome,
-    repositoryRoot,
+    repositoryRoot: emptyRepository,
   });
-  const runtimeHomes = {
-    preflight: join(root, "runtime-home-preflight"),
-    run: join(root, "runtime-home-run"),
-  };
-
-  for (const runtimeHome of Object.values(runtimeHomes)) {
-    mkdirSync(runtimeHome);
-  }
-
-  const overrides = buildPreparedRuntimeIsolationOverrides({
-    fixtureRoot: join(root, "fixture"),
-    runtimeIsolationCatalog: catalog,
-    runtimeIsolationDiscovery: { codexHome, repositoryRoot },
-    runtimeHomes,
+  assert.deepEqual(first, second);
+  assert.deepEqual(first, {
+    appIds: [],
+    mcpServerIds: [],
+    pluginIds: [],
+    skillPaths: [],
   });
-  const args = buildCodexAppServerArguments(overrides.preflight);
-
-  assert.deepEqual(
-    catalog.skillPaths,
-    [repositorySkill, pluginSkill, globalSkill].sort(),
-  );
-  assert.deepEqual(catalog.mcpServerIds, ["github"]);
-  assert.deepEqual(catalog.pluginIds, ["browser@openai-bundled"]);
-  assert.deepEqual(catalog.appIds, ["github"]);
-  assert.equal(args[0], "app-server");
-  assert.deepEqual(
-    args.slice(1),
-    overrides.preflight.flatMap((override) => ["-c", override]),
-  );
-
-  const toolPolicy = {
-    runtimeIsolationCatalog: catalog,
-    runtimeIsolationDiscovery: { codexHome, repositoryRoot },
-    runtimeIsolationOverrides: overrides,
-    runtimeHomes,
-    runtimeWorkspaceRoots: [join(root, "fixture")],
-  };
-  assert.doesNotThrow(() => assertRuntimeIsolationCurrent(toolPolicy));
-
-  writeFileSync(
-    join(codexHome, "config.toml"),
-    "[mcp_servers.new_source]\nenabled = true\n",
-    "utf8",
-  );
-  assert.throws(
-    () => assertRuntimeIsolationCurrent(toolPolicy),
-    /runtime isolation catalog changed/iu,
-  );
+  assert.equal(existsSync(codexHome), false);
 });
 
-test("the CLI plan is deterministic and performs no model execution", () => {
+test("CLI plan remains deterministic and performs no model execution", () => {
   const result = spawnSync(
     process.execPath,
-    [RUNNER_CLI, "plan", "--seed", "cli-step-3-seed"],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      windowsHide: true,
-    },
+    [RUNNER_CLI, "plan", "--seed", "cli-seed"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
-
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.command, "plan");
   assert.equal(output.modelCalls, 0);
   assert.equal(output.sessions.length, 306);
-  assert.equal(output.sessions[0].sequence, 1);
-  assert.equal(output.sessions.at(-1).sequence, 306);
 });
 
-test("the CLI run gate fails before its configured executable can launch", async (t) => {
-  const { EXTERNAL_MODEL_AUTHORIZATION_STATEMENT, createTransmissionPacket } =
-    await loadRunner();
-  const root = createTemporaryDirectory(t);
-  const packetPath = join(root, "packet.json");
-  const authorizationPath = join(root, "authorization.json");
-  const resultPath = join(root, "result.json");
-  const packet = createTransmissionPacket({
-    toolPolicy: {
-      runtimeIsolationOverrides: {
-        preflight: ["agents.enabled=false"],
-        run: ["agents.enabled=false"],
-      },
-    },
-  });
-  const authorization = {
-    decision: "authorized",
-    schemaVersion: 1,
-    statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-    transmissionSha256: packet.transmissionSha256,
-  };
+test("CLI run and preflight reject obsolete path-redirection flags", () => {
+  for (const command of ["run", "preflight"]) {
+    const result = spawnSync(
+      process.execPath,
+      [RUNNER_CLI, command, "--packet", "redirected.json"],
+      { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--packet is not valid/u);
+  }
+});
 
-  writeFileSync(packetPath, `${JSON.stringify(packet)}\n`, "utf8");
+test("CLI blind enriches common run records from their packet metadata", async (t) => {
+  const root = temporaryRoot(t, "committing-to-git-blind-");
+  const recordPaths = [];
+  for (const [index, arm] of EVALUATION_ARMS.entries()) {
+    const { prepared } = await preparedFixture(t, {
+      arm,
+      initializeHomes: false,
+    });
+    const runPath = join(prepared.preparedSession, "run.json");
+    writeFileSync(
+      runPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        transmissionSha256: prepared.packet.transmissionSha256,
+        status: index === 0 ? "failed" : "completed",
+        failureClass: index === 0 ? "provider-failed" : null,
+        error:
+          index === 0
+            ? { name: "Error", code: null, message: "retained" }
+            : null,
+        closure: { status: "safe" },
+        suiteResult: null,
+        artifacts: {},
+      })}\n`,
+      "utf8",
+    );
+    recordPaths.push(runPath);
+  }
+  const manifest = join(root, "records.json");
+  const packagePath = join(root, "package.json");
+  const mappingPath = join(root, "mapping.json");
   writeFileSync(
-    authorizationPath,
-    `${JSON.stringify(authorization)}\n`,
+    manifest,
+    `${JSON.stringify({ records: recordPaths })}\n`,
     "utf8",
   );
-
   const result = spawnSync(
     process.execPath,
     [
       RUNNER_CLI,
-      "run",
-      "--packet",
-      packetPath,
-      "--authorization",
-      authorizationPath,
-      "--result",
-      resultPath,
-      "--codex-command",
-      "must-not-launch-step-3",
+      "blind",
+      "--records-manifest",
+      manifest,
+      "--seed",
+      "blind-cli-seed",
+      "--package",
+      packagePath,
+      "--mapping",
+      mappingPath,
     ],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      windowsHide: true,
-    },
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
-
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /explicit --allow-external-model-call/iu);
-  assert.doesNotMatch(result.stderr, /could not launch/iu);
-  assert.equal(existsSync(resultPath), false);
+  assert.equal(result.status, 0, result.stderr);
+  const gradingPackage = readFileSync(packagePath, "utf8");
+  assert.doesNotMatch(gradingPackage, /no-skill|old-skill|new-skill/u);
+  assert.match(gradingPackage, /provider-failed/u);
+  const mapping = readFileSync(mappingPath, "utf8");
+  assert.match(mapping, /no-skill/u);
+  assert.match(mapping, /old-skill/u);
+  assert.match(mapping, /new-skill/u);
 });

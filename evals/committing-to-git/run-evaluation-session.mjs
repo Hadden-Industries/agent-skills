@@ -1,17 +1,23 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import {
-  buildCodexAppServerArguments,
   buildEvaluationSchedule,
   createBlindedGradingBundle,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
-  writeJsonArtifactExclusive,
 } from "./evaluation-runner.mjs";
+import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
+import { evaluationHomesRootFromLocalAppData } from "../../scripts/evaluation/evaluation-homes.js";
 
 function fail(message) {
   throw new Error(message);
@@ -33,7 +39,10 @@ function parseOptions(tokens) {
       fail(`Duplicate option ${flag}`);
     }
 
-    if (name === "allow-external-model-call") {
+    if (
+      name === "allow-external-model-call" ||
+      name === "allow-zero-turn-preflight"
+    ) {
       options[name] = true;
       continue;
     }
@@ -59,6 +68,15 @@ function required(options, name) {
   }
 
   return value;
+}
+
+function assertAllowedOptions(options, allowed) {
+  const allowedNames = new Set(allowed);
+  for (const name of Object.keys(options)) {
+    if (!allowedNames.has(name)) {
+      fail(`Option --${name} is not valid for this command`);
+    }
+  }
 }
 
 function positiveInteger(options, name) {
@@ -95,6 +113,14 @@ function writeOutput(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function writeJsonArtifactExclusive(destination, value) {
+  writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+}
+
 function writeArtifactOrOutput(options, value, summary) {
   if (!options.output) {
     writeOutput(value);
@@ -106,21 +132,16 @@ function writeArtifactOrOutput(options, value, summary) {
   writeOutput({ ...summary, artifactPath });
 }
 
-function codexAppServer(options, runtimeOverrides) {
-  const appServerArguments = buildCodexAppServerArguments(runtimeOverrides);
-
+function codexToolchainCommand(options) {
   if (options["codex-entry"]) {
     return {
-      args: [resolve(options["codex-entry"]), ...appServerArguments],
+      prefixArguments: [resolve(options["codex-entry"])],
       command: options["codex-command"] ?? process.execPath,
     };
   }
 
   if (options["codex-command"]) {
-    return {
-      args: appServerArguments,
-      command: options["codex-command"],
-    };
+    return { prefixArguments: [], command: options["codex-command"] };
   }
 
   const npmEntry = process.env.APPDATA
@@ -137,12 +158,38 @@ function codexAppServer(options, runtimeOverrides) {
 
   if (process.platform === "win32" && npmEntry && existsSync(npmEntry)) {
     return {
-      args: [npmEntry, ...appServerArguments],
+      prefixArguments: [npmEntry],
       command: process.execPath,
     };
   }
 
-  return { args: appServerArguments, command: "codex" };
+  return { prefixArguments: [], command: "codex" };
+}
+
+function environmentProfile() {
+  const names =
+    process.platform === "win32"
+      ? [
+          "HOMEDRIVE",
+          "HOMEPATH",
+          "LOGONSERVER",
+          "PATH",
+          "PATHEXT",
+          "SYSTEMDRIVE",
+          "SYSTEMROOT",
+          "TEMP",
+          "TMP",
+          "USERDOMAIN",
+          "USERNAME",
+          "USERPROFILE",
+          "WINDIR",
+        ]
+      : ["HOME", "LANG", "PATH", "SHELL", "TMPDIR", "USER"];
+  return Object.fromEntries(
+    names
+      .filter((name) => typeof process.env[name] === "string")
+      .map((name) => [name, process.env[name]]),
+  );
 }
 
 async function runPlan(options) {
@@ -201,12 +248,28 @@ async function runPrepare(options) {
   if (!catalogDocument.discovery) {
     fail("Isolation catalog must be created by the catalog command");
   }
-  const prepared = prepareEvaluationSession({
+  const command = codexToolchainCommand(options);
+  const scratch = mkdtempSync(join(tmpdir(), "committing-to-git-toolchain-"));
+  let toolchain;
+  try {
+    toolchain = await inspectCodexAppServerToolchain({
+      ...command,
+      scratchRoot: join(scratch, "inspection"),
+      environment: environmentProfile(),
+    });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  const prepared = await prepareEvaluationSession({
     arm: required(options, "arm"),
     authorizationEligible: booleanValue(options, "authorization-eligible"),
     caseId: positiveInteger(options, "case-id"),
     destination: resolve(required(options, "destination")),
     effort: required(options, "effort"),
+    evaluationHomesRoot: options["evaluation-homes-root"]
+      ? resolve(options["evaluation-homes-root"])
+      : evaluationHomesRootFromLocalAppData(process.env.LOCALAPPDATA),
+    environment: environmentProfile(),
     model: required(options, "model"),
     predeterminedScopeId: options["predetermined-scope-id"],
     provider: required(options, "provider"),
@@ -216,38 +279,27 @@ async function runPrepare(options) {
     runtimeIsolationDiscovery: catalogDocument.discovery,
     seed: required(options, "seed"),
     sequence: positiveInteger(options, "sequence"),
+    toolchain,
   });
 
   writeOutput({
     command: "prepare",
     fixtureRoot: prepared.fixtureRoot,
     modelCalls: 0,
-    packetPath: prepared.packetPath,
+    packetPath: join(prepared.preparedSession, "packet.json"),
     schemaVersion: 1,
-    sessionRoot: prepared.sessionRoot,
+    sessionRoot: prepared.preparedSession,
     transmissionSha256: prepared.packet.transmissionSha256,
   });
 }
 
 async function runExecute(options) {
-  const packetPath = resolve(required(options, "packet"));
   const authorizationPath = resolve(required(options, "authorization"));
-  const resultPath = resolve(required(options, "result"));
-  const packet = readJson(packetPath, "transmission packet");
   const authorization = readJson(authorizationPath, "authorization");
-  const runtimeOverrides =
-    packet.transmission?.toolPolicy?.runtimeIsolationOverrides?.run;
-
-  if (!Array.isArray(runtimeOverrides)) {
-    fail("Transmission packet has no runtime isolation overrides");
-  }
-
   const record = await executePreparedEvaluationSession({
+    preparedSession: resolve(required(options, "prepared-session")),
     allowExternalModelCall: options["allow-external-model-call"] === true,
-    appServer: codexAppServer(options, runtimeOverrides),
     authorization,
-    packet,
-    resultPath,
     timeoutMs: options["timeout-ms"]
       ? positiveInteger(options, "timeout-ms")
       : 30_000,
@@ -255,29 +307,21 @@ async function runExecute(options) {
 
   writeOutput({
     command: "run",
-    modelTurns: record.session?.turns?.length ?? 0,
-    resultPath,
+    modelTurns: record.status === "completed" ? 1 : 0,
+    resultPath: join(
+      resolve(required(options, "prepared-session")),
+      "run.json",
+    ),
     schemaVersion: 1,
     status: record.status,
-    transmissionSha256: record.transmissionSha256,
+    transmissionSha256: authorization.transmissionSha256,
   });
 }
 
 async function runPreflight(options) {
-  const packetPath = resolve(required(options, "packet"));
-  const resultPath = resolve(required(options, "result"));
-  const packet = readJson(packetPath, "transmission packet");
-  const runtimeOverrides =
-    packet.transmission?.toolPolicy?.runtimeIsolationOverrides?.preflight;
-
-  if (!Array.isArray(runtimeOverrides)) {
-    fail("Transmission packet has no runtime isolation overrides");
-  }
-
   const record = await preflightPreparedEvaluationSession({
-    appServer: codexAppServer(options, runtimeOverrides),
-    packet,
-    resultPath,
+    preparedSession: resolve(required(options, "prepared-session")),
+    allowZeroTurnPreflight: options["allow-zero-turn-preflight"] === true,
     timeoutMs: options["timeout-ms"]
       ? positiveInteger(options, "timeout-ms")
       : 30_000,
@@ -285,11 +329,18 @@ async function runPreflight(options) {
 
   writeOutput({
     command: "preflight",
-    modelTurns: record.preflight?.modelTurns ?? 0,
-    resultPath,
+    modelTurns: 0,
+    resultPath: join(
+      resolve(required(options, "prepared-session")),
+      "preflight",
+      "preflight.json",
+    ),
     schemaVersion: 1,
     status: record.status,
-    transmissionSha256: record.transmissionSha256,
+    transmissionSha256: readJson(
+      join(resolve(required(options, "prepared-session")), "packet.json"),
+      "transmission packet",
+    ).transmissionSha256,
   });
 }
 
@@ -301,9 +352,34 @@ async function runBlind(options) {
     fail("Record manifest must contain a non-empty records array");
   }
 
-  const records = manifest.records.map((path) =>
-    readJson(resolve(dirname(manifestPath), path), "run record"),
-  );
+  const records = manifest.records.map((path) => {
+    const runPath = resolve(dirname(manifestPath), path);
+    const record = readJson(runPath, "run record");
+    const packet = readJson(
+      join(dirname(runPath), "packet.json"),
+      "transmission packet",
+    );
+    const transmission = packet.transmission;
+    const metadata = transmission.session.metadata;
+    return {
+      ...record,
+      arm: transmission.session.arm,
+      case: {
+        id: transmission.session.caseId,
+        caseKey: metadata.caseKey,
+      },
+      effort: transmission.effort,
+      model: transmission.model,
+      order: {
+        blockId: metadata.blockId,
+        repetition: transmission.session.repetition,
+        seed: metadata.seed,
+        sequence: transmission.session.sequence,
+      },
+      provider: transmission.provider,
+      sourceCommit: metadata.sourceCommit,
+    };
+  });
   const bundle = createBlindedGradingBundle({
     records,
     seed: required(options, "seed"),
@@ -332,16 +408,53 @@ async function main() {
   const options = parseOptions(tokens);
 
   if (command === "plan") {
+    assertAllowedOptions(options, ["seed", "output"]);
     await runPlan(options);
   } else if (command === "catalog") {
+    assertAllowedOptions(options, ["repository-root", "codex-home", "output"]);
     await runCatalog(options);
   } else if (command === "prepare") {
+    assertAllowedOptions(options, [
+      "arm",
+      "authorization-eligible",
+      "case-id",
+      "codex-command",
+      "codex-entry",
+      "destination",
+      "effort",
+      "evaluation-homes-root",
+      "isolation-catalog",
+      "model",
+      "predetermined-scope-id",
+      "provider",
+      "repetition",
+      "repository-root",
+      "seed",
+      "sequence",
+    ]);
     await runPrepare(options);
   } else if (command === "run") {
+    assertAllowedOptions(options, [
+      "prepared-session",
+      "authorization",
+      "allow-external-model-call",
+      "timeout-ms",
+    ]);
     await runExecute(options);
   } else if (command === "preflight") {
+    assertAllowedOptions(options, [
+      "prepared-session",
+      "allow-zero-turn-preflight",
+      "timeout-ms",
+    ]);
     await runPreflight(options);
   } else if (command === "blind") {
+    assertAllowedOptions(options, [
+      "records-manifest",
+      "seed",
+      "package",
+      "mapping",
+    ]);
     await runBlind(options);
   } else {
     fail(

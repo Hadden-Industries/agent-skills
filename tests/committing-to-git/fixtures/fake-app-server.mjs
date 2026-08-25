@@ -160,34 +160,9 @@ function finishScopeQuestion(turnId) {
   finishTurn(turnId, text, "git status --short");
 }
 
-function requestNetworkApproval(turnId) {
-  const id = 902;
-  pendingApprovals.set(id, () => finishInitialTurn(turnId));
-  send({
-    id,
-    method: "item/commandExecution/requestApproval",
-    params: {
-      approvalId: null,
-      availableDecisions: ["accept", "decline", "cancel"],
-      command: null,
-      commandActions: null,
-      cwd: fixtureRoot,
-      environmentId: null,
-      itemId: "network-command",
-      networkApprovalContext: { host: "example.com", protocol: "https" },
-      proposedExecpolicyAmendment: null,
-      proposedNetworkPolicyAmendments: null,
-      reason: "network should be denied",
-      startedAtMs: 3,
-      threadId,
-      turnId,
-    },
-  });
-}
-
 function requestFixturePermission(turnId) {
   const id = 901;
-  pendingApprovals.set(id, () => requestNetworkApproval(turnId));
+  pendingApprovals.set(id, () => finishInitialTurn(turnId));
   send({
     id,
     method: "item/permissions/requestApproval",
@@ -285,9 +260,14 @@ function threadStartResult(params) {
   const readOnlyBaseline = scenario === "read-only-baseline";
 
   return {
+    allowProviderModelFallback: params.allowProviderModelFallback,
     approvalPolicy: params.approvalPolicy,
     approvalsReviewer: params.approvalsReviewer,
+    baseInstructions: params.baseInstructions,
     cwd: params.cwd,
+    developerInstructions: params.developerInstructions,
+    dynamicTools: params.dynamicTools,
+    environments: params.environments,
     instructionSources: ["leaked-skill", "leaked-instructions"].includes(
       scenario,
     )
@@ -296,7 +276,7 @@ function threadStartResult(params) {
     model: params.model,
     modelProvider: params.modelProvider,
     multiAgentMode: "explicitRequestOnly",
-    reasoningEffort: null,
+    reasoningEffort: "low",
     runtimeWorkspaceRoots: implicitCwd ? [] : params.runtimeWorkspaceRoots,
     sandbox: readOnlyBaseline
       ? { networkAccess: false, type: "readOnly" }
@@ -308,6 +288,7 @@ function threadStartResult(params) {
           writableRoots: implicitCwd ? [] : [params.cwd],
         },
     serviceTier: null,
+    selectedCapabilityRoots: params.selectedCapabilityRoots,
     thread: {
       cliVersion: "0.149.1",
       createdAt: 1,
@@ -323,6 +304,8 @@ function threadStartResult(params) {
       turns: [],
       updatedAt: 1,
     },
+    tools: ["commandExecution", "fileChange"],
+    webSearch: false,
   };
 }
 
@@ -338,15 +321,7 @@ async function handleGitScenario(message, context) {
   }
 
   if (message.method === "initialize") {
-    send({
-      id: message.id,
-      result: {
-        codexHome: process.env.CODEX_HOME ?? process.cwd(),
-        platformFamily: "windows",
-        platformOs: "windows",
-        userAgent: "codex_cli_rs/0.149.1",
-      },
-    });
+    return false;
   } else if (message.method === "initialized") {
     return true;
   } else if (message.method === "account/read") {
@@ -400,7 +375,6 @@ async function handleGitScenario(message, context) {
         params: { name: "codex_apps", status: "starting" },
       });
     }
-
     send({ id: message.id, result: threadStartResult(message.params) });
   } else if (message.method === "turn/start") {
     startTurn(message);
@@ -416,6 +390,8 @@ async function handleGitScenario(message, context) {
     } else {
       send({ id: message.id, result: {} });
     }
+  } else {
+    return false;
   }
 
   return true;

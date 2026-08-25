@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -7,8 +7,9 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   readdirSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import {
@@ -22,10 +23,22 @@ import {
 } from "node:path";
 
 import {
+  codexAppServerAdapter,
+  preflightCodexAppServer,
+} from "../../scripts/evaluation/codex-app-server.js";
+import { withEvaluationHome } from "../../scripts/evaluation/evaluation-homes.js";
+import {
+  assertTransmissionPacket,
+  canonicalJsonBytes,
+  createTransmissionPacket,
+  executeAuthorizedModelSession,
+  prepareEvidenceSession,
+  sha256Hex,
+} from "../../scripts/evaluation/runtime.js";
+import {
   EXACT_COMMIT_AUTHORIZATION_REPLY,
-  preflightAppServerWithIsolation,
-  runAppServerSessionWithApprovalPolicy,
-} from "./app-server-session.mjs";
+  createCommittingToGitController,
+} from "./session-controller.mjs";
 
 const MATRIX_CASE_IDS = Object.freeze([
   4, 7, 18, 28, 35, 36, 37, 39, 40, 41, 42, 47, 49, 50, 53, 54, 55,
@@ -52,8 +65,6 @@ const PINNED_SKILLS = Object.freeze({
   "new-skill": "ec064b1f8177d9542a82f478ca3b1ce5e44ee702",
 });
 const SKILL_REPOSITORY_PATH = "skills/committing-to-git";
-const MODEL_AUTHORIZATION_STATEMENT =
-  "I authorize transmitting the exact packet identified by transmissionSha256 to the named provider and model.";
 const EVALUATION_BASE_INSTRUCTIONS =
   "Work only inside the supplied disposable Git fixture. Treat every other local or external source as unavailable.";
 const EVALUATION_DEVELOPER_INSTRUCTIONS =
@@ -61,37 +72,6 @@ const EVALUATION_DEVELOPER_INSTRUCTIONS =
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function canonicalJson(value) {
-  if (value === null || typeof value !== "object") {
-    const serialized = JSON.stringify(value);
-
-    if (serialized === undefined) {
-      throw new TypeError("Transmission packets must contain JSON values only");
-    }
-
-    return serialized;
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new TypeError("Transmission packets require plain JSON objects");
-  }
-
-  return `{${Object.keys(value)
-    .sort((left, right) => left.localeCompare(right, "en"))
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-    .join(",")}}`;
-}
-
-function transmissionPacketDigest(transmission) {
-  return sha256(canonicalJson(transmission));
 }
 
 function stableOrderKey(seed, value) {
@@ -125,55 +105,6 @@ function normalizedRepositoryPath(path) {
   }
 
   return normalized;
-}
-
-function isWithin(root, candidate) {
-  const pathFromRoot = relative(resolve(root), resolve(candidate));
-
-  return (
-    pathFromRoot === "" ||
-    (!pathFromRoot.startsWith(`..${sep}`) &&
-      pathFromRoot !== ".." &&
-      !isAbsolute(pathFromRoot))
-  );
-}
-
-function resolveProspectivePath(candidate) {
-  const unresolved = [];
-  let ancestor = resolve(candidate);
-
-  while (true) {
-    try {
-      lstatSync(ancestor);
-      break;
-    } catch (error) {
-      if (error?.code !== "ENOENT") {
-        throw error;
-      }
-
-      const parent = dirname(ancestor);
-
-      if (parent === ancestor) {
-        throw error;
-      }
-
-      unresolved.unshift(basename(ancestor));
-      ancestor = parent;
-    }
-  }
-
-  return resolve(realpathSync(ancestor), ...unresolved);
-}
-
-function isWithinResolved(root, candidate) {
-  try {
-    return isWithin(
-      realpathSync(resolve(root)),
-      resolveProspectivePath(candidate),
-    );
-  } catch {
-    return false;
-  }
 }
 
 function runGit(
@@ -338,101 +269,6 @@ export function buildEvaluationSchedule(seed) {
   return blocks
     .flatMap(({ sessions }) => sessions)
     .map((session, index) => ({ ...session, seed, sequence: index + 1 }));
-}
-
-export function buildRuntimeIsolationOverrides({ skillPaths }) {
-  const normalizedSkillPaths = sortedUnique(skillPaths);
-
-  for (const path of normalizedSkillPaths) {
-    if (!isAbsolute(path) || basename(path).toLowerCase() !== "skill.md") {
-      throw new Error(
-        `Skill isolation requires an absolute exact SKILL.md path: ${path}`,
-      );
-    }
-  }
-
-  const overrides = [
-    "agents.enabled=false",
-    "analytics.enabled=false",
-    "apps._default.enabled=false",
-    "check_for_update_on_startup=false",
-    'cli_auth_credentials_store="keyring"',
-    "features.apps=false",
-    "features.enable_mcp_apps=false",
-    "features.plugins=false",
-    "features.skill_mcp_dependency_install=false",
-    "feedback.enabled=false",
-    'history.persistence="none"',
-    "memories.generate_memories=false",
-    "project_doc_fallback_filenames=[]",
-    "project_doc_max_bytes=0",
-    'sandbox_mode="workspace-write"',
-    "sandbox_workspace_write.exclude_slash_tmp=true",
-    "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-    "sandbox_workspace_write.network_access=false",
-    "tools.web_search=false",
-    'web_search="disabled"',
-  ];
-
-  if (process.platform === "win32") {
-    overrides.push('windows.sandbox="elevated"');
-  }
-
-  const skillConfiguration = normalizedSkillPaths
-    .map((path) => `{path=${JSON.stringify(path)},enabled=false}`)
-    .join(",");
-  overrides.push(`skills.config=[${skillConfiguration}]`);
-
-  return overrides;
-}
-
-export function buildPreparedRuntimeIsolationOverrides({
-  fixtureRoot,
-  runtimeHomes,
-  runtimeIsolationCatalog,
-  runtimeIsolationDiscovery,
-}) {
-  if (
-    typeof fixtureRoot !== "string" ||
-    !isAbsolute(fixtureRoot) ||
-    !runtimeHomes ||
-    ![runtimeHomes.preflight, runtimeHomes.run].every(
-      (path) => typeof path === "string" && isAbsolute(path),
-    )
-  ) {
-    throw new TypeError("Prepared runtime homes must be absolute paths");
-  }
-
-  const catalogSkillPaths = runtimeIsolationCatalog?.skillPaths ?? [];
-  const sourceCodexHome = runtimeIsolationDiscovery?.codexHome;
-  const sourceSystemSkills =
-    typeof sourceCodexHome === "string" && isAbsolute(sourceCodexHome)
-      ? catalogSkillPaths.filter((path) =>
-          isWithin(join(sourceCodexHome, "skills", ".system"), path),
-        )
-      : [];
-
-  return Object.fromEntries(
-    ["preflight", "run"].map((purpose) => {
-      const runtimeHome = runtimeHomes[purpose];
-      const runtimeSystemSkills = sourceSystemSkills.map((path) =>
-        join(runtimeHome, relative(sourceCodexHome, path)),
-      );
-      const overrides = buildRuntimeIsolationOverrides({
-        skillPaths: sortedUnique([
-          ...catalogSkillPaths,
-          ...runtimeSystemSkills,
-        ]),
-      });
-      const skillConfiguration = overrides.pop();
-      overrides.push(
-        `projects.${JSON.stringify(fixtureRoot)}.trust_level="trusted"`,
-        skillConfiguration,
-      );
-
-      return [purpose, overrides];
-    }),
-  );
 }
 
 function collectSkillFiles(root, paths) {
@@ -614,288 +450,27 @@ export function discoverRuntimeIsolationCatalog({ codexHome, repositoryRoot }) {
   };
 }
 
-export function buildCodexAppServerArguments(overrides) {
-  if (
-    !Array.isArray(overrides) ||
-    overrides.some(
-      (override) => typeof override !== "string" || override.length === 0,
-    )
-  ) {
-    throw new TypeError("App-server overrides must be non-empty strings");
-  }
-
-  return ["app-server", ...overrides.flatMap((override) => ["-c", override])];
-}
-
-export function assertRuntimeIsolationCurrent(toolPolicy) {
+function assertRuntimeIsolationCurrent(toolPolicy) {
   const discovery = toolPolicy?.runtimeIsolationDiscovery;
   const preparedCatalog = toolPolicy?.runtimeIsolationCatalog;
-  const preparedOverrides = toolPolicy?.runtimeIsolationOverrides;
 
-  if (
-    !discovery ||
-    !preparedCatalog ||
-    !preparedOverrides ||
-    !Array.isArray(preparedOverrides.preflight) ||
-    !Array.isArray(preparedOverrides.run)
-  ) {
+  if (!discovery || !preparedCatalog) {
     throw new Error("Prepared packet has no reproducible isolation catalog");
   }
 
   const currentCatalog = discoverRuntimeIsolationCatalog(discovery);
 
-  if (canonicalJson(currentCatalog) !== canonicalJson(preparedCatalog)) {
+  if (
+    !canonicalJsonBytes(currentCatalog).equals(
+      canonicalJsonBytes(preparedCatalog),
+    )
+  ) {
     throw new Error(
       "Runtime isolation catalog changed after packet preparation",
     );
   }
 
-  const currentOverrides = buildPreparedRuntimeIsolationOverrides({
-    fixtureRoot: toolPolicy.runtimeWorkspaceRoots?.[0],
-    runtimeHomes: toolPolicy.runtimeHomes,
-    runtimeIsolationCatalog: currentCatalog,
-    runtimeIsolationDiscovery: discovery,
-  });
-
-  if (canonicalJson(currentOverrides) !== canonicalJson(preparedOverrides)) {
-    throw new Error(
-      "Runtime isolation overrides changed after packet preparation",
-    );
-  }
-
-  return currentOverrides;
-}
-
-function preparedRuntimeHome(toolPolicy, fixtureRoot, purpose) {
-  const expectedNames = {
-    preflight: "runtime-home-preflight",
-    run: "runtime-home-run",
-  };
-  const expectedName = expectedNames[purpose];
-  const runtimeHome = toolPolicy?.runtimeHomes?.[purpose];
-  const expectedPath = expectedName
-    ? join(dirname(fixtureRoot), expectedName)
-    : null;
-
-  if (
-    !expectedPath ||
-    typeof runtimeHome !== "string" ||
-    !isAbsolute(runtimeHome) ||
-    resolve(runtimeHome) !== resolve(expectedPath) ||
-    !existsSync(runtimeHome)
-  ) {
-    throw new Error(`Prepared ${purpose} Codex home is invalid`);
-  }
-
-  const state = lstatSync(runtimeHome);
-
-  if (
-    state.isSymbolicLink() ||
-    !state.isDirectory() ||
-    realpathSync(runtimeHome) !== resolve(runtimeHome) ||
-    readdirSync(runtimeHome).length !== 0
-  ) {
-    throw new Error(
-      `Prepared ${purpose} Codex home must be an empty real directory`,
-    );
-  }
-
-  return runtimeHome;
-}
-
-function withRuntimeHome(appServer, runtimeHome) {
-  return {
-    ...appServer,
-    env: { ...(appServer.env ?? {}), CODEX_HOME: runtimeHome },
-  };
-}
-
-function requestedFileSystemEntries(fileSystem) {
-  if (!fileSystem) {
-    return [];
-  }
-
-  const entries = [...(fileSystem.entries ?? [])];
-
-  for (const path of fileSystem.read ?? []) {
-    entries.push({ access: "read", path: { path, type: "path" } });
-  }
-
-  for (const path of fileSystem.write ?? []) {
-    entries.push({ access: "write", path: { path, type: "path" } });
-  }
-
-  return entries;
-}
-
-function permissionProfileIsAllowed(profile, { fixtureRoot, readableRoots }) {
-  if (!profile) {
-    return true;
-  }
-
-  if (profile.network?.enabled === true) {
-    return false;
-  }
-
-  for (const entry of requestedFileSystemEntries(profile.fileSystem)) {
-    if (
-      !entry ||
-      !["read", "write"].includes(entry.access) ||
-      entry.path?.type !== "path" ||
-      typeof entry.path.path !== "string" ||
-      !isAbsolute(entry.path.path)
-    ) {
-      return false;
-    }
-
-    const allowedRoots =
-      entry.access === "write"
-        ? [fixtureRoot]
-        : [fixtureRoot, ...readableRoots];
-
-    if (!allowedRoots.some((root) => isWithinResolved(root, entry.path.path))) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-export function decideApprovalRequest(method, params, context) {
-  const normalizedContext = {
-    fixtureRoot: resolve(context.fixtureRoot),
-    readableRoots: (context.readableRoots ?? []).map((path) => resolve(path)),
-  };
-  const cwdAllowed =
-    typeof params.cwd === "string" &&
-    isWithinResolved(normalizedContext.fixtureRoot, params.cwd);
-
-  if (method === "item/commandExecution/requestApproval") {
-    const allowed =
-      cwdAllowed &&
-      !params.networkApprovalContext &&
-      !(params.proposedNetworkPolicyAmendments?.length > 0) &&
-      permissionProfileIsAllowed(
-        params.additionalPermissions,
-        normalizedContext,
-      );
-
-    return {
-      allowed,
-      reason: allowed
-        ? "fixture-scoped command"
-        : "network or out-of-fixture command access denied",
-      response: { decision: allowed ? "accept" : "decline" },
-    };
-  }
-
-  if (method === "item/permissions/requestApproval") {
-    const allowed =
-      cwdAllowed &&
-      permissionProfileIsAllowed(params.permissions, normalizedContext);
-
-    return {
-      allowed,
-      reason: allowed
-        ? "fixture-scoped turn permission"
-        : "network or out-of-fixture permission denied",
-      response: {
-        permissions: allowed ? params.permissions : {},
-        scope: "turn",
-        strictAutoReview: false,
-      },
-    };
-  }
-
-  throw new Error(`Unsupported approval request method ${method}`);
-}
-
-export function runAppServerSession(options) {
-  return runAppServerSessionWithApprovalPolicy(
-    options,
-    decideApprovalRequest,
-    captureGitState,
-  );
-}
-
-export function preflightAppServerSession(options) {
-  return preflightAppServerWithIsolation(options);
-}
-
-export function createTransmissionPacket(transmission) {
-  const canonicalTransmission = JSON.parse(canonicalJson(transmission));
-
-  return {
-    schemaVersion: 1,
-    transmission: canonicalTransmission,
-    transmissionSha256: transmissionPacketDigest(canonicalTransmission),
-  };
-}
-
-export function assertTransmissionPacket(packet) {
-  if (
-    !packet ||
-    packet.schemaVersion !== 1 ||
-    typeof packet.transmissionSha256 !== "string" ||
-    transmissionPacketDigest(packet.transmission) !== packet.transmissionSha256
-  ) {
-    throw new Error("Transmission packet digest is invalid");
-  }
-
-  return packet.transmissionSha256;
-}
-
-export function assertExternalModelAuthorization({
-  allowExternalModelCall,
-  authorization,
-  packet,
-}) {
-  if (allowExternalModelCall !== true) {
-    throw new Error(
-      "External model execution requires explicit --allow-external-model-call",
-    );
-  }
-
-  assertTransmissionPacket(packet);
-
-  if (
-    !authorization ||
-    authorization.schemaVersion !== 1 ||
-    authorization.decision !== "authorized" ||
-    authorization.statement !== MODEL_AUTHORIZATION_STATEMENT
-  ) {
-    throw new Error("A valid exact transmission authorization is required");
-  }
-
-  if (authorization.transmissionSha256 !== packet.transmissionSha256) {
-    throw new Error("Transmission authorization does not match the packet");
-  }
-
-  return packet.transmissionSha256;
-}
-
-export function writeJsonArtifactExclusive(destination, value) {
-  try {
-    writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600,
-    });
-  } catch (error) {
-    if (error?.code === "EEXIST") {
-      throw new Error(`JSON artifact already exists: ${destination}`, {
-        cause: error,
-      });
-    }
-
-    throw error;
-  }
-
-  return destination;
-}
-
-export function writeRunRecordExclusive(destination, record) {
-  return writeJsonArtifactExclusive(destination, record);
+  return currentCatalog;
 }
 
 function readEvaluation(repositoryRoot, caseId) {
@@ -1030,11 +605,7 @@ function derivePreparedScope(metadata, repository, predeterminedScopeId) {
   };
 }
 
-export function materializeEvaluationFixture({
-  caseId,
-  destination,
-  repositoryRoot,
-}) {
+function materializeEvaluationFixture({ caseId, destination, repositoryRoot }) {
   if (!isAbsolute(destination)) {
     throw new Error("Fixture destination must be absolute");
   }
@@ -1099,7 +670,7 @@ function parseTreeEntry(record) {
   };
 }
 
-export function extractPinnedSkill({ arm, destination, repositoryRoot }) {
+function extractPinnedSkill({ arm, destination, repositoryRoot }) {
   const sourceCommit = PINNED_SKILLS[arm];
 
   if (!sourceCommit) {
@@ -1211,12 +782,158 @@ export function extractPinnedSkill({ arm, destination, repositoryRoot }) {
   };
 }
 
-export function prepareEvaluationSession({
+const EXECUTION_MODULES = Object.freeze([
+  "evals/committing-to-git/evaluation-runner.mjs",
+  "evals/committing-to-git/session-controller.mjs",
+  "scripts/evaluation/runtime.js",
+  "scripts/evaluation/evaluation-homes.js",
+  "scripts/evaluation/codex-app-server.js",
+]);
+
+function packetInput(id, role, mediaType, content) {
+  const bytes = Buffer.from(content, "utf8");
+  return {
+    id,
+    role,
+    mediaType,
+    encoding: "utf8",
+    content,
+    byteLength: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+  };
+}
+
+function runtimeFingerprint(repositoryRoot) {
+  const git = (argument) =>
+    execFileSync("git", ["rev-parse", argument], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim();
+  return {
+    gitCommit: git("HEAD"),
+    gitTree: git("HEAD^{tree}"),
+    modules: EXECUTION_MODULES.map((modulePath) => {
+      const bytes = readFileSync(join(repositoryRoot, modulePath));
+      return {
+        path: modulePath,
+        byteLength: bytes.byteLength,
+        sha256: sha256Hex(bytes),
+      };
+    }),
+  };
+}
+
+function suiteContext(transmission) {
+  const input = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "suite-context",
+  );
+  if (input === undefined) throw new Error("Prepared suite context is missing");
+  return JSON.parse(input.content);
+}
+
+function preparedPath(preparedSession) {
+  return typeof preparedSession === "string"
+    ? resolve(preparedSession)
+    : resolve(preparedSession.preparedSession);
+}
+
+function preparedPacket(preparedSession) {
+  const directory = preparedPath(preparedSession);
+  const bytes = readFileSync(join(directory, "packet.json"));
+  const packet = JSON.parse(bytes.toString("utf8"));
+  assertTransmissionPacket(packet);
+  if (!bytes.equals(canonicalJsonBytes(packet))) {
+    throw new Error("Prepared packet bytes are not canonical");
+  }
+  return { directory, packet };
+}
+
+function policyFor(transmission) {
+  const byRole = (role) =>
+    transmission.harnessControlledInputs.find((input) => input.role === role)
+      ?.content;
+  return {
+    schemaVersion: 1,
+    provider: "openai",
+    model: transmission.model,
+    effort: transmission.effort,
+    instructions: { base: byRole("base"), developer: byRole("developer") },
+    capabilities: transmission.capabilities,
+    isolation: transmission.isolation,
+  };
+}
+
+function immutableValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  for (const child of Object.values(value)) immutableValue(child);
+  return Object.freeze(value);
+}
+
+function controllerFor(transmission, context) {
+  const prompt = transmission.harnessControlledInputs.find(
+    ({ role }) => role === "user",
+  )?.content;
+  const session = immutableValue({
+    initialInput: [{ type: "text", text: prompt }],
+    fixtureRoot: transmission.isolation.workingDirectory,
+    expectedScope: context.expectedScope,
+    scopeClarification: context.scopeClarification,
+    authorizationEligible: context.authorizationEligible,
+    approvalPolicy: { readableRoots: [] },
+  });
+  return createCommittingToGitController({
+    session,
+    observeGitState: captureGitState,
+  });
+}
+
+function assertPreparedCurrent(transmission, context) {
+  const currentFingerprint = runtimeFingerprint(context.repositoryRoot);
+  if (
+    !canonicalJsonBytes(currentFingerprint).equals(
+      canonicalJsonBytes(transmission.runtimeFingerprint),
+    )
+  ) {
+    throw new Error("Evaluation runtime changed after preparation");
+  }
+  if (context.runtimeIsolationDiscovery) {
+    assertRuntimeIsolationCurrent({
+      runtimeIsolationCatalog: context.runtimeIsolationCatalog,
+      runtimeIsolationDiscovery: context.runtimeIsolationDiscovery,
+      runtimeIsolationOverrides: context.runtimeIsolationOverrides,
+      runtimeWorkspaceRoots: [transmission.isolation.workingDirectory],
+    });
+  }
+  const state = captureGitState(transmission.isolation.workingDirectory);
+  if (state.sha256 !== context.fixtureInitialState.sha256) {
+    throw new Error("Prepared fixture state no longer matches the packet");
+  }
+  if (context.treatment !== null) {
+    const actual = listWorktreeFiles(context.treatment.root).map(
+      ({ bytes, path, sha256: digest }) => ({ bytes, path, sha256: digest }),
+    );
+    const expected = context.treatment.files
+      .map(({ bytes, path, sha256: digest }) => ({
+        bytes,
+        path,
+        sha256: digest,
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path, "en"));
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      throw new Error("Prepared treatment bytes no longer match the packet");
+    }
+  }
+}
+
+export async function prepareEvaluationSession({
   arm,
   authorizationEligible,
   caseId,
   destination,
   effort,
+  evaluationHomesRoot,
+  environment,
   model,
   predeterminedScopeId,
   provider,
@@ -1231,376 +948,267 @@ export function prepareEvaluationSession({
   runtimeIsolationDiscovery = null,
   seed,
   sequence,
+  toolchain,
 }) {
-  if (!ARMS.includes(arm)) {
-    throw new Error(`Unknown evaluation arm ${JSON.stringify(arm)}`);
-  }
-
+  if (!ARMS.includes(arm)) throw new Error(`Unknown evaluation arm ${arm}`);
   if (!isAbsolute(destination) || existsSync(destination)) {
     throw new Error(
       "Evaluation session destination must be an absolute nonexistent path",
     );
   }
-
-  if (
-    typeof model !== "string" ||
-    typeof provider !== "string" ||
-    typeof effort !== "string" ||
-    typeof seed !== "string" ||
-    !Number.isInteger(repetition) ||
-    repetition < 1 ||
-    !Number.isInteger(sequence) ||
-    sequence < 1 ||
-    typeof authorizationEligible !== "boolean"
-  ) {
-    throw new TypeError("Evaluation session metadata is incomplete");
-  }
-
-  const evaluation = readEvaluation(repositoryRoot, caseId);
-  mkdirSync(destination, { recursive: false });
-  const runtimeHomes = {
-    preflight: join(destination, "runtime-home-preflight"),
-    run: join(destination, "runtime-home-run"),
-  };
-
-  for (const runtimeHome of Object.values(runtimeHomes)) {
-    mkdirSync(runtimeHome, { mode: 0o700, recursive: false });
-  }
-
-  const fixtureRoot = join(destination, "fixture");
-  const fixture = materializeEvaluationFixture({
-    caseId,
-    destination: fixtureRoot,
-    repositoryRoot,
-  });
-  const scope = derivePreparedScope(
-    fixture.metadata,
-    fixtureRoot,
-    predeterminedScopeId,
-  );
-  const treatment =
-    arm === "no-skill"
-      ? null
-      : extractPinnedSkill({
-          arm,
-          destination: join(destination, "treatment"),
-          repositoryRoot,
-        });
-  const transmission = {
-    arm,
-    authorizationEligible,
-    baseInstructions: EVALUATION_BASE_INSTRUCTIONS,
-    case: {
-      caseKey: evaluation.case_key,
-      costProfile: evaluation.cost_profile,
-      criticalSafety: evaluation.critical_safety,
-      expectations: evaluation.expectations,
-      expectedOutput: evaluation.expected_output,
-      id: evaluation.id,
-      prompt: evaluation.prompt,
-    },
-    developerInstructions: EVALUATION_DEVELOPER_INSTRUCTIONS,
-    effort,
-    expectedScope: scope.expectedScope,
-    fixture: {
-      expected: fixture.metadata.expected,
-      initialState: fixture.initialState,
-      repository: fixtureRoot,
-      scenario: fixture.metadata.scenario,
-    },
-    model,
-    order: {
-      blockId: `${model}/${effort}/${caseId}/${repetition}`,
-      repetition,
-      seed,
-      sequence,
-    },
-    provider,
-    scopeClarification: scope.scopeClarification,
-    toolPolicy: {
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      dynamicTools: [],
-      environments: [],
-      networkAccess: false,
-      runtimeWorkspaceRoots: [fixtureRoot],
-      runtimeIsolationOverrides: buildPreparedRuntimeIsolationOverrides({
-        fixtureRoot,
-        runtimeHomes,
-        runtimeIsolationCatalog,
-        runtimeIsolationDiscovery,
-      }),
+  if (provider !== "openai")
+    throw new Error("Committing-to-git evaluations require OpenAI");
+  if (!isAbsolute(evaluationHomesRoot))
+    throw new Error("evaluationHomesRoot must be absolute");
+  const staging = `${destination}.staging-${randomBytes(8).toString("hex")}`;
+  mkdirSync(staging);
+  try {
+    const evaluation = readEvaluation(repositoryRoot, caseId);
+    const stagedFixture = join(staging, "fixture");
+    const finalFixture = join(destination, "fixture");
+    const fixture = materializeEvaluationFixture({
+      caseId,
+      destination: stagedFixture,
+      repositoryRoot,
+    });
+    const scope = derivePreparedScope(
+      fixture.metadata,
+      stagedFixture,
+      predeterminedScopeId,
+    );
+    const treatment =
+      arm === "no-skill"
+        ? null
+        : extractPinnedSkill({
+            arm,
+            destination: join(staging, "treatment"),
+            repositoryRoot,
+          });
+    const treatmentText = treatment
+      ? readFileSync(treatment.skillPath, "utf8")
+      : null;
+    const developerInstructions =
+      treatmentText === null
+        ? EVALUATION_DEVELOPER_INSTRUCTIONS
+        : `${EVALUATION_DEVELOPER_INSTRUCTIONS}\n\n# Task-specific skill\n\n${treatmentText}`;
+    const context = {
+      schemaVersion: 1,
+      authorizationEligible,
+      case: {
+        caseKey: evaluation.case_key,
+        costProfile: evaluation.cost_profile,
+        criticalSafety: evaluation.critical_safety,
+        expectations: evaluation.expectations,
+        expectedOutput: evaluation.expected_output,
+        id: evaluation.id,
+      },
+      evaluationHomesRoot,
+      expectedScope: scope.expectedScope,
+      fixtureInitialState: fixture.initialState,
+      fixtureMetadata: fixture.metadata,
+      repositoryRoot,
       runtimeIsolationCatalog,
       runtimeIsolationDiscovery,
-      runtimeHomes,
-      sandbox: "workspace-write",
-      sequential: true,
-      writableRoots: [fixtureRoot],
-    },
-    treatment: treatment
-      ? {
-          files: treatment.files,
-          name: "committing-to-git",
-          path: treatment.skillPath,
-          sourceCommit: treatment.sourceCommit,
-        }
-      : null,
-  };
-  const packet = createTransmissionPacket(transmission);
-  const packetPath = join(destination, "transmission-packet.json");
-
-  writeRunRecordExclusive(packetPath, packet);
-
-  return {
-    fixtureRoot,
-    packet,
-    packetPath,
-    sessionRoot: destination,
-    skillPath: treatment?.skillPath ?? null,
-  };
-}
-
-function assertTreatmentSnapshot(treatment) {
-  if (treatment === null) {
-    return [];
-  }
-
-  if (
-    !treatment ||
-    treatment.name !== "committing-to-git" ||
-    !isAbsolute(treatment.path) ||
-    !Array.isArray(treatment.files)
-  ) {
-    throw new Error("Prepared treatment metadata is invalid");
-  }
-
-  const root = dirname(treatment.path);
-  const actual = listWorktreeFiles(root).map(
-    ({ bytes, path, sha256: digest }) => ({
-      bytes,
-      path,
-      sha256: digest,
-    }),
-  );
-  const expected = treatment.files
-    .map(({ bytes, path, sha256: digest }) => ({ bytes, path, sha256: digest }))
-    .sort((left, right) => left.path.localeCompare(right.path, "en"));
-
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error("Prepared treatment bytes no longer match the packet");
-  }
-
-  if (!actual.some(({ path }) => path === "SKILL.md")) {
-    throw new Error("Prepared treatment has no SKILL.md");
-  }
-
-  return [root];
-}
-
-function executionRecordSkeleton(packet) {
-  return {
-    arm: packet.transmission.arm,
-    case: packet.transmission.case,
-    effort: packet.transmission.effort,
-    error: null,
-    finalState: null,
-    initialState: null,
-    model: packet.transmission.model,
-    order: packet.transmission.order,
-    provider: packet.transmission.provider,
-    schemaVersion: 1,
-    session: null,
-    sourceCommit: packet.transmission.treatment?.sourceCommit ?? null,
-    status: "infrastructure-invalid",
-    transmissionSha256: packet.transmissionSha256,
-  };
-}
-
-export async function executePreparedEvaluationSession({
-  allowExternalModelCall,
-  appServer,
-  authorization,
-  packet,
-  resultPath,
-  sessionRunner = runAppServerSession,
-  timeoutMs = 30_000,
-}) {
-  assertExternalModelAuthorization({
-    allowExternalModelCall,
-    authorization,
-    packet,
-  });
-
-  const record = executionRecordSkeleton(packet);
-  const transmission = packet.transmission;
-  const fixtureRoot =
-    typeof transmission.fixture?.repository === "string"
-      ? transmission.fixture.repository
-      : null;
-
-  try {
-    if (!fixtureRoot || !isAbsolute(fixtureRoot)) {
-      throw new Error("Prepared fixture root is invalid");
-    }
-
-    if (transmission.toolPolicy.runtimeIsolationDiscovery) {
-      assertRuntimeIsolationCurrent(transmission.toolPolicy);
-    }
-
-    const readableRoots = assertTreatmentSnapshot(transmission.treatment);
-    const runtimeHome = preparedRuntimeHome(
-      transmission.toolPolicy,
-      fixtureRoot,
-      "run",
-    );
-    record.initialState = captureGitState(fixtureRoot);
-
-    if (
-      record.initialState.sha256 !== transmission.fixture.initialState?.sha256
-    ) {
-      throw new Error("Prepared fixture state no longer matches the packet");
-    }
-
-    record.session = await sessionRunner({
-      appServer: withRuntimeHome(appServer, runtimeHome),
-      approvalContext: { fixtureRoot, readableRoots },
-      session: {
-        arm: transmission.arm,
-        authorizationEligible: transmission.authorizationEligible,
-        baseInstructions: transmission.baseInstructions,
-        developerInstructions: transmission.developerInstructions,
-        effort: transmission.effort,
-        expectedScope: transmission.expectedScope,
-        fixtureRoot,
-        model: transmission.model,
-        prompt: transmission.case.prompt,
-        provider: transmission.provider,
-        scopeClarification: transmission.scopeClarification ?? undefined,
-        skill: transmission.treatment
-          ? {
-              name: transmission.treatment.name,
-              path: transmission.treatment.path,
-            }
-          : undefined,
-      },
-      timeoutMs,
-    });
-    record.status = record.session.status;
-    record.error = record.session.error;
-  } catch (error) {
-    record.status = "infrastructure-invalid";
-    record.error = {
-      message: error instanceof Error ? error.message : String(error),
-      name: error instanceof Error ? error.name : "Error",
-      stack: error instanceof Error ? error.stack : undefined,
+      runtimeIsolationOverrides: null,
+      scopeClarification: scope.scopeClarification,
+      sourceCommit: treatment?.sourceCommit ?? null,
+      treatment: treatment
+        ? {
+            files: treatment.files,
+            root: join(destination, "treatment"),
+            sourceCommit: treatment.sourceCommit,
+          }
+        : null,
     };
-  } finally {
-    if (fixtureRoot && isAbsolute(fixtureRoot) && existsSync(fixtureRoot)) {
-      try {
-        record.finalState = captureGitState(fixtureRoot);
-      } catch (error) {
-        record.status = "infrastructure-invalid";
-        record.error ??= {
-          message: error instanceof Error ? error.message : String(error),
-          name: error instanceof Error ? error.name : "Error",
-          stack: error instanceof Error ? error.stack : undefined,
-        };
-      }
+    const inputs = [
+      packetInput(
+        "base-instructions",
+        "base",
+        "text/plain",
+        EVALUATION_BASE_INSTRUCTIONS,
+      ),
+      packetInput(
+        "developer-instructions",
+        "developer",
+        "text/markdown",
+        developerInstructions,
+      ),
+      packetInput("prompt", "user", "text/plain", evaluation.prompt),
+      packetInput(
+        "suite-context",
+        "configuration",
+        "application/json",
+        JSON.stringify(context),
+      ),
+    ];
+    const templates = [];
+    if (scope.scopeClarification) {
+      const id = scope.scopeClarification.predeterminedScopeId;
+      const paths = scope.scopeClarification.options[id];
+      const text = `<EVALUATION_SCOPE_SELECTION>\n${JSON.stringify({ paths, scopeId: id })}\n</EVALUATION_SCOPE_SELECTION>`;
+      inputs.push(
+        packetInput("scope-selection", "continuation", "text/plain", text),
+      );
+      templates.push({
+        transitionId: "predetermined-scope-selection",
+        input: [{ type: "text", text }],
+      });
     }
-
-    writeRunRecordExclusive(resultPath, record);
+    inputs.push(
+      packetInput(
+        "commit-authorization",
+        "continuation",
+        "text/plain",
+        EXACT_COMMIT_AUTHORIZATION_REPLY,
+      ),
+    );
+    templates.push({
+      transitionId: "exact-commit-authorization",
+      input: [{ type: "text", text: EXACT_COMMIT_AUTHORIZATION_REPLY }],
+    });
+    const transmission = {
+      suite: "committing-to-git",
+      session: {
+        preparedSessionId: randomBytes(16).toString("hex"),
+        caseId,
+        arm,
+        repetition,
+        sequence,
+        metadata: {
+          blockId: `${model}/${effort}/${caseId}/${repetition}`,
+          caseKey: evaluation.case_key,
+          seed,
+          sourceCommit: treatment?.sourceCommit ?? null,
+        },
+        suiteArtifacts: [],
+      },
+      provider,
+      model,
+      effort,
+      transport: "codex-app-server",
+      toolchain,
+      runtimeFingerprint: runtimeFingerprint(repositoryRoot),
+      capabilities: {
+        network: false,
+        webSearch: false,
+        tools: ["commandExecution", "fileChange"],
+        providerFacilities: [],
+      },
+      isolation: {
+        sandbox: "workspace-write",
+        workingDirectory: finalFixture,
+        runtimeWorkspaceRoots: [finalFixture],
+        instructionSources: [],
+        persistence: false,
+        environment: { values: environment, secretSources: [] },
+      },
+      harnessControlledInputs: inputs,
+      continuationPolicy: {
+        controllerSha256: sha256Hex(
+          readFileSync(
+            join(
+              repositoryRoot,
+              "evals",
+              "committing-to-git",
+              "session-controller.mjs",
+            ),
+          ),
+        ),
+        maxTurns: scope.scopeClarification ? 3 : 2,
+        allowedTransitions: templates.map(({ transitionId }) => transitionId),
+        templates,
+      },
+    };
+    const packet = createTransmissionPacket(transmission);
+    const prepared = await prepareEvidenceSession({
+      destination,
+      packet,
+      inputs: inputs.map(({ id, mediaType, content }) => ({
+        id,
+        mediaType,
+        bytes: Buffer.from(content, "utf8"),
+      })),
+    });
+    renameSync(stagedFixture, finalFixture);
+    if (treatment)
+      renameSync(join(staging, "treatment"), join(destination, "treatment"));
+    return Object.freeze({
+      ...prepared,
+      fixtureRoot: finalFixture,
+      packet,
+      skillPath: treatment ? join(destination, "treatment", "SKILL.md") : null,
+    });
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
   }
-
-  return record;
 }
 
 export async function preflightPreparedEvaluationSession({
-  appServer,
-  packet,
-  resultPath,
+  preparedSession,
+  allowZeroTurnPreflight,
   timeoutMs = 30_000,
+  signal,
 }) {
-  assertTransmissionPacket(packet);
-  const record = executionRecordSkeleton(packet);
-  const transmission = packet.transmission;
-  const fixtureRoot =
-    typeof transmission.fixture?.repository === "string"
-      ? transmission.fixture.repository
-      : null;
-
-  record.preflight = null;
-  record.status = "infrastructure-invalid";
-
-  try {
-    if (!fixtureRoot || !isAbsolute(fixtureRoot)) {
-      throw new Error("Prepared fixture root is invalid");
-    }
-
-    if (transmission.toolPolicy.runtimeIsolationDiscovery) {
-      assertRuntimeIsolationCurrent(transmission.toolPolicy);
-    }
-
-    assertTreatmentSnapshot(transmission.treatment);
-    const runtimeHome = preparedRuntimeHome(
-      transmission.toolPolicy,
-      fixtureRoot,
-      "preflight",
-    );
-    record.initialState = captureGitState(fixtureRoot);
-
-    if (
-      record.initialState.sha256 !== transmission.fixture.initialState?.sha256
-    ) {
-      throw new Error("Prepared fixture state no longer matches the packet");
-    }
-
-    record.preflight = await preflightAppServerSession({
-      appServer: withRuntimeHome(appServer, runtimeHome),
-      baseInstructions: transmission.baseInstructions,
-      developerInstructions: transmission.developerInstructions,
-      fixtureRoot,
-      model: transmission.model,
-      provider: transmission.provider,
-      timeoutMs,
-    });
-    record.status = record.preflight.status;
-    record.error = record.preflight.error;
-  } catch (error) {
-    record.status = "infrastructure-invalid";
-    record.error = {
-      message: error instanceof Error ? error.message : String(error),
-      name: error instanceof Error ? error.name : "Error",
-      stack: error instanceof Error ? error.stack : undefined,
-    };
-  } finally {
-    if (fixtureRoot && isAbsolute(fixtureRoot) && existsSync(fixtureRoot)) {
-      try {
-        record.finalState = captureGitState(fixtureRoot);
-
-        if (
-          record.initialState &&
-          record.finalState.sha256 !== record.initialState.sha256
-        ) {
-          record.status = "infrastructure-invalid";
-          record.error = {
-            message: "App-server preflight changed the fixture Git state",
-            name: "InfrastructureError",
-          };
-        }
-      } catch (error) {
-        record.status = "infrastructure-invalid";
-        record.error ??= {
-          message: error instanceof Error ? error.message : String(error),
-          name: error instanceof Error ? error.name : "Error",
-          stack: error instanceof Error ? error.stack : undefined,
-        };
-      }
-    }
-
-    writeRunRecordExclusive(resultPath, record);
+  if (allowZeroTurnPreflight !== true) {
+    throw new Error("preflight requires literal allowZeroTurnPreflight");
   }
+  const { directory, packet } = preparedPacket(preparedSession);
+  const transmission = packet.transmission;
+  const context = suiteContext(transmission);
+  assertPreparedCurrent(transmission, context);
+  return preflightCodexAppServer({
+    toolchain: transmission.toolchain,
+    policy: policyFor(transmission),
+    withHome: (operation) =>
+      withEvaluationHome(
+        {
+          root: context.evaluationHomesRoot,
+          role: "preflight",
+          operationId: transmission.session.preparedSessionId,
+        },
+        operation,
+      ),
+    evidenceDestination: join(directory, "preflight"),
+    timeoutMs,
+    signal,
+  });
+}
 
-  return record;
+export async function executePreparedEvaluationSession({
+  preparedSession,
+  authorization,
+  allowExternalModelCall,
+  timeoutMs = 30_000,
+  signal,
+}) {
+  const { directory, packet } = preparedPacket(preparedSession);
+  const transmission = packet.transmission;
+  const context = suiteContext(transmission);
+  const controller = controllerFor(transmission, context);
+  const result = await executeAuthorizedModelSession({
+    preparedSession: directory,
+    authorization,
+    allowExternalModelCall,
+    assertCurrent: async (current) => assertPreparedCurrent(current, context),
+    adapter: codexAppServerAdapter,
+    request: Object.freeze({
+      toolchain: transmission.toolchain,
+      policy: policyFor(transmission),
+      controller,
+      timeoutMs,
+      withHome: (operation) =>
+        withEvaluationHome(
+          {
+            root: context.evaluationHomesRoot,
+            role: "execution",
+            operationId: transmission.session.preparedSessionId,
+          },
+          operation,
+        ),
+    }),
+    signal,
+  });
+  return result;
 }
 
 function treatmentSecrets(records) {
@@ -1758,9 +1366,4 @@ export function createBlindedGradingBundle({ records, seed }) {
 export const EVALUATION_ARMS = ARMS;
 export const EVALUATION_CASE_IDS = MATRIX_CASE_IDS;
 export const EVALUATION_MODELS = MODELS;
-export const EVALUATION_BASE_PROMPT = EVALUATION_BASE_INSTRUCTIONS;
-export const EVALUATION_DEVELOPER_PROMPT = EVALUATION_DEVELOPER_INSTRUCTIONS;
-export const EXTERNAL_MODEL_AUTHORIZATION_STATEMENT =
-  MODEL_AUTHORIZATION_STATEMENT;
-export { EXACT_COMMIT_AUTHORIZATION_REPLY };
 export const PINNED_SKILL_COMMITS = PINNED_SKILLS;
