@@ -1865,7 +1865,7 @@ Run one command at a time:
 git status --short
 git diff --stat HEAD
 git diff --name-status HEAD
-git diff HEAD -- scripts/evaluation evals tests docs/implementation-plans/2026-08-24-unified-skill-evaluation-runtime.md
+git diff HEAD -- scripts/evaluation evals tests docs/plans/2026-08-24-unified-skill-evaluation-runtime.md
 npm run verify
 ```
 

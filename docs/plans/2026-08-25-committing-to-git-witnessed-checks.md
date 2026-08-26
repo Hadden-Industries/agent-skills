@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js 24+ ECMAScript modules, Git 2.45+ read-only plumbing, JSON Schema Draft 2020-12, Node's built-in test runner, `cross-spawn` 7.0.6 as a bundled development dependency, esbuild, ESLint, and Prettier.
 
-**Spec:** This plan implements the design approved in the 2026-08-25 conversation and amends `docs/implementation-plans/2026-08-23-committing-to-git-proportional-workflow.md`. It supersedes that plan's caller-authored check representation and Node-built-ins-only dependency statement. All exact-scope, exact-message, signing, recovery, publication, proportionality, and no-compatibility-cutover constraints remain in force.
+**Spec:** This plan implements the design approved in the 2026-08-25 conversation and amends `docs/plans/2026-08-23-committing-to-git-proportional-workflow.md`. It supersedes that plan's caller-authored check representation and Node-built-ins-only dependency statement. All exact-scope, exact-message, signing, recovery, publication, proportionality, and no-compatibility-cutover constraints remain in force.
 
 ## Global Constraints
 
@@ -39,7 +39,7 @@
 
 **Files:**
 
-- Create: `docs/implementation-plans/2026-08-25-committing-to-git-witnessed-checks.md`
+- Create: `docs/plans/2026-08-25-committing-to-git-witnessed-checks.md`
 - Modify: `package.json`
 - Modify: `package-lock.json`
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js 24+ ECMAScript modules, Git 2.45+ plumbing and porcelain commands, JSON Schema Draft 2020-12, Node's built-in test runner, esbuild, ESLint, and Prettier. Git 2.45 is the minimum because that release introduced the `--no-lazy-fetch`/`GIT_NO_LAZY_FETCH` contract this plan relies on to make read-only partial-clone inspection network-free; silently accepting an older Git would make that safety claim false. Use Node built-ins only; the runtime design requires no new dependency or runtime configuration. Task 11 separately migrates the existing maintainer evaluation configuration after exact approval.
 
-**Spec:** This plan is an efficiency amendment to `docs/implementation-plans/2026-08-21-committing-to-git-workflow-redesign.md` and `docs/assurance-cases/2026-08-22-committing-to-git-skill.md`. Where this plan explicitly changes inspection, transaction, message-authoring, reporting, or recovery behavior, it supersedes the earlier plan. All safety invariants listed below remain mandatory.
+**Spec:** This plan is an efficiency amendment to `docs/plans/2026-08-21-committing-to-git-workflow-redesign.md` and `docs/assurance-cases/2026-08-22-committing-to-git-skill.md`. Where this plan explicitly changes inspection, transaction, message-authoring, reporting, or recovery behavior, it supersedes the earlier plan. All safety invariants listed below remain mandatory.
 
 ## Global Constraints
 

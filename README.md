@@ -259,7 +259,7 @@ agent-skills/
 │   ├── assurance-cases/
 │   │   ├── 2026-08-23-committing-to-git-proportional-workflow.md
 │   │   └── 2026-08-25-committing-to-git-witnessed-checks.md
-│   └── implementation-plans/
+│   └── plans/
 │       └── 2026-08-21-committing-to-git-workflow-redesign.md
 │
 ├── .tessl-plugin/

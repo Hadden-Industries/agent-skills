@@ -8,7 +8,7 @@
 - **Canonical source:** The tracked skill under `skills/`, never the installed
   copies under `.agents/skills/` or `.claude/skills/`
 - **Filename convention:** Future plans should use
-  `docs/implementation-plans/YYYY-MM-DD-topic.md` so that plans remain
+  `docs/plans/YYYY-MM-DD-topic.md` so that plans remain
   chronologically sortable and distinguishable as the directory grows
 - **Decision state:** The product-level questions raised during design are
   resolved. Implementation discoveries may refine internal module boundaries,
