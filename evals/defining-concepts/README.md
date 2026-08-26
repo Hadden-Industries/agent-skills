@@ -482,7 +482,8 @@ the presence of both activation classes.
 Run:
 
 ```powershell
-node --test tests/scripts/build-skill-bundles.test.mjs
+node --test tests/scripts/skill-repository-validation-contracts.test.mjs
+node --test tests/scripts/build-repository.test.mjs
 node --test tests/evals/defining-concepts/results.test.mjs
 node --test tests/evals/defining-concepts/run-evaluation-session.test.mjs
 npm run verify:skill -- --skill defining-concepts

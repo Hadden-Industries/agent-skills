@@ -153,7 +153,7 @@ test("scoped verification runs only selected checks and reports global omissions
   assert.deepEqual(result.passedStages, [
     { name: "canonical ASCII", filesValidated: 1 },
     { name: "evaluation contract", suitesValidated: 1 },
-    { name: "configured bundles", bundlesChecked: 0 },
+    { name: "generated artifacts", artifactsChecked: 0 },
     { name: "skills-ref validation", skillsValidated: 1 },
     { name: "target tests", testsDiscovered: 2 },
     { name: "target diff whitespace", pathsChecked: 4 },

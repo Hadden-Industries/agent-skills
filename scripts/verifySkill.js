@@ -2,7 +2,7 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildSkillBundles } from "./buildSkillBundles.js";
+import { buildRepository } from "./buildRepository.js";
 import { selectCanonicalSkillNames } from "./skillSelector.js";
 import { runRepositoryTool, validateSkills } from "./validateSkills.js";
 
@@ -114,15 +114,15 @@ export async function verifySkill({
     skillName,
   ]);
 
-  const buildResult = await buildSkillBundles({
+  const buildResult = await buildRepository({
     checkOnly: true,
     repositoryRoot: resolvedRepositoryRoot,
     skillNames: [skillName],
   });
 
-  if (buildResult.staleBundles.length > 0) {
+  if (buildResult.staleArtifacts.length > 0) {
     throw new Error(
-      `Published skill bundles are stale or missing: ${buildResult.staleBundles.join(", ")}`,
+      `Published skill artifacts are stale or missing: ${buildResult.staleArtifacts.join(", ")}`,
     );
   }
 
@@ -157,8 +157,8 @@ export async function verifySkill({
         suitesValidated: buildResult.evaluationSuitesValidated,
       },
       {
-        name: "configured bundles",
-        bundlesChecked: buildResult.bundlesChecked,
+        name: "generated artifacts",
+        artifactsChecked: buildResult.artifactsChecked,
       },
       {
         name: "skills-ref validation",

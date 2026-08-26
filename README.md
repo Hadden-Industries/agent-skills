@@ -204,7 +204,9 @@ agent-skills/
 │       └── workflow/                     # Public workflow orchestration
 │
 ├── scripts/                              # Repository authoring and bootstrap commands
-│   ├── buildSkillBundles.js              # Shared esbuild entry point and drift check
+│   ├── buildRepository.js                # Validation + artifact build orchestration
+│   ├── buildSkillArtifacts.js            # Generated skill artifact registry and build
+│   ├── validateSkillRepository.js        # Deployable skill and evaluation validation
 │   ├── validateSkills.js                 # All canonical skills through skills-ref
 │   ├── lintSkills.js                     # Repository plugin package through Tessl
 │   ├── set_up_development_environment.py # Runner: sequences the three below
@@ -244,7 +246,9 @@ agent-skills/
 │   │   ├── pre-repair.test.mjs
 │   │   └── style-map.test.mjs
 │   └── scripts/
-│       ├── build-skill-bundles.test.mjs  # Bundle, deployable-layout, and ASCII gates
+│       ├── build-repository.test.mjs     # Repository build composition
+│       ├── build-skill-artifacts.test.mjs # Generated artifact currency
+│       ├── skill-repository-validation-contracts.test.mjs # Layout and schema gates
 │       ├── evaluation-tools.test.mjs     # Python/Tessl bootstrap contracts
 │       ├── evaluation_tools_driver.py
 │       ├── github-mcp-server.test.mjs    # Bootstrap MCP installer contract
@@ -581,7 +585,9 @@ over putting every detail directly into `SKILL.md`.
 
 Scripts should be self-contained where practical, document unavoidable dependencies, validate inputs, emit actionable errors, and fail clearly rather than silently producing questionable output.
 
-JavaScript skill executables may be authored as domain modules under `src/<skill-name>/` and published as a single readable bundle. Register each entry and output in `scripts/buildSkillBundles.js`, run `npm run build`, and commit the generated file under the skill's `scripts/` directory. The generated banner identifies `src/` as authoritative; do not edit the bundle directly. Before bundling, the shared build validates the deployable/evaluation boundary and verifies that every canonical `skills/**/SKILL.md` contains ASCII bytes only. Skill users run the generated bundle directly and do not install repository dependencies.
+The `skills/<skill-name>/` directory is the canonical source for content that is already deployable, including `SKILL.md`, references, assets, and self-contained scripts. Do not move those files through a redundant source-to-distribution copy stage.
+
+When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`. Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory. The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly. `scripts/validateSkillRepository.js` owns deployable and evaluation validation, while `scripts/buildRepository.js` composes validation with generated-artifact construction. Skill users run generated artifacts directly and do not install repository dependencies.
 
 ## 6. Validate and evaluate
 
@@ -1376,7 +1382,7 @@ cross-route payloads; exact Git-tree, path, signature, report, and publication
 invariants; transactional staging failure behavior; CLI help and exit semantics;
 and agreement between validator issue codes and schema enums.
 
-The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. The published skill bundle has no third-party runtime dependency. Run `npm run build` after changing source under `src/`. Its prebuild gate checks formatting and lint before regenerating bundles. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, and committed bundle currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
+The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. Published generated skill artifacts have no third-party runtime dependency. Run `npm run build` after changing maintainer source under `src/`. Its prebuild gate checks formatting and lint before regenerating artifacts. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, and committed artifact currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
 ## Run deterministic local verification
 
