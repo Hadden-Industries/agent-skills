@@ -2,6 +2,8 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import markdown from "prettier/plugins/markdown";
+
 import { selectCanonicalSkillNames } from "./skillSelector.js";
 
 const defaultRepositoryRoot = resolve(
@@ -24,6 +26,43 @@ function canonicalSkillFiles(directory) {
   }
 
   return files;
+}
+
+function canonicalSkillMarkdownFiles(directory, insideReferences = false) {
+  const files = [];
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(
+        ...canonicalSkillMarkdownFiles(
+          path,
+          insideReferences || entry.name === "references",
+        ),
+      );
+    } else if (
+      entry.isFile() &&
+      (entry.name === "SKILL.md" ||
+        (insideReferences && entry.name.endsWith(".md")))
+    ) {
+      files.push(path);
+    }
+  }
+
+  return files;
+}
+
+function softWrappedTextNodes(node) {
+  if (node?.type === "text" && node.value.includes("\n")) {
+    return [node];
+  }
+
+  if (!Array.isArray(node?.children)) {
+    return [];
+  }
+
+  return node.children.flatMap((child) => softWrappedTextNodes(child));
 }
 
 function childDirectories(directory) {
@@ -432,7 +471,41 @@ export function validateCanonicalSkillAscii(skillsRoot, { skillNames } = {}) {
   return skillFiles.length;
 }
 
-export function validateSkillRepository({
+export async function validateCanonicalSkillMarkdownWrapping(
+  skillsRoot,
+  { skillNames } = {},
+) {
+  const violations = [];
+  const markdownFiles =
+    skillNames === undefined
+      ? canonicalSkillMarkdownFiles(skillsRoot)
+      : selectCanonicalSkillNames(skillsRoot, skillNames).flatMap((skillName) =>
+          canonicalSkillMarkdownFiles(join(skillsRoot, skillName)),
+        );
+
+  for (const path of markdownFiles) {
+    const source = readFileSync(path, "utf8");
+    const ast = markdown.parsers.markdown.parse(source, {});
+    const [softWrappedText] = softWrappedTextNodes(ast);
+
+    if (softWrappedText) {
+      violations.push(
+        `${relative(skillsRoot, path)}:${softWrappedText.position.start.line}:${softWrappedText.position.start.column}`,
+      );
+    }
+  }
+
+  if (violations.length > 0) {
+    throw new Error(
+      "Canonical skill Markdown must keep each prose block on one physical line and rely on viewer soft wrapping:\n" +
+        violations.map((violation) => `- ${violation}`).join("\n"),
+    );
+  }
+
+  return markdownFiles.length;
+}
+
+export async function validateSkillRepository({
   repositoryRoot = defaultRepositoryRoot,
   skillNames,
 } = {}) {
@@ -450,9 +523,14 @@ export function validateSkillRepository({
   const skillFilesValidated = validateCanonicalSkillAscii(skillsRoot, {
     skillNames: selectedSkillNames,
   });
+  const markdownFilesValidated = await validateCanonicalSkillMarkdownWrapping(
+    skillsRoot,
+    { skillNames: selectedSkillNames },
+  );
 
   return {
     ...evaluationLayout,
+    markdownFilesValidated,
     skillFilesValidated,
   };
 }

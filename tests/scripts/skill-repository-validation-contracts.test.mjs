@@ -1,17 +1,19 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
   validateCanonicalSkillAscii,
+  validateCanonicalSkillMarkdownWrapping,
   validateRepositoryEvaluationLayout,
 } from "../../scripts/validateSkillRepository.js";
 
 const skillBuild = {
   validateCanonicalSkillAscii,
+  validateCanonicalSkillMarkdownWrapping,
   validateRepositoryEvaluationLayout,
 };
 
@@ -143,6 +145,93 @@ test("canonical skill validation keeps recursive all-repository discovery", (t) 
   assert.throws(
     () => skillBuild.validateCanonicalSkillAscii(root),
     /group[\\/]nested[\\/]SKILL\.md:1:10 contains non-ASCII byte 0xE2/u,
+  );
+});
+
+test("canonical skill Markdown validation accepts one-line prose and structural line breaks", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-markdown-wrap-pass-"));
+  const skill = join(root, "example");
+  const references = join(skill, "references");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(references, { recursive: true });
+  writeFileSync(
+    join(skill, "SKILL.md"),
+    [
+      "# Example skill",
+      "",
+      "Keep each prose block on one physical line and let the reader soft-wrap it.",
+      "",
+      "| Input | Result |",
+      "| --- | --- |",
+      "| prose | readable |",
+      "",
+      "```text",
+      "A code block",
+      "may use lines structurally.",
+      "```",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(references, "details.md"),
+    "# Details\n\nReference prose also stays on one physical line.\n",
+  );
+
+  assert.equal(
+    await skillBuild.validateCanonicalSkillMarkdownWrapping(root),
+    2,
+  );
+});
+
+for (const [relativePath, source] of [
+  ["SKILL.md", "# Example\n\nThis prose was hard-wrapped\nacross two lines.\n"],
+  [
+    join("references", "details.md"),
+    "# Details\n\nThis reference prose was hard-wrapped\nacross two lines.\n",
+  ],
+]) {
+  test(`canonical skill Markdown validation rejects wrapped prose in ${relativePath}`, async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "skill-markdown-wrap-fail-"));
+    const skill = join(root, "example");
+    const target = join(skill, relativePath);
+
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), "# Example\n");
+    writeFileSync(target, source);
+
+    await assert.rejects(
+      () => skillBuild.validateCanonicalSkillMarkdownWrapping(root),
+      (error) => {
+        assert.match(error.message, /one physical line/u);
+        assert.ok(error.message.includes(relativePath));
+        assert.match(error.message, /:3:1/u);
+        return true;
+      },
+    );
+  });
+}
+
+test("canonical skill Markdown validation isolates explicitly selected skills", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-markdown-wrap-selection-"));
+  const selectedSkill = join(root, "selected");
+  const unrelatedSkill = join(root, "unrelated");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(selectedSkill);
+  mkdirSync(unrelatedSkill);
+  writeFileSync(join(selectedSkill, "SKILL.md"), "# Selected\n");
+  writeFileSync(
+    join(unrelatedSkill, "SKILL.md"),
+    "# Unrelated\n\nWrapped prose in an unrelated\nskill is out of scope.\n",
+  );
+
+  assert.equal(
+    await skillBuild.validateCanonicalSkillMarkdownWrapping(root, {
+      skillNames: ["selected"],
+    }),
+    1,
   );
 });
 

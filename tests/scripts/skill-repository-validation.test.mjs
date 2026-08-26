@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { validateSkillRepository } from "../../scripts/validateSkillRepository.js";
 
-test("repository validation composes canonical and evaluation checks", (t) => {
+test("repository validation composes canonical and evaluation checks", async (t) => {
   const repositoryRoot = mkdtempSync(join(tmpdir(), "skill-validation-"));
 
   t.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
@@ -19,7 +19,7 @@ test("repository validation composes canonical and evaluation checks", (t) => {
   );
 
   assert.deepEqual(
-    validateSkillRepository({
+    await validateSkillRepository({
       repositoryRoot,
       skillNames: ["selected"],
     }),
@@ -27,6 +27,7 @@ test("repository validation composes canonical and evaluation checks", (t) => {
       deployableSkillsValidated: 1,
       evaluationFileReferencesValidated: 0,
       evaluationSuitesValidated: 0,
+      markdownFilesValidated: 1,
       skillFilesValidated: 1,
     },
   );

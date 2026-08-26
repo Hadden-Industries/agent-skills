@@ -587,7 +587,7 @@ Scripts should be self-contained where practical, document unavoidable dependenc
 
 The `skills/<skill-name>/` directory is the canonical source for content that is already deployable, including `SKILL.md`, references, assets, and self-contained scripts. Do not move those files through a redundant source-to-distribution copy stage.
 
-When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`. Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory. The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly. `scripts/validateSkillRepository.js` owns deployable and evaluation validation, while `scripts/buildRepository.js` composes validation with generated-artifact construction. Skill users run generated artifacts directly and do not install repository dependencies.
+When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`. Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory. The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly. `scripts/validateSkillRepository.js` owns deployable and evaluation validation, including the one-physical-line prose rule for canonical skill Markdown, while `scripts/buildRepository.js` composes validation with generated-artifact construction. Skill users run generated artifacts directly and do not install repository dependencies.
 
 ## 6. Validate and evaluate
 
@@ -1058,6 +1058,7 @@ For a meaningful new or modified skill:
 - [ ] Detailed material is progressively disclosed through `references/`, `scripts/`, or `assets/`.
 - [ ] File references resolve correctly.
 - [ ] Every repository-authored canonical `SKILL.md` contains ASCII bytes only.
+- [ ] Prose blocks in canonical `SKILL.md` and `references/**/*.md` files use one physical line and rely on viewer soft wrapping.
 - [ ] Scripts have been exercised independently where applicable.
 - [ ] Bundled executables were changed in `src/`, regenerated with `npm run build`, and checked for drift.
 - [ ] `skills-ref validate` passes.
@@ -1382,7 +1383,7 @@ cross-route payloads; exact Git-tree, path, signature, report, and publication
 invariants; transactional staging failure behavior; CLI help and exit semantics;
 and agreement between validator issue codes and schema enums.
 
-The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. Published generated skill artifacts have no third-party runtime dependency. Run `npm run build` after changing maintainer source under `src/`. Its prebuild gate checks formatting and lint before regenerating artifacts. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, and committed artifact currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
+The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. Published generated skill artifacts have no third-party runtime dependency. Run `npm run build` after changing maintainer source under `src/`. Its prebuild gate checks formatting and lint before regenerating artifacts. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, one-physical-line prose in canonical `SKILL.md` and reference Markdown, and committed artifact currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
 ## Run deterministic local verification
 
@@ -1398,7 +1399,7 @@ For a focused inner loop, validate exactly one canonical skill by name:
 npm run verify:skill -- --skill defining-concepts
 ```
 
-The scoped command checks that skill's ASCII-only canonical `SKILL.md`, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths. It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run. A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
+The scoped command checks that skill's ASCII-only canonical `SKILL.md`, one-physical-line prose in its canonical `SKILL.md` and reference Markdown, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths. It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run. A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
 Passing `npm run verify` establishes deterministic local gates. It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of repository state and the complete intended change through bounded artifacts.
 

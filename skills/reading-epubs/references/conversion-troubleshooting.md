@@ -15,40 +15,17 @@ Warnings are not automatically fatal. Inspect the log only when they could chang
 
 ## Formatting looks wrong
 
-The converter derives what the book's CSS classes mean from the book's own
-stylesheet, and records the result in the `style_map` file reported alongside
-the Markdown. If emphasis, code spans, or bullet lists look wrong, read that
-file: it names each class and the Markdown construct it was resolved to, and an
-empty `list_markers` table means the book does not set lists as dash-prefixed
-paragraphs. This is a reporting aid, not something to edit — it is regenerated
-on every conversion.
+The converter derives what the book's CSS classes mean from the book's own stylesheet, and records the result in the `style_map` file reported alongside the Markdown. If emphasis, code spans, or bullet lists look wrong, read that file: it names each class and the Markdown construct it was resolved to, and an empty `list_markers` table means the book does not set lists as dash-prefixed paragraphs. This is a reporting aid, not something to edit — it is regenerated on every conversion.
 
 ## Code listings
 
-Listings convert to fenced blocks. The fence's info string is the language the
-book declared; where it declared none it is `text`, or `xml`/`html` when the
-content is unambiguously markup. A publisher's styling class is never used as a
-language, so a fence reading ` ```text ` means the book named no language, not
-that the converter lost one.
+Listings convert to fenced blocks. The fence's info string is the language the book declared; where it declared none it is `text`, or `xml`/`html` when the content is unambiguously markup. A publisher's styling class is never used as a language, so a fence reading ` ```text ` means the book named no language, not that the converter lost one.
 
 Two things are worth knowing when a listing looks wrong.
 
-**Some listings are deliberately left unconverted.** Pandoc discards an EPUB's
-`<pre>` indentation unless the element wraps an inner `<code>` — an upstream
-defect, reported as [jgm/pandoc#11810](https://github.com/jgm/pandoc/issues/11810)
-— so the converter rewrites such blocks before conversion and reports the count
-as `repaired_code_blocks`. It skips any block containing an image, a link, or an
-element identifier, because Pandoc keeps only the *text* of markup inside
-`<pre><code>`: the image would vanish with its alt text, the link would keep its
-words but lose its address, and the identifier would stop resolving. Those
-blocks keep their content and lose their indentation, which is the lesser harm.
-They appear in the Markdown as raw `<pre>` tags around reflowed text — a signal
-that the listing is present but its formatting is not.
+**Some listings are deliberately left unconverted.** Pandoc discards an EPUB's `<pre>` indentation unless the element wraps an inner `<code>` — an upstream defect, reported as [jgm/pandoc#11810](https://github.com/jgm/pandoc/issues/11810) — so the converter rewrites such blocks before conversion and reports the count as `repaired_code_blocks`. It skips any block containing an image, a link, or an element identifier, because Pandoc keeps only the *text* of markup inside `<pre><code>`: the image would vanish with its alt text, the link would keep its words but lose its address, and the identifier would stop resolving. Those blocks keep their content and lose their indentation, which is the lesser harm. They appear in the Markdown as raw `<pre>` tags around reflowed text — a signal that the listing is present but its formatting is not.
 
-**The rewritten book is inspectable.** When any repair happens, a copy of the
-source with those blocks wrapped is written alongside the Markdown as
-`repaired-source.epub`. The original EPUB is never modified. Compare the two if
-a listing's content looks altered rather than merely reflowed.
+**The rewritten book is inspectable.** When any repair happens, a copy of the source with those blocks wrapped is written alongside the Markdown as `repaired-source.epub`. The original EPUB is never modified. Compare the two if a listing's content looks altered rather than merely reflowed.
 
 ## Sparse or unusual Markdown
 

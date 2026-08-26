@@ -14,7 +14,10 @@ export async function buildRepository({
   repositoryRoot = defaultRepositoryRoot,
   skillNames,
 } = {}) {
-  const validation = validateSkillRepository({ repositoryRoot, skillNames });
+  const validation = await validateSkillRepository({
+    repositoryRoot,
+    skillNames,
+  });
   const artifacts = await buildSkillArtifacts({
     checkOnly,
     repositoryRoot,

@@ -153,6 +153,10 @@ export async function verifySkill({
         filesValidated: buildResult.skillFilesValidated,
       },
       {
+        name: "canonical Markdown wrapping",
+        filesValidated: buildResult.markdownFilesValidated,
+      },
+      {
         name: "evaluation contract",
         suitesValidated: buildResult.evaluationSuitesValidated,
       },
