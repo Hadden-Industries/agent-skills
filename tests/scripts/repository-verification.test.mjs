@@ -73,6 +73,46 @@ test("skill validation invokes skills-ref once per canonical skill", (t) => {
   ]);
 });
 
+test("skill validation invokes skills-ref only for selected canonical skills", (t) => {
+  const root = createRepository(t);
+  const wrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const calls = [];
+  writeFileSync(wrapper, "@echo off\n");
+
+  const result = validateSkills({
+    repoRoot: root,
+    platform: "win32",
+    skillNames: ["zebra"],
+    run(command, args) {
+      calls.push([command, args]);
+    },
+  });
+
+  assert.deepEqual(calls, [
+    [wrapper, ["validate", join(root, "skills", "zebra")]],
+  ]);
+  assert.deepEqual(result, { skillsValidated: 1 });
+});
+
+test("skill validation rejects unknown selected canonical skills", (t) => {
+  const root = createRepository(t);
+  const wrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  writeFileSync(wrapper, "@echo off\n");
+
+  assert.throws(
+    () =>
+      validateSkills({
+        repoRoot: root,
+        platform: "win32",
+        skillNames: ["missing"],
+        run() {
+          assert.fail("validation must not run for an unknown skill");
+        },
+      }),
+    /Unknown canonical skill: missing/u,
+  );
+});
+
 test("skill lint invokes Tessl against the repository plugin root", (t) => {
   const root = createRepository(t);
   const wrapper = join(root, ".agent-tools", "bin", "tessl.cmd");

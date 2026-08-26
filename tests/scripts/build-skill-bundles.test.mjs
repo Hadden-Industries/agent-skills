@@ -130,6 +130,58 @@ test("canonical skill validation rejects a non-ASCII byte with its location", (t
   );
 });
 
+test("canonical skill validation reads only explicitly selected skills", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-ascii-selection-"));
+  const selectedSkill = join(root, "selected");
+  const unrelatedSkill = join(root, "unrelated");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(selectedSkill);
+  mkdirSync(unrelatedSkill);
+  writeFileSync(join(selectedSkill, "SKILL.md"), "# Selected\n");
+  writeFileSync(
+    join(unrelatedSkill, "SKILL.md"),
+    "# Unrelated \u2013 invalid\n",
+  );
+
+  assert.equal(
+    skillBuild.validateCanonicalSkillAscii(root, {
+      skillNames: ["selected"],
+    }),
+    1,
+  );
+});
+
+test("canonical skill validation rejects unknown selected skills", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-ascii-unknown-"));
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "selected"));
+  writeFileSync(join(root, "selected", "SKILL.md"), "# Selected\n");
+
+  assert.throws(
+    () =>
+      skillBuild.validateCanonicalSkillAscii(root, {
+        skillNames: ["missing"],
+      }),
+    /Unknown canonical skill: missing/u,
+  );
+});
+
+test("canonical skill validation keeps recursive all-repository discovery", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-ascii-recursive-"));
+  const nestedSkill = join(root, "group", "nested");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(nestedSkill, { recursive: true });
+  writeFileSync(join(nestedSkill, "SKILL.md"), "# Nested \u2013 invalid\n");
+
+  assert.throws(
+    () => skillBuild.validateCanonicalSkillAscii(root),
+    /group[\\/]nested[\\/]SKILL\.md:1:10 contains non-ASCII byte 0xE2/u,
+  );
+});
+
 test("repository evaluation suites resolve beside rather than inside deployable skills", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-layout-pass-"));
   const skillsRoot = join(root, "skills");
@@ -170,6 +222,81 @@ test("repository evaluation suites resolve beside rather than inside deployable 
       evaluationSuitesValidated: 1,
     },
   );
+});
+
+test("repository evaluation validation isolates explicitly selected skills", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-evaluation-selection-"));
+  const skillsRoot = join(root, "skills");
+  const evaluationsRoot = join(root, "evals");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const skillName of ["selected", "unrelated"]) {
+    const skill = join(skillsRoot, skillName);
+    const suite = join(evaluationsRoot, skillName);
+    mkdirSync(skill, { recursive: true });
+    mkdirSync(suite, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), `# ${skillName}\n`);
+    writeFileSync(
+      join(suite, "evals.json"),
+      skillName === "selected"
+        ? JSON.stringify({
+            skill_name: skillName,
+            evals: [VALID_EVALUATION],
+          })
+        : "{",
+    );
+    writeTriggerEvaluations(suite);
+  }
+
+  assert.deepEqual(
+    skillBuild.validateRepositoryEvaluationLayout({
+      skillsRoot,
+      evaluationsRoot,
+      skillNames: ["selected"],
+    }),
+    {
+      deployableSkillsValidated: 1,
+      evaluationFileReferencesValidated: 0,
+      evaluationSuitesValidated: 1,
+    },
+  );
+});
+
+test("repository evaluation validation allows a selected skill without a suite", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-evaluation-no-suite-"));
+  const skillsRoot = join(root, "skills");
+  const evaluationsRoot = join(root, "evals");
+
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(skillsRoot, "selected"), { recursive: true });
+  mkdirSync(evaluationsRoot, { recursive: true });
+  writeFileSync(join(skillsRoot, "selected", "SKILL.md"), "# Selected\n");
+
+  assert.deepEqual(
+    skillBuild.validateRepositoryEvaluationLayout({
+      skillsRoot,
+      evaluationsRoot,
+      skillNames: ["selected"],
+    }),
+    {
+      deployableSkillsValidated: 1,
+      evaluationFileReferencesValidated: 0,
+      evaluationSuitesValidated: 0,
+    },
+  );
+});
+
+test("scoped bundle validation skips bundles owned by unrelated skills", async () => {
+  const result = await skillBuild.buildSkillBundles({
+    checkOnly: true,
+    skillNames: ["defining-concepts"],
+  });
+
+  assert.deepEqual(result.staleBundles, []);
+  assert.equal(result.deployableSkillsValidated, 1);
+  assert.equal(result.evaluationSuitesValidated, 1);
+  assert.equal(result.skillFilesValidated, 1);
 });
 
 for (const [label, definition, expectedMessage] of [

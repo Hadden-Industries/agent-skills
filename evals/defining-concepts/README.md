@@ -483,14 +483,17 @@ Run:
 
 ```powershell
 node --test tests/scripts/build-skill-bundles.test.mjs
-node --test tests/evals/defining-concepts-results.test.mjs
-node --test tests/evals/run-evaluation-session.test.mjs
+node --test tests/evals/defining-concepts/results.test.mjs
+node --test tests/evals/defining-concepts/run-evaluation-session.test.mjs
+npm run verify:skill -- --skill defining-concepts
 npm run verify
 ```
 
-These commands do not evaluate semantic quality, web research, triggering, or
-model behavior. They only prove that the committed artifacts satisfy the local
-deterministic contract.
+The scoped command is the target-only inner loop and reports the global checks
+it omits. The final `npm run verify` remains the whole-repository integration
+gate. These commands do not evaluate semantic quality, web research,
+triggering, or model behavior. They only prove that the committed artifacts
+satisfy the local deterministic contract.
 
 ## Known limitations
 

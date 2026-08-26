@@ -11,11 +11,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDefiningConceptController } from "../../evals/defining-concepts/session-controller.mjs";
-import { initializeEvaluationHomes } from "../../scripts/evaluation/evaluation-homes.js";
-import { EXTERNAL_MODEL_AUTHORIZATION_STATEMENT } from "../../scripts/evaluation/runtime.js";
+import { createDefiningConceptController } from "../../../evals/defining-concepts/session-controller.mjs";
+import { initializeEvaluationHomes } from "../../../scripts/evaluation/evaluation-homes.js";
+import { EXTERNAL_MODEL_AUTHORIZATION_STATEMENT } from "../../../scripts/evaluation/runtime.js";
 
-const root = path.resolve(import.meta.dirname, "../..");
+const root = path.resolve(import.meta.dirname, "../../..");
 const runner = path.join(
   root,
   "evals",

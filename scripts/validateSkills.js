@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { selectCanonicalSkillNames } from "./skillSelector.js";
+
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
@@ -91,9 +93,16 @@ export function validateSkills({
   repoRoot = DEFAULT_REPOSITORY_ROOT,
   platform = process.platform,
   run = runRepositoryTool,
+  skillNames,
 } = {}) {
   const skillsRef = resolveRepositoryTool(repoRoot, "skills-ref", platform);
-  const skills = findCanonicalSkills(join(repoRoot, "skills"));
+  const skillsRoot = join(repoRoot, "skills");
+  const skills =
+    skillNames === undefined
+      ? findCanonicalSkills(skillsRoot)
+      : selectCanonicalSkillNames(skillsRoot, skillNames).map((skillName) =>
+          join(skillsRoot, skillName),
+        );
 
   for (const skill of skills) {
     run(skillsRef, ["validate", skill]);

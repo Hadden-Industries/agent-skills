@@ -19,6 +19,7 @@
     "skills:validate": "node scripts/validateSkills.js",
     "skills:lint": "node scripts/lintSkills.js",
     "diff:check": "git diff --check HEAD",
+    "verify:skill": "node scripts/verifySkill.js",
     "verify": "npm run build:check && npm test && npm run skills:validate && npm run skills:lint && npm run diff:check"
   },
   "devDependencies": {

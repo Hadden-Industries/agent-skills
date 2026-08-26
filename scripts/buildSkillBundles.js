@@ -10,12 +10,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+import { selectCanonicalSkillNames } from "./skillSelector.js";
+
+const defaultRepositoryRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const maintainerOnlySkillChildren = [".plugin-eval", "evals"];
 const skillBundles = [
   {
     entryPoint: "./src/committing-to-git/cli/commitWorkflow.js",
     outputFile: "skills/committing-to-git/scripts/commitWorkflow.mjs",
+    skillName: "committing-to-git",
   },
 ];
 
@@ -289,6 +295,7 @@ function validateTriggerEvaluations({ definition, displayPath, violations }) {
 export function validateRepositoryEvaluationLayout({
   skillsRoot,
   evaluationsRoot,
+  skillNames,
 }) {
   const resolvedSkillsRoot = resolve(skillsRoot);
   const resolvedEvaluationsRoot = resolve(evaluationsRoot);
@@ -296,9 +303,12 @@ export function validateRepositoryEvaluationLayout({
   const violations = [];
   let evaluationFileReferencesValidated = 0;
 
-  const skillNames = childDirectories(resolvedSkillsRoot);
+  const selectedSkillNames =
+    skillNames === undefined
+      ? childDirectories(resolvedSkillsRoot)
+      : selectCanonicalSkillNames(resolvedSkillsRoot, skillNames);
 
-  for (const skillName of skillNames) {
+  for (const skillName of selectedSkillNames) {
     for (const maintainerOnlyChild of maintainerOnlySkillChildren) {
       const packagedMaintainerContent = join(
         resolvedSkillsRoot,
@@ -314,7 +324,12 @@ export function validateRepositoryEvaluationLayout({
     }
   }
 
-  const evaluationSuiteNames = childDirectories(resolvedEvaluationsRoot);
+  const evaluationSuiteNames =
+    skillNames === undefined
+      ? childDirectories(resolvedEvaluationsRoot)
+      : selectedSkillNames.filter((skillName) =>
+          existsSync(join(resolvedEvaluationsRoot, skillName)),
+        );
 
   for (const skillName of evaluationSuiteNames) {
     const evaluationSuite = join(resolvedEvaluationsRoot, skillName);
@@ -384,15 +399,20 @@ export function validateRepositoryEvaluationLayout({
   }
 
   return {
-    deployableSkillsValidated: skillNames.length,
+    deployableSkillsValidated: selectedSkillNames.length,
     evaluationFileReferencesValidated,
     evaluationSuitesValidated: evaluationSuiteNames.length,
   };
 }
 
-export function validateCanonicalSkillAscii(skillsRoot) {
+export function validateCanonicalSkillAscii(skillsRoot, { skillNames } = {}) {
   const violations = [];
-  const skillFiles = canonicalSkillFiles(skillsRoot);
+  const skillFiles =
+    skillNames === undefined
+      ? canonicalSkillFiles(skillsRoot)
+      : selectCanonicalSkillNames(skillsRoot, skillNames).flatMap((skillName) =>
+          canonicalSkillFiles(join(skillsRoot, skillName)),
+        );
 
   for (const path of skillFiles) {
     const bytes = readFileSync(path);
@@ -427,7 +447,7 @@ export function validateCanonicalSkillAscii(skillsRoot) {
   return skillFiles.length;
 }
 
-async function generateBundle(definition) {
+async function generateBundle(definition, repositoryRoot) {
   const result = await build({
     absWorkingDir: repositoryRoot,
     entryPoints: [resolve(repositoryRoot, definition.entryPoint)],
@@ -457,19 +477,36 @@ async function generateBundle(definition) {
   return result.outputFiles[0].text;
 }
 
-export async function buildSkillBundles({ checkOnly = false } = {}) {
+export async function buildSkillBundles({
+  checkOnly = false,
+  repositoryRoot = defaultRepositoryRoot,
+  skillNames,
+} = {}) {
+  const resolvedRepositoryRoot = resolve(repositoryRoot);
+  const skillsRoot = resolve(resolvedRepositoryRoot, "skills");
+  const selectedSkillNames =
+    skillNames === undefined
+      ? undefined
+      : selectCanonicalSkillNames(skillsRoot, skillNames);
   const evaluationLayout = validateRepositoryEvaluationLayout({
-    skillsRoot: resolve(repositoryRoot, "skills"),
-    evaluationsRoot: resolve(repositoryRoot, "evals"),
+    skillsRoot,
+    evaluationsRoot: resolve(resolvedRepositoryRoot, "evals"),
+    skillNames: selectedSkillNames,
   });
-  const skillFilesValidated = validateCanonicalSkillAscii(
-    resolve(repositoryRoot, "skills"),
-  );
+  const skillFilesValidated = validateCanonicalSkillAscii(skillsRoot, {
+    skillNames: selectedSkillNames,
+  });
   const staleBundles = [];
+  const selectedBundles =
+    selectedSkillNames === undefined
+      ? skillBundles
+      : skillBundles.filter((definition) =>
+          selectedSkillNames.includes(definition.skillName),
+        );
 
-  for (const definition of skillBundles) {
-    const outputPath = resolve(repositoryRoot, definition.outputFile);
-    const generated = await generateBundle(definition);
+  for (const definition of selectedBundles) {
+    const outputPath = resolve(resolvedRepositoryRoot, definition.outputFile);
+    const generated = await generateBundle(definition, resolvedRepositoryRoot);
 
     if (checkOnly) {
       let committed;
@@ -491,7 +528,12 @@ export async function buildSkillBundles({ checkOnly = false } = {}) {
     }
   }
 
-  return { ...evaluationLayout, staleBundles, skillFilesValidated };
+  return {
+    ...evaluationLayout,
+    bundlesChecked: selectedBundles.length,
+    staleBundles,
+    skillFilesValidated,
+  };
 }
 
 if (
