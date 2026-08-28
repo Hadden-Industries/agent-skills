@@ -764,12 +764,16 @@ test("rotates one leased role and retires its synced evidence into immutable his
       "after-prior-home-rename",
       "before-fresh-home-create",
       "after-fresh-home-create",
+      "before-prior-credential-cache-transfer",
+      "after-prior-credential-cache-transfer",
       "before-operation",
       "after-operation",
       "before-used-home-rename",
       "after-used-home-rename",
       "before-clean-home-create",
       "after-clean-home-create",
+      "before-used-credential-cache-transfer",
+      "after-used-credential-cache-transfer",
       "before-prior-quarantine-delete",
       "after-prior-quarantine-delete",
       "before-used-quarantine-delete",
@@ -795,6 +799,80 @@ test("rotates one leased role and retires its synced evidence into immutable his
     journal.find(({ phase }) => phase === "after-clean-home-create")
       .generationNonce,
   );
+});
+
+test("preserves only the file-backed credential cache across clean home rotations", async (t) => {
+  const { root, testDependencies } = await initializeFixture(t);
+  const role = "preflight";
+  const stablePath = join(root, role);
+  const credentialPath = join(stablePath, "auth.json");
+  const staleRuntimePath = join(stablePath, "stale-runtime.json");
+
+  await writeFile(credentialPath, "initial credential cache", "utf8");
+  await writeFile(staleRuntimePath, "discard me", "utf8");
+
+  await withEvaluationHome(
+    { root, role, operationId: OPERATION_ID, testDependencies },
+    async () => {
+      assert.equal(
+        await readFile(credentialPath, "utf8"),
+        "initial credential cache",
+      );
+      assert.equal(await pathExists(staleRuntimePath), false);
+
+      await writeFile(credentialPath, "refreshed credential cache", "utf8");
+      await writeFile(
+        join(stablePath, "provider-residue.txt"),
+        "discard me",
+        "utf8",
+      );
+      return { value: null, release: safeWithoutChild() };
+    },
+  );
+
+  assert.equal(
+    await readFile(credentialPath, "utf8"),
+    "refreshed credential cache",
+  );
+  assert.equal(
+    await pathExists(join(stablePath, "provider-residue.txt")),
+    false,
+  );
+
+  await withEvaluationHome(
+    { root, role, operationId: "cd".repeat(16), testDependencies },
+    async () => {
+      assert.equal(
+        await readFile(credentialPath, "utf8"),
+        "refreshed credential cache",
+      );
+      await unlink(credentialPath);
+      return { value: null, release: safeWithoutChild() };
+    },
+  );
+
+  assert.equal(await pathExists(credentialPath), false);
+});
+
+test("rejects a non-file credential cache before provider launch", async (t) => {
+  const { root, testDependencies } = await initializeFixture(t);
+  const role = "execution";
+  const credentialPath = join(root, role, "auth.json");
+  let launched = false;
+
+  await mkdir(credentialPath);
+
+  await assert.rejects(
+    withEvaluationHome(
+      { root, role, operationId: OPERATION_ID, testDependencies },
+      async () => {
+        launched = true;
+        return { value: null, release: safeWithoutChild() };
+      },
+    ),
+    /credential-cache-identity-mismatch/u,
+  );
+  assert.equal(launched, false);
 });
 
 test("exclusive role contention fails before stable-home rotation", async (t) => {
@@ -1155,12 +1233,16 @@ test("simulated crashes at every journaled phase preserve a diagnosable lock", a
     "after-prior-home-rename",
     "before-fresh-home-create",
     "after-fresh-home-create",
+    "before-prior-credential-cache-transfer",
+    "after-prior-credential-cache-transfer",
     "before-operation",
     "after-operation",
     "before-used-home-rename",
     "after-used-home-rename",
     "before-clean-home-create",
     "after-clean-home-create",
+    "before-used-credential-cache-transfer",
+    "after-used-credential-cache-transfer",
     "before-prior-quarantine-delete",
     "after-prior-quarantine-delete",
     "before-used-quarantine-delete",

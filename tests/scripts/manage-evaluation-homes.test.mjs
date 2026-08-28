@@ -198,7 +198,7 @@ test("login rejects every missing guard before process launch", async (t) => {
   }
 });
 
-test("valid login launches one exact process-local keyring command and rotates safely", async (t) => {
+test("valid login uses file storage and verifies the rotated credential cache", async (t) => {
   const owner = await createTestDirectory(t);
   const root = resolve(owner, "EvaluationHomes", "v1");
   const fakeExecutable = join(owner, "fake-codex.mjs");
@@ -206,15 +206,18 @@ test("valid login launches one exact process-local keyring command and rotates s
   await writeFile(
     fakeExecutable,
     [
-      'import { writeFile } from "node:fs/promises";',
-      "await writeFile(",
+      'import { appendFile, access, writeFile } from "node:fs/promises";',
+      "const argv = process.argv.slice(2);",
+      "await appendFile(",
       "  process.env.FAKE_LOGIN_LOG,",
-      "  JSON.stringify({",
-      "    argv: process.argv.slice(2),",
-      "    codexHome: process.env.CODEX_HOME,",
-      "  }),",
+      "  `${JSON.stringify({ argv, codexHome: process.env.CODEX_HOME })}\\n`,",
       '  "utf8",',
       ");",
+      'if (argv.at(-1) === "login") {',
+      '  await writeFile(`${process.env.CODEX_HOME}/auth.json`, "credential", "utf8");',
+      "} else {",
+      "  await access(`${process.env.CODEX_HOME}/auth.json`);",
+      "}",
     ].join("\n"),
     "utf8",
   );
@@ -252,14 +255,24 @@ test("valid login launches one exact process-local keyring command and rotates s
     command: "login",
     role: "execution",
     status: "completed",
-    exitCode: 0,
-    exitSignal: null,
+    login: { exitCode: 0, exitSignal: null },
+    verification: { exitCode: 0, exitSignal: null },
   });
-  assert.deepEqual(JSON.parse(await readFile(invocationLog, "utf8")), {
-    argv: ["-c", 'cli_auth_credentials_store="keyring"', "login"],
-    codexHome: join(root, "execution"),
-  });
-  assert.equal(result.state.registeredChildren.length, 1);
+  const invocations = (await readFile(invocationLog, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(invocations, [
+    {
+      argv: ["-c", 'cli_auth_credentials_store="file"', "login"],
+      codexHome: join(root, "execution"),
+    },
+    {
+      argv: ["-c", 'cli_auth_credentials_store="file"', "login", "status"],
+      codexHome: join(root, "execution"),
+    },
+  ]);
+  assert.equal(result.state.registeredChildren.length, 2);
   assert.deepEqual(result.state.release, {
     status: "safe",
     exitStatus: "observed",
@@ -272,11 +285,59 @@ test("valid login launches one exact process-local keyring command and rotates s
   });
   assert.equal(result.state.released, true);
   assert.equal(
-    JSON.parse(await readFile(invocationLog, "utf8")).argv.some((argument) =>
-      /model|packet|authorization|push|config\.toml/iu.test(argument),
+    invocations.some(({ argv }) =>
+      argv.some((argument) =>
+        /model|packet|authorization|push|config\.toml/iu.test(argument),
+      ),
     ),
     false,
   );
+});
+
+test("login fails closed when the persisted credential cannot be verified", async (t) => {
+  const owner = await createTestDirectory(t);
+  const root = resolve(owner, "EvaluationHomes", "v1");
+  const fakeExecutable = join(owner, "fake-codex.mjs");
+  await writeFile(
+    fakeExecutable,
+    [
+      'if (process.argv.at(-1) === "status") {',
+      "  process.exitCode = 1;",
+      "}",
+    ].join("\n"),
+    "utf8",
+  );
+  const port = createManagerPort();
+  port.state.initializedRoots.add(root);
+
+  const result = await invoke(
+    [
+      "login",
+      "--root",
+      root,
+      "--confirm-root",
+      root,
+      "--role",
+      "preflight",
+      "--codex-command",
+      process.execPath,
+      "--codex-prefix-arg",
+      fakeExecutable,
+      "--allow-interactive-login",
+    ],
+    { port, environment: process.env },
+  );
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(JSON.parse(result.stdout), {
+    schemaVersion: 1,
+    command: "login",
+    role: "preflight",
+    status: "failed",
+    login: { exitCode: 0, exitSignal: null },
+    verification: { exitCode: 1, exitSignal: null },
+  });
 });
 
 test("ambiguous process closure produces an unsafe disposition and preserves the lease", async (t) => {

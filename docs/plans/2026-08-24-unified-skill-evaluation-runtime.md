@@ -52,7 +52,7 @@ Its README requires approval of the exact hosted-model payload, but the runner d
 
 `evals/committing-to-git/app-server-session.mjs` combines a reusable JSONL RPC client and reusable Codex lifecycle assertions with the Git-specific conversation state machine, scope-question parser, proposal parser, permission policy, and exact commit-authorization turn.
 
-The suite has the stronger external-call gate and App Server evidence model, but its fresh destination-local homes cannot use the installed CLI's empirically home-scoped Windows keyring authentication.
+The suite has the stronger external-call gate and App Server evidence model, but its fresh destination-local homes cannot reuse ambient authentication and must preserve a dedicated credential cache without preserving unrelated runtime state.
 
 ### Repository constraints
 
@@ -332,7 +332,7 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
 
 `windows-path-metadata.js` owns exactly one PowerShell child for each public home-manager operation. It sends closed `{ schemaVersion, id, path }` JSONL requests, requires matching identified responses, rejects malformed or unanswered requests, bounds shutdown, and waits for confirmed process closure. `windows-path-probe.ps1` is read-only and processes those literal paths until stdin closes. Each response contains `{ schemaVersion, id, result }`, where `result` is `{ schemaVersion, exists, fullPath, isContainer, attributes, drive }`, `attributes` is a sorted array of .NET `FileAttributes` names, and `drive` contains the resolved root and `DriveType`. The worker never enumerates children, resolves a wildcard, writes a path, or imports a profile. The Node manager performs non-following, one-directory-at-a-time enumeration and probes every existing ancestor and candidate entry before descent or mutation. It accepts only `DriveType: "Fixed"`, rejects any `ReparsePoint` attribute, and compares the normalized drive root for same-volume operations. Tests inject the metadata port for race/fault cases and exercise the real streaming client only against test-owned paths on Windows.
 
-The production stable-home backend is Windows-only in this version because the accepted root and verified keyring behavior are Windows-specific. On another platform it returns `unsupported-platform` before mutation. Platform-neutral pure invariants run everywhere through the injected test metadata port; a future platform backend requires its own path, credential, and durability design rather than pretending these Windows guarantees transfer unchanged.
+The production stable-home backend is Windows-only in this version because the accepted root, path attestation, and verified file-backed credential behavior are Windows-specific. On another platform it returns `unsupported-platform` before mutation. Platform-neutral pure invariants run everywhere through the injected test metadata port; a future platform backend requires its own path, credential, and durability design rather than pretending these Windows guarantees transfer unchanged.
 
 `scripts/evaluation/manage-evaluation-homes.js` is a thin operator CLI over that module. It exposes only:
 
@@ -345,7 +345,7 @@ login      --root <absolute-path> --confirm-root <identical-absolute-path>
            --allow-interactive-login
 ```
 
-After any explicitly supplied, reviewable prefix arguments, `login` invokes the exact argv suffix `-c`, `cli_auth_credentials_store="keyring"`, `login` through `withEvaluationHome`, with `CODEX_HOME` set only in the child environment. Production uses command `codex` with no prefix; tests use `process.execPath` plus one fake-script prefix argument. It performs no model turn and never writes `.codex/config.toml`. The agent must still obtain separate authorization immediately before a real initialization or login command; the flag is an accident barrier, not proof of conversational approval.
+After any explicitly supplied, reviewable prefix arguments, `login` invokes the exact argv suffix `-c`, `cli_auth_credentials_store="file"`, `login` through `withEvaluationHome`, with `CODEX_HOME` set only in the child environment. A zero exit code is provisional: the CLI then runs exact suffix `-c`, `cli_auth_credentials_store="file"`, `login`, `status` through a second complete home rotation and reports success only when that process also exits successfully. Production uses command `codex` with no prefix; tests use `process.execPath` plus one fake-script prefix argument. The operation performs no model turn and never writes `.codex/config.toml`. The agent must still obtain separate authorization immediately before a real initialization or login command; the flag is an accident barrier, not proof of conversational approval.
 
 ### Codex App Server
 
@@ -473,7 +473,7 @@ Provider-owned hidden instructions cannot be captured by the harness. Their repr
 
 `capabilities` records requested network access, web search, dynamic tools, and provider-specific facilities. `isolation` records sandbox, working-directory, instruction-source, persistence, and stable-home requirements.
 
-`isolation.environment` is a positive policy, not a dump of `process.env`. On Windows the base pass-through names are exactly `SystemRoot`, `WINDIR`, `ComSpec`, `PATH`, `PATHEXT`, `TEMP`, `TMP`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `LOCALAPPDATA`, `APPDATA`, and `PROGRAMDATA`; absent keys remain absent. Their non-secret values are packet-bound exact strings and execution uses those packet bytes rather than rereading changed ambient values. Codex adds only the manager-supplied packet-validated `CODEX_HOME` and deliberately omits `OPENAI_API_KEY` so the inspected stable-home keyring auth is authoritative. Claude omits every inherited `CLAUDE*` and `ANTHROPIC*` key by default, then passes `ANTHROPIC_API_KEY` only when the packet explicitly selects API-key authentication instead of the inspected keychain/OAuth mode. Proxy or custom-certificate variables are absent unless individually named and approved in the packet. Secret values are never packet content or evidence; the packet records the permitted name, source class, and required presence, and execution rejects an auth-mode change.
+`isolation.environment` is a positive policy, not a dump of `process.env`. On Windows the base pass-through names are exactly `SystemRoot`, `WINDIR`, `ComSpec`, `PATH`, `PATHEXT`, `TEMP`, `TMP`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `LOCALAPPDATA`, `APPDATA`, and `PROGRAMDATA`; absent keys remain absent. Their non-secret values are packet-bound exact strings and execution uses those packet bytes rather than rereading changed ambient values. Codex adds only the manager-supplied packet-validated `CODEX_HOME` and deliberately omits `OPENAI_API_KEY` so the inspected role-local credential cache is authoritative. Claude omits every inherited `CLAUDE*` and `ANTHROPIC*` key by default, then passes `ANTHROPIC_API_KEY` only when the packet explicitly selects API-key authentication instead of the inspected keychain/OAuth mode. Proxy or custom-certificate variables are absent unless individually named and approved in the packet. Secret values are never packet content or evidence; the packet records the permitted name, source class, and required presence, and execution rejects an auth-mode change.
 
 Windows environment-name comparison is case-insensitive. Normalize names to uppercase for policy comparison, preserve one canonical spelling when spawning, and reject case-colliding source entries instead of letting last-write order decide which value wins.
 
@@ -514,7 +514,7 @@ The provider process or App Server turn is unreachable before these checks pass.
 
 An authorization is one-use within its prepared session once the provider adapter consumes its opaque launch capability, even if account inspection later fails before a model turn. Consumption creates immutable `attempt.json` immediately before provider launch, and an existing attempt blocks replay. This avoids ambiguous replay after any provider process has observed the packet-bound environment. Copying a prepared directory before consumption can copy its consent artifact, so the operational rule against reuse remains necessary and is stated as a residual limit rather than misrepresented as a global ledger. Preflight exists to reduce launch risk, not to make an authorization reusable.
 
-Preparation, packet inspection, deterministic fixture construction, local grading, blinding, and zero-model tests do not require this hosted-model authorization. A real keyring login, real-home mutation, or network-bearing preflight remains separately visible and authorized according to its own operation.
+Preparation, packet inspection, deterministic fixture construction, local grading, blinding, and zero-model tests do not require this hosted-model authorization. A real file-backed login, real-home mutation, or network-bearing preflight remains separately visible and authorized according to its own operation.
 
 ### Evidence transaction
 
@@ -651,27 +651,28 @@ Use directory leases rather than a partially writable lock file. Atomic non-recu
 3. Revalidate the stable home and marker.
 4. Rename the prior stable home to a same-volume, token-bound quarantine path.
 5. Create the fresh stable directory and owner marker exclusively.
-6. Revalidate that `CODEX_HOME` is the exact stable path.
-7. Launch the preflight, login, or execution child with the process-local environment override and immediately register it with the operation context.
-8. Require the callback to return the exact release disposition and cross-check it against registered-child `exit` and stdio `close` observations, protocol shutdown, and bounded termination actions.
-9. Revalidate and rotate the used stable home into a second token-bound quarantine.
-10. Create a clean marked stable home for the next operation.
-11. Recursively inspect each owned quarantine without following links; validate and delete only the two reparse-free quarantines created under the active lease.
-12. Append and sync the completed phase, close the journal handle, and atomically rename the exact lease directory to `.history\<operationId>-<role>-<leaseToken>.completed`; that final rename releases the live role lock while retaining its immutable `lease.json` and `journal.jsonl`.
+6. If the prior generation contains `auth.json`, validate its ordinary-file identity and single-link status, then same-volume rename it into the fresh stable home without reading its bytes.
+7. Revalidate that `CODEX_HOME` is the exact stable path.
+8. Launch the preflight, login, or execution child with the process-local environment override and immediately register it with the operation context.
+9. Require the callback to return the exact release disposition and cross-check it against registered-child `exit` and stdio `close` observations, protocol shutdown, and bounded termination actions.
+10. Revalidate and rotate the used stable home into a second token-bound quarantine.
+11. Create a clean marked stable home for the next operation, then identity-check and rename the used generation's possibly refreshed `auth.json` into it.
+12. Recursively inspect each owned quarantine without following links; validate and delete only the two reparse-free quarantines created under the active lease.
+13. Append and sync the completed phase, close the journal handle, and atomically rename the exact lease directory to `.history\<operationId>-<role>-<leaseToken>.completed`; that final rename releases the live role lock while retaining its immutable `lease.json` and `journal.jsonl`.
 
 Append and sync a phase record before and after each rename/create/delete boundary. Same-volume rename makes each individual namespace transition atomic; the journal makes the multi-step lifecycle diagnosable but does not turn it into a filesystem transaction. Completed history is append-only, is never treated as authority for a later mutation, and is not automatically pruned.
 
 If the callback throws, omits the safe-release disposition, the process crashes between steps, stdio closure is unknown, or a descendant process may still hold the home, leave the lease and owned paths for explicit diagnosis. A provider failure may still release safely only when the adapter returns a terminal failure record together with affirmative closure evidence. Do not guess that a process ID proves a lease is dead, and do not auto-steal it. Recovery or repair commands are outside this implementation and require a separate design and authorization.
 
-The manager library does not inspect, rotate, delete, export, or otherwise modify OS-keyring entries. Stable paths preserve the observed keyring namespace; directory rotation removes filesystem residue. The separate operator CLI may ask `codex login` to store a credential under a separately authorized process-only keyring override, but it never manipulates the keyring directly.
+The manager library never reads, copies, exports, or serializes credential bytes and never modifies OS-keyring entries. During each rotation it recognizes only `auth.json`, requires it to be a single-link ordinary file beneath the identity-checked role home, and moves it by same-volume rename into the fresh stable home. All other filesystem residue stays in owned quarantine for validated deletion. A missing cache remains missing; a directory, hard link, reparse point, identity change, or destination collision fails closed and preserves the lease.
 
 ### Initialization and login boundary
 
 The first production initialization is an explicit operation, separate from module import, test execution, packet preparation, and evaluation execution. Initialization may create the exact approved root and the two marked homes only after a read-only precheck proves that no unowned entry would be adopted or replaced.
 
-Each role may require a one-time `codex login` because local probes showed that this CLI installation scopes keyring retrieval by `CODEX_HOME`. Login is performed only by the explicit operator command after separate authorization, never by an evaluation run. The login operation uses the ordinary rotate/run/rotate lifecycle, which cleans filesystem residue while retaining the OS-keyring credential associated with the stable path.
+Each role may require a one-time `codex login` because ambient credentials are deliberately outside its isolated `CODEX_HOME`. Login is performed only by the explicit operator command after separate authorization, never by an evaluation run. The child receives a process-only file-store override, the ordinary rotate/run/rotate lifecycle preserves only its `auth.json`, and a second rotated `codex login status` process must verify that the cache remains usable before the operator reports success.
 
-The `preflight` role proves the zero-turn protocol and isolation workflow in its own credential namespace. It does not prove that the separate `execution` credential exists. Every execution therefore repeats account and effective-isolation checks inside the freshly rotated `execution` home before starting the first turn. A separately authorized preflight may also inspect the execution role before packet authorization when the operator wants to validate both keyring namespaces without a model call.
+The `preflight` role proves the zero-turn protocol and isolation workflow with its own credential cache. It does not prove that the separate `execution` cache exists. Every execution therefore repeats account and effective-isolation checks inside the freshly rotated `execution` home before starting the first turn. A separately authorized preflight may also inspect the execution role before packet authorization when the operator wants to validate both credential caches without a model call.
 
 ## Codex App Server Adapter
 
@@ -691,6 +692,7 @@ Use the generated schema as the authoritative message-shape reference for the pi
 
 The adapter owns:
 
+- Exact process-local `cli_auth_credentials_store="file"` override before the `app-server` subcommand.
 - JSONL framing and request IDs.
 - Pending-request resolution and rejection.
 - Notification capture.
@@ -844,7 +846,7 @@ If implementation demonstrates that one of those files must change, identify the
 
 ## Testing Strategy
 
-Tests use fake provider processes and temporary directories. They make no hosted-model call, perform no login, access no real keyring entry, and do not create the production evaluation-home root.
+Tests use fake provider processes, fake credential bytes, and temporary directories. They make no hosted-model call, perform no real login, access no real credential cache or keyring entry, and do not create the production evaluation-home root.
 
 Tests are organized by the interface that owns the behavior:
 
@@ -1174,7 +1176,7 @@ Test the CLI through a fake executable and temporary root:
 - `inspect` performs no write and emits only the versioned inventory.
 - `initialize` rejects a missing or non-identical `--confirm-root` before mutation.
 - `login` rejects a missing `--allow-interactive-login`, invalid role, or root mismatch before launch.
-- A valid fake login receives exact `CODEX_HOME` and exact argv `-c`, `cli_auth_credentials_store="keyring"`, `login`.
+- A valid fake login receives exact `CODEX_HOME` and exact argv `-c`, `cli_auth_credentials_store="file"`, `login`; a second rotated fake process receives `login`, `status`, and success requires both exits.
 - The child does not inherit a configuration-file mutation, model argument, packet authorization, or push command.
 - Confirmed exit and stdio closure rotate cleanly; ambiguous closure preserves the lease.
 
@@ -1215,8 +1217,8 @@ Completion criteria:
 - Every mutation is marker-, token-, role-, and containment-bound.
 - A crash-like incomplete state fails closed.
 - A successful lifecycle releases its live lock by retiring, not deleting, the synced journal into one exclusive completed-history entry.
-- The manager library never invokes `codex login` or a keyring utility.
-- The operator CLI can invoke only the exact, separately guarded login flow and never manipulates the keyring directly.
+- The manager library never invokes `codex login`, reads credential bytes, or calls a keyring utility; it moves only a validated role-local `auth.json` within the approved root.
+- The operator CLI can invoke only the exact, separately guarded file-backed login and status flow and never manipulates the keyring or user configuration.
 
 Stop at the task commit boundary for exact scope and message approval. Do not push.
 
@@ -1580,7 +1582,7 @@ Completion criteria:
 - Codex uses App Server only.
 - Suite tests describe concept-evaluation behavior rather than re-testing the RPC client.
 - Historical evidence tests still pass unchanged.
-- No hosted model, real home, or keyring operation occurred.
+- No hosted model, real home, or real credential-cache operation occurred.
 
 Stop at the task commit boundary for exact scope and message approval. Do not push.
 
@@ -1776,7 +1778,7 @@ Completion criteria:
 - Git-specific clarification and commit authorization semantics are unchanged.
 - The shared App Server adapter contains no Git-specific parser or policy.
 - No packet-local credential home remains.
-- No hosted model, real home, keyring operation, commit, or push occurred during tests.
+- No hosted model, real home, real credential-cache operation, commit, or push occurred during tests.
 
 Stop at the task commit boundary for exact scope and message approval. Do not push.
 
@@ -1814,7 +1816,7 @@ The suite READMEs own:
 
 Use this exact heading hierarchy in `evals/README.md`: `Lifecycle`, `Transmission Packet`, `Authorization`, `Evidence`, `Provider Adapters`, `Evaluation Homes`, `Failure Classes`, `Historical Results`, and `Sensitive Evidence`. Each suite README contains one `Shared Runtime` link to that document and does not reproduce those sections.
 
-Correct the false statement that one ambient keyring login automatically authenticates fresh `CODEX_HOME` paths. State the empirical boundary precisely: this installed CLI's keyring lookup is scoped by the stable home path, so each stable role may require a separately authorized one-time login.
+Correct the false statement that one ambient login automatically authenticates fresh `CODEX_HOME` paths. State the empirical boundary precisely: a successful browser login can fall back from Windows keyring storage to `auth.json`, so each stable role may require a separately authorized one-time file-backed login whose cache alone survives rotation.
 
 - [ ] **Step 7.2: Remove code duplication**
 
@@ -1882,7 +1884,7 @@ Confirm manually:
 - Every deleted helper has one tested replacement.
 - Every common provider call is behind the exact authorization gate.
 - Every real-home mutation is behind root, marker, role, lease, identity, and containment checks.
-- No test accessed the production home root or a real keyring entry.
+- No test accessed the production home root or real authentication material.
 - No hosted model was run.
 
 - [ ] **Step 8.2: Exercise only deterministic CLI paths**
@@ -1951,7 +1953,7 @@ An authorization for one item does not authorize the next item. A prior failed p
 - The harness can bind only content and policy it controls. Provider-owned hidden instructions and server-side behavior are identified indirectly by provider, model, executable, version, and protocol-schema fingerprints.
 - A generated App Server schema proves the message shapes published by that executable version. It does not prove that every server implementation detail or remote provider behavior is unchanged.
 - `account/read` or `claude auth status` proves observed local auth state at that moment. Credentials can expire, be revoked, or fail at the later provider request.
-- The empirically observed Windows keyring namespace may change in a future Codex release. Version drift must fail preflight and trigger a new local probe before relying on the stable-home design.
+- Codex authentication-cache schema, storage fallback, and `login status` behavior may change in a future release. Version drift must fail preflight and trigger a new local probe before relying on the stable-home design.
 - The home lease coordinates conforming evaluator processes. Another same-user or privileged process can still race or alter files; anomaly checks reduce accidental and opportunistic path substitution but are not a hostile-local-process security boundary.
 - Same-volume rename makes one namespace change indivisible to ordinary observers, but the complete rotate/run/rotate/delete sequence is not atomic or fully power-loss durable. Synced phase evidence supports diagnosis; ambiguous state remains blocked.
 - Completed lease histories are intentionally not auto-pruned, so the small metadata-only `.history` directory grows with operations until a future separately designed archive policy exists.
@@ -1976,7 +1978,7 @@ An authorization for one item does not authorize the next item. A prior failed p
 11. Stable homes are exactly `preflight` and `execution` beneath the approved skill-neutral root.
 12. Home operations fail closed on ownership, role, lease, containment, volume, identity, symlink, junction, or reparse anomalies.
 13. Cleanup waits for adapter shutdown, child exit, and stdio close, deletes only exact owned reparse-free quarantines, and releases the live lock only by retiring its synced journal into exclusive immutable history.
-14. The manager never modifies keyring entries or scans outside the approved root.
+14. The manager never reads or copies credential bytes, modifies keyring entries, or scans outside the approved root; it identity-checks and renames only role-local `auth.json` within that root.
 15. The operator CLI exposes only inspect, confirmed initialize, and confirmed one-time login; it never edits repository or user configuration.
 16. Tests use temporary roots and fake providers only.
 17. Existing retained results remain byte-for-byte historical evidence.
@@ -1996,7 +1998,7 @@ An authorization for one item does not authorize the next item. A prior failed p
 | UTC timestamps | RFC 3339 | Task 1 timestamp shape plus monotonic-duration tests |
 | Codex protocol shapes and lifecycle | Exact-version generated App Server JSON Schema plus official App Server guide | Task 3 toolchain fingerprint, schema-drift, handshake, and fake-protocol tests |
 | Codex automation-interface choice | Official SDK guide/source and App Server guide | Capability decision above; Task 3 proves the deep surfaces the SDK does not expose |
-| `CODEX_HOME` and auth storage behavior | Official Codex environment/config/auth guides plus retained local keyring probes | Task 2 role-path tests and later separately authorized operational preflight |
+| `CODEX_HOME` and auth storage behavior | Official Codex environment/config/auth guides plus retained local storage probes | Task 2 credential-cache rotation tests and later separately authorized operational preflight |
 | Claude flags and auth preflight | Official Claude Code CLI reference | Task 4 version/capability, safe-mode, tool, persistence, and auth-status tests |
 | Exclusive creation and child cancellation | Node filesystem and child-process references | Tasks 1-4 exclusive-handle, abort, exit, and close tests |
 | Same-volume directory rotation and reparse handling | Microsoft directory-move, reparse-point, .NET `FileAttributes`, and `DriveInfo.DriveType` references | Task 2 real probe plus volume, junction, subtree, journal, and quarantine tests |

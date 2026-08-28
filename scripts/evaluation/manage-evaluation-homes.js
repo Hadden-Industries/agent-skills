@@ -12,6 +12,7 @@ import {
 
 const SCHEMA_VERSION = 1;
 const CHILD_CLOSE_TIMEOUT_MS = 1000;
+const FILE_CREDENTIAL_STORE_OVERRIDE = 'cli_auth_credentials_store="file"';
 const DEFAULT_MANAGER = Object.freeze({
   initializeEvaluationHomes,
   inspectEvaluationHomes,
@@ -166,7 +167,7 @@ function unsafeClosure(exitObserved, closeObserved) {
   };
 }
 
-function observeLoginChild(child) {
+function observeCodexChild(child) {
   return new Promise((resolvePromise) => {
     let settled = false;
     let exitObserved = false;
@@ -222,9 +223,6 @@ function observeLoginChild(child) {
 
       settle({
         value: {
-          schemaVersion: SCHEMA_VERSION,
-          command: "login",
-          status: code === 0 ? "completed" : "failed",
           exitCode: code,
           exitSignal: signal,
         },
@@ -243,8 +241,14 @@ function observeLoginChild(child) {
   });
 }
 
-async function executeLogin({ parsed, manager, environment, spawnProcess }) {
-  const result = await manager.withEvaluationHome(
+async function runManagedCodexCommand({
+  arguments: commandArguments,
+  parsed,
+  manager,
+  environment,
+  spawnProcess,
+}) {
+  return manager.withEvaluationHome(
     {
       root: parsed.root,
       role: parsed.role,
@@ -256,8 +260,8 @@ async function executeLogin({ parsed, manager, environment, spawnProcess }) {
         [
           ...parsed.codexPrefixArguments,
           "-c",
-          'cli_auth_credentials_store="keyring"',
-          "login",
+          FILE_CREDENTIAL_STORE_OVERRIDE,
+          ...commandArguments,
         ],
         {
           shell: false,
@@ -266,11 +270,48 @@ async function executeLogin({ parsed, manager, environment, spawnProcess }) {
         },
       );
       context.registerChild(child);
-      return observeLoginChild(child);
+      return observeCodexChild(child);
     },
   );
+}
 
-  return { ...result, role: parsed.role };
+async function executeLogin({ parsed, manager, environment, spawnProcess }) {
+  const login = await runManagedCodexCommand({
+    arguments: ["login"],
+    parsed,
+    manager,
+    environment,
+    spawnProcess,
+  });
+
+  let verification = null;
+  if (login.exitCode === 0 && login.exitSignal === null) {
+    // A zero login exit code only proves that the browser callback completed.
+    // Verify through a second fully rotated home so a file-store fallback that
+    // would otherwise be deleted cannot be reported as a persistent login.
+    verification = await runManagedCodexCommand({
+      arguments: ["login", "status"],
+      parsed,
+      manager,
+      environment,
+      spawnProcess,
+    });
+  }
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: "login",
+    role: parsed.role,
+    status:
+      login.exitCode === 0 &&
+      login.exitSignal === null &&
+      verification?.exitCode === 0 &&
+      verification.exitSignal === null
+        ? "completed"
+        : "failed",
+    login,
+    verification,
+  };
 }
 
 function assertManagerPort(manager) {

@@ -14,6 +14,11 @@ const DEFAULT_SCHEMA_BUNDLE = Object.freeze({
     type: "object",
   }),
 });
+const APP_SERVER_ARGUMENTS = Object.freeze([
+  "-c",
+  'cli_auth_credentials_store="file"',
+  "app-server",
+]);
 
 function parseArguments(arguments_) {
   const scenarioIndex = arguments_.indexOf("--scenario");
@@ -642,8 +647,10 @@ export async function runFakeCodexAppServer({
   }
 
   if (
-    operationalArguments.length === 1 &&
-    operationalArguments[0] === "app-server"
+    operationalArguments.length === APP_SERVER_ARGUMENTS.length &&
+    APP_SERVER_ARGUMENTS.every(
+      (argument, index) => operationalArguments[index] === argument,
+    )
   ) {
     await runProtocol({ scenario, scenarioHandlers });
     return;

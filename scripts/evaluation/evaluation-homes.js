@@ -29,6 +29,7 @@ const MANAGER_ID = "openai-codex-evaluation-homes";
 const SCHEMA_VERSION = 1;
 const ROOT_MARKER_NAME = ".evaluation-homes-root.json";
 const HOME_MARKER_NAME = ".evaluation-home-owner.json";
+const CREDENTIAL_CACHE_NAME = "auth.json";
 const LEASES_NAME = ".leases";
 const QUARANTINE_NAME = ".quarantine";
 const HISTORY_NAME = ".history";
@@ -1236,6 +1237,54 @@ async function assertCandidateAbsent(target, dependencies, collisionCode) {
   }
 }
 
+async function captureCredentialCache(target, dependencies) {
+  const probe = await probeExistingChain(target, dependencies);
+  if (probe.nodeMetadata === null) {
+    return null;
+  }
+  if (!probe.nodeMetadata.isFile() || probe.nodeMetadata.nlink !== 1) {
+    fail(
+      "credential-cache-identity-mismatch",
+      `${target} is not a single-link ordinary file`,
+    );
+  }
+  return captureIdentity(probe.nodeMetadata);
+}
+
+async function assertCredentialCacheIdentity(target, identity, dependencies) {
+  const probe = await probeExistingChain(target, dependencies);
+  if (
+    probe.nodeMetadata === null ||
+    !probe.nodeMetadata.isFile() ||
+    probe.nodeMetadata.nlink !== 1 ||
+    !identityMatches(probe.nodeMetadata, identity)
+  ) {
+    fail("credential-cache-identity-mismatch", `${target} changed identity`);
+  }
+}
+
+async function transferCredentialCache(sourceHome, targetHome, dependencies) {
+  const source = join(sourceHome, CREDENTIAL_CACHE_NAME);
+  const target = join(targetHome, CREDENTIAL_CACHE_NAME);
+  const identity = await captureCredentialCache(source, dependencies);
+
+  await assertCandidateAbsent(
+    target,
+    dependencies,
+    "credential-cache-collision",
+  );
+  if (identity === null) {
+    return false;
+  }
+
+  // Never read or copy the secret bytes. An identity-checked same-volume rename
+  // carries the one persistent credential file into the otherwise fresh home.
+  await assertCredentialCacheIdentity(source, identity, dependencies);
+  await rename(source, target);
+  await assertCredentialCacheIdentity(target, identity, dependencies);
+  return true;
+}
+
 function createJournal(handle, lease, dependencies) {
   let sequence = 0;
 
@@ -1710,6 +1759,15 @@ async function withEvaluationHomeDependencies(
     await appendPhase("after-fresh-home-create", {
       generationNonce: freshMarker.generationNonce,
     });
+    await appendPhase("before-prior-credential-cache-transfer");
+    const priorCredentialCacheMoved = await transferCredentialCache(
+      priorQuarantine,
+      stablePath,
+      dependencies,
+    );
+    await appendPhase("after-prior-credential-cache-transfer", {
+      moved: priorCredentialCacheMoved,
+    });
 
     const trackers = [];
     let registrationOpen = true;
@@ -1839,6 +1897,15 @@ async function withEvaluationHomeDependencies(
     );
     await appendPhase("after-clean-home-create", {
       generationNonce: cleanMarker.generationNonce,
+    });
+    await appendPhase("before-used-credential-cache-transfer");
+    const usedCredentialCacheMoved = await transferCredentialCache(
+      usedQuarantine,
+      stablePath,
+      dependencies,
+    );
+    await appendPhase("after-used-credential-cache-transfer", {
+      moved: usedCredentialCacheMoved,
     });
 
     await assertOrdinaryDirectoryIdentity(

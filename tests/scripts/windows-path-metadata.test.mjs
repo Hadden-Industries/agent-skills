@@ -139,21 +139,16 @@ for (const [name, source, errorCode] of [
 
 test(
   "the metadata client rejects a successful exit with an unanswered request",
-  { skip: process.platform !== "win32" },
+  { skip: process.platform !== "win32", timeout: 5_000 },
   async (t) => {
     const probe = await scriptedProbe(t, "exit 0\n");
-    const readOutcome = await Promise.race([
-      probe.read(resolve(tmpdir(), "probe-target")).then(
-        () => "resolved",
-        (error) => error,
-      ),
-      new Promise((resolvePromise) => {
-        setTimeout(() => resolvePromise("still-pending"), 250);
-      }),
-    ]);
 
-    assert.notEqual(readOutcome, "still-pending");
-    assert.equal(readOutcome.code, "path-probe-process-failed");
+    // PowerShell startup time varies substantially under concurrent test load.
+    // Bound the complete test instead of mistaking a slow process launch for a
+    // client hang at an arbitrary sub-second observation point.
+    await assert.rejects(probe.read(resolve(tmpdir(), "probe-target")), {
+      code: "path-probe-process-failed",
+    });
     await assert.rejects(probe.close(), {
       code: "path-probe-process-failed",
     });

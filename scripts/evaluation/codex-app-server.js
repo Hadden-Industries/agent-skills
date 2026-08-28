@@ -28,6 +28,11 @@ import {
 } from "./runtime.js";
 
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
+const APP_SERVER_ARGUMENTS = Object.freeze([
+  "-c",
+  'cli_auth_credentials_store="file"',
+  "app-server",
+]);
 const POLICY_KEYS = Object.freeze([
   "capabilities",
   "effort",
@@ -1653,7 +1658,7 @@ async function runPreflightOperation({
     const environment = isolatedSpawnEnvironment(policy, context);
     const child = spawn(
       toolchain.command.path,
-      [...toolchain.prefixArguments, "app-server"],
+      [...toolchain.prefixArguments, ...APP_SERVER_ARGUMENTS],
       {
         cwd: policy.isolation.workingDirectory,
         env: environment,
@@ -2368,7 +2373,7 @@ async function runExecutionOperation({
     });
     const child = spawn(
       toolchain.command.path,
-      [...toolchain.prefixArguments, "app-server"],
+      [...toolchain.prefixArguments, ...APP_SERVER_ARGUMENTS],
       {
         cwd: policy.isolation.workingDirectory,
         env: environment,
