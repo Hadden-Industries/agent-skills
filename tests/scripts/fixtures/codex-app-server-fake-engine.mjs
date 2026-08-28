@@ -137,15 +137,10 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
         writeMessage({
           id: message.id,
           result: {
-            codexHome: process.env.CODEX_HOME ?? process.cwd(),
-            ...(scenario === "missing-initialize-isolation"
-              ? {}
-              : {
-                  environmentNames: Object.keys(process.env).sort(),
-                  hasOpenaiApiKey: Object.keys(process.env).some(
-                    (name) => name.toUpperCase() === "OPENAI_API_KEY",
-                  ),
-                }),
+            codexHome:
+              scenario === "wrong-codex-home"
+                ? process.cwd()
+                : (process.env.CODEX_HOME ?? process.cwd()),
             platformFamily: process.platform === "win32" ? "windows" : "unix",
             platformOs: process.platform,
             userAgent: "codex_cli_rs/9.9.9-test",

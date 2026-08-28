@@ -124,6 +124,7 @@ scripts/evaluation/
   runtime.js
   evaluation-homes.js
   manage-evaluation-homes.js
+  windows-path-metadata.js
   windows-path-probe.ps1
   codex-app-server.js
   claude-cli.js
@@ -150,7 +151,8 @@ Do not add a generic command-line framework. The two existing CLIs have differen
 | Abortable child lifecycle and raw stream retention | Provider adapter using shared runtime primitives |
 | Stable root, role paths, markers, leases, rotation, and quarantine | `scripts/evaluation/evaluation-homes.js` |
 | Explicit inspect, initialize, and one-time Codex login commands for stable homes | `scripts/evaluation/manage-evaluation-homes.js` |
-| Read-only Windows drive type, file attributes, and reparse-point metadata | `scripts/evaluation/windows-path-probe.ps1`, called only by the home manager |
+| Operation-scoped Windows metadata process and closed JSONL client | `scripts/evaluation/windows-path-metadata.js` |
+| Read-only Windows drive type, file attributes, and reparse-point metadata | `scripts/evaluation/windows-path-probe.ps1`, called only through the metadata client |
 | JSONL RPC, initialize, account read, skills check, thread lifecycle, and Codex event normalization | `scripts/evaluation/codex-app-server.js` |
 | Claude arguments, stream parsing, and Claude event normalization | `scripts/evaluation/claude-cli.js` |
 | Concept cases, arms, repetitions, grading, and aggregation | `evals/defining-concepts/` |
@@ -326,10 +328,9 @@ On Windows, the manager's private metadata port invokes the fixed repository scr
 ```text
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
   -File <absolute-repository-path-to-windows-path-probe.ps1>
-  -LiteralPath <one-absolute-target>
 ```
 
-`windows-path-probe.ps1` is read-only and accepts exactly one literal path. It emits one JSON object containing `{ schemaVersion, exists, fullPath, isContainer, attributes, drive }`, where `attributes` is a sorted array of .NET `FileAttributes` names and `drive` contains the resolved root and `DriveType`. It never enumerates children, resolves a wildcard, writes a path, or imports a profile. The Node manager performs non-following, one-directory-at-a-time enumeration and probes every existing ancestor and candidate entry before descent or mutation. It accepts only `DriveType: "Fixed"`, rejects any `ReparsePoint` attribute, and compares the normalized drive root for same-volume operations. Tests inject the metadata port for race/fault cases and exercise the real probe only against test-owned paths on Windows.
+`windows-path-metadata.js` owns exactly one PowerShell child for each public home-manager operation. It sends closed `{ schemaVersion, id, path }` JSONL requests, requires matching identified responses, rejects malformed or unanswered requests, bounds shutdown, and waits for confirmed process closure. `windows-path-probe.ps1` is read-only and processes those literal paths until stdin closes. Each response contains `{ schemaVersion, id, result }`, where `result` is `{ schemaVersion, exists, fullPath, isContainer, attributes, drive }`, `attributes` is a sorted array of .NET `FileAttributes` names, and `drive` contains the resolved root and `DriveType`. The worker never enumerates children, resolves a wildcard, writes a path, or imports a profile. The Node manager performs non-following, one-directory-at-a-time enumeration and probes every existing ancestor and candidate entry before descent or mutation. It accepts only `DriveType: "Fixed"`, rejects any `ReparsePoint` attribute, and compares the normalized drive root for same-volume operations. Tests inject the metadata port for race/fault cases and exercise the real streaming client only against test-owned paths on Windows.
 
 The production stable-home backend is Windows-only in this version because the accepted root and verified keyring behavior are Windows-specific. On another platform it returns `unsupported-platform` before mutation. Platform-neutral pure invariants run everywhere through the injected test metadata port; a future platform backend requires its own path, credential, and durability design rather than pretending these Windows guarantees transfer unchanged.
 
@@ -1071,9 +1072,11 @@ Stop at the task commit boundary. Stage only the two task files, draft a detaile
 
 - Create `scripts/evaluation/evaluation-homes.js`.
 - Create `scripts/evaluation/manage-evaluation-homes.js`.
+- Create `scripts/evaluation/windows-path-metadata.js`.
 - Create `scripts/evaluation/windows-path-probe.ps1`.
 - Create `tests/scripts/evaluation-homes.test.mjs`.
 - Create `tests/scripts/manage-evaluation-homes.test.mjs`.
+- Create `tests/scripts/windows-path-metadata.test.mjs`.
 
 **Interfaces:** Implement the five home-manager exports, fixed Windows probe contract, frozen operation context, exact release disposition, and three CLI commands specified in `Public Module Contracts`. The CLI imports the manager; the manager never imports a provider adapter or CLI parser. The probe is private to the manager and has no mutation mode.
 
@@ -1091,7 +1094,8 @@ Using only injected temporary roots, test:
 - Containment after normalization and resolution.
 - Non-following rejection of symlinks and junctions where the platform permits creating them.
 - A Windows-specific reparse-point guard behind a platform condition.
-- The real Windows probe reports a test-owned fixed drive and ordinary directory without writing it, and reports a test-created junction or symbolic link with `ReparsePoint` before the manager descends.
+- One real Windows probe session reports multiple test-owned paths without writing them and reports a test-created junction or symbolic link with `ReparsePoint` before the manager descends.
+- The metadata client reuses one worker, rejects malformed, misidentified, or unanswered responses, and terminates a worker that ignores EOF.
 - The production backend returns `unsupported-platform` before mutation outside Windows; pure tests use an explicitly injected metadata port.
 
 Use an injected root for every mutating call:
@@ -1195,10 +1199,11 @@ Run:
 ```powershell
 node --test --test-concurrency=1 tests/scripts/evaluation-homes.test.mjs
 node --test --test-concurrency=1 tests/scripts/manage-evaluation-homes.test.mjs
+node --test --test-concurrency=1 tests/scripts/windows-path-metadata.test.mjs
 npm run verify
 rg -n "testDependencies" scripts evals tests
 git status --short
-git diff -- scripts/evaluation/evaluation-homes.js scripts/evaluation/manage-evaluation-homes.js scripts/evaluation/windows-path-probe.ps1 tests/scripts/evaluation-homes.test.mjs tests/scripts/manage-evaluation-homes.test.mjs
+git diff -- scripts/evaluation/evaluation-homes.js scripts/evaluation/manage-evaluation-homes.js scripts/evaluation/windows-path-metadata.js scripts/evaluation/windows-path-probe.ps1 tests/scripts/evaluation-homes.test.mjs tests/scripts/manage-evaluation-homes.test.mjs tests/scripts/windows-path-metadata.test.mjs
 ```
 
 Expected `rg` result: only `evaluation-homes.js` and `evaluation-homes.test.mjs` contain the test-only injection name.
@@ -1308,7 +1313,7 @@ Run the focused test again. Expected GREEN result: transport, preflight, control
 
 - [ ] **Step 3.5: Integrate the stable home boundary**
 
-The adapter invokes the supplied `withHome(operation)` function, receives the frozen home context, registers its child immediately, and never derives a root or role. Assert that spawned `CODEX_HOME` equals the context path and that every expected isolation field exists and matches in the pinned App Server response; a missing field blocks the version.
+The adapter invokes the supplied `withHome(operation)` function, receives the frozen home context, registers its child immediately, and never derives a root or role. Prove the exact positive-name environment and absence of `OPENAI_API_KEY` immediately before spawn. Require the pinned App Server response to report the exact leased `codexHome`, and validate only response fields defined by the pinned generated schema; a missing schema field blocks the version.
 
 Run both focused adapter and home tests. Expected GREEN result: the integration passes without either module importing the other's private helpers.
 

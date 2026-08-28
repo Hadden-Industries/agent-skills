@@ -20,7 +20,8 @@ import {
   win32,
 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+
+import { openWindowsPathMetadataProbe } from "./windows-path-metadata.js";
 
 export const EVALUATION_HOME_ROLES = Object.freeze(["preflight", "execution"]);
 
@@ -151,18 +152,10 @@ function productionRoot() {
 
 function validateTestDependencies(root, testDependencies) {
   if (testDependencies === undefined) {
-    if (process.platform !== "win32") {
-      fail(
-        "unsupported-platform",
-        "the production evaluation-home backend is Windows-only",
-      );
-    }
-    return {
-      clock: () => new Date().toISOString(),
-      failAfterPhase: null,
-      pathMetadata: windowsPathMetadata,
-      randomBytes: systemRandomBytes,
-    };
+    fail(
+      "missing-testDependencies",
+      "production dependencies must be opened through their managed session",
+    );
   }
 
   const acceptedProductionRoot = productionRoot();
@@ -204,6 +197,35 @@ function validateTestDependencies(root, testDependencies) {
   }
 
   return testDependencies;
+}
+
+async function withPathMetadataDependencies(root, testDependencies, operation) {
+  if (testDependencies !== undefined) {
+    return operation(validateTestDependencies(root, testDependencies));
+  }
+  if (process.platform !== "win32") {
+    fail(
+      "unsupported-platform",
+      "the production evaluation-home backend is Windows-only",
+    );
+  }
+
+  const probe = openWindowsPathMetadataProbe({
+    executable: "powershell.exe",
+    scriptPath: WINDOWS_PROBE_PATH,
+  });
+  const dependencies = {
+    clock: () => new Date().toISOString(),
+    failAfterPhase: null,
+    pathMetadata: (target) => probe.read(target),
+    randomBytes: systemRandomBytes,
+  };
+
+  try {
+    return await operation(dependencies);
+  } finally {
+    await probe.close();
+  }
 }
 
 function arraysEqual(left, right) {
@@ -387,71 +409,6 @@ async function probeExistingChain(target, dependencies) {
   return last;
 }
 
-async function windowsPathMetadata(target) {
-  const arguments_ = [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    WINDOWS_PROBE_PATH,
-    "-LiteralPath",
-    target,
-  ];
-
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn("powershell.exe", arguments_, {
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    const stdout = [];
-    const stderr = [];
-    let stdoutLength = 0;
-    let stderrLength = 0;
-    const maximumOutput = 1024 * 1024;
-
-    child.stdout.on("data", (chunk) => {
-      stdoutLength += chunk.byteLength;
-      if (stdoutLength <= maximumOutput) {
-        stdout.push(chunk);
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderrLength += chunk.byteLength;
-      if (stderrLength <= maximumOutput) {
-        stderr.push(chunk);
-      }
-    });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (stdoutLength > maximumOutput || stderrLength > maximumOutput) {
-        reject(new Error("Windows path probe exceeded its output limit"));
-        return;
-      }
-      if (code !== 0) {
-        reject(
-          new Error(
-            `Windows path probe exited ${code}: ${Buffer.concat(stderr).toString("utf8")}`,
-          ),
-        );
-        return;
-      }
-
-      try {
-        resolvePromise(JSON.parse(Buffer.concat(stdout).toString("utf8")));
-      } catch (error) {
-        reject(
-          new Error("Windows path probe returned invalid JSON", {
-            cause: error,
-          }),
-        );
-      }
-    });
-  });
-}
-
 async function writeExclusiveJson(target, value) {
   const handle = await open(target, "wx", 0o600);
 
@@ -625,10 +582,18 @@ async function inspectInternalDirectory(
 
 export async function inspectEvaluationHomes({ root, testDependencies }) {
   const normalizedRoot = normalizedExplicitRoot(root);
-  const dependencies = validateTestDependencies(
+  return withPathMetadataDependencies(
     normalizedRoot,
     testDependencies,
+    (dependencies) =>
+      inspectEvaluationHomesWithDependencies(normalizedRoot, dependencies),
   );
+}
+
+async function inspectEvaluationHomesWithDependencies(
+  normalizedRoot,
+  dependencies,
+) {
   const paths = rootPaths(normalizedRoot);
   const rootProbe = await probeExistingChain(normalizedRoot, dependencies);
   const problems = [];
@@ -837,10 +802,18 @@ async function removeOwnedInitializationDirectory(target) {
 
 export async function initializeEvaluationHomes({ root, testDependencies }) {
   const normalizedRoot = normalizedExplicitRoot(root);
-  const dependencies = validateTestDependencies(
+  return withPathMetadataDependencies(
     normalizedRoot,
     testDependencies,
+    (dependencies) =>
+      initializeEvaluationHomesWithDependencies(normalizedRoot, dependencies),
   );
+}
+
+async function initializeEvaluationHomesWithDependencies(
+  normalizedRoot,
+  dependencies,
+) {
   const existing = await optionalLstat(normalizedRoot);
 
   if (existing !== null) {
@@ -850,7 +823,10 @@ export async function initializeEvaluationHomes({ root, testDependencies }) {
         "the requested root is not an ordinary directory",
       );
     }
-    const inventory = await inspectEvaluationHomes({ root, testDependencies });
+    const inventory = await inspectEvaluationHomesWithDependencies(
+      normalizedRoot,
+      dependencies,
+    );
     if (inventory.valid) {
       return inventory;
     }
@@ -930,7 +906,7 @@ export async function initializeEvaluationHomes({ root, testDependencies }) {
     throw error;
   }
 
-  return inspectEvaluationHomes({ root: normalizedRoot, testDependencies });
+  return inspectEvaluationHomesWithDependencies(normalizedRoot, dependencies);
 }
 
 function assertRole(role) {
@@ -1604,10 +1580,23 @@ export async function withEvaluationHome(
   if (typeof operation !== "function") {
     fail("invalid-operation", "operation must be a function");
   }
-  const dependencies = validateTestDependencies(
+  return withPathMetadataDependencies(
     normalizedRoot,
     testDependencies,
+    (dependencies) =>
+      withEvaluationHomeDependencies(
+        { normalizedRoot, role, operationId },
+        operation,
+        dependencies,
+      ),
   );
+}
+
+async function withEvaluationHomeDependencies(
+  { normalizedRoot, role, operationId },
+  operation,
+  dependencies,
+) {
   const rootState = await readValidatedRootState(normalizedRoot, dependencies);
   const stablePath = rootState.paths[role];
   const initialHome = await captureHomeState(

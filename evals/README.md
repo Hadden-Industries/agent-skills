@@ -87,6 +87,8 @@ Provider process launch belongs only to these three adapters. The operator login
 
 `scripts/evaluation/evaluation-homes.js` manages the reusable versioned root returned by `evaluationHomesRootFromLocalAppData(localAppData)`. It owns exactly two stable roles: `preflight` and `execution`. A role operation validates the approved absolute root and owner marker, acquires an exclusive lease, verifies path identity and containment, rotates the prior home into owned quarantine, creates the fresh stable path, binds `CODEX_HOME`, registers child processes, requires exact release evidence, retires the used generation, restores a clean stable path, and records immutable completion history.
 
+Windows path attestation remains per-path and fail-closed, but it no longer starts PowerShell for every ancestor lookup. `scripts/evaluation/windows-path-metadata.js` owns one bounded JSONL worker per public manager operation, while `scripts/evaluation/windows-path-probe.ps1` performs the same read-only drive, attribute, resolved-path, and reparse checks for each identified request. The execution fingerprint binds both files.
+
 The installed Codex CLI's Windows keyring lookup is empirically scoped by the stable home path. One ambient login does not automatically authenticate both roles. Each stable `preflight` or `execution` home may require its own separately authorized one-time login through `manage-evaluation-homes.mjs login`; the operator lifecycle rotates before login and again after confirmed process closure. Tests use injected temporary roots and fake executables, never the production root or a real keyring entry.
 
 ## Failure Classes

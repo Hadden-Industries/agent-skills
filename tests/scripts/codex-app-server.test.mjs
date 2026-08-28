@@ -399,7 +399,7 @@ test("toolchain inspection binds explicit prefix arguments and a canonical schem
   });
 });
 
-test("preflight proves the stable zero-turn isolated lifecycle and writes terminal evidence last", async (t) => {
+test("preflight accepts the official initialize response and writes terminal evidence last", async (t) => {
   const root = await temporaryRoot(t);
   const fixtureRoot = join(root, "fixture");
   const homePath = join(root, "preflight-home");
@@ -489,15 +489,12 @@ test("preflight proves the stable zero-turn isolated lifecycle and writes termin
       !Object.hasOwn(message, "method") &&
       Object.hasOwn(message, "result"),
   ).result;
-  assert.equal(initializeResponse.codexHome, homePath);
-  assert.deepEqual(
-    initializeResponse.environmentNames,
-    [
-      "CODEX_HOME",
-      ...Object.keys(policyFixture(fixtureRoot).isolation.environment.values),
-    ].sort(),
-  );
-  assert.equal(initializeResponse.hasOpenaiApiKey, false);
+  assert.deepEqual(initializeResponse, {
+    codexHome: homePath,
+    platformFamily: process.platform === "win32" ? "windows" : "unix",
+    platformOs: process.platform,
+    userAgent: "codex_cli_rs/9.9.9-test",
+  });
 
   const threadStart = clientMessages.find(
     ({ method }) => method === "thread/start",
@@ -807,11 +804,7 @@ for (const [scenario, failureClass, errorCode] of [
     "capability-rejected",
     "PROVIDER_CAPABILITY_MISMATCH",
   ],
-  [
-    "missing-initialize-isolation",
-    "capability-rejected",
-    "ENVIRONMENT_MISMATCH",
-  ],
+  ["wrong-codex-home", "capability-rejected", "CODEX_HOME_MISMATCH"],
   ["leaked-instructions", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
   ["sandbox-mismatch", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
   [

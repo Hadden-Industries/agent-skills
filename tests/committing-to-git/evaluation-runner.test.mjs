@@ -90,6 +90,8 @@ const PINNED_RUNNER_FILES = Object.freeze([
   "scripts/evaluation/codex-app-server.js",
   "scripts/evaluation/evaluation-homes.js",
   "scripts/evaluation/runtime.js",
+  "scripts/evaluation/windows-path-metadata.js",
+  "scripts/evaluation/windows-path-probe.ps1",
 ]);
 
 function temporaryRoot(t, prefix = "committing-to-git-runner-") {
@@ -1220,6 +1222,18 @@ test("preparation writes a common packet without packet-local runtime homes", as
       ({ id }) => id === "developer-instructions",
     ).content,
     /# Task-specific skill/u,
+  );
+  assert.deepEqual(
+    packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
+    [
+      "evals/committing-to-git/evaluation-runner.mjs",
+      "evals/committing-to-git/session-controller.mjs",
+      "scripts/evaluation/runtime.js",
+      "scripts/evaluation/evaluation-homes.js",
+      "scripts/evaluation/windows-path-metadata.js",
+      "scripts/evaluation/windows-path-probe.ps1",
+      "scripts/evaluation/codex-app-server.js",
+    ],
   );
 });
 

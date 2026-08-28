@@ -1496,10 +1496,42 @@ function assertHomeContext(context, expectedRole) {
   }
 }
 
+function isolatedSpawnEnvironment(policy, context) {
+  const environment = {
+    ...policy.isolation.environment.values,
+    ...context.environment,
+  };
+  const expectedNames = [
+    ...Object.keys(policy.isolation.environment.values),
+    "CODEX_HOME",
+  ];
+  const normalizeName =
+    process.platform === "win32"
+      ? (name) => name.toUpperCase()
+      : (name) => name;
+  const expected = expectedNames.map(normalizeName).sort();
+  const actual = Object.keys(environment).map(normalizeName).sort();
+
+  // The App Server protocol does not echo arbitrary environment values.
+  // Prove the closed positive-name set at the spawn boundary instead.
+  if (
+    expected.length !== actual.length ||
+    expected.some((name, index) => name !== actual[index]) ||
+    actual.includes("OPENAI_API_KEY")
+  ) {
+    throw sessionError(
+      "capability-rejected",
+      "ENVIRONMENT_MISMATCH",
+      "Codex App Server environment does not match the positive-name policy",
+    );
+  }
+
+  return environment;
+}
+
 async function establishIsolatedThread({
   context,
   policy,
-  environment,
   request,
   onThreadStarted,
 }) {
@@ -1522,27 +1554,6 @@ async function establishIsolatedThread({
       "capability-rejected",
       "CODEX_HOME_MISMATCH",
       "Codex App Server did not use the supplied stable home",
-    );
-  }
-  const expectedEnvironmentNames = Object.keys(environment).sort();
-  if (
-    !Array.isArray(initialized.environmentNames) ||
-    initialized.environmentNames.length !== expectedEnvironmentNames.length ||
-    initialized.environmentNames.some(
-      (name, index) => name !== expectedEnvironmentNames[index],
-    )
-  ) {
-    throw sessionError(
-      "capability-rejected",
-      "ENVIRONMENT_MISMATCH",
-      "Codex App Server environment does not match the positive-name policy",
-    );
-  }
-  if (initialized.hasOpenaiApiKey !== false) {
-    throw sessionError(
-      "capability-rejected",
-      "OPENAI_API_KEY_PRESENT",
-      "Codex App Server environment contains OPENAI_API_KEY",
     );
   }
   await request("initialized", {}, { notification: true });
@@ -1639,10 +1650,7 @@ async function runPreflightOperation({
 
   try {
     assertHomeContext(context, "preflight");
-    const environment = {
-      ...policy.isolation.environment.values,
-      ...context.environment,
-    };
+    const environment = isolatedSpawnEnvironment(policy, context);
     const child = spawn(
       toolchain.command.path,
       [...toolchain.prefixArguments, "app-server"],
@@ -1673,7 +1681,6 @@ async function runPreflightOperation({
     const established = await establishIsolatedThread({
       context,
       policy,
-      environment,
       request,
       onThreadStarted(startedThreadId) {
         threadId = startedThreadId;
@@ -2336,10 +2343,6 @@ async function runExecutionOperation({
   signal,
 }) {
   const { controller, policy, timeoutMs, toolchain } = adapterRequest;
-  const environment = {
-    ...policy.isolation.environment.values,
-    ...context.environment,
-  };
   let client;
   let threadId = null;
   let activeTurnId = null;
@@ -2356,6 +2359,7 @@ async function runExecutionOperation({
 
   try {
     assertHomeContext(context, "execution");
+    const environment = isolatedSpawnEnvironment(policy, context);
     await consumeExternalModelLaunch(launchCapability, {
       provider: transmission.provider,
       model: transmission.model,
@@ -2437,7 +2441,6 @@ async function runExecutionOperation({
     const established = await establishIsolatedThread({
       context,
       policy,
-      environment,
       request: protocolRequest,
       onThreadStarted(startedThreadId) {
         threadId = startedThreadId;

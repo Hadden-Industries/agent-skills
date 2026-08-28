@@ -171,7 +171,7 @@ async function pathExists(target) {
   }
 }
 
-async function runPowerShellProbe(target) {
+async function runPowerShellProbeSession(targets) {
   const executable = process.env.SystemRoot
     ? join(
         process.env.SystemRoot,
@@ -189,14 +189,12 @@ async function runPowerShellProbe(target) {
     "Bypass",
     "-File",
     PROBE_PATH,
-    "-LiteralPath",
-    target,
   ];
 
   return new Promise((resolvePromise, reject) => {
     const child = spawn(executable, arguments_, {
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
     const stdout = [];
@@ -215,8 +213,20 @@ async function runPowerShellProbe(target) {
         return;
       }
 
-      resolvePromise(JSON.parse(Buffer.concat(stdout).toString("utf8")));
+      const responses = Buffer.concat(stdout)
+        .toString("utf8")
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      resolvePromise(responses);
     });
+
+    for (const [index, target] of targets.entries()) {
+      child.stdin.write(
+        `${JSON.stringify({ schemaVersion: 1, id: index + 1, path: target })}\n`,
+      );
+    }
+    child.stdin.end();
   });
 }
 
@@ -538,7 +548,7 @@ test("rejects malformed or open test dependency bundles", async (t) => {
 });
 
 test(
-  "the real Windows probe reports fixed-directory and reparse metadata without writing",
+  "one real Windows probe session reports multiple paths without writing",
   { skip: process.platform !== "win32" },
   async (t) => {
     const { owner } = await createTestRoot(t);
@@ -549,22 +559,6 @@ test(
     await mkdir(target);
 
     const before = await lstat(ordinary);
-    const ordinaryProbe = await runPowerShellProbe(ordinary);
-    const after = await lstat(ordinary);
-
-    assert.deepEqual(ordinaryProbe, {
-      schemaVersion: 1,
-      exists: true,
-      fullPath: resolve(ordinary),
-      isContainer: true,
-      attributes: ["Directory"],
-      drive: {
-        root: parse(resolve(ordinary)).root,
-        driveType: "Fixed",
-      },
-    });
-    assert.equal(after.mtimeMs, before.mtimeMs);
-
     try {
       await symlink(target, link, "junction");
     } catch (error) {
@@ -575,7 +569,29 @@ test(
       throw error;
     }
 
-    const linkProbe = await runPowerShellProbe(link);
+    const responses = await runPowerShellProbeSession([ordinary, link]);
+    const after = await lstat(ordinary);
+
+    assert.equal(responses.length, 2);
+    assert.deepEqual(responses[0], {
+      schemaVersion: 1,
+      id: 1,
+      result: {
+        schemaVersion: 1,
+        exists: true,
+        fullPath: resolve(ordinary),
+        isContainer: true,
+        attributes: ["Directory"],
+        drive: {
+          root: parse(resolve(ordinary)).root,
+          driveType: "Fixed",
+        },
+      },
+    });
+    assert.equal(after.mtimeMs, before.mtimeMs);
+
+    const linkProbe = responses[1].result;
+    assert.equal(responses[1].id, 2);
     assert.equal(linkProbe.exists, true);
     assert.equal(linkProbe.attributes.includes("ReparsePoint"), true);
   },
@@ -592,6 +608,32 @@ test(
       /unsupported-platform/u,
     );
     assert.equal(await pathExists(root), false);
+  },
+);
+
+test(
+  "the production Windows backend completes one streamed home lifecycle",
+  { skip: process.platform !== "win32", timeout: 10_000 },
+  async (t) => {
+    const { root } = await createTestRoot(t);
+    const initialized = await initializeEvaluationHomes({ root });
+
+    assert.equal(initialized.valid, true);
+    const result = await withEvaluationHome(
+      {
+        root,
+        role: "preflight",
+        operationId: OPERATION_ID,
+      },
+      async () => ({ value: "completed", release: safeWithoutChild() }),
+    );
+
+    assert.equal(result, "completed");
+    const inspected = await inspectEvaluationHomes({ root });
+    assert.equal(inspected.valid, true);
+    assert.deepEqual(inspected.liveLeases, []);
+    assert.deepEqual(inspected.quarantines, []);
+    assert.equal(inspected.completedHistory.length, 1);
   },
 );
 

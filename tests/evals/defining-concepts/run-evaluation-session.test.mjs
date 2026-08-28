@@ -419,6 +419,18 @@ test("Codex preparation binds App Server transport and a managed execution home"
     ).content,
   );
   assert.equal(settings.evaluationHomesRoot, homes);
+  assert.deepEqual(
+    packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
+    [
+      "evals/defining-concepts/run-evaluation-session.mjs",
+      "evals/defining-concepts/session-controller.mjs",
+      "scripts/evaluation/runtime.js",
+      "scripts/evaluation/evaluation-homes.js",
+      "scripts/evaluation/windows-path-metadata.js",
+      "scripts/evaluation/windows-path-probe.ps1",
+      "scripts/evaluation/codex-app-server.js",
+    ],
+  );
 });
 
 test("Antigravity preparation binds one explicit post-activation message without a model turn", () => {

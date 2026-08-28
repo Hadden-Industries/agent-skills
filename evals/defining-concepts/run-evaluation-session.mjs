@@ -64,6 +64,8 @@ const PROVIDER_RUNTIME_MODULES = Object.freeze({
   google: ["scripts/evaluation/antigravity-cli.js"],
   openai: [
     "scripts/evaluation/evaluation-homes.js",
+    "scripts/evaluation/windows-path-metadata.js",
+    "scripts/evaluation/windows-path-probe.ps1",
     "scripts/evaluation/codex-app-server.js",
   ],
 });

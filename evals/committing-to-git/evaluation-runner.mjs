@@ -79,6 +79,8 @@ const CAMPAIGN_RUNNER_FILES = Object.freeze([
   "scripts/evaluation/codex-app-server.js",
   "scripts/evaluation/evaluation-homes.js",
   "scripts/evaluation/runtime.js",
+  "scripts/evaluation/windows-path-metadata.js",
+  "scripts/evaluation/windows-path-probe.ps1",
 ]);
 const CAMPAIGN_REPOSITORY_PATHS = Object.freeze([
   SKILL_REPOSITORY_PATH,
@@ -1258,6 +1260,8 @@ const EXECUTION_MODULES = Object.freeze({
     "evals/committing-to-git/session-controller.mjs",
     "scripts/evaluation/runtime.js",
     "scripts/evaluation/evaluation-homes.js",
+    "scripts/evaluation/windows-path-metadata.js",
+    "scripts/evaluation/windows-path-probe.ps1",
     "scripts/evaluation/codex-app-server.js",
   ]),
 });
