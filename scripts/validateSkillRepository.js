@@ -99,6 +99,83 @@ function readJson(path, displayPath, violations) {
   }
 }
 
+function validateFollowUpTurns({
+  evaluation,
+  displayPath,
+  evaluationLabel,
+  violations,
+}) {
+  if (!Object.hasOwn(evaluation, "follow_up_turns")) {
+    return;
+  }
+
+  if (
+    !Array.isArray(evaluation.follow_up_turns) ||
+    evaluation.follow_up_turns.length === 0
+  ) {
+    violations.push(
+      `${displayPath} ${evaluationLabel} follow_up_turns must be a non-empty array`,
+    );
+    return;
+  }
+
+  if (evaluation.follow_up_turns.length > 31) {
+    violations.push(
+      `${displayPath} ${evaluationLabel} follow_up_turns must contain at most 31 entries`,
+    );
+  }
+
+  const followUpIds = new Set();
+
+  for (const [index, followUp] of evaluation.follow_up_turns.entries()) {
+    const followUpLabel = `follow-up at index ${index}`;
+
+    if (!isJsonObject(followUp)) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} ${followUpLabel} must be a JSON object`,
+      );
+      continue;
+    }
+
+    const fields = Object.keys(followUp).sort();
+
+    if (
+      fields.length !== 2 ||
+      fields[0] !== "id" ||
+      fields[1] !== "prompt"
+    ) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} ${followUpLabel} must contain exactly id and prompt`,
+      );
+    }
+
+    const hasValidId =
+      typeof followUp.id === "string" &&
+      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(followUp.id);
+
+    if (!hasValidId) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} ${followUpLabel} must have a lowercase ASCII kebab-case id`,
+      );
+    } else if (followUpIds.has(followUp.id)) {
+      violations.push(
+        `${displayPath} ${evaluationLabel} contains duplicate follow-up id ${JSON.stringify(followUp.id)}`,
+      );
+    } else {
+      followUpIds.add(followUp.id);
+    }
+
+    if (!isNonEmptyString(followUp.prompt)) {
+      const promptLabel = hasValidId
+        ? `follow-up ${JSON.stringify(followUp.id)}`
+        : followUpLabel;
+      violations.push(
+        `${displayPath} ${evaluationLabel} ${promptLabel} must contain a non-empty prompt`,
+      );
+    }
+  }
+}
+
 function validateBehavioralEvaluations({
   definition,
   displayPath,
@@ -162,6 +239,13 @@ function validateBehavioralEvaluations({
         `${displayPath} ${evaluationLabel} must contain a non-empty expected_output`,
       );
     }
+
+    validateFollowUpTurns({
+      evaluation,
+      displayPath,
+      evaluationLabel,
+      violations,
+    });
 
     if (Object.hasOwn(evaluation, "assertions")) {
       violations.push(

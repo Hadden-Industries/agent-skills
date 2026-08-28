@@ -24,6 +24,10 @@ const VALID_EVALUATION = {
   files: [],
   expectations: ["The output contains the requested result."],
 };
+const VALID_FOLLOW_UP_TURNS = [
+  { id: "select-sense", prompt: "Use the metadata-registry sense." },
+  { id: "request-json", prompt: "Now return the same entry as JSON." },
+];
 const VALID_TRIGGERS = [
   { query: "Use the example skill for this task.", should_trigger: true },
   { query: "Handle this adjacent task another way.", should_trigger: false },
@@ -340,6 +344,30 @@ test("repository evaluation validation allows a selected skill without a suite",
   );
 });
 
+test("repository evaluation layout accepts ordered declarative follow-up turns", (t) => {
+  const evaluation = {
+    ...VALID_EVALUATION,
+    follow_up_turns: VALID_FOLLOW_UP_TURNS.map((turn) => ({ ...turn })),
+  };
+  const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+    definition: {
+      skill_name: "example-skill",
+      evals: [evaluation],
+    },
+  });
+
+  assert.doesNotThrow(() =>
+    skillBuild.validateRepositoryEvaluationLayout({
+      skillsRoot,
+      evaluationsRoot,
+    }),
+  );
+  assert.deepEqual(
+    evaluation.follow_up_turns.map(({ id, prompt }) => ({ id, prompt })),
+    VALID_FOLLOW_UP_TURNS,
+  );
+});
+
 for (const [label, definition, expectedMessage] of [
   [
     "a non-object behavioral root",
@@ -413,6 +441,142 @@ for (const [label, definition, expectedMessage] of [
       ],
     },
     /evals\.json eval 1 contains duplicate file reference/u,
+  ],
+  [
+    "a non-array follow-up declaration",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, follow_up_turns: {} }],
+    },
+    /evals\.json eval 1 follow_up_turns must be a non-empty array/u,
+  ],
+  [
+    "an empty follow-up declaration",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, follow_up_turns: [] }],
+    },
+    /evals\.json eval 1 follow_up_turns must be a non-empty array/u,
+  ],
+  [
+    "a non-object follow-up turn",
+    {
+      skill_name: "example-skill",
+      evals: [{ ...VALID_EVALUATION, follow_up_turns: [null] }],
+    },
+    /evals\.json eval 1 follow-up at index 0 must be a JSON object/u,
+  ],
+  [
+    "a follow-up turn with unknown keys",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [
+            { id: "select-sense", prompt: "Use this sense.", note: "extra" },
+          ],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up at index 0 must contain exactly id and prompt/u,
+  ],
+  [
+    "a follow-up turn with a missing id",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [{ prompt: "Use this sense." }],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up at index 0 must contain exactly id and prompt/u,
+  ],
+  [
+    "a follow-up turn with a blank id",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [{ id: " ", prompt: "Use this sense." }],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up at index 0 must have a lowercase ASCII kebab-case id/u,
+  ],
+  [
+    "a follow-up turn with a malformed id",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [{ id: "Select_Sense", prompt: "Use this sense." }],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up at index 0 must have a lowercase ASCII kebab-case id/u,
+  ],
+  [
+    "duplicate follow-up ids",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [
+            { id: "select-sense", prompt: "Use this sense." },
+            { id: "select-sense", prompt: "Use that sense." },
+          ],
+        },
+      ],
+    },
+    /evals\.json eval 1 contains duplicate follow-up id "select-sense"/u,
+  ],
+  [
+    "a follow-up turn with a missing prompt",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [{ id: "select-sense" }],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up at index 0 must contain exactly id and prompt/u,
+  ],
+  [
+    "a follow-up turn with a blank prompt",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: [{ id: "select-sense", prompt: "\t" }],
+        },
+      ],
+    },
+    /evals\.json eval 1 follow-up "select-sense" must contain a non-empty prompt/u,
+  ],
+  [
+    "more than 31 follow-up turns",
+    {
+      skill_name: "example-skill",
+      evals: [
+        {
+          ...VALID_EVALUATION,
+          follow_up_turns: Array.from({ length: 32 }, (_, index) => ({
+            id: `follow-up-${index + 1}`,
+            prompt: `Continue with decision ${index + 1}.`,
+          })),
+        },
+      ],
+    },
+    /evals\.json eval 1 follow_up_turns must contain at most 31 entries/u,
   ],
 ]) {
   test(`repository evaluation layout rejects ${label}`, (t) => {
