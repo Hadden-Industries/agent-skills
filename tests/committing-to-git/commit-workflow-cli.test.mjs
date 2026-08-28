@@ -1050,13 +1050,21 @@ test("evidence uncertainty extends the exact snapshot without staging it again",
   assert.ok(output.reviewQueue.requiredPacketCount > 0);
   assert.equal(readFileSync(snapshotPath).equals(snapshotBytes), true);
   assert.equal(existsSync(planInputPath), false);
+  const tracedArguments = readGitTraceArguments(tracePath);
+
   assert.equal(
-    readGitTraceArguments(tracePath).some((args) =>
-      args.some((argument) =>
-        new Set(["write-tree", "read-tree", "add"]).has(argument),
-      ),
-    ),
+    tracedArguments.some((args) => args.includes("add")),
     false,
+  );
+  assert.equal(
+    tracedArguments.some(
+      (args) => args.includes("update-index") && args.includes("--index-info"),
+    ),
+    true,
+  );
+  assert.equal(
+    tracedArguments.some((args) => args.includes("read-tree")),
+    true,
   );
 });
 

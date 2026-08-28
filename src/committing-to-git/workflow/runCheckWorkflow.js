@@ -5,11 +5,11 @@ import { isAbsolute, relative, resolve } from "node:path";
 import crossSpawn from "cross-spawn";
 
 import { captureCheckProcessOutput } from "../checks/checkOutputCapture.js";
+import { selectedWorktreeMatchesPreparedTree } from "../checks/checkWorkspace.js";
 import {
   validateCheckCommand,
   validateCheckContext,
 } from "../checks/checkReceipt.js";
-import { selectedWorktreeMatchesPreparedTree } from "../git/gitRepository.js";
 import { readTransactionOwnedFile } from "../message/canonicalMessageState.js";
 import {
   advanceTransaction,
@@ -443,9 +443,10 @@ export async function runCheckWorkflow({
     workingDirectory,
   );
   const manifest = readSnapshot(transactionPath, transaction);
-  const before = selectedWorktreeMatchesPreparedTree({
+  const before = await selectedWorktreeMatchesPreparedTree({
     root: transaction.repositoryRoot,
     manifest,
+    temporaryDirectory: transaction.attemptDirectory,
   });
 
   if (!before.matches) {
@@ -518,9 +519,10 @@ export async function runCheckWorkflow({
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    const after = selectedWorktreeMatchesPreparedTree({
+    const after = await selectedWorktreeMatchesPreparedTree({
       root: transaction.repositoryRoot,
       manifest,
+      temporaryDirectory: transaction.attemptDirectory,
     });
     const finished = now();
 
@@ -576,9 +578,10 @@ export async function runCheckWorkflow({
 
   try {
     capture = await capturePromise;
-    const after = selectedWorktreeMatchesPreparedTree({
+    const after = await selectedWorktreeMatchesPreparedTree({
       root: transaction.repositoryRoot,
       manifest,
+      temporaryDirectory: transaction.attemptDirectory,
     });
     const finished = now();
     const processFacts = completionOutcomeFacts(capture);

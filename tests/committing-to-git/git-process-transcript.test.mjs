@@ -8,6 +8,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {
+  buildIndexMutationGitArguments,
+  buildReadOnlyGitArguments,
+} from "../../src/committing-to-git/git/gitRepository.js";
 import { createRepositoryFixture } from "./harness.mjs";
 
 const TRANSCRIPT_MODULE = join(
@@ -34,6 +38,65 @@ function finishChild(child, status = 0, signal = null) {
   child.stderr.end();
   queueMicrotask(() => child.emit("close", status, signal));
 }
+
+test("projected-index Git operations keep path data out of argv", () => {
+  assert.deepEqual(buildIndexMutationGitArguments("update-index-info"), [
+    "--no-pager",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "color.ui=false",
+    "update-index",
+    "--replace",
+    "-z",
+    "--index-info",
+  ]);
+  assert.deepEqual(buildReadOnlyGitArguments("diff-files-names"), [
+    "--no-lazy-fetch",
+    "--no-pager",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "color.ui=false",
+    "diff-files",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    "--ignore-submodules=none",
+    "--",
+  ]);
+  assert.deepEqual(buildIndexMutationGitArguments("refresh-index"), [
+    "--no-pager",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "color.ui=false",
+    "update-index",
+    "--really-refresh",
+    "-q",
+  ]);
+  assert.throws(
+    () => buildIndexMutationGitArguments("update-index-info", ["path.txt"]),
+    /not permitted/u,
+  );
+  assert.throws(
+    () => buildReadOnlyGitArguments("diff-files-names", ["path.txt"]),
+    /not permitted/u,
+  );
+  assert.throws(
+    () =>
+      buildReadOnlyGitArguments("diff-paths", [
+        "--quiet",
+        "--no-renames",
+        "--",
+        "path.txt",
+      ]),
+    /Unsupported read-only Git operation/u,
+  );
+});
 
 test("transcript preserves interleaved binary channels while diagnostics stay bounded", async (t) => {
   const fixture = createRepositoryFixture(t, "commit-transcript-");

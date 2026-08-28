@@ -129,12 +129,9 @@ function assertExactArguments(args, expected, operation) {
   }
 }
 
-function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
+function buildReadOnlyDiffArguments(args) {
   const separatorIndex = args.indexOf("--");
-  const optionArguments = literalPaths
-    ? args.slice(0, separatorIndex + 1)
-    : args;
-  const pathArguments = literalPaths ? args.slice(separatorIndex + 1) : [];
+  const optionArguments = args;
   const forbidden = optionArguments.find(
     (argument) =>
       argument === "--ext-diff" ||
@@ -198,8 +195,7 @@ function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
   if (
     invalid ||
     separatorIndex < 0 ||
-    (!literalPaths && args.at(-1) !== "--") ||
-    (literalPaths && pathArguments.length === 0) ||
+    args.at(-1) !== "--" ||
     new Set(optionArguments).size !== optionArguments.length ||
     outputModes.length > 1 ||
     optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length >
@@ -210,13 +206,7 @@ function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
       optionArguments.includes("--no-abbrev") ||
     (outputModes.some((mode) => mode !== "--quiet") &&
       !optionArguments.includes("-z")) ||
-    (literalPaths &&
-      pathArguments.some(
-        (path) =>
-          isAbsolute(path) ||
-          path.includes("\0") ||
-          path.split(/[\\/]/u).some((component) => component === ".."),
-      ))
+    optionArguments.some((argument) => isAbsolute(argument))
   ) {
     throw new Error(
       `Arguments are not permitted for read-only Git operation diff${
@@ -226,13 +216,11 @@ function buildReadOnlyDiffArguments(args, { literalPaths = false } = {}) {
   }
 
   return [
-    ...(literalPaths ? ["--literal-pathspecs"] : []),
     "diff",
     "--no-ext-diff",
     "--no-textconv",
     "--no-color",
     ...optionArguments,
-    ...pathArguments,
   ];
 }
 
@@ -374,8 +362,19 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
-    case "diff-paths":
-      return buildReadOnlyDiffArguments(args, { literalPaths: true });
+    case "diff-files-names":
+      assertExactArguments(args, [], operation);
+      return [
+        "diff-files",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--ignore-submodules=none",
+        "--",
+      ];
     case "diff-tree":
       return buildReadOnlyDiffTreeArguments(args);
     case "cat-file":
@@ -487,11 +486,24 @@ function buildIndexMutationArguments(operation, args) {
         );
       }
       return ["read-tree", args[0]];
+    case "update-index-info":
+      assertExactArguments(args, [], operation);
+      return ["update-index", "--replace", "-z", "--index-info"];
+    case "refresh-index":
+      assertExactArguments(args, [], operation);
+      return ["update-index", "--really-refresh", "-q"];
     default:
       throw new Error(
         `Unsupported index mutation operation ${JSON.stringify(operation)}.`,
       );
   }
+}
+
+export function buildIndexMutationGitArguments(operation, args = []) {
+  return [
+    ...INDEX_MUTATION_GLOBAL_ARGUMENTS,
+    ...buildIndexMutationArguments(operation, args),
+  ];
 }
 
 export class GitCommandError extends Error {
@@ -512,9 +524,15 @@ export class GitCommandError extends Error {
 
 export function runGit(
   args,
-  { cwd = process.cwd(), env, input, allowFailure = false } = {},
+  {
+    cwd = process.cwd(),
+    env,
+    input,
+    allowFailure = false,
+    launcher = spawnSync,
+  } = {},
 ) {
-  const result = spawnSync("git", args, {
+  const result = launcher("git", args, {
     cwd,
     encoding: null,
     env: env ? { ...process.env, ...env } : process.env,
@@ -824,11 +842,9 @@ export function runIndexMutationGit(
   root,
   operation,
   args = [],
-  { env, input, allowFailure = false } = {},
+  { env, input, allowFailure = false, launcher = spawnSync } = {},
 ) {
-  const operationArguments = buildIndexMutationArguments(operation, args);
-
-  return runGit([...INDEX_MUTATION_GLOBAL_ARGUMENTS, ...operationArguments], {
+  return runGit(buildIndexMutationGitArguments(operation, args), {
     cwd: root,
     env: {
       ...env,
@@ -838,6 +854,7 @@ export function runIndexMutationGit(
     },
     input,
     allowFailure,
+    launcher,
   });
 }
 
@@ -911,87 +928,6 @@ export function indexMatchesTree(root, treeOid, env) {
   }
 
   throw new GitCommandError(args, result);
-}
-
-export function selectedWorktreeMatchesPreparedTree({
-  root,
-  manifest,
-  now = () => new Date().toISOString(),
-}) {
-  if (
-    manifest === null ||
-    typeof manifest !== "object" ||
-    Array.isArray(manifest) ||
-    !FULL_OBJECT_ID.test(manifest.indexTreeOid) ||
-    !Array.isArray(manifest.changeUnits)
-  ) {
-    throw new Error(
-      "Selected-worktree comparison requires a validated snapshot manifest.",
-    );
-  }
-
-  const paths = [];
-
-  for (const change of manifest.changeUnits) {
-    if (
-      change === null ||
-      typeof change !== "object" ||
-      Array.isArray(change) ||
-      (change.sourcePath !== null && typeof change.sourcePath !== "string") ||
-      typeof change.destinationPath !== "string"
-    ) {
-      throw new Error(
-        "Selected-worktree comparison found an invalid change-unit path.",
-      );
-    }
-
-    if (change.sourcePath !== null) {
-      paths.push(change.sourcePath);
-    }
-
-    paths.push(change.destinationPath);
-  }
-
-  const uniquePaths = [...new Set(paths)].sort((left, right) =>
-    Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
-  );
-  const observedAt = now();
-
-  if (
-    typeof observedAt !== "string" ||
-    !Number.isFinite(Date.parse(observedAt))
-  ) {
-    throw new Error("Selected-worktree observation time is invalid.");
-  }
-
-  if (uniquePaths.length === 0) {
-    return { matches: true, pathCount: 0, observedAt };
-  }
-
-  // Compare only manifest-derived literal paths. Unrelated workspace changes
-  // remain outside the prepared commit and must neither invalidate the check
-  // receipt nor be silently described as part of its tested subject.
-  const args = [
-    "--quiet",
-    "--no-renames",
-    "--ignore-submodules=none",
-    manifest.indexTreeOid,
-    "--",
-    ...uniquePaths,
-  ];
-  const result = runReadOnlyGit(root, "diff-paths", args, {
-    allowFailure: true,
-  });
-
-  if (!new Set([0, 1]).has(result.status)) {
-    throw new GitCommandError(["diff", ...args], result);
-  }
-
-  return {
-    matches: result.status === 0,
-    pathCount: uniquePaths.length,
-    observedAt,
-  };
 }
 
 const OPERATION_MARKERS = [

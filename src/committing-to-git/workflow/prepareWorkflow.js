@@ -23,6 +23,7 @@ import {
   streamGit,
 } from "../git/gitRepository.js";
 import { splitNul } from "../git/gitPath.js";
+import { withProjectedIndex } from "../git/projectedIndex.js";
 import {
   MAXIMUM_CONCISE_RESULT_BYTES,
   createInlineEvidenceCapsule,
@@ -1341,26 +1342,36 @@ function patchUnitsForGroup(manifest, group) {
   );
 }
 
-function patchArguments(manifest, units) {
-  const paths = units.map(({ destinationPath }) => destinationPath);
+function destinationPathBytes(unit) {
+  const bytes = Buffer.from(unit.destinationPathBytesBase64, "base64");
 
-  if (paths.some((path) => typeof path !== "string" || path.length === 0)) {
+  if (
+    bytes.length === 0 ||
+    bytes.toString("base64") !== unit.destinationPathBytesBase64
+  ) {
     throw new Error(
-      "Selected patch evidence contains a path that cannot be represented as strict UTF-8.",
+      `Patch evidence unit ${unit.id} has an invalid raw destination path.`,
     );
   }
 
-  return [
-    "--cached",
-    "--no-renames",
-    "--diff-filter=d",
-    ...(manifest.headOid ? [manifest.headOid] : ["--root"]),
-    "--",
-    ...paths,
-  ];
+  return bytes;
 }
 
-async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
+function evidenceProjectionEntries(units) {
+  return units.map((unit) => ({
+    mode: unit.newMode,
+    oid: unit.newOid,
+    pathBytes: destinationPathBytes(unit),
+  }));
+}
+
+async function spoolEvidenceGroup({
+  root,
+  manifest,
+  group,
+  attemptDirectory,
+  launchers,
+}) {
   const units = patchUnitsForGroup(manifest, group);
   const path = resolve(
     attemptDirectory,
@@ -1380,13 +1391,44 @@ async function spoolEvidenceGroup({ root, manifest, group, attemptDirectory }) {
     let result;
 
     try {
-      result = await streamGit("diff-paths", patchArguments(manifest, units), {
-        cwd: root,
-        env: manifestEnvironment(manifest),
-        onStdout(chunk) {
-          writeFileSync(descriptor, chunk);
+      const entries = evidenceProjectionEntries(units);
+      const baseEnvironment = manifestEnvironment(manifest);
+      const comparison = manifest.headOid ? [manifest.headOid] : ["--root"];
+
+      // Start from the parent tree and replace only this group's eligible
+      // destinations through stdin. update-index --replace resolves D/F
+      // conflicts by removing the old conflicting entries; the explicit
+      // deletion filter keeps those structural removals out of text evidence.
+      result = await withProjectedIndex(
+        {
+          root,
+          baselineTreeOid: manifest.headOid,
+          entries,
+          temporaryDirectory: attemptDirectory,
+          environment: baseEnvironment,
+          purpose: `evidence-${group.id.toLowerCase()}`,
+          launchers,
         },
-      });
+        ({ environment }) =>
+          streamGit(
+            "diff",
+            [
+              "--cached",
+              "--no-renames",
+              "--diff-filter=d",
+              ...comparison,
+              "--",
+            ],
+            {
+              cwd: root,
+              env: environment,
+              launcher: launchers?.asynchronous,
+              onStdout(chunk) {
+                writeFileSync(descriptor, chunk);
+              },
+            },
+          ),
+      );
       fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);
@@ -1419,6 +1461,7 @@ export async function acquireEvidence({
   manifest,
   evidencePlan,
   attemptDirectory,
+  launchers = {},
 }) {
   const records = [];
 
@@ -1433,6 +1476,7 @@ export async function acquireEvidence({
         manifest,
         group,
         attemptDirectory,
+        launchers,
       }),
     );
   }
