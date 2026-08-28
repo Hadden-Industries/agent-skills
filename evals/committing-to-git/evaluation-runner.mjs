@@ -49,25 +49,47 @@ const MATRIX_CASE_IDS = Object.freeze([
 const ARMS = Object.freeze(["no-skill", "old-skill", "new-skill"]);
 const MODELS = Object.freeze([
   Object.freeze({
-    model: "gpt-5.6-luna",
-    effort: "low",
-    provider: "openai",
-    repetitions: 5,
-    purpose: "primary",
-  }),
-  Object.freeze({
-    model: "gpt-5.6-sol",
+    model: "gpt-5.3-codex-spark",
     effort: "low",
     provider: "openai",
     repetitions: 1,
-    purpose: "calibration",
+    purpose: "primary",
   }),
 ]);
-const PINNED_SKILLS = Object.freeze({
-  "old-skill": "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
-  "new-skill": "ec064b1f8177d9542a82f478ca3b1ce5e44ee702",
+const BASELINE_COMMIT = "76baa9b25e0afeaa2c62c4cf7042976444edc15e";
+const DEFERRED_CALIBRATION = Object.freeze({
+  model: "gpt-5.6-sol",
+  provider: "openai",
+  purpose: "calibration",
+  reasoningEffort: Object.freeze({
+    mode: "model-default",
+    override: null,
+  }),
+  repetitions: 1,
 });
 const SKILL_REPOSITORY_PATH = "skills/committing-to-git";
+const CAMPAIGN_RUNNER_FILES = Object.freeze([
+  "package.json",
+  "evals/committing-to-git/create-fixture-repository.mjs",
+  "evals/committing-to-git/evaluation-runner.mjs",
+  "evals/committing-to-git/evals.json",
+  "evals/committing-to-git/run-evaluation-session.mjs",
+  "evals/committing-to-git/session-controller.mjs",
+  "scripts/evaluation/antigravity-cli.js",
+  "scripts/evaluation/codex-app-server.js",
+  "scripts/evaluation/evaluation-homes.js",
+  "scripts/evaluation/runtime.js",
+]);
+const CAMPAIGN_REPOSITORY_PATHS = Object.freeze([
+  SKILL_REPOSITORY_PATH,
+  ...CAMPAIGN_RUNNER_FILES,
+]);
+const CAMPAIGN_INTEGRITY = Object.freeze({
+  canonicalization: "RFC8785",
+  digestAlgorithm: "SHA-256",
+  digestField: "campaignId",
+});
+const COMMIT_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const EVALUATION_BASE_INSTRUCTIONS =
   "Work only inside the supplied disposable Git fixture. Treat every other local or external source as unavailable.";
 const EVALUATION_DEVELOPER_INSTRUCTIONS =
@@ -126,6 +148,7 @@ function runGit(
       ...process.env,
       GIT_NO_LAZY_FETCH: "1",
       GIT_OPTIONAL_LOCKS: "0",
+      GIT_TERMINAL_PROMPT: "0",
     },
     input,
     maxBuffer: 128 * 1024 * 1024,
@@ -236,10 +259,29 @@ export function captureGitState(repository) {
   };
 }
 
-export function buildEvaluationSchedule(seed) {
+function assertCommitOid(value, label) {
+  if (typeof value !== "string" || !COMMIT_OID_PATTERN.test(value)) {
+    throw new TypeError(`${label} must be a full lowercase Git commit OID`);
+  }
+}
+
+function assertCampaignId(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
+    throw new TypeError("campaignId must be a lowercase SHA-256 digest");
+  }
+}
+
+function sourceCommitForArm(arm, candidateCommit) {
+  if (arm === "no-skill") return null;
+  if (arm === "old-skill") return BASELINE_COMMIT;
+  return candidateCommit;
+}
+
+export function buildEvaluationSchedule({ candidateCommit, seed }) {
   if (typeof seed !== "string" || seed.length === 0) {
     throw new TypeError("A non-empty string randomization seed is required");
   }
+  assertCommitOid(candidateCommit, "candidateCommit");
 
   const blocks = [];
 
@@ -256,6 +298,7 @@ export function buildEvaluationSchedule(seed) {
           provider: model.provider,
           purpose: model.purpose,
           repetition,
+          sourceCommit: sourceCommitForArm(arm, candidateCommit),
         })).sort((left, right) =>
           stableOrderKey(seed, `${blockId}/${left.arm}`).localeCompare(
             stableOrderKey(seed, `${blockId}/${right.arm}`),
@@ -276,6 +319,271 @@ export function buildEvaluationSchedule(seed) {
   return blocks
     .flatMap(({ sessions }) => sessions)
     .map((session, index) => ({ ...session, seed, sequence: index + 1 }));
+}
+
+function assertCandidate(candidate) {
+  if (
+    candidate === null ||
+    typeof candidate !== "object" ||
+    Array.isArray(candidate) ||
+    Object.keys(candidate).sort().join("\0") !==
+      ["branch", "commitOid", "remote", "remoteRef", "verification"]
+        .sort()
+        .join("\0")
+  ) {
+    throw new TypeError("candidate must use the exact pushed-candidate shape");
+  }
+  assertCommitOid(candidate.commitOid, "candidate.commitOid");
+  for (const name of ["branch", "remote", "remoteRef"]) {
+    if (typeof candidate[name] !== "string" || candidate[name].length === 0) {
+      throw new TypeError(`candidate.${name} must be a non-empty string`);
+    }
+  }
+  if (
+    !candidate.remoteRef.startsWith("refs/heads/") ||
+    candidate.verification !== "git-ls-remote"
+  ) {
+    throw new TypeError(
+      "candidate must be verified against a freshly observed remote branch",
+    );
+  }
+}
+
+function campaignPlanWithoutId({ candidate, seed }) {
+  assertCandidate(candidate);
+  const candidateCopy = { ...candidate };
+  return {
+    candidate: candidateCopy,
+    command: "plan",
+    deferredCalibration: DEFERRED_CALIBRATION,
+    integrity: CAMPAIGN_INTEGRITY,
+    modelCalls: 0,
+    pinnedRepositoryPaths: CAMPAIGN_REPOSITORY_PATHS,
+    schemaVersion: 2,
+    seed,
+    sessions: buildEvaluationSchedule({
+      candidateCommit: candidateCopy.commitOid,
+      seed,
+    }),
+  };
+}
+
+export function createEvaluationCampaignPlan({ candidate, seed }) {
+  const plan = campaignPlanWithoutId({ candidate, seed });
+  return Object.freeze({
+    ...plan,
+    campaignId: sha256Hex(canonicalJsonBytes(plan)),
+  });
+}
+
+export function assertEvaluationCampaignRepositoryCurrent(
+  repositoryRoot,
+  candidate,
+) {
+  if (!isAbsolute(repositoryRoot)) {
+    throw new TypeError("repositoryRoot must be absolute");
+  }
+  assertCandidate(candidate);
+  const headCommit = runGit(repositoryRoot, [
+    "rev-parse",
+    "--verify",
+    "HEAD^{commit}",
+  ]).stdout.trim();
+  if (headCommit !== candidate.commitOid) {
+    throw new Error(
+      `Evaluation campaign requires HEAD ${candidate.commitOid}, found ${headCommit}`,
+    );
+  }
+  const status = runGit(
+    repositoryRoot,
+    [
+      "status",
+      "--porcelain=v2",
+      "-z",
+      "--untracked-files=all",
+      "--",
+      ...CAMPAIGN_REPOSITORY_PATHS,
+    ],
+    { encoding: "buffer" },
+  ).stdout;
+  if (status.byteLength !== 0) {
+    throw new Error(
+      "Evaluation campaign runner or skill has uncommitted bytes and differs from the pinned commit",
+    );
+  }
+  const treePaths = new Set(
+    runGit(
+      repositoryRoot,
+      [
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "-z",
+        candidate.commitOid,
+        "--",
+        ...CAMPAIGN_REPOSITORY_PATHS,
+      ],
+      { encoding: "buffer" },
+    )
+      .stdout.toString("utf8")
+      .split("\0")
+      .filter(Boolean),
+  );
+  const requiredFiles = [
+    `${SKILL_REPOSITORY_PATH}/SKILL.md`,
+    ...CAMPAIGN_RUNNER_FILES,
+  ];
+  const missing = requiredFiles.filter((path) => !treePaths.has(path));
+  if (missing.length !== 0) {
+    throw new Error(
+      `Evaluation campaign commit is missing pinned runner paths: ${missing.join(", ")}`,
+    );
+  }
+  return Object.freeze({
+    commitOid: candidate.commitOid,
+    pinnedRepositoryPaths: CAMPAIGN_REPOSITORY_PATHS,
+  });
+}
+
+export function selectEvaluationCampaignSession(plan, sequence) {
+  if (!Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new TypeError("sequence must be a positive safe integer");
+  }
+  let matchesIntegrityContract;
+  try {
+    const expected =
+      plan?.command === "policy-plan"
+        ? createPolicyEvaluationCampaignPlan({
+            candidate: plan?.candidate,
+            caseIds: plan?.policy?.caseIds,
+            effort: plan?.policy?.effort,
+            model: plan?.policy?.model,
+            provider: plan?.policy?.provider,
+            repetitions: plan?.policy?.repetitions,
+            seed: plan?.seed,
+          })
+        : createEvaluationCampaignPlan({
+            candidate: plan?.candidate,
+            seed: plan?.seed,
+          });
+    matchesIntegrityContract = canonicalJsonBytes(plan).equals(
+      canonicalJsonBytes(expected),
+    );
+  } catch (error) {
+    throw new Error(
+      "Evaluation campaign does not match its integrity contract",
+      { cause: error },
+    );
+  }
+  if (!matchesIntegrityContract) {
+    throw new Error(
+      "Evaluation campaign does not match its integrity contract",
+    );
+  }
+  const session = plan.sessions.find((entry) => entry.sequence === sequence);
+  if (!session) {
+    throw new Error(`Evaluation campaign has no sequence ${sequence}`);
+  }
+  return Object.freeze({ ...session });
+}
+
+export function resolvePushedEvaluationCandidate(repositoryRoot) {
+  if (!isAbsolute(repositoryRoot)) {
+    throw new TypeError("repositoryRoot must be absolute");
+  }
+  const commitOid = runGit(repositoryRoot, [
+    "rev-parse",
+    "--verify",
+    "HEAD^{commit}",
+  ]).stdout.trim();
+  assertCommitOid(commitOid, "HEAD");
+  const branchResult = runGit(
+    repositoryRoot,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    { allowFailure: true },
+  );
+  if (branchResult.status !== 0 || branchResult.stdout.trim().length === 0) {
+    throw new Error("Evaluation candidate requires an attached local branch");
+  }
+  const branch = branchResult.stdout.trim();
+  const remote = runGit(
+    repositoryRoot,
+    ["config", "--get", `branch.${branch}.remote`],
+    { allowFailure: true },
+  ).stdout.trim();
+  const remoteRef = runGit(
+    repositoryRoot,
+    ["config", "--get", `branch.${branch}.merge`],
+    { allowFailure: true },
+  ).stdout.trim();
+  if (
+    remote.length === 0 ||
+    remote === "." ||
+    !remoteRef.startsWith("refs/heads/")
+  ) {
+    throw new Error(
+      "Evaluation candidate requires a configured remote branch upstream",
+    );
+  }
+  const upstreamResult = runGit(
+    repositoryRoot,
+    ["rev-parse", "--verify", "@{upstream}^{commit}"],
+    { allowFailure: true },
+  );
+  const upstreamCommit = upstreamResult.stdout.trim();
+  if (upstreamResult.status !== 0 || !COMMIT_OID_PATTERN.test(upstreamCommit)) {
+    throw new Error(
+      "Evaluation candidate's configured upstream ref is unavailable locally",
+    );
+  }
+  if (commitOid !== upstreamCommit) {
+    throw new Error(
+      "Evaluation candidate HEAD does not match its local upstream and is not fully pushed",
+    );
+  }
+  const candidate = Object.freeze({
+    branch,
+    commitOid,
+    remote,
+    remoteRef,
+    verification: "git-ls-remote",
+  });
+  assertEvaluationCampaignRepositoryCurrent(repositoryRoot, candidate);
+  const baselineResult = runGit(
+    repositoryRoot,
+    ["cat-file", "-e", `${BASELINE_COMMIT}:${SKILL_REPOSITORY_PATH}/SKILL.md`],
+    { allowFailure: true },
+  );
+  if (baselineResult.status !== 0) {
+    throw new Error(
+      `Evaluation baseline ${BASELINE_COMMIT} is unavailable locally; obtain that exact commit before planning`,
+    );
+  }
+  const remoteOutput = runGit(repositoryRoot, [
+    "ls-remote",
+    "--exit-code",
+    "--refs",
+    remote,
+    remoteRef,
+  ]).stdout.trim();
+  const remoteRecords = remoteOutput.split(/\r?\n/u).filter(Boolean);
+  if (remoteRecords.length !== 1) {
+    throw new Error(
+      `Expected one freshly observed remote candidate, received ${remoteRecords.length}`,
+    );
+  }
+  const [remoteCommit, observedRef, ...extra] = remoteRecords[0].split(/\s+/u);
+  assertCommitOid(remoteCommit, "remote candidate");
+  if (
+    extra.length !== 0 ||
+    observedRef !== remoteRef ||
+    commitOid !== remoteCommit
+  ) {
+    throw new Error(
+      "Evaluation candidate HEAD does not match the freshly observed remote branch and is not fully pushed",
+    );
+  }
+  return candidate;
 }
 
 export function buildPolicyEvaluationSchedule({
@@ -338,6 +646,46 @@ export function buildPolicyEvaluationSchedule({
   return blocks
     .flatMap(({ sessions }) => sessions)
     .map((session, index) => ({ ...session, seed, sequence: index + 1 }));
+}
+
+export function createPolicyEvaluationCampaignPlan({
+  candidate,
+  caseIds,
+  effort,
+  model,
+  provider,
+  repetitions,
+  seed,
+}) {
+  assertCandidate(candidate);
+  const policy = {
+    caseIds: [...caseIds],
+    effort,
+    model,
+    provider,
+    repetitions,
+  };
+  const sessions = buildPolicyEvaluationSchedule({ seed, ...policy }).map(
+    (session) => ({
+      ...session,
+      sourceCommit: sourceCommitForArm(session.arm, candidate.commitOid),
+    }),
+  );
+  const plan = {
+    candidate: { ...candidate },
+    command: "policy-plan",
+    integrity: CAMPAIGN_INTEGRITY,
+    modelCalls: 0,
+    pinnedRepositoryPaths: CAMPAIGN_REPOSITORY_PATHS,
+    policy,
+    schemaVersion: 2,
+    seed,
+    sessions,
+  };
+  return Object.freeze({
+    ...plan,
+    campaignId: sha256Hex(canonicalJsonBytes(plan)),
+  });
 }
 
 function collectSkillFiles(root, paths) {
@@ -771,12 +1119,28 @@ function parseTreeEntry(record) {
   };
 }
 
-function extractPinnedSkill({ arm, destination, repositoryRoot }) {
-  const sourceCommit = PINNED_SKILLS[arm];
-
-  if (!sourceCommit) {
-    throw new Error(`Arm ${JSON.stringify(arm)} has no pinned skill snapshot`);
+function assertTreatmentCommit(arm, sourceCommit) {
+  if (arm === "no-skill") {
+    if (sourceCommit !== null) {
+      throw new Error("The no-skill arm must not carry a treatment commit");
+    }
+    return;
   }
+  assertCommitOid(sourceCommit, `${arm} sourceCommit`);
+  if (arm === "old-skill" && sourceCommit !== BASELINE_COMMIT) {
+    throw new Error(
+      `The old-skill arm must use baseline commit ${BASELINE_COMMIT}`,
+    );
+  }
+}
+
+function extractPinnedSkill({
+  arm,
+  destination,
+  repositoryRoot,
+  sourceCommit,
+}) {
+  assertTreatmentCommit(arm, sourceCommit);
 
   if (!isAbsolute(destination)) {
     throw new Error("Skill extraction destination must be absolute");
@@ -1152,6 +1516,7 @@ function assertPreparedCurrent(transmission, context) {
 export async function prepareEvaluationSession({
   arm,
   authorizationEligible,
+  campaignId,
   caseId,
   destination,
   effort,
@@ -1171,9 +1536,12 @@ export async function prepareEvaluationSession({
   runtimeIsolationDiscovery = null,
   seed,
   sequence,
+  sourceCommit,
   toolchain,
 }) {
   if (!ARMS.includes(arm)) throw new Error(`Unknown evaluation arm ${arm}`);
+  assertCampaignId(campaignId);
+  assertTreatmentCommit(arm, sourceCommit);
   if (!isAbsolute(destination) || existsSync(destination)) {
     throw new Error(
       "Evaluation session destination must be an absolute nonexistent path",
@@ -1206,6 +1574,7 @@ export async function prepareEvaluationSession({
             arm,
             destination: join(staging, "treatment"),
             repositoryRoot,
+            sourceCommit,
           });
     const treatmentText = treatment
       ? readFileSync(treatment.skillPath, "utf8")
@@ -1217,6 +1586,7 @@ export async function prepareEvaluationSession({
     const context = {
       schemaVersion: 1,
       authorizationEligible,
+      campaignId,
       case: {
         caseKey: evaluation.case_key,
         costProfile: evaluation.cost_profile,
@@ -1299,6 +1669,7 @@ export async function prepareEvaluationSession({
         sequence,
         metadata: {
           blockId: `${model}/${effort}/${caseId}/${repetition}`,
+          campaignId,
           caseKey: evaluation.case_key,
           seed,
           sourceCommit: treatment?.sourceCommit ?? null,
@@ -1368,6 +1739,7 @@ export async function prepareEvaluationSession({
 
 export async function preparePolicyEvaluationSession({
   arm,
+  campaignId,
   caseId,
   destination,
   effort,
@@ -1378,10 +1750,13 @@ export async function preparePolicyEvaluationSession({
   repositoryRoot,
   seed,
   sequence,
+  sourceCommit,
   toolchain,
   workingDirectory,
 }) {
   if (!ARMS.includes(arm)) throw new Error(`Unknown evaluation arm ${arm}`);
+  assertCampaignId(campaignId);
+  assertTreatmentCommit(arm, sourceCommit);
   if (provider !== "google") {
     throw new Error("Policy-only evaluations require the Google provider");
   }
@@ -1410,6 +1785,7 @@ export async function preparePolicyEvaluationSession({
             arm,
             destination: join(staging, "treatment"),
             repositoryRoot,
+            sourceCommit,
           });
     const stagedTreatment =
       extracted === null
@@ -1425,6 +1801,7 @@ export async function preparePolicyEvaluationSession({
           };
     const context = {
       schemaVersion: 1,
+      campaignId,
       profile: "policy-only",
       case: {
         caseKey: evaluation.case_key,
@@ -1461,6 +1838,7 @@ export async function preparePolicyEvaluationSession({
         sequence,
         metadata: {
           blockId: `${model}/${effort}/policy-only/${caseId}/${repetition}`,
+          campaignId,
           caseKey: evaluation.case_key,
           profile: "policy-only",
           seed,
@@ -1623,7 +2001,7 @@ export async function executePreparedEvaluationSession({
 }
 
 function treatmentSecrets(records) {
-  const secrets = new Set([...ARMS, ...Object.values(PINNED_SKILLS)]);
+  const secrets = new Set([...ARMS, BASELINE_COMMIT]);
 
   function inspect(value) {
     if (!value || typeof value !== "object") {
@@ -1684,6 +2062,7 @@ function sanitizedGradingValue(value, secrets) {
   const sanitized = {};
   const excludedKeys = new Set([
     "arm",
+    "campaignId",
     "seed",
     "sourceCommit",
     "transmissionSha256",
@@ -1709,6 +2088,14 @@ export function createBlindedGradingBundle({ records, seed }) {
   if (typeof seed !== "string" || seed.length === 0) {
     throw new Error("Blind grading requires a non-empty seed");
   }
+  const campaignIds = new Set(records.map(({ campaignId }) => campaignId));
+  if (
+    campaignIds.size !== 1 ||
+    !/^[0-9a-f]{64}$/u.test([...campaignIds][0] ?? "")
+  ) {
+    throw new Error("Blind grading records must belong to one campaign");
+  }
+  const [campaignId] = campaignIds;
 
   const blocks = new Map();
 
@@ -1725,7 +2112,7 @@ export function createBlindedGradingBundle({ records, seed }) {
   }
 
   const secrets = treatmentSecrets(records);
-  const mapping = { blocks: {}, schemaVersion: 1, seed };
+  const mapping = { blocks: {}, campaignId, schemaVersion: 1, seed };
   const sessions = [];
 
   for (const blockId of [...blocks.keys()].sort((left, right) =>
@@ -1761,7 +2148,7 @@ export function createBlindedGradingBundle({ records, seed }) {
     mapping.blocks[blockId] = blockMapping;
   }
 
-  const gradingPackage = { schemaVersion: 1, sessions };
+  const gradingPackage = { campaignId, schemaVersion: 1, sessions };
   const serialized = JSON.stringify(gradingPackage);
 
   for (const secret of secrets) {
@@ -1776,4 +2163,5 @@ export function createBlindedGradingBundle({ records, seed }) {
 export const EVALUATION_ARMS = ARMS;
 export const EVALUATION_CASE_IDS = MATRIX_CASE_IDS;
 export const EVALUATION_MODELS = MODELS;
-export const PINNED_SKILL_COMMITS = PINNED_SKILLS;
+export const BASELINE_SKILL_COMMIT = BASELINE_COMMIT;
+export const DEFERRED_CALIBRATION_MODEL = DEFERRED_CALIBRATION;

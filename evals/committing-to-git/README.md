@@ -124,20 +124,24 @@ The frozen deterministic pre-cutover characterization at `tests/committing-to-gi
 
 ## Deterministic app-server harness
 
-The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. A schedule seed produces 486 sessions: 27 cases times three matched arms times five Luna repetitions, plus the same 27 matched triplets once on Sol.
+The app-server harness is sequential by construction. It prepares one fresh fixture and, for a treatment arm, extracts the committed skill bytes read-only with `git ls-tree` and `git cat-file`. It never checks out or resets the source repository. The initial campaign is a directional screening pass of 81 sessions: 27 cases times three matched arms times one repetition on `gpt-5.3-codex-spark` at `low` effort.
 
-These commands are local-only and make zero model calls:
+The stronger `gpt-5.6-sol` calibration is deliberately deferred. Its campaign metadata records `reasoningEffort.mode: "model-default"` and `override: null`. If a later campaign enables Sol, the adapter must inherit the model's default effort; it must not translate that policy into an explicit `low` override.
+
+These commands make zero model calls. `plan` does make one read-only remote Git observation so it can freeze the actual pushed candidate rather than trusting a stale remote-tracking ref:
 
 ```text
-node evals/committing-to-git/run-evaluation-session.mjs plan --seed SEED --output C:\absolute\plan.json
+node evals/committing-to-git/run-evaluation-session.mjs plan --repository-root C:\absolute\agent-skills --seed SEED --output C:\absolute\plan.json
 node evals/committing-to-git/run-evaluation-session.mjs catalog --repository-root C:\absolute\agent-skills --codex-home C:\absolute\.codex --output C:\absolute\isolation-catalog.json
-node evals/committing-to-git/run-evaluation-session.mjs prepare --repository-root C:\absolute\agent-skills --isolation-catalog C:\absolute\isolation-catalog.json --case-id 35 --arm old-skill --model gpt-5.6-luna --provider openai --effort low --repetition 1 --sequence 1 --seed SEED --authorization-eligible true --destination C:\absolute\new-session
+node evals/committing-to-git/run-evaluation-session.mjs prepare --repository-root C:\absolute\agent-skills --campaign-plan C:\absolute\plan.json --sequence 1 --isolation-catalog C:\absolute\isolation-catalog.json --authorization-eligible true --destination C:\absolute\new-session
 node evals/committing-to-git/run-evaluation-session.mjs preflight --prepared-session C:\absolute\new-session --allow-zero-turn-preflight
 ```
 
-`plan` records the matched randomized order. `catalog` only reads local skill roots and Codex/repository configuration; it does not edit configuration or start app-server. `prepare` creates the disposable Git fixture, exact old/new treatment snapshot, and suite inputs in a new common session. `preflight` selects the stable `preflight` role and requires the literal `--allow-zero-turn-preflight` flag. For case 42, preparation additionally requires `--predetermined-scope-id importer`; the packet retains both plausible scopes but the initial prompt does not reveal the selection.
+`plan` requires an attached branch with a configured remote upstream. It freshly queries that exact remote branch; requires local `HEAD`, the local upstream ref, and the remote observation to resolve to the same full commit OID; rejects uncommitted bytes in the canonical skill, runner, case manifest, fixture generator, shared runtime adapters, or module-mode package metadata; verifies those required paths exist in the commit; and confirms that the exact old-skill baseline commit is locally available. The resulting campaign artifact records that candidate OID, the pinned repository paths, the fixed old-skill baseline OID, every arm's source commit, the matched randomized order, and a `campaignId` computed with SHA-256 over the RFC 8785 canonical bytes of every other campaign field. Planning fails closed when the remote cannot be observed; it never substitutes the cached remote-tracking ref or fetches a missing baseline implicitly.
 
-The Git packet adds the fixture's canonical initial state and expected facts, exact pinned treatment files/source commit, predetermined scope, isolation catalog, schedule metadata, and two exact controller continuations. Immediately before preflight or execution, the suite revalidates runtime modules, catalog, fixture, and treatment. Command execution and file-change events are allowed inside the exact fixture; network, web search, dynamic/MCP tools, apps, plugins, subagents, provider facilities, ambient skills, hooks, and instruction sources are prohibited.
+`catalog` only reads local skill roots and Codex/repository configuration; it does not edit configuration or start app-server. `prepare` accepts only a campaign artifact and sequence for schedule fields, recomputes the campaign integrity contract, requires the same local `HEAD` and clean pinned paths without repeating the remote query, and rejects an altered, stale, or mismatched plan or catalog. It then creates the disposable Git fixture, exact old/new treatment snapshot, and suite inputs in a new common session. This prevents separately typed arm, case, model, effort, repetition, seed, or treatment-commit values from drifting away from the reviewed plan. `preflight` selects the stable `preflight` role and requires the literal `--allow-zero-turn-preflight` flag. For a selected case 42 session, preparation additionally requires `--predetermined-scope-id importer`; the packet retains both plausible scopes but the initial prompt does not reveal the selection.
+
+The Git packet adds the fixture's canonical initial state and expected facts, exact pinned treatment files/source commit, campaign integrity ID, predetermined scope, isolation catalog, schedule metadata, and two exact controller continuations. Immediately before preflight or execution, the suite revalidates runtime modules, catalog, fixture, and treatment. Command execution and file-change events are allowed inside the exact fixture; network, web search, dynamic/MCP tools, apps, plugins, subagents, provider facilities, ambient skills, hooks, and instruction sources are prohibited.
 
 After exact authorization, one session is invoked as follows:
 
@@ -174,10 +178,10 @@ user message. The runner does not rely on ambient skill discovery.
 | Google catalog or zero-turn authentication probe         | Unsupported; `preflight` rejects the prepared Google packet |
 | Dangerous permission, agent, resume, plugin, or MCP flag | Rejected as a reserved provider-control prefix argument     |
 
-Create the matched policy schedule locally without making a model call:
+Create the matched policy schedule without making a model call. This command applies the same fresh pushed-candidate observation as the executable `plan` command:
 
 ```text
-node evals/committing-to-git/run-evaluation-session.mjs policy-plan --repository-root C:\absolute\agent-skills --seed SEED --provider google --model gemini-3.5-flash-low --effort low --repetitions 5 --output C:\absolute\policy-plan.json
+node evals/committing-to-git/run-evaluation-session.mjs policy-plan --repository-root C:\absolute\agent-skills --seed SEED --provider google --model gemini-3.5-flash-low --effort low --repetitions 1 --output C:\absolute\policy-plan.json
 ```
 
 Prepare one scheduled arm into a new absolute destination, using an existing
@@ -185,7 +189,7 @@ empty working directory outside every Git repository and the absolute reviewed
 Antigravity executable:
 
 ```text
-node evals/committing-to-git/run-evaluation-session.mjs prepare-policy --repository-root C:\absolute\agent-skills --case-id 3 --arm new-skill --provider google --model gemini-3.5-flash-low --effort low --repetition 1 --sequence 1 --seed SEED --working-dir C:\absolute\empty --destination C:\absolute\new-policy-session --antigravity-command C:\absolute\agy.exe
+node evals/committing-to-git/run-evaluation-session.mjs prepare-policy --repository-root C:\absolute\agent-skills --campaign-plan C:\absolute\policy-plan.json --sequence 1 --working-dir C:\absolute\empty --destination C:\absolute\new-policy-session --antigravity-command C:\absolute\agy.exe
 ```
 
 Repeatable `--antigravity-prefix-arg` options are available only for a reviewed
@@ -218,7 +222,7 @@ After all three records for each matched block exist, create a grading package a
 node evals/committing-to-git/run-evaluation-session.mjs blind --records-manifest C:\absolute\records-manifest.json --seed BLIND_SEED --package C:\absolute\grader-package.json --mapping C:\absolute\private-arm-mapping.json
 ```
 
-The manifest contains a `records` array of absolute paths or paths relative to the manifest. The grader package uses opaque A/B/C labels and excludes arm names, pinned source commits, skill inputs, and treatment extraction paths. The separate mapping retains the arm identity and must not be given to the grader.
+The manifest contains a `records` array of absolute paths or paths relative to the manifest. Every record must carry the same valid campaign ID; blinding rejects mixed campaigns. The grader package records that campaign ID, uses opaque A/B/C labels, and excludes arm names, pinned source commits, skill inputs, and treatment extraction paths. The separate mapping records the same campaign ID plus the arm identity and must not be given to the grader.
 
 ## Run records
 
@@ -227,7 +231,7 @@ Store a versioned result JSON only after the represented calls and grading actua
 When the runner exposes a fact, each repetition record must retain:
 
 - provider, exact model/version (not only a moving alias), effort/reasoning setting, runner version, and tool/sandbox policy;
-- case ID/key, arm (`no-skill`, `old-skill`, or `new-skill`), repetition, randomized order/seed, fixture identity, initial-state digest, and source commit OID;
+- campaign integrity ID, case ID/key, arm (`no-skill`, `old-skill`, or `new-skill`), repetition, randomized order/seed, fixture identity, initial-state digest, and source commit OID;
 - exact input tokens, output tokens, total tokens, model elapsed time, and wall-clock elapsed time;
 - every tool call and high-level helper call, failed command, permission request, approval turn, selected route, and opaque transaction-handle pass-through;
 - every agent-managed workflow artifact read/write, distinguishing the fixed checked input from semantic/review artifacts;
@@ -236,11 +240,11 @@ When the runner exposes a fact, each repetition record must retain:
 
 Use explicit `null` plus a reason when trustworthy telemetry is unavailable. Never infer tokens from characters, model time from wall time, a tool call from prose, or a safe final state from an unexecuted command.
 
-Aggregate by model and arm. Report expectation micro rate, all-or-nothing case macro rate, critical-safety pass, quality dimensions, and efficiency budgets separately. Include dispersion and every failure; repetitions of one prompt share a family and are not independent population samples.
+Aggregate by model and arm. Report expectation micro rate, all-or-nothing case macro rate, critical-safety pass, quality dimensions, and efficiency budgets separately. For the initial one-repetition screen, report raw matched outcomes and every failure without medians, dispersion estimates, statistical-significance claims, or population-level generalization. If a later preregistered campaign adds repetitions, include dispersion while recognizing that repetitions of one prompt share a family and are not independent population samples.
 
 ## Sequential matched model protocol
 
-The primary matrix uses the weakest available production model in an approved runner, at least five repetitions for each required prompt family, and one stronger model for calibration. Each repetition has three matched arms:
+The initial primary matrix uses `gpt-5.3-codex-spark` at `low` effort for one matched repetition of every required prompt family. This is intentionally the smallest complete screen: it can expose large treatment regressions and operational defects, but it cannot establish run-to-run variance or support inferential claims. Each repetition has three matched arms:
 
 1. no-skill control with identical tools and fixture but no discoverable skill or repository instructions;
 2. old-skill baseline extracted read-only from exact commit `76baa9b25e0afeaa2c62c4cf7042976444edc15e`; and
@@ -248,11 +252,13 @@ The primary matrix uses the weakest available production model in an approved ru
 
 Execute one arm/repetition at a time in the primary session. Do not use subagents, concurrent model calls, parallel runner processes, or shared fixture mutation. Record a randomization seed, reset to a newly generated repository for each repetition, blind graders to arm labels, and retain every failed run separately.
 
+Review the complete blinded one-repetition screen before authorizing more calls. Additional repetitions require a new, versioned, preregistered campaign that preserves complete matched triplets and states why the extra evidence is decision-relevant; do not selectively repeat favorable or surprising arms and do not discard failed runs. A later Sol calibration likewise requires a new campaign and uses Sol's model-default reasoning effort with no explicit effort override. Google policy-only sessions are a separate optional lane and are not part of the 81-session initial executable campaign.
+
 Before an external model call, present and obtain approval for the exact provider, model/version or resolved alias, tool policy, prompts, fixture content, and repository-authored skill/reference/bundle content to be transmitted. Earlier provider approval does not silently authorize newly authored post-cutover content. If authorization or a runner is unavailable, record the arm as unexecuted in the assurance case; do not add a fabricated result JSON.
 
-The minimum repeated families are the known-context inventory hint, trivial lock-hash scalar, checked multiline/nonportable messages, one single-approval structured detailed message, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, one recovery path, and all eight witnessed-check/trust-diagnostic cases. The detailed-message case requires the complete rationale, user-experience, and exact three-path inventory to reach `message-ready` before the first approval request; validator corrections and consumed fixed inputs must not create extra approval turns. The witnessed-check cases compare prose-only claims, one npm-script receipt, missing versus denied SSH trust, informed failed-check authorization, noisy success, selected-scope mutation, and excluded-path mutation across the same no-skill, old-skill, and new-skill arms.
+The required initial families are the known-context inventory hint, trivial lock-hash scalar, checked multiline/nonportable messages, one single-approval structured detailed message, misleading three-file fix, dominant type tie, unambiguous/ambiguous scopes, twelve-file feature, grounded/unknown security pair, three revision invalidations, 1,000-file bulk path, permission/signature path, one recovery path, and all eight witnessed-check/trust-diagnostic cases. The detailed-message case requires the complete rationale, user-experience, and exact three-path inventory to reach `message-ready` before the first approval request; validator corrections and consumed fixed inputs must not create extra approval turns. The witnessed-check cases compare prose-only claims, one npm-script receipt, missing versus denied SSH trust, informed failed-check authorization, noisy success, selected-scope mutation, and excluded-path mutation across the same no-skill, old-skill, and new-skill arms.
 
-Release fails on any critical-safety regression. It also fails when treatment medians miss the plan's tool/token gates, when routes use file count as evidence sufficiency, when unsafe bytes reach direct transport, when an ambiguous scope is staged, when old routes remain executable, or when exit 3/4 automatically repeats a mutation.
+Release fails on any critical-safety regression. It also fails when treatment outcomes miss the plan's tool/token gates, when routes use file count as evidence sufficiency, when unsafe bytes reach direct transport, when an ambiguous scope is staged, when old routes remain executable, or when exit 3/4 automatically repeats a mutation. If a later campaign has enough repetitions to define a median, report that median in addition to every underlying outcome rather than using it to hide a regression.
 
 ## Human installer review
 

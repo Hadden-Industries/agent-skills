@@ -20,19 +20,25 @@ import {
   createCommittingToGitController,
 } from "../../evals/committing-to-git/session-controller.mjs";
 import {
+  BASELINE_SKILL_COMMIT,
+  DEFERRED_CALIBRATION_MODEL,
   EVALUATION_ARMS,
   EVALUATION_CASE_IDS,
   EVALUATION_MODELS,
-  PINNED_SKILL_COMMITS,
-  buildPolicyEvaluationSchedule,
+  assertEvaluationCampaignRepositoryCurrent,
   buildEvaluationSchedule,
+  buildPolicyEvaluationSchedule,
   createBlindedGradingBundle,
+  createEvaluationCampaignPlan,
+  createPolicyEvaluationCampaignPlan,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
   listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
   preparePolicyEvaluationSession,
+  resolvePushedEvaluationCandidate,
+  selectEvaluationCampaignSession,
 } from "../../evals/committing-to-git/evaluation-runner.mjs";
 import { inspectAntigravityCliToolchain } from "../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
@@ -67,11 +73,81 @@ const FAKE_ANTIGRAVITY = join(
   "fixtures",
   "fake-antigravity-cli.mjs",
 );
+const CURRENT_COMMIT = runGit(REPOSITORY_ROOT, [
+  "rev-parse",
+  "--verify",
+  "HEAD^{commit}",
+]);
+const TEST_CAMPAIGN_ID = "c".repeat(64);
+const PINNED_RUNNER_FILES = Object.freeze([
+  "package.json",
+  "evals/committing-to-git/create-fixture-repository.mjs",
+  "evals/committing-to-git/evaluation-runner.mjs",
+  "evals/committing-to-git/evals.json",
+  "evals/committing-to-git/run-evaluation-session.mjs",
+  "evals/committing-to-git/session-controller.mjs",
+  "scripts/evaluation/antigravity-cli.js",
+  "scripts/evaluation/codex-app-server.js",
+  "scripts/evaluation/evaluation-homes.js",
+  "scripts/evaluation/runtime.js",
+]);
 
 function temporaryRoot(t, prefix = "committing-to-git-runner-") {
   const root = mkdtempSync(join(tmpdir(), prefix));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
+}
+
+function runGit(repository, args) {
+  const result = spawnSync("git", args, {
+    cwd: repository,
+    encoding: "utf8",
+  });
+  assert.equal(
+    result.status,
+    0,
+    `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`,
+  );
+  return result.stdout.trim();
+}
+
+function createPushedCandidateRepository(t, { includeBaseline = true } = {}) {
+  const root = temporaryRoot(t, "committing-to-git-candidate-");
+  const remote = join(root, "remote.git");
+  const repository = join(root, "repository");
+  mkdirSync(repository);
+  runGit(root, ["init", "--bare", remote]);
+  runGit(repository, ["init"]);
+  if (includeBaseline) {
+    runGit(repository, ["fetch", REPOSITORY_ROOT, BASELINE_SKILL_COMMIT]);
+  }
+  runGit(repository, ["config", "user.email", "eval@example.test"]);
+  runGit(repository, ["config", "user.name", "Evaluation Fixture"]);
+  mkdirSync(join(repository, "skills", "committing-to-git"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(repository, "skills", "committing-to-git", "SKILL.md"),
+    "---\nname: committing-to-git\ndescription: Fixture\n---\n",
+    "utf8",
+  );
+  for (const path of PINNED_RUNNER_FILES) {
+    const destination = join(repository, ...path.split("/"));
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, readFileSync(join(REPOSITORY_ROOT, path)));
+  }
+  runGit(repository, ["add", "evals", "package.json", "scripts", "skills"]);
+  runGit(repository, ["commit", "-m", "test: Add candidate skill"]);
+  runGit(repository, ["branch", "-M", "main"]);
+  runGit(repository, ["remote", "add", "origin", remote]);
+  runGit(repository, ["push", "--set-upstream", "origin", "main"]);
+  return { repository, remote };
+}
+
+function treatmentCommit(arm) {
+  if (arm === "old-skill") return BASELINE_SKILL_COMMIT;
+  if (arm === "new-skill") return CURRENT_COMMIT;
+  return null;
 }
 
 function testEnvironment(scenario = "authorized") {
@@ -123,9 +199,11 @@ async function preparedFixture(t, options = {}) {
   }
   const environment = testEnvironment(options.scenario);
   const inspectedToolchain = await toolchain(root);
+  const arm = options.arm ?? "no-skill";
   const prepared = await prepareEvaluationSession({
-    arm: options.arm ?? "no-skill",
+    arm,
     authorizationEligible: options.authorizationEligible ?? true,
+    campaignId: TEST_CAMPAIGN_ID,
     caseId: options.caseId ?? 35,
     destination: join(root, "prepared"),
     effort: "low",
@@ -145,6 +223,7 @@ async function preparedFixture(t, options = {}) {
     runtimeIsolationDiscovery: null,
     seed: "task-6-seed",
     sequence: 1,
+    sourceCommit: treatmentCommit(arm),
     toolchain: inspectedToolchain,
   });
   return { homes, prepared, root };
@@ -169,8 +248,10 @@ async function policyPreparedFixture(t, options = {}) {
     ],
     environment,
   });
+  const arm = options.arm ?? "new-skill";
   const prepared = await preparePolicyEvaluationSession({
-    arm: options.arm ?? "new-skill",
+    arm,
+    campaignId: TEST_CAMPAIGN_ID,
     caseId: options.caseId ?? 3,
     destination: join(root, "prepared"),
     effort: "low",
@@ -181,6 +262,7 @@ async function policyPreparedFixture(t, options = {}) {
     repositoryRoot: REPOSITORY_ROOT,
     seed: "google-policy-seed",
     sequence: 1,
+    sourceCommit: treatmentCommit(arm),
     toolchain: inspectedToolchain,
     workingDirectory,
   });
@@ -486,32 +568,101 @@ test("evaluation runner exports only the migrated orchestration surface", async 
   const runner =
     await import("../../evals/committing-to-git/evaluation-runner.mjs");
   assert.deepEqual(Object.keys(runner).sort(), [
+    "BASELINE_SKILL_COMMIT",
+    "DEFERRED_CALIBRATION_MODEL",
     "EVALUATION_ARMS",
     "EVALUATION_CASE_IDS",
     "EVALUATION_MODELS",
-    "PINNED_SKILL_COMMITS",
+    "assertEvaluationCampaignRepositoryCurrent",
     "buildEvaluationSchedule",
     "buildPolicyEvaluationSchedule",
     "captureGitState",
     "createBlindedGradingBundle",
+    "createEvaluationCampaignPlan",
+    "createPolicyEvaluationCampaignPlan",
     "discoverRuntimeIsolationCatalog",
     "executePreparedEvaluationSession",
     "listPolicyEvaluationCaseIds",
     "preflightPreparedEvaluationSession",
     "prepareEvaluationSession",
     "preparePolicyEvaluationSession",
+    "resolvePushedEvaluationCandidate",
+    "selectEvaluationCampaignSession",
   ]);
 });
 
-test("the seeded matrix remains 486 deterministic matched sessions", () => {
-  const first = buildEvaluationSchedule("step-3-seed");
-  assert.equal(first.length, 486);
-  assert.deepEqual(first, buildEvaluationSchedule("step-3-seed"));
-  assert.notDeepEqual(first, buildEvaluationSchedule("different-seed"));
-  for (let index = 0; index < first.length; index += 3) {
+test("the initial campaign schedules one matched Spark repetition and defers default-effort Sol", () => {
+  const candidate = {
+    branch: "main",
+    commitOid: "a".repeat(40),
+    remote: "origin",
+    remoteRef: "refs/heads/main",
+    verification: "git-ls-remote",
+  };
+  const first = createEvaluationCampaignPlan({
+    candidate,
+    seed: "step-3-seed",
+  });
+  assert.equal(first.sessions.length, 81);
+  assert.deepEqual(
+    first,
+    createEvaluationCampaignPlan({ candidate, seed: "step-3-seed" }),
+  );
+  assert.notDeepEqual(
+    first.sessions,
+    createEvaluationCampaignPlan({
+      candidate,
+      seed: "different-seed",
+    }).sessions,
+  );
+  assert.deepEqual(
+    first.sessions,
+    buildEvaluationSchedule({
+      candidateCommit: candidate.commitOid,
+      seed: "step-3-seed",
+    }),
+  );
+  assert.equal(first.candidate.commitOid, candidate.commitOid);
+  assert.deepEqual(first.integrity, {
+    canonicalization: "RFC8785",
+    digestAlgorithm: "SHA-256",
+    digestField: "campaignId",
+  });
+  assert.equal(
+    first.pinnedRepositoryPaths.includes("skills/committing-to-git"),
+    true,
+  );
+  assert.equal(
+    first.pinnedRepositoryPaths.includes(
+      "evals/committing-to-git/evaluation-runner.mjs",
+    ),
+    true,
+  );
+  assert.equal(first.deferredCalibration.model, "gpt-5.6-sol");
+  assert.deepEqual(first.deferredCalibration.reasoningEffort, {
+    mode: "model-default",
+    override: null,
+  });
+  assert.equal(Object.hasOwn(first.deferredCalibration, "effort"), false);
+  assert.equal(
+    first.sessions.some(({ model }) => model === "gpt-5.6-sol"),
+    false,
+  );
+  assert.deepEqual(first.deferredCalibration, DEFERRED_CALIBRATION_MODEL);
+  for (let index = 0; index < first.sessions.length; index += 3) {
     assert.deepEqual(
-      new Set(first.slice(index, index + 3).map(({ arm }) => arm)),
+      new Set(first.sessions.slice(index, index + 3).map(({ arm }) => arm)),
       new Set(EVALUATION_ARMS),
+    );
+  }
+  for (const session of first.sessions) {
+    assert.equal(
+      session.sourceCommit,
+      session.arm === "no-skill"
+        ? null
+        : session.arm === "old-skill"
+          ? BASELINE_SKILL_COMMIT
+          : candidate.commitOid,
     );
   }
   assert.deepEqual(
@@ -521,11 +672,117 @@ test("the seeded matrix remains 486 deterministic matched sessions", () => {
       69, 70, 71, 72, 73, 74, 75, 76,
     ],
   );
-  assert.equal(EVALUATION_MODELS[0].repetitions, 5);
-  assert.deepEqual(PINNED_SKILL_COMMITS, {
-    "old-skill": "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
-    "new-skill": "ec064b1f8177d9542a82f478ca3b1ce5e44ee702",
+  assert.deepEqual(EVALUATION_MODELS, [
+    {
+      effort: "low",
+      model: "gpt-5.3-codex-spark",
+      provider: "openai",
+      purpose: "primary",
+      repetitions: 1,
+    },
+  ]);
+  assert.equal(
+    BASELINE_SKILL_COMMIT,
+    "76baa9b25e0afeaa2c62c4cf7042976444edc15e",
+  );
+});
+
+test("campaign selection rejects altered schedules and returns the frozen session", () => {
+  const plan = createEvaluationCampaignPlan({
+    candidate: {
+      branch: "main",
+      commitOid: "a".repeat(40),
+      remote: "origin",
+      remoteRef: "refs/heads/main",
+      verification: "git-ls-remote",
+    },
+    seed: "selection-seed",
   });
+  assert.deepEqual(selectEvaluationCampaignSession(plan, 1), plan.sessions[0]);
+
+  const altered = structuredClone(plan);
+  altered.sessions[0].sourceCommit = "b".repeat(40);
+  assert.throws(
+    () => selectEvaluationCampaignSession(altered, 1),
+    /campaign.*integrity|campaign.*match/iu,
+  );
+  const malformed = structuredClone(plan);
+  delete malformed.seed;
+  assert.throws(
+    () => selectEvaluationCampaignSession(malformed, 1),
+    /campaign.*integrity|campaign.*match/iu,
+  );
+  assert.throws(() => selectEvaluationCampaignSession(plan, 0), /sequence/iu);
+});
+
+test("candidate resolution proves HEAD matches a freshly observed pushed branch", (t) => {
+  const { repository } = createPushedCandidateRepository(t);
+  const expected = runGit(repository, [
+    "rev-parse",
+    "--verify",
+    "HEAD^{commit}",
+  ]);
+  const candidate = resolvePushedEvaluationCandidate(repository);
+  assert.deepEqual(candidate, {
+    branch: "main",
+    commitOid: expected,
+    remote: "origin",
+    remoteRef: "refs/heads/main",
+    verification: "git-ls-remote",
+  });
+  assert.doesNotThrow(() =>
+    assertEvaluationCampaignRepositoryCurrent(repository, candidate),
+  );
+});
+
+test("candidate resolution rejects unpushed, dirty, or incomplete campaigns", (t) => {
+  const noUpstream = createPushedCandidateRepository(t).repository;
+  runGit(noUpstream, ["config", "--unset", "branch.main.remote"]);
+  assert.throws(
+    () => resolvePushedEvaluationCandidate(noUpstream),
+    /configured remote branch upstream/iu,
+  );
+
+  const unpushed = createPushedCandidateRepository(t).repository;
+  writeFileSync(join(unpushed, "README.md"), "unpushed\n", "utf8");
+  runGit(unpushed, ["add", "README.md"]);
+  runGit(unpushed, ["commit", "-m", "test: Add unpushed change"]);
+  assert.throws(
+    () => resolvePushedEvaluationCandidate(unpushed),
+    /does not match.*remote|not.*pushed/iu,
+  );
+
+  const dirty = createPushedCandidateRepository(t).repository;
+  writeFileSync(
+    join(dirty, "skills", "committing-to-git", "SKILL.md"),
+    "dirty candidate\n",
+    "utf8",
+  );
+  assert.throws(
+    () => resolvePushedEvaluationCandidate(dirty),
+    /campaign.*skill.*uncommitted|differs from.*commit/iu,
+  );
+
+  const missingBaseline = createPushedCandidateRepository(t, {
+    includeBaseline: false,
+  }).repository;
+  assert.throws(
+    () => resolvePushedEvaluationCandidate(missingBaseline),
+    /baseline.*unavailable|obtain.*exact commit/iu,
+  );
+
+  const dirtyRunner = createPushedCandidateRepository(t).repository;
+  const dirtyCandidate = resolvePushedEvaluationCandidate(dirtyRunner);
+  writeFileSync(
+    join(dirtyRunner, "evals", "committing-to-git", "evaluation-runner.mjs"),
+    "dirty runner\n",
+    "utf8",
+  );
+  assert.throws(
+    () =>
+      assertEvaluationCampaignRepositoryCurrent(dirtyRunner, dirtyCandidate),
+    /campaign runner.*uncommitted|runner.*differs/iu,
+  );
 });
 
 test("Google policy schedule derives only manifest policy cases and leaves the executable matrix unchanged", () => {
@@ -542,7 +799,13 @@ test("Google policy schedule derives only manifest policy cases and leaves the e
   const schedule = buildPolicyEvaluationSchedule(options);
   assert.equal(schedule.length, 36);
   assert.deepEqual(schedule, buildPolicyEvaluationSchedule(options));
-  assert.equal(buildEvaluationSchedule("step-3-seed").length, 486);
+  assert.equal(
+    buildEvaluationSchedule({
+      candidateCommit: "a".repeat(40),
+      seed: "step-3-seed",
+    }).length,
+    81,
+  );
   assert.deepEqual(
     new Set(schedule.map(({ caseId }) => caseId)),
     new Set(caseIds),
@@ -632,6 +895,7 @@ test("Google policy preparation rejects executable cases before creating evidenc
   await assert.rejects(
     preparePolicyEvaluationSession({
       arm: "no-skill",
+      campaignId: TEST_CAMPAIGN_ID,
       caseId: 4,
       destination,
       effort: "low",
@@ -642,6 +906,7 @@ test("Google policy preparation rejects executable cases before creating evidenc
       repositoryRoot: REPOSITORY_ROOT,
       seed: "reject-seed",
       sequence: 1,
+      sourceCommit: null,
       toolchain: inspectedToolchain,
       workingDirectory,
     }),
@@ -666,6 +931,7 @@ test("policy preparation rejects a non-Google provider before creating evidence"
   await assert.rejects(
     preparePolicyEvaluationSession({
       arm: "no-skill",
+      campaignId: TEST_CAMPAIGN_ID,
       caseId: 3,
       destination,
       effort: "low",
@@ -676,6 +942,7 @@ test("policy preparation rejects a non-Google provider before creating evidence"
       repositoryRoot: REPOSITORY_ROOT,
       seed: "reject-provider-seed",
       sequence: 1,
+      sourceCommit: null,
       toolchain: null,
       workingDirectory,
     }),
@@ -713,10 +980,13 @@ test("Google policy execution uses the shared authorization and one-turn evidenc
   );
 });
 
-test("CLI policy-plan is deterministic and performs no model execution", () => {
+test("CLI policy-plan freezes the pushed candidate without model execution", (t) => {
+  const { repository } = createPushedCandidateRepository(t);
   const args = [
     RUNNER_CLI,
     "policy-plan",
+    "--repository-root",
+    repository,
     "--seed",
     "cli-policy-seed",
     "--provider",
@@ -743,37 +1013,43 @@ test("CLI policy-plan is deterministic and performs no model execution", () => {
   assert.equal(output.command, "policy-plan");
   assert.equal(output.modelCalls, 0);
   assert.equal(output.sessions.length, 36);
+  assert.equal(
+    output.candidate.commitOid,
+    runGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"]),
+  );
 });
 
 test("CLI prepare-policy pins Antigravity and creates no fixture or model turn", (t) => {
   const root = temporaryRoot(t, "committing-to-git-policy-cli-");
+  const { repository } = createPushedCandidateRepository(t);
+  const candidate = resolvePushedEvaluationCandidate(repository);
+  const campaignPath = join(root, "campaign.json");
   const destination = join(root, "prepared");
   const workingDirectory = join(root, "working");
   const recordFile = join(root, "antigravity.jsonl");
   mkdirSync(workingDirectory);
+  const campaign = createPolicyEvaluationCampaignPlan({
+    candidate,
+    caseIds: [3],
+    effort: "low",
+    model: "gemini-3.5-flash-low",
+    provider: "google",
+    repetitions: 1,
+    seed: "cli-policy-seed",
+  });
+  const session = campaign.sessions.find(({ arm }) => arm === "new-skill");
+  writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, "utf8");
   const result = spawnSync(
     process.execPath,
     [
       RUNNER_CLI,
       "prepare-policy",
       "--repository-root",
-      REPOSITORY_ROOT,
-      "--case-id",
-      "3",
-      "--arm",
-      "new-skill",
-      "--provider",
-      "google",
-      "--model",
-      "gemini-3.5-flash-low",
-      "--effort",
-      "low",
-      "--repetition",
-      "1",
+      repository,
+      "--campaign-plan",
+      campaignPath,
       "--sequence",
-      "1",
-      "--seed",
-      "cli-policy-seed",
+      String(session.sequence),
       "--working-dir",
       workingDirectory,
       "--destination",
@@ -792,6 +1068,7 @@ test("CLI prepare-policy pins Antigravity and creates no fixture or model turn",
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.command, "prepare-policy");
+  assert.equal(output.campaignId, campaign.campaignId);
   assert.equal(output.modelCalls, 0);
   assert.equal(output.profile, "policy-only");
   assert.equal(existsSync(join(destination, "fixture")), false);
@@ -799,6 +1076,10 @@ test("CLI prepare-policy pins Antigravity and creates no fixture or model turn",
     readFileSync(join(destination, "packet.json"), "utf8"),
   );
   assert.equal(packet.transmission.provider, "google");
+  assert.equal(
+    packet.transmission.session.metadata.campaignId,
+    campaign.campaignId,
+  );
   assert.equal(packet.transmission.toolchain.version, "1.1.19");
   const records = readFileSync(recordFile, "utf8")
     .split("\n")
@@ -808,6 +1089,91 @@ test("CLI prepare-policy pins Antigravity and creates no fixture or model turn",
     records.some(({ mode }) => mode === "model"),
     false,
   );
+});
+
+test("CLI prepare derives every schedule field from the reviewed campaign", (t) => {
+  const root = temporaryRoot(t, "committing-to-git-prepare-cli-");
+  const { repository } = createPushedCandidateRepository(t);
+  const candidate = resolvePushedEvaluationCandidate(repository);
+  const campaignPath = join(root, "campaign.json");
+  const catalogPath = join(root, "catalog.json");
+  const destination = join(root, "prepared");
+  const campaign = createEvaluationCampaignPlan({
+    candidate,
+    seed: "cli-prepare-seed",
+  });
+  const session = campaign.sessions.find(
+    ({ arm, caseId }) => arm === "new-skill" && caseId === 35,
+  );
+  writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, "utf8");
+  writeFileSync(
+    catalogPath,
+    `${JSON.stringify({
+      catalog: {
+        appIds: [],
+        mcpServerIds: [],
+        pluginIds: [],
+        skillPaths: [],
+      },
+      discovery: {
+        codexHome: join(root, "codex-home"),
+        repositoryRoot: repository,
+      },
+    })}\n`,
+    "utf8",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "prepare",
+      "--repository-root",
+      repository,
+      "--campaign-plan",
+      campaignPath,
+      "--sequence",
+      String(session.sequence),
+      "--isolation-catalog",
+      catalogPath,
+      "--authorization-eligible",
+      "true",
+      "--evaluation-homes-root",
+      join(root, "evaluation-homes-v1"),
+      "--destination",
+      destination,
+      "--codex-entry",
+      FAKE_APP_SERVER,
+    ],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.campaignId, campaign.campaignId);
+  assert.equal(output.sequence, session.sequence);
+  const packet = JSON.parse(
+    readFileSync(join(destination, "packet.json"), "utf8"),
+  );
+  assert.equal(packet.transmission.session.arm, session.arm);
+  assert.equal(packet.transmission.session.caseId, session.caseId);
+  assert.equal(packet.transmission.session.sequence, session.sequence);
+  assert.equal(
+    packet.transmission.session.metadata.campaignId,
+    campaign.campaignId,
+  );
+  assert.equal(
+    packet.transmission.session.metadata.sourceCommit,
+    candidate.commitOid,
+  );
+});
+
+test("CLI prepare rejects duplicated schedule fields outside the campaign", () => {
+  const result = spawnSync(
+    process.execPath,
+    [RUNNER_CLI, "prepare", "--arm", "new-skill"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--arm is not valid/iu);
 });
 
 test("preparation writes a common packet without packet-local runtime homes", async (t) => {
@@ -843,6 +1209,10 @@ test("preparation writes a common packet without packet-local runtime homes", as
   assert.equal(packet.transmission.transport, "codex-app-server");
   assert.equal(packet.transmission.capabilities.network, false);
   assert.equal(packet.transmission.session.arm, "old-skill");
+  assert.equal(
+    packet.transmission.session.metadata.campaignId,
+    TEST_CAMPAIGN_ID,
+  );
   assert.equal(packet.transmission.continuationPolicy.maxTurns, 2);
   assert.match(packet.transmissionSha256, /^[0-9a-f]{64}$/u);
   assert.match(
@@ -994,21 +1364,34 @@ test("execution-home contention stops after current-state validation", async (t)
 test("blinding retains failures while removing treatment identities", () => {
   const records = EVALUATION_ARMS.map((arm, index) => ({
     arm,
+    campaignId: TEST_CAMPAIGN_ID,
     case: { id: 35 },
     effort: "low",
     model: "gpt-5.6-luna",
     order: { blockId: "gpt-5.6-luna/low/35/1", sequence: index + 1 },
     provider: "openai",
-    sourceCommit: PINNED_SKILL_COMMITS[arm] ?? null,
+    sourceCommit: treatmentCommit(arm),
     status: index === 0 ? "failed" : "completed",
     transmissionSha256: String(index).repeat(64),
   }));
   const bundle = createBlindedGradingBundle({ records, seed: "blind-seed" });
+  assert.equal(bundle.gradingPackage.campaignId, TEST_CAMPAIGN_ID);
+  assert.equal(bundle.mapping.campaignId, TEST_CAMPAIGN_ID);
   assert.equal(bundle.gradingPackage.sessions.length, 3);
   assert.match(JSON.stringify(bundle.gradingPackage), /failed/u);
   assert.doesNotMatch(
     JSON.stringify(bundle.gradingPackage),
     /old-skill|new-skill|no-skill/u,
+  );
+  const mixedCampaign = structuredClone(records);
+  mixedCampaign[0].campaignId = "d".repeat(64);
+  assert.throws(
+    () =>
+      createBlindedGradingBundle({
+        records: mixedCampaign,
+        seed: "blind-seed",
+      }),
+    /one campaign|campaign.*match/iu,
   );
 });
 
@@ -1035,16 +1418,26 @@ test("catalog discovery remains read-only and deterministic", (t) => {
   assert.equal(existsSync(codexHome), false);
 });
 
-test("CLI plan remains deterministic and performs no model execution", () => {
+test("CLI plan freezes the freshly observed pushed candidate without model execution", (t) => {
+  const { repository } = createPushedCandidateRepository(t);
   const result = spawnSync(
     process.execPath,
-    [RUNNER_CLI, "plan", "--seed", "cli-seed"],
+    [RUNNER_CLI, "plan", "--repository-root", repository, "--seed", "cli-seed"],
     { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.modelCalls, 0);
-  assert.equal(output.sessions.length, 486);
+  assert.equal(output.sessions.length, 81);
+  assert.equal(
+    output.candidate.commitOid,
+    runGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"]),
+  );
+  assert.equal(output.deferredCalibration.model, "gpt-5.6-sol");
+  assert.equal(
+    output.deferredCalibration.reasoningEffort.mode,
+    "model-default",
+  );
 });
 
 test("CLI run and preflight reject obsolete path-redirection flags", () => {

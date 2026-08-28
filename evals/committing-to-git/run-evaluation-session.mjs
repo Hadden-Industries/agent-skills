@@ -9,15 +9,18 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
-  buildEvaluationSchedule,
-  buildPolicyEvaluationSchedule,
+  assertEvaluationCampaignRepositoryCurrent,
   createBlindedGradingBundle,
+  createEvaluationCampaignPlan,
+  createPolicyEvaluationCampaignPlan,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
   listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
   preparePolicyEvaluationSession,
+  resolvePushedEvaluationCandidate,
+  selectEvaluationCampaignSession,
 } from "./evaluation-runner.mjs";
 import { inspectAntigravityCliToolchain } from "../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
@@ -147,6 +150,30 @@ function writeArtifactOrOutput(options, value, summary) {
   writeOutput({ ...summary, artifactPath });
 }
 
+function campaignSession(options, expectedCommand, repositoryRoot) {
+  const campaignPath = resolve(required(options, "campaign-plan"));
+  const campaign = readJson(campaignPath, "evaluation campaign plan");
+
+  if (campaign.command !== expectedCommand) {
+    fail(
+      `Campaign plan ${campaignPath} is for ${JSON.stringify(
+        campaign.command,
+      )}, expected ${JSON.stringify(expectedCommand)}`,
+    );
+  }
+
+  const session = selectEvaluationCampaignSession(
+    campaign,
+    positiveInteger(options, "sequence"),
+  );
+  assertEvaluationCampaignRepositoryCurrent(repositoryRoot, campaign.candidate);
+
+  return {
+    campaignId: campaign.campaignId,
+    session,
+  };
+}
+
 function codexToolchainCommand(options) {
   if (options["codex-entry"]) {
     return {
@@ -219,20 +246,19 @@ function environmentProfile() {
 }
 
 async function runPlan(options) {
+  const repositoryRoot = resolve(options["repository-root"] ?? process.cwd());
   const seed = required(options, "seed");
-
-  const plan = {
-    command: "plan",
-    modelCalls: 0,
-    schemaVersion: 1,
+  const plan = createEvaluationCampaignPlan({
+    candidate: resolvePushedEvaluationCandidate(repositoryRoot),
     seed,
-    sessions: buildEvaluationSchedule(seed),
-  };
+  });
 
   writeArtifactOrOutput(options, plan, {
+    campaignId: plan.campaignId,
+    candidateCommit: plan.candidate.commitOid,
     command: "plan",
     modelCalls: 0,
-    schemaVersion: 1,
+    schemaVersion: plan.schemaVersion,
     sessionCount: plan.sessions.length,
   });
 }
@@ -240,24 +266,21 @@ async function runPlan(options) {
 async function runPolicyPlan(options) {
   const repositoryRoot = resolve(options["repository-root"] ?? process.cwd());
   const seed = required(options, "seed");
-  const plan = {
-    command: "policy-plan",
-    modelCalls: 0,
-    schemaVersion: 1,
+  const plan = createPolicyEvaluationCampaignPlan({
+    candidate: resolvePushedEvaluationCandidate(repositoryRoot),
     seed,
-    sessions: buildPolicyEvaluationSchedule({
-      seed,
-      provider: required(options, "provider"),
-      model: required(options, "model"),
-      effort: required(options, "effort"),
-      repetitions: positiveInteger(options, "repetitions"),
-      caseIds: listPolicyEvaluationCaseIds(repositoryRoot),
-    }),
-  };
+    provider: required(options, "provider"),
+    model: required(options, "model"),
+    effort: required(options, "effort"),
+    repetitions: positiveInteger(options, "repetitions"),
+    caseIds: listPolicyEvaluationCaseIds(repositoryRoot),
+  });
   writeArtifactOrOutput(options, plan, {
+    campaignId: plan.campaignId,
+    candidateCommit: plan.candidate.commitOid,
     command: "policy-plan",
     modelCalls: 0,
-    schemaVersion: 1,
+    schemaVersion: plan.schemaVersion,
     sessionCount: plan.sessions.length,
   });
 }
@@ -290,6 +313,12 @@ async function runCatalog(options) {
 }
 
 async function runPrepare(options) {
+  const repositoryRoot = resolve(options["repository-root"] ?? process.cwd());
+  const { campaignId, session } = campaignSession(
+    options,
+    "plan",
+    repositoryRoot,
+  );
   const catalogDocument = readJson(
     resolve(required(options, "isolation-catalog")),
     "isolation catalog",
@@ -298,6 +327,12 @@ async function runPrepare(options) {
 
   if (!catalogDocument.discovery) {
     fail("Isolation catalog must be created by the catalog command");
+  }
+  if (
+    typeof catalogDocument.discovery.repositoryRoot !== "string" ||
+    resolve(catalogDocument.discovery.repositoryRoot) !== repositoryRoot
+  ) {
+    fail("Isolation catalog repository does not match the campaign repository");
   }
   const command = codexToolchainCommand(options);
   const scratch = mkdtempSync(join(tmpdir(), "committing-to-git-toolchain-"));
@@ -312,65 +347,83 @@ async function runPrepare(options) {
     rmSync(scratch, { recursive: true, force: true });
   }
   const prepared = await prepareEvaluationSession({
-    arm: required(options, "arm"),
+    arm: session.arm,
     authorizationEligible: booleanValue(options, "authorization-eligible"),
-    caseId: positiveInteger(options, "case-id"),
+    campaignId,
+    caseId: session.caseId,
     destination: resolve(required(options, "destination")),
-    effort: required(options, "effort"),
+    effort: session.effort,
     evaluationHomesRoot: options["evaluation-homes-root"]
       ? resolve(options["evaluation-homes-root"])
       : evaluationHomesRootFromLocalAppData(process.env.LOCALAPPDATA),
     environment: environmentProfile(),
-    model: required(options, "model"),
+    model: session.model,
     predeterminedScopeId: options["predetermined-scope-id"],
-    provider: required(options, "provider"),
-    repetition: positiveInteger(options, "repetition"),
-    repositoryRoot: resolve(options["repository-root"] ?? process.cwd()),
+    provider: session.provider,
+    repetition: session.repetition,
+    repositoryRoot,
     runtimeIsolationCatalog,
     runtimeIsolationDiscovery: catalogDocument.discovery,
-    seed: required(options, "seed"),
-    sequence: positiveInteger(options, "sequence"),
+    seed: session.seed,
+    sequence: session.sequence,
+    sourceCommit: session.sourceCommit,
     toolchain,
   });
 
   writeOutput({
+    arm: session.arm,
+    campaignId,
+    caseId: session.caseId,
     command: "prepare",
     fixtureRoot: prepared.fixtureRoot,
     modelCalls: 0,
     packetPath: join(prepared.preparedSession, "packet.json"),
     schemaVersion: 1,
+    sequence: session.sequence,
     sessionRoot: prepared.preparedSession,
     transmissionSha256: prepared.packet.transmissionSha256,
   });
 }
 
 async function runPreparePolicy(options) {
+  const repositoryRoot = resolve(options["repository-root"] ?? process.cwd());
+  const { campaignId, session } = campaignSession(
+    options,
+    "policy-plan",
+    repositoryRoot,
+  );
   const environment = environmentProfile();
   const toolchain = await inspectAntigravityCliToolchain({
     ...antigravityToolchainCommand(options),
     environment,
   });
   const prepared = await preparePolicyEvaluationSession({
-    arm: required(options, "arm"),
-    caseId: positiveInteger(options, "case-id"),
+    arm: session.arm,
+    campaignId,
+    caseId: session.caseId,
     destination: resolve(required(options, "destination")),
-    effort: required(options, "effort"),
+    effort: session.effort,
     environment,
-    model: required(options, "model"),
-    provider: required(options, "provider"),
-    repetition: positiveInteger(options, "repetition"),
-    repositoryRoot: resolve(options["repository-root"] ?? process.cwd()),
-    seed: required(options, "seed"),
-    sequence: positiveInteger(options, "sequence"),
+    model: session.model,
+    provider: session.provider,
+    repetition: session.repetition,
+    repositoryRoot,
+    seed: session.seed,
+    sequence: session.sequence,
+    sourceCommit: session.sourceCommit,
     toolchain,
     workingDirectory: resolve(required(options, "working-dir")),
   });
   writeOutput({
+    arm: session.arm,
+    campaignId,
+    caseId: session.caseId,
     command: "prepare-policy",
     modelCalls: 0,
     packetPath: join(prepared.preparedSession, "packet.json"),
     profile: "policy-only",
     schemaVersion: 1,
+    sequence: session.sequence,
     sessionRoot: prepared.preparedSession,
     transmissionSha256: prepared.packet.transmissionSha256,
     workingDirectory: prepared.workingDirectory,
@@ -448,6 +501,7 @@ async function runBlind(options) {
     return {
       ...record,
       arm: transmission.session.arm,
+      campaignId: metadata.campaignId,
       case: {
         id: transmission.session.caseId,
         caseKey: metadata.caseKey,
@@ -492,7 +546,7 @@ async function main() {
   const options = parseOptions(tokens);
 
   if (command === "plan") {
-    assertAllowedOptions(options, ["seed", "output"]);
+    assertAllowedOptions(options, ["output", "repository-root", "seed"]);
     await runPlan(options);
   } else if (command === "policy-plan") {
     assertAllowedOptions(options, [
@@ -510,21 +564,15 @@ async function main() {
     await runCatalog(options);
   } else if (command === "prepare") {
     assertAllowedOptions(options, [
-      "arm",
       "authorization-eligible",
-      "case-id",
+      "campaign-plan",
       "codex-command",
       "codex-entry",
       "destination",
-      "effort",
       "evaluation-homes-root",
       "isolation-catalog",
-      "model",
       "predetermined-scope-id",
-      "provider",
-      "repetition",
       "repository-root",
-      "seed",
       "sequence",
     ]);
     await runPrepare(options);
@@ -532,15 +580,9 @@ async function main() {
     assertAllowedOptions(options, [
       "antigravity-command",
       "antigravity-prefix-arg",
-      "arm",
-      "case-id",
+      "campaign-plan",
       "destination",
-      "effort",
-      "model",
-      "provider",
-      "repetition",
       "repository-root",
-      "seed",
       "sequence",
       "working-dir",
     ]);
