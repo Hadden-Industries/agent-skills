@@ -29,7 +29,7 @@ import { createRepositoryFixture, writeJson } from "./harness.mjs";
 
 const FULL_OID = "a".repeat(40);
 const PRECOMMIT_TEMPLATE = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   phase: "allocated",
   repositoryRoot: resolve("."),
   attemptDirectory: resolve("transaction-attempt"),
@@ -209,7 +209,7 @@ test("transaction workspace owns one UUIDv4 attempt without discovery machinery"
     "transaction.json",
   ]);
   assert.deepEqual(workspace.transaction, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     phase: "allocated",
     repositoryRoot: resolve(fixture.repo),
     attemptDirectory: workspace.attemptDirectory,
@@ -446,6 +446,152 @@ test("transaction transitions preserve canonical head anchors and reject skips",
   }
 });
 
+test("authoring must become message-ready before a commit transition", (t) => {
+  const fixture = createRepositoryFixture(t, "transaction-authoring-gate-");
+  const workspace = createTransactionWorkspace({
+    repositoryRoot: fixture.repo,
+    temporaryRoot: fixture.scratch,
+  });
+  const authoring = {
+    ...structuredClone(PRECOMMIT_TEMPLATE),
+    repositoryRoot: resolve(fixture.repo),
+    attemptDirectory: workspace.attemptDirectory,
+    phase: "authoring-pending",
+    status: "authoring-pending",
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: [FULL_OID],
+    },
+    route: "extended",
+    review: {
+      catalogPath: "catalog.json",
+      catalogSha256: "b".repeat(64),
+      evidencePlanPath: "evidence-plan.json",
+      evidencePlanSha256: "c".repeat(64),
+      extendedReason: "semantic-structure-required",
+      deliveryPacketIds: [],
+      queue: null,
+      receipt: {
+        schemaVersion: 1,
+        catalogSha256: "b".repeat(64),
+        evidencePlanSha256: "c".repeat(64),
+        requiredPacketsReviewed: true,
+        additionalPacketIds: [],
+      },
+      semanticStructureRequired: true,
+      structuredMessageMode: "detailed",
+      traversal: null,
+    },
+  };
+
+  writeJson(workspace.transactionPath, authoring);
+  assert.doesNotThrow(() => validateTransaction(authoring));
+  assert.throws(
+    () =>
+      advanceTransaction(workspace.transactionPath, "authoring-pending", {
+        phase: "commit-pending",
+        status: "outcome-unknown",
+      }),
+    /transition.*authoring-pending.*commit-pending/u,
+  );
+
+  const ready = advanceTransaction(
+    workspace.transactionPath,
+    "authoring-pending",
+    {
+      phase: "message-ready",
+      status: "message-ready",
+      message: {
+        schemaVersion: 1,
+        revision: 1,
+        sha256: "d".repeat(64),
+        source: "finalized-extended",
+        byteCount: 32,
+        stateSha256: "e".repeat(64),
+        validationSha256: "f".repeat(64),
+        slot: "message/current",
+      },
+    },
+  );
+
+  assert.equal(ready.phase, "message-ready");
+  assert.equal(ready.status, "message-ready");
+});
+
+test("pending review cannot bypass the explicit authoring phase", (t) => {
+  const fixture = createRepositoryFixture(t, "transaction-review-gate-");
+  const workspace = createTransactionWorkspace({
+    repositoryRoot: fixture.repo,
+    temporaryRoot: fixture.scratch,
+  });
+  const pendingReview = {
+    ...structuredClone(PRECOMMIT_TEMPLATE),
+    repositoryRoot: resolve(fixture.repo),
+    attemptDirectory: workspace.attemptDirectory,
+    phase: "review-pending",
+    status: "review-pending",
+    headAnchor: {
+      headKind: "attached",
+      targetRef: "refs/heads/main",
+      expectedParentOids: [FULL_OID],
+    },
+    route: "extended",
+    review: {
+      catalogPath: "catalog.json",
+      catalogSha256: "b".repeat(64),
+      evidencePlanPath: "evidence-plan.json",
+      evidencePlanSha256: "c".repeat(64),
+      extendedReason: "review-policy",
+      deliveryPacketIds: ["P000001"],
+      queue: null,
+      receipt: null,
+      semanticStructureRequired: false,
+      structuredMessageMode: "detailed",
+      traversal: null,
+    },
+  };
+
+  writeJson(workspace.transactionPath, pendingReview);
+  assert.doesNotThrow(() => validateTransaction(pendingReview));
+  assert.throws(
+    () =>
+      advanceTransaction(workspace.transactionPath, "review-pending", {
+        phase: "message-ready",
+        status: "message-ready",
+        review: {
+          ...pendingReview.review,
+          receipt: {
+            schemaVersion: 1,
+            catalogSha256: "b".repeat(64),
+            evidencePlanSha256: "c".repeat(64),
+            requiredPacketsReviewed: true,
+            additionalPacketIds: [],
+          },
+          traversal: {
+            schemaVersion: 1,
+            catalogSha256: "b".repeat(64),
+            deliveredPacketCount: 1,
+            lastRequestCursor: null,
+            nextCursor: null,
+            complete: true,
+          },
+        },
+        message: {
+          schemaVersion: 1,
+          revision: 1,
+          sha256: "d".repeat(64),
+          source: "checked-file",
+          byteCount: 32,
+          stateSha256: "e".repeat(64),
+          validationSha256: "f".repeat(64),
+          slot: "message/current",
+        },
+      }),
+    /transition.*review-pending.*message-ready/u,
+  );
+});
+
 test("reversible preparation facts can be persisted without inventing a phase", (t) => {
   const fixture = createRepositoryFixture(t, "transaction-preparation-facts-");
   const workspace = createTransactionWorkspace({
@@ -490,6 +636,8 @@ test("transaction validation accepts canonical state families and rejects imposs
     ["evidence-ready", "promoted", null],
     ["review-pending", "review-pending", null],
     ["review-pending", "evidence-required", null],
+    ["authoring-pending", "authoring-pending", null],
+    ["authoring-pending", "promoted", null],
     ["message-ready", "message-ready", null],
     ["message-ready", "promoted", null],
     ["commit-pending", "outcome-unknown", null],
@@ -515,7 +663,7 @@ test("transaction validation accepts canonical state families and rejects imposs
               capsule: { schemaVersion: 1 },
             },
           }
-        : phase === "review-pending"
+        : new Set(["review-pending", "authoring-pending"]).has(phase)
           ? {
               route: "extended",
               review: {
@@ -524,15 +672,19 @@ test("transaction validation accepts canonical state families and rejects imposs
                 evidencePlanPath: "evidence-plan.json",
                 evidencePlanSha256: "c".repeat(64),
                 extendedReason: "review-policy",
-                deliveryPacketIds: [],
+                deliveryPacketIds:
+                  phase === "review-pending" ? ["P000001"] : [],
                 queue: null,
-                receipt: {
-                  schemaVersion: 1,
-                  catalogSha256: "b".repeat(64),
-                  evidencePlanSha256: "c".repeat(64),
-                  requiredPacketsReviewed: true,
-                  additionalPacketIds: [],
-                },
+                receipt:
+                  phase === "authoring-pending"
+                    ? {
+                        schemaVersion: 1,
+                        catalogSha256: "b".repeat(64),
+                        evidencePlanSha256: "c".repeat(64),
+                        requiredPacketsReviewed: true,
+                        additionalPacketIds: [],
+                      }
+                    : null,
                 semanticStructureRequired: false,
                 structuredMessageMode: "detailed",
                 traversal: null,

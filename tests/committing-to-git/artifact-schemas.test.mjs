@@ -16,7 +16,7 @@ function schema(name) {
 
 test("transaction and scope schemas expose the strict preparation contracts", () => {
   const transaction = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     phase: "allocated",
     repositoryRoot: "C:/repo",
     attemptDirectory:
@@ -96,6 +96,13 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
   };
 
   assert.deepEqual(schemaErrors(transaction, transactionSchema), []);
+  assert.match(
+    schemaErrors(
+      { ...structuredClone(transaction), schemaVersion: 3 },
+      transactionSchema,
+    ).join("\n"),
+    /schemaVersion/u,
+  );
   assert.deepEqual(schemaErrors(scope, scopeSchema), []);
   assert.deepEqual(
     schemaErrors(messageState, transactionSchema.$defs.messageState),
@@ -208,6 +215,51 @@ test("transaction and scope schemas expose the strict preparation contracts", ()
   assert.match(
     schemaErrors(incompleteReviewState, transactionSchema).join("\n"),
     /route|review|oneOf/u,
+  );
+
+  const authoringState = {
+    ...structuredClone(transaction),
+    phase: "authoring-pending",
+    status: "authoring-pending",
+    route: "extended",
+    review: {
+      catalogPath: "C:/temp/attempt/review/catalog.json",
+      catalogSha256: "1".repeat(64),
+      evidencePlanPath: "C:/temp/attempt/evidence-plan.json",
+      evidencePlanSha256: "2".repeat(64),
+      extendedReason: "semantic-structure-required",
+      deliveryPacketIds: [],
+      queue: null,
+      receipt: {
+        schemaVersion: 1,
+        catalogSha256: "1".repeat(64),
+        evidencePlanSha256: "2".repeat(64),
+        requiredPacketsReviewed: true,
+        additionalPacketIds: [],
+      },
+      semanticStructureRequired: true,
+      structuredMessageMode: "detailed",
+      traversal: null,
+    },
+  };
+
+  assert.deepEqual(schemaErrors(authoringState, transactionSchema), []);
+  const completedButPending = {
+    ...structuredClone(authoringState),
+    phase: "review-pending",
+    status: "review-pending",
+  };
+
+  assert.match(
+    schemaErrors(completedButPending, transactionSchema).join("\n"),
+    /receipt|oneOf/u,
+  );
+  const incompleteAuthoringState = structuredClone(authoringState);
+
+  incompleteAuthoringState.review.receipt = null;
+  assert.match(
+    schemaErrors(incompleteAuthoringState, transactionSchema).join("\n"),
+    /receipt|oneOf/u,
   );
 
   const unknownTransactionMember = structuredClone(transaction);

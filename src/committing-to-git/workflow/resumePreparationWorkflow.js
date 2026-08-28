@@ -25,6 +25,7 @@ import {
   manifestEnvironment,
   routePreparedEvidence,
 } from "./prepareWorkflow.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 function fail(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
@@ -181,6 +182,7 @@ function resultEnvelope(transaction) {
         ? {
             extendedReason: transaction.review.extendedReason,
             reviewQueue: transaction.review.queue,
+            ...authoringProgress(transaction),
           }
         : {}),
   };
@@ -266,7 +268,11 @@ export async function resumePreparationWorkflow({ transactionPath }) {
 
   let transaction = readTransaction(transactionPath);
 
-  if (new Set(["evidence-ready", "review-pending"]).has(transaction.phase)) {
+  if (
+    new Set(["evidence-ready", "review-pending", "authoring-pending"]).has(
+      transaction.phase,
+    )
+  ) {
     validatePersistedSnapshot(transaction);
     removeConsumedEvidencePlanInput(transactionPath);
     return resultEnvelope(transaction);

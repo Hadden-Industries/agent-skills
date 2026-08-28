@@ -40,6 +40,7 @@ import {
   manifestEnvironment,
   preMaterializePatchPackets,
 } from "./prepareWorkflow.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const EXTENSION_REASONS = new Set([
@@ -252,6 +253,7 @@ function extensionResult(transaction) {
     extendedReason: transaction.review.extendedReason,
     reviewQueue: transaction.review.queue,
     structuredMessageMode: transaction.review.structuredMessageMode,
+    ...authoringProgress(transaction),
   };
 }
 
@@ -373,10 +375,12 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
       artifactName: "content.json",
       value: structuredContent,
     });
+    const nextPhase =
+      packetIds.length === 0 ? "authoring-pending" : "review-pending";
     const completed = advanceTransaction(transactionPath, "evidence-ready", {
       ...transaction,
-      phase: "review-pending",
-      status: "review-pending",
+      phase: nextPhase,
+      status: nextPhase,
       route: "extended",
       inlineEvidence: null,
       review: {

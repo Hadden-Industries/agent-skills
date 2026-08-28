@@ -763,7 +763,11 @@ function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
     });
   }
 
-  if (!new Set(["evidence-ready", "review-pending"]).has(current.phase)) {
+  if (
+    !new Set(["evidence-ready", "review-pending", "authoring-pending"]).has(
+      current.phase,
+    )
+  ) {
     fail(
       "MESSAGE_REPLACEMENT_NOT_ALLOWED",
       `Canonical message replacement is not allowed in phase ${current.phase}.`,
@@ -997,10 +1001,10 @@ function assertReplacementRoute(transaction, source) {
       source === "checked-file" &&
       transaction.review?.semanticStructureRequired === false &&
       transaction.review?.receipt?.requiredPacketsReviewed === true &&
-      new Set(["review-pending", "message-ready"]).has(transaction.phase)) ||
+      new Set(["authoring-pending", "message-ready"]).has(transaction.phase)) ||
     (transaction.route === "extended" &&
       source === "finalized-extended" &&
-      new Set(["review-pending", "message-ready"]).has(transaction.phase));
+      new Set(["authoring-pending", "message-ready"]).has(transaction.phase));
 
   if (!allowed || transaction.commit !== null) {
     fail(

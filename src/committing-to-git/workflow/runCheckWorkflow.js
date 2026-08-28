@@ -24,6 +24,7 @@ import {
 const ACTIVE_CHECK_PHASES = new Set([
   "evidence-ready",
   "review-pending",
+  "authoring-pending",
   "message-ready",
 ]);
 const MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1000;

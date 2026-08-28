@@ -30,13 +30,14 @@
     "publicationAttempts"
   ],
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "phase": {
       "enum": [
         "allocated",
         "snapshot-created",
         "evidence-ready",
         "review-pending",
+        "authoring-pending",
         "message-ready",
         "commit-pending",
         "reported",
@@ -54,6 +55,7 @@
       "enum": [
         "prepared",
         "review-pending",
+        "authoring-pending",
         "message-ready",
         "evidence-required",
         "promoted",
@@ -118,6 +120,8 @@
     { "$ref": "#/$defs/evidencePromotedState" },
     { "$ref": "#/$defs/reviewPendingState" },
     { "$ref": "#/$defs/evidenceRequiredState" },
+    { "$ref": "#/$defs/authoringPendingState" },
+    { "$ref": "#/$defs/authoringPromotedState" },
     { "$ref": "#/$defs/messageReadyState" },
     { "$ref": "#/$defs/messagePromotedState" },
     { "$ref": "#/$defs/commitPendingState" },
@@ -1221,7 +1225,10 @@
         "terminalDisposition": { "const": null },
         "route": { "const": "extended" },
         "inlineEvidence": { "const": null },
-        "review": { "type": "object" }
+        "review": {
+          "type": "object",
+          "properties": { "receipt": { "const": null } }
+        }
       }
     },
     "evidenceRequiredState": {
@@ -1231,7 +1238,63 @@
         "terminalDisposition": { "const": null },
         "route": { "const": "extended" },
         "inlineEvidence": { "const": null },
-        "review": { "type": "object" }
+        "review": {
+          "type": "object",
+          "properties": { "receipt": { "const": null } }
+        }
+      }
+    },
+    "authoringPendingState": {
+      "properties": {
+        "phase": { "const": "authoring-pending" },
+        "status": { "const": "authoring-pending" },
+        "terminalDisposition": { "const": null },
+        "route": { "const": "extended" },
+        "inlineEvidence": { "const": null },
+        "review": {
+          "type": "object",
+          "properties": {
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "requiredPacketsReviewed": { "const": true }
+              }
+            }
+          }
+        },
+        "message": { "type": ["object", "null"] }
+      }
+    },
+    "authoringPromotedState": {
+      "properties": {
+        "phase": { "const": "authoring-pending" },
+        "status": { "const": "promoted" },
+        "mode": { "const": "actual" },
+        "terminalDisposition": { "const": null },
+        "route": { "const": "extended" },
+        "inlineEvidence": { "const": null },
+        "review": {
+          "type": "object",
+          "properties": {
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "requiredPacketsReviewed": { "const": true }
+              }
+            }
+          }
+        },
+        "message": { "type": ["object", "null"] },
+        "snapshot": {
+          "type": "object",
+          "required": ["promotion"],
+          "properties": {
+            "promotion": {
+              "type": "object",
+              "properties": { "status": { "const": "installed" } }
+            }
+          }
+        }
       }
     },
     "messageReadyState": {

@@ -32,6 +32,7 @@ const PRECOMMIT_PHASES = new Set([
   "snapshot-created",
   "evidence-ready",
   "review-pending",
+  "authoring-pending",
   "message-ready",
 ]);
 const TERMINAL_PHASES = new Set([

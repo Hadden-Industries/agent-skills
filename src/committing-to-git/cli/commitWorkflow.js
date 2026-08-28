@@ -112,7 +112,7 @@ policy, and records the exact snapshot. Path scope accepts literal repeatable
 selectors or one --scope-file. JSON is the default output format.
 
 Exit status:
-  0  Preparation reached evidence-ready or review-pending.
+  0  Preparation reached evidence-ready, review-pending, or authoring-pending.
   1  Repository state stopped safely or preparation is resumable.
   2  Input, policy, capability, selector, or execution failure.
 `,
@@ -141,6 +141,8 @@ forward without accepting or reading a new plan.
 Returns exactly one complete, bounded, digest-verified review packet from the
 current transaction. The helper advances only through its returned opaque
 cursor, safely replays the latest delivery, and records review completion.
+A completed zero-packet review returns packet null and its authoring action
+idempotently without changing the transaction.
 `,
   ],
   [
@@ -332,7 +334,7 @@ function unsupportedAttemptResult(args) {
   try {
     const payload = JSON.parse(readFileSync(args[index + 1], "utf8"));
 
-    if (payload?.schemaVersion !== 3) {
+    if (payload?.schemaVersion !== 4) {
       return invalidResult(
         "UNSUPPORTED_ATTEMPT_VERSION",
         `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,

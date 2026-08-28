@@ -1,7 +1,7 @@
 ---
 name: committing-to-git
 description: Drafts or revises commit messages for current workspace changes, guides creation of a signed commit from an approved staged snapshot, reports whether the result matches, and optionally pushes that exact commit. Use for a requested message draft, new local commit, or that workflow's push. Do not use to amend history or finish merge, rebase, cherry-pick, or revert operations.
-compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configured commit signing. Required SSH identity verification also needs its configured trust source to be readable.
+compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configured signing. Required SSH verification needs its configured trust source readable.
 license: MPL-2.0
 metadata:
   category: development
@@ -26,7 +26,7 @@ Git 2.45+ lets the helper preflight `--no-lazy-fetch` and enforce `GIT_NO_LAZY_F
 | Propose without changing the real index | `draft` | `staged`, `full`, or `paths` |
 | Stage for an authorized workflow | `actual` | `staged`, `full`, or `paths` |
 
-Use `staged` for an intentional index including partial hunks, `full` for every change, and `paths` for exact whole paths. Actual `paths` requires an empty index; draft `paths` permits only disjoint staged work and cannot be promoted until it is gone. Include both sides of an unstaged rename. The manifest proves inclusion, not review.
+Use `staged` for an intentional index or partial hunks, `full` for every change, and `paths` for exact whole paths. Actual `paths` requires an empty index; draft `paths` allows only disjoint staged work until cleared. Include rename sides. Manifest inclusion is not review.
 
 | Evidence | Use when |
 | --- | --- |
@@ -36,7 +36,7 @@ Use `staged` for an intentional index including partial hunks, `full` for every 
 
 Age is not uncertainty. When a targeted exact-path diff fully explains a small dependency, integrity hash, lock entry, or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
 
-For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; counted bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Complete bounded `message` or `review` evidence stays inline; larger requirements use packets.
+For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Bounded evidence stays inline; larger requirements use packets.
 
 Every mode may write Git objects. Actual `full` or `paths` may install the index; drafts do not. Run:
 
@@ -50,7 +50,7 @@ Concise eligibility tracks unresolved semantic uncertainty; file count never det
 
 ## Validate before approval
 
-Complete the message before approval. Checked or structured text must be `message-ready`; show `displayText` verbatim. Direct transport is only for known-valid subjects. Reapprove only changed bytes or failed-check acknowledgements.
+Complete the message before approval. Checked or structured text must be `message-ready`; show `displayText` verbatim. Direct transport requires a known-valid subject. Reapprove only changed bytes or failed-check acknowledgements.
 
 Before presenting any subject for approval, while authoring the first proposal, apply the supported skill message policy: the description immediately after `: ` must begin with an uppercase Unicode cased letter; optional scope does not change this rule. Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`. If local validation returns `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message to the user, avoiding a capitalization-only second approval. This is an authoring defect, not a repository-specific rejection.
 
@@ -62,7 +62,7 @@ Canonical bytes are strict UTF-8 with one LF. Direct `--message` is `subject + L
 node <skill>/scripts/commitWorkflow.mjs message check --transaction <opaque-transaction>
 ```
 
-Success consumes the input; recreate it only for revision. Failure preserves prior valid state and rejected input. Code enforces mechanics, not semantics.
+Success consumes the input; recreate it for revision. Failure preserves prior valid state and rejected input. Code enforces mechanics, not semantics.
 
 | Revision | Invalidation and route |
 | --- | --- |
@@ -74,9 +74,9 @@ Classify revisions by judgment, not keywords, edit distance, or embeddings.
 
 ## Complete an extended message
 
-For returned packets, call `workflow review-next` without a cursor; read its one complete verified packet, then repeat with exactly `reviewProgress.nextCursor` until complete. Never open queue paths, hash artifacts manually, or inspect helper source normally. Use [inspection recovery](references/inspection-recovery.md) only for deletion, binary/gitlink, corruption, or remaining uncertainty.
+Trust returned `reviewRequired` and `nextAction`, not null queue or phase. While required, call `workflow review-next` cursorless, then with exact `reviewProgress.nextCursor`. Zero packets means complete; cursorless replay is idempotent. Never open queue paths, hash artifacts manually, or inspect helper source. Use [inspection recovery](references/inspection-recovery.md) for deletion, binary/gitlink, corruption, or uncertainty.
 
-Choose presentation independently: a sufficient subject uses `message-input.txt` plus `message check`; a useful body uses `content.json` plus `message finalize`. Fill only semantic placeholders. The renderer uses detailed inventory below 50 units and within 32 KiB; otherwise counted bulk domains. New uncertainty uses fixed `evidence-plan-input.json`. `semantic-structure-required` cannot use checked concise text. Convert a concise transaction with:
+After review, obey `nextAction`: `author-message` uses `messagePath` with `message check`; `author-content` uses `contentPath` (`content.json`), versioned `contentContract`, and `message finalize`. Preserve `schemaVersion`, `evidenceGroups`, and `mode`. Supported sections are `Rationale:`, `User Experience Changes:`, and `File Changes:`; resolve others before approval and fix aggregate diagnostics by exact JSON pointer together. Detailed applies below 50 units and within 32 KiB; otherwise use bulk. New uncertainty uses fixed `evidence-plan-input.json`. `semantic-structure-required` cannot use checked concise text. Convert concise with:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs workflow extend --transaction <opaque-transaction> --reason <evidence-uncertainty|semantic-structure-required>
@@ -84,7 +84,7 @@ node <skill>/scripts/commitWorkflow.mjs workflow review-next --transaction <opaq
 node <skill>/scripts/commitWorkflow.mjs message finalize --transaction <opaque-transaction>
 ```
 
-For `evidence-required`, traverse only the bounded delta and reuse the finalizer; unchanged coverage survives. Optional checks must answer a material unresolved question, not bless a validated scalar.
+For `evidence-required`, traverse bounded delta, then finalize. `authoring-pending` means evidence is complete but approval bytes are unavailable; an older revision cannot commit. Optional checks must answer a material unresolved question, not bless a validated scalar.
 
 ## Promote a draft
 
@@ -104,7 +104,7 @@ Immediately before this command, confirm commit authorization for the exact disp
 node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
 ```
 
-Hooks may change the message; preserve the known commit and report the mismatch. For trust-source failure, policy change, or backend identity limits, use [signature recovery](references/signature-recovery.md). One commit transition reduces races and duplicate retries; journals preserve unknown outcomes without replay.
+Hooks may change the message; preserve the known commit and report the mismatch. For trust-source failure, policy change, or backend identity limits, use [signature recovery](references/signature-recovery.md). One transition reduces duplicate races; journals preserve unknown outcomes without replay.
 
 ## Interpret, recover, and publish
 

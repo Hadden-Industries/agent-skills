@@ -924,6 +924,92 @@ function createDetailedMessageSingleApproval(repository) {
   };
 }
 
+function createZeroPacketStructuredMessage(repository) {
+  const selectedPaths = [
+    "docs/implementation-plan.md",
+    "scripts/reference-import-map.mjs",
+    "scripts/reference-import-map.test.js",
+    "test/consumers/browser/import-map/reference-import-map.json",
+  ];
+  const excludedPaths = [
+    "docs/standalone-import-closure-prerequisites.md",
+    "skills-lock.json",
+  ];
+
+  selectedPaths.forEach((path, index) =>
+    writeRepositoryFile(repository, path, `baseline ${index + 1}\n`),
+  );
+  writeRepositoryFile(repository, "skills-lock.json", '{"skills":[]}\n');
+  commitAll(repository, "seed zero-packet structured message fixture");
+
+  writeRepositoryFile(
+    repository,
+    selectedPaths[0],
+    "# Reference import map\n\nKeep generated browser imports deterministic.\n",
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPaths[1],
+    [
+      "export function createReferenceImportMap(entries) {",
+      "  return Object.fromEntries([...entries].sort(([left], [right]) => left.localeCompare(right)));",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPaths[2],
+    [
+      'import assert from "node:assert/strict";',
+      'import { createReferenceImportMap } from "./reference-import-map.mjs";',
+      "",
+      'assert.deepEqual(createReferenceImportMap([["b", "two"], ["a", "one"]]), { a: "one", b: "two" });',
+      "",
+    ].join("\n"),
+  );
+  writeRepositoryFile(
+    repository,
+    selectedPaths[3],
+    `${JSON.stringify({ imports: { alpha: "/alpha.js", beta: "/beta.js" } }, null, 2)}\n`,
+  );
+  writeRepositoryFile(
+    repository,
+    excludedPaths[0],
+    "Unrelated standalone-import notes remain outside this commit.\n",
+  );
+  writeRepositoryFile(
+    repository,
+    excludedPaths[1],
+    '{"skills":["user-owned"]}\n',
+  );
+
+  return {
+    selectedPaths,
+    excludedPaths,
+    changeUnitCount: 4,
+    evidencePolicy: "reuse",
+    evidenceBasis: "authored-current-task",
+    expectedPhase: "authoring-pending",
+    reviewRequired: false,
+    nextAction: "author-content",
+    maximumAuthoringAttempts: 1,
+    forbiddenReads: [
+      "src/committing-to-git/",
+      "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "review/",
+    ],
+    requestedSections: [
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:",
+    ],
+    approvalAfterStatus: "message-ready",
+    maximumApprovalTurns: 1,
+    pushAuthorized: false,
+  };
+}
+
 function createRevisionScenario(repository, revisionKind) {
   writeRepositoryFile(repository, "feature.txt", "baseline\n");
   commitAll(repository, "seed revision fixture");
@@ -2202,6 +2288,13 @@ const SCENARIOS = new Map([
   [
     "trivial-lock-hash-direct",
     createScenarioDefinition(createTrivialLockHash, "trivial-metadata-direct"),
+  ],
+  [
+    "zero-packet-structured-message",
+    createScenarioDefinition(
+      createZeroPacketStructuredMessage,
+      "structured-detailed",
+    ),
   ],
   [
     "prose-check-claim-rejected",

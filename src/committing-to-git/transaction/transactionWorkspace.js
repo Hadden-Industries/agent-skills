@@ -67,6 +67,7 @@ const PHASES = new Set([
   "snapshot-created",
   "evidence-ready",
   "review-pending",
+  "authoring-pending",
   "message-ready",
   "commit-pending",
   "reported",
@@ -79,6 +80,7 @@ const PHASES = new Set([
 const STATUSES = new Set([
   "prepared",
   "review-pending",
+  "authoring-pending",
   "message-ready",
   "evidence-required",
   "promoted",
@@ -131,6 +133,8 @@ const STATE_COMBINATIONS = new Set(
     ["evidence-ready", "promoted", null],
     ["review-pending", "review-pending", null],
     ["review-pending", "evidence-required", null],
+    ["authoring-pending", "authoring-pending", null],
+    ["authoring-pending", "promoted", null],
     ["message-ready", "message-ready", null],
     ["message-ready", "promoted", null],
     ["commit-pending", "outcome-unknown", null],
@@ -160,6 +164,7 @@ const PHASE_TRANSITIONS = new Map([
     new Set([
       "evidence-ready",
       "review-pending",
+      "authoring-pending",
       "stopped",
       "abandoned",
       "superseded",
@@ -169,6 +174,7 @@ const PHASE_TRANSITIONS = new Map([
     "evidence-ready",
     new Set([
       "review-pending",
+      "authoring-pending",
       "message-ready",
       "commit-pending",
       "stopped",
@@ -178,7 +184,17 @@ const PHASE_TRANSITIONS = new Map([
   ],
   [
     "review-pending",
-    new Set(["message-ready", "stopped", "abandoned", "superseded"]),
+    new Set(["authoring-pending", "stopped", "abandoned", "superseded"]),
+  ],
+  [
+    "authoring-pending",
+    new Set([
+      "review-pending",
+      "message-ready",
+      "stopped",
+      "abandoned",
+      "superseded",
+    ]),
   ],
   [
     "message-ready",
@@ -1244,8 +1260,8 @@ function validatePublicationAttempt(attempt) {
 export function validateTransaction(transaction) {
   assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
-  if (transaction.schemaVersion !== 3) {
-    throw new Error("Transaction schemaVersion must be 3.");
+  if (transaction.schemaVersion !== 4) {
+    throw new Error("Transaction schemaVersion must be 4.");
   }
 
   if (!PHASES.has(transaction.phase)) {
@@ -1355,13 +1371,31 @@ export function validateTransaction(transaction) {
   }
 
   if (
-    transaction.phase === "review-pending" &&
+    new Set(["review-pending", "authoring-pending"]).has(transaction.phase) &&
     (transaction.route !== "extended" ||
       transaction.inlineEvidence !== null ||
       transaction.review === null)
   ) {
     throw new Error(
-      "A review-pending transaction requires extended review state only.",
+      "Review and authoring transactions require extended review state only.",
+    );
+  }
+
+  if (
+    transaction.phase === "authoring-pending" &&
+    transaction.review?.receipt?.requiredPacketsReviewed !== true
+  ) {
+    throw new Error(
+      "An authoring-pending transaction requires a complete review receipt.",
+    );
+  }
+
+  if (
+    transaction.phase === "review-pending" &&
+    transaction.review?.receipt !== null
+  ) {
+    throw new Error(
+      "A review-pending transaction cannot retain a complete review receipt.",
     );
   }
 
@@ -1507,7 +1541,7 @@ export function validateTransaction(transaction) {
 
 function initialTransaction(repositoryRoot, attemptDirectory) {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     phase: "allocated",
     repositoryRoot,
     attemptDirectory,

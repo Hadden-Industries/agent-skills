@@ -284,6 +284,21 @@ test("canonical guidance keeps small known changes and packet review proportiona
   assert.match(skill, /`message` with `read-current-task`/u);
   assert.match(skill, /do not choose `review` because it predates this turn/iu);
   assert.match(skill, /workflow review-next/iu);
+  assert.match(skill, /Trust returned `reviewRequired` and `nextAction`/iu);
+  assert.match(skill, /Zero packets means complete/iu);
+  assert.match(skill, /`author-message` uses `messagePath`/iu);
+  assert.match(skill, /`author-content` uses `contentPath`/iu);
+  assert.match(skill, /versioned `contentContract`/iu);
+  assert.match(
+    skill,
+    /Preserve `schemaVersion`, `evidenceGroups`, and `mode`/iu,
+  );
+  assert.match(
+    skill,
+    /Supported sections are `Rationale:`, `User Experience Changes:`, and `File Changes:`/iu,
+  );
+  assert.match(skill, /aggregate diagnostics by exact JSON pointer/iu);
+  assert.match(skill, /`authoring-pending` means evidence is complete/iu);
   assert.match(
     skill,
     /Never open queue paths, hash artifacts manually, or inspect helper source/iu,
@@ -304,6 +319,18 @@ test("canonical guidance keeps small known changes and packet review proportiona
     /traverse that bounded delta through `workflow review-next`/iu,
   );
   assert.match(messageFormat, /schema-version-3 semantic input only/iu);
+  assert.match(
+    messageFormat,
+    /Treat `reviewRequired`, `reviewProgress`, and `nextAction` as the public state machine/iu,
+  );
+  assert.match(
+    messageFormat,
+    /Scope-file `includePaths` selects what enters a commit, while semantic `destinationPaths`/iu,
+  );
+  assert.match(
+    messageFormat,
+    /Set `subject` to an object with exactly `type`, `scope`, and `description`/iu,
+  );
   assert.match(
     messageFormat,
     /review receipt and recommendation state remain in the transaction/iu,
@@ -1033,7 +1060,7 @@ test("evidence uncertainty extends the exact snapshot without staging it again",
   );
 });
 
-test("semantic structure extension rejects stray plan input and carries concise evidence without a queue", (t) => {
+test("semantic structure extension enters explicit zero-packet authoring and replays completion", (t) => {
   const fixture = createRepositoryFixture(t, "workflow-extend-structure-");
 
   writeRepositoryFile(fixture.repo, "tracked.txt", "before\n");
@@ -1098,10 +1125,42 @@ test("semantic structure extension rejects stray plan input and carries concise 
     readFileSync(preparedOutput.transaction, "utf8"),
   );
 
-  assert.equal(output.phase, "review-pending");
+  assert.equal(output.phase, "authoring-pending");
+  assert.equal(output.status, "authoring-pending");
   assert.equal(output.route, "extended");
   assert.equal(output.extendedReason, "semantic-structure-required");
   assert.equal(output.reviewQueue, null);
+  assert.equal(output.reviewRequired, false);
+  assert.deepEqual(output.reviewProgress, {
+    deliveredPacketCount: 0,
+    requiredPacketCount: 0,
+    complete: true,
+    nextCursor: null,
+  });
+  assert.equal(output.nextAction, "author-content");
+  assert.equal(
+    output.contentPath,
+    join(dirname(preparedOutput.transaction), "content.json"),
+  );
+  assert.equal(output.contentContract.schemaVersion, 1);
+  assert.equal(output.contentContract.contentSchemaVersion, 3);
+  assert.equal(output.contentContract.completion.value, "complete");
+  assert.deepEqual(output.contentContract.subject.requiredFields, [
+    "type",
+    "scope",
+    "description",
+  ]);
+  assert.deepEqual(output.contentContract.detailed.fileNote.requiredFields, [
+    "selection",
+    "reasons",
+  ]);
+  assert.ok(
+    output.contentContract.selection.allowedFields.includes("destinationPaths"),
+  );
+  assert.deepEqual(output.contentContract.selection.scopeFileContrast, {
+    scopeFileField: "includePaths",
+    semanticField: "destinationPaths",
+  });
   assert.equal(
     transaction.review.coveredCapsuleSha256,
     transactionBefore.inlineEvidence.capsuleSha256,
@@ -1111,6 +1170,39 @@ test("semantic structure extension rejects stray plan input and carries concise 
     transactionBefore.initialEvidencePlan.sha256,
   );
   assert.equal(transaction.review.semanticStructureRequired, true);
+
+  const transactionBytes = readFileSync(preparedOutput.transaction);
+  const firstCompletedReview = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", preparedOutput.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(firstCompletedReview.status, 0, firstCompletedReview.stderr);
+  const firstCompletion = JSON.parse(firstCompletedReview.stdout);
+
+  assert.equal(firstCompletion.packet, null);
+  assert.equal(firstCompletion.phase, "authoring-pending");
+  assert.equal(firstCompletion.nextAction, "author-content");
+  assert.deepEqual(firstCompletion.reviewProgress, output.reviewProgress);
+  assert.deepEqual(firstCompletion.contentContract, output.contentContract);
+  assert.equal(
+    readFileSync(preparedOutput.transaction).equals(transactionBytes),
+    true,
+  );
+
+  const replayedCompletion = runCommitWorkflow(
+    "workflow review-next",
+    ["--transaction", preparedOutput.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(replayedCompletion.status, 0, replayedCompletion.stderr);
+  assert.deepEqual(JSON.parse(replayedCompletion.stdout), firstCompletion);
+  assert.equal(
+    readFileSync(preparedOutput.transaction).equals(transactionBytes),
+    true,
+  );
 });
 
 test("workflow preparation parser rejects every ambiguous argument combination", () => {

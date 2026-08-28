@@ -114,8 +114,8 @@ function createMessageTransaction(t, { route = "concise" } = {}) {
   } else {
     advanceTransaction(workspace.transactionPath, "snapshot-created", {
       ...snapshotCreated,
-      phase: "review-pending",
-      status: "review-pending",
+      phase: "authoring-pending",
+      status: "authoring-pending",
       route,
       inlineEvidence: null,
       review: {

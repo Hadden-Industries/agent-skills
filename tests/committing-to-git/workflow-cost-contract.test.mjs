@@ -342,7 +342,7 @@ test("every transaction route rejects the previous version without migration", (
   writeRepositoryFile(
     attemptDirectory,
     "transaction.json",
-    '{"schemaVersion":2}\n',
+    '{"schemaVersion":3}\n',
   );
 
   for (const command of [
@@ -369,7 +369,7 @@ test("every transaction route rejects the previous version without migration", (
     assert.equal(output.code, "UNSUPPORTED_ATTEMPT_VERSION", command);
   }
 
-  assert.equal(readFileSync(transactionPath, "utf8"), '{"schemaVersion":2}\n');
+  assert.equal(readFileSync(transactionPath, "utf8"), '{"schemaVersion":3}\n');
 });
 
 test("pre-cutover acknowledgement response scales with the complete old ledger", () => {

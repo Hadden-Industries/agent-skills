@@ -16,6 +16,14 @@ Narrative entries use two-space bullets (`  - `) with four-space continuations. 
 
 Evidence depth and presentation depth are independent. A packet-reviewed change may still use checked subject-only text after `workflow review-next` reports complete. Conversely, an already understood concise change may use `workflow extend --reason semantic-structure-required` when a requested or useful body needs deterministic rendering. That semantic extension cannot be replaced with checked concise text.
 
+## Returned authoring contract
+
+Treat `reviewRequired`, `reviewProgress`, and `nextAction` as the public state machine. If `reviewRequired` is false, do not call packet traversal merely because `reviewQueue` is null or a prior response mentioned review. `nextAction: author-message` identifies fixed `messagePath` for checked text. `nextAction: author-content` identifies fixed `contentPath` and includes `contentContract`; edit that transaction-local worksheet and no other path. A completed zero-packet review may be queried repeatedly without a cursor and returns the same semantic result without changing its receipt or snapshot anchors.
+
+The version-1 `contentContract` describes schema-version-3 content. Set `authoringState` to `complete`. Set `subject` to an object with exactly `type`, `scope`, and `description`; `scope` may be null. Shared rationales and detailed file notes contain `selection` and `reasons`. User-experience entries are strings. Bulk domains contain `title`, `selection`, and `reasons`. A semantic selection uses `all`, `remaining`, `ids`, `destinationPaths`, `destinationPathPrefixes`, `sourcePaths`, `sourcePathPrefixes`, or `kinds`; `all` and `remaining` are each exclusive. Scope-file `includePaths` selects what enters a commit, while semantic `destinationPaths` assigns already selected change units to message content. Preserve helper-owned `schemaVersion`, `evidenceGroups`, and `mode` exactly.
+
+The structured renderer supports `Rationale:`, `User Experience Changes:`, and `File Changes:` only. Resolve a requested unsupported section before approval. On structural failure, use the returned aggregate diagnostic samples and JSON pointers to correct every independent reported problem together; `count`, `truncated`, and `sha256` describe the bounded result. Semantic coverage, overlap, and evidence errors follow only after the worksheet is structurally valid.
+
 ## Detailed inventory
 
 For an agent-authored message with body sections or any requested `File Changes:` inventory, enter the structured finalizer even when the prepared route was concise. Fixed `content.json` is schema-version-3 semantic input only: the helper has already selected `mode` and supplied canonical evidence groups, while review receipt and recommendation state remain in the transaction. Change `authoringState`, fill the semantic placeholders, and do not add or delete helper fields merely to make finalization pass.

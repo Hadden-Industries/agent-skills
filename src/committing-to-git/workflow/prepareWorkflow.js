@@ -61,6 +61,7 @@ import {
   readTransaction,
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 const STORAGE_OVERRIDE_NAMES = [
   "GIT_DIR",
@@ -1669,13 +1670,16 @@ export async function routePreparedEvidence({
         ...catalog.fullPatchPacketIds,
       ]),
     ];
-    const reviewQueue = writeReviewPacketQueue({
-      catalog,
-      packetIds,
-      queueKind: "initial",
-      outputDirectory: reviewDirectory,
-      publicArtifactPrefix: "review",
-    });
+    const reviewQueue =
+      packetIds.length === 0
+        ? null
+        : writeReviewPacketQueue({
+            catalog,
+            packetIds,
+            queueKind: "initial",
+            outputDirectory: reviewDirectory,
+            publicArtifactPrefix: "review",
+          });
     const structuredContent = scaffoldContent(
       anchoredManifest,
       catalog,
@@ -1693,10 +1697,12 @@ export async function routePreparedEvidence({
       artifactName: "content.json",
       value: structuredContent,
     });
+    const nextPhase =
+      packetIds.length === 0 ? "authoring-pending" : "review-pending";
     const completed = advanceTransaction(transactionPath, "snapshot-created", {
       ...common,
-      phase: "review-pending",
-      status: "review-pending",
+      phase: nextPhase,
+      status: nextPhase,
       route: "extended",
       inlineEvidence: null,
       review: {
@@ -1745,6 +1751,7 @@ function successEnvelope(transaction, summary) {
           extendedReason: transaction.review.extendedReason,
           reviewQueue: transaction.review.queue,
           structuredMessageMode: transaction.review.structuredMessageMode,
+          ...authoringProgress(transaction),
         }),
   };
 }

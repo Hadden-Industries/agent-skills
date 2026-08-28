@@ -40,11 +40,13 @@ import {
   manifestEnvironment,
   preflightVerificationPolicy,
 } from "./prepareWorkflow.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const PROMOTABLE_STATES = new Set([
   JSON.stringify(["evidence-ready", "prepared"]),
+  JSON.stringify(["authoring-pending", "authoring-pending"]),
   JSON.stringify(["message-ready", "message-ready"]),
 ]);
 
@@ -503,6 +505,9 @@ function successEnvelope(transaction) {
       : {
           reviewCatalogSha256: transaction.review?.catalogSha256 ?? null,
           messageSha256: transaction.message?.sha256 ?? null,
+          ...(transaction.phase === "authoring-pending"
+            ? authoringProgress(transaction)
+            : {}),
         }),
   };
 }
@@ -516,7 +521,7 @@ function assertPromotableTransaction(transaction) {
   ) {
     fail(
       "PROMOTION_STATE_INVALID",
-      "Only an active evidence-ready or message-ready draft can be promoted.",
+      "Only an active evidence-ready, authoring-pending, or message-ready draft can be promoted.",
       { exitCode: 1 },
     );
   }

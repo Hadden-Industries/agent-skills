@@ -203,7 +203,7 @@ function assertCheckTransaction(transaction, transactionPath) {
   const receipt = transaction.review?.receipt;
   const extendedAllowed =
     transaction.route === "extended" &&
-    new Set(["review-pending", "message-ready"]).has(transaction.phase) &&
+    new Set(["authoring-pending", "message-ready"]).has(transaction.phase) &&
     transaction.review.semanticStructureRequired === false &&
     receipt?.requiredPacketsReviewed === true &&
     receipt.catalogSha256 === transaction.review.catalogSha256 &&

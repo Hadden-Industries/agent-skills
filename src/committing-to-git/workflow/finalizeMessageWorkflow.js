@@ -21,6 +21,7 @@ import {
 } from "../inspection/reviewCatalog.js";
 import { stableJsonBytes } from "../inspection/inlineEvidenceCapsule.js";
 import { renderCommitMessage } from "../message/commitMessageRenderer.js";
+import { validateCompleteSemanticContent } from "../message/semanticContentValidation.js";
 import {
   readTransactionOwnedFile,
   replaceCanonicalMessage,
@@ -49,39 +50,9 @@ import {
 
 const CONTENT_NAME = "content.json";
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
-const COMPLETE_COMMON_KEYS = [
-  "schemaVersion",
-  "authoringState",
-  "evidenceGroups",
-  "subject",
-  "sharedRationales",
-  "userExperienceChanges",
-  "mode",
-];
 
 function fail(code, message, { exitCode = 2, details = {} } = {}) {
   throw new MessageWorkflowError(code, message, { exitCode, details });
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function assertExactKeys(value, keys, label) {
-  if (!isPlainObject(value)) {
-    fail("INVALID_MESSAGE_CONTENT", `${label} must be an object.`);
-  }
-
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail(
-      "INVALID_MESSAGE_CONTENT",
-      `${label} contains missing or unknown members.`,
-      { details: { label, expected, actual } },
-    );
-  }
 }
 
 function decodeContent(bytes) {
@@ -99,105 +70,6 @@ function decodeContent(bytes) {
     fail(
       "INVALID_MESSAGE_CONTENT",
       `The fixed content.json is invalid JSON: ${error.message}`,
-    );
-  }
-}
-
-function assertSelectionContainer(entry, label, extraKeys = []) {
-  assertExactKeys(entry, ["selection", ...extraKeys], label);
-}
-
-function assertCompleteContentShape(content) {
-  if (!isPlainObject(content) || content.schemaVersion !== 3) {
-    fail(
-      "INVALID_MESSAGE_CONTENT",
-      "Extended finalization requires schema-version-3 semantic content.",
-    );
-  }
-
-  if (content.authoringState !== "complete") {
-    fail(
-      "INCOMPLETE_SEMANTIC_CONTENT",
-      "Set authoringState to complete only after every semantic decision and required review is complete.",
-    );
-  }
-
-  if (!new Set(["detailed", "bulk"]).has(content.mode)) {
-    fail(
-      "INVALID_MESSAGE_CONTENT",
-      "Semantic message mode must be detailed or bulk.",
-    );
-  }
-
-  assertExactKeys(
-    content,
-    [
-      ...COMPLETE_COMMON_KEYS,
-      content.mode === "bulk" ? "domains" : "fileNotes",
-    ],
-    "Complete semantic content",
-  );
-  assertExactKeys(
-    content.subject,
-    ["type", "scope", "description"],
-    "Commit subject",
-  );
-
-  if (
-    !Array.isArray(content.evidenceGroups) ||
-    content.evidenceGroups.length === 0
-  ) {
-    fail(
-      "INVALID_MESSAGE_CONTENT",
-      "Evidence groups must be a nonempty array.",
-    );
-  }
-
-  for (const [index, group] of content.evidenceGroups.entries()) {
-    assertExactKeys(
-      group,
-      ["selection", "policy", "basis"],
-      `Evidence group ${index + 1}`,
-    );
-    assertExactKeys(
-      group.basis,
-      ["kind", "note"],
-      `Evidence group ${index + 1} basis`,
-    );
-  }
-
-  for (const [field, entries] of [
-    ["sharedRationales", content.sharedRationales],
-    ["fileNotes", content.mode === "detailed" ? content.fileNotes : []],
-  ]) {
-    if (!Array.isArray(entries)) {
-      fail("INVALID_MESSAGE_CONTENT", `${field} must be an array.`);
-    }
-
-    entries.forEach((entry, index) =>
-      assertSelectionContainer(entry, `${field} entry ${index + 1}`, [
-        "reasons",
-      ]),
-    );
-  }
-
-  if (!Array.isArray(content.userExperienceChanges)) {
-    fail("INVALID_MESSAGE_CONTENT", "userExperienceChanges must be an array.");
-  }
-
-  if (content.mode === "bulk") {
-    if (!Array.isArray(content.domains) || content.domains.length === 0) {
-      fail(
-        "MISSING_SEMANTIC_DECISIONS",
-        "Complete bulk content requires at least one semantic domain.",
-      );
-    }
-
-    content.domains.forEach((domain, index) =>
-      assertSelectionContainer(domain, `Domain ${index + 1}`, [
-        "title",
-        "reasons",
-      ]),
     );
   }
 }
@@ -257,7 +129,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 
   if (
-    !new Set(["review-pending", "message-ready"]).has(transaction.phase) ||
+    !new Set(["authoring-pending", "message-ready"]).has(transaction.phase) ||
     transaction.commit !== null
   ) {
     fail(
@@ -519,8 +391,8 @@ function requireEvidence(
     review,
   };
 
-  if (latest.phase === "message-ready") {
-    advanceTransaction(transactionPath, "message-ready", next);
+  if (new Set(["authoring-pending", "message-ready"]).has(latest.phase)) {
+    advanceTransaction(transactionPath, latest.phase, next);
   } else {
     updateTransaction(transactionPath, "review-pending", next);
   }
@@ -604,17 +476,23 @@ export async function finalizeMessageWorkflow({
   });
   const content = decodeContent(opened.bytes);
 
-  if (
-    new Set(["detailed", "bulk"]).has(content?.mode) &&
-    content.mode !== transaction.review.structuredMessageMode
-  ) {
+  const structural = validateCompleteSemanticContent(content);
+
+  if (!structural.valid) {
+    fail(
+      "INVALID_MESSAGE_CONTENT",
+      `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
+      { details: { diagnostics: structural.diagnostics } },
+    );
+  }
+
+  if (content.mode !== transaction.review.structuredMessageMode) {
     fail(
       "MESSAGE_PRESENTATION_MODE_MISMATCH",
       `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`,
     );
   }
 
-  assertCompleteContentShape(content);
   const snapshot = readExactRecordedSnapshot(transactionPath);
 
   transaction = snapshot.transaction;

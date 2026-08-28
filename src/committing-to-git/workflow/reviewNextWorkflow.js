@@ -10,9 +10,11 @@ import {
   requiredReviewPacketIds,
 } from "../inspection/reviewCatalog.js";
 import {
+  advanceTransaction,
   readTransaction,
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 const FORMATS = new Set(["json", "text"]);
 const MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
@@ -97,12 +99,14 @@ function readCurrentCatalog(transaction) {
 function assertReviewNextTransaction(transaction, transactionPath) {
   if (
     transaction.route !== "extended" ||
-    !new Set(["review-pending", "message-ready"]).has(transaction.phase) ||
+    !new Set(["review-pending", "authoring-pending", "message-ready"]).has(
+      transaction.phase,
+    ) ||
     transaction.commit !== null
   ) {
     fail(
       "REVIEW_NEXT_NOT_ALLOWED",
-      `Packet review requires a precommit extended review-pending transaction, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
+      `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
         exitCode: 1,
         details: { transaction: resolve(transactionPath) },
@@ -214,14 +218,7 @@ function assertResultBudget(result) {
   return result;
 }
 
-function reviewResult({
-  transaction,
-  transactionPath,
-  packet,
-  content,
-  traversal,
-  requiredPacketCount,
-}) {
+function reviewResult({ transaction, transactionPath, packet, content }) {
   return assertResultBudget({
     schemaVersion: 1,
     status: transaction.status,
@@ -233,19 +230,17 @@ function reviewResult({
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    packet: {
-      id: packet.id,
-      kind: packet.kind,
-      sha256: packet.sha256,
-      byteCount: packet.byteCount,
-      content,
-    },
-    reviewProgress: {
-      deliveredPacketCount: traversal.deliveredPacketCount,
-      requiredPacketCount,
-      complete: traversal.complete,
-      nextCursor: traversal.nextCursor,
-    },
+    packet:
+      packet === null
+        ? null
+        : {
+            id: packet.id,
+            kind: packet.kind,
+            sha256: packet.sha256,
+            byteCount: packet.byteCount,
+            content,
+          },
+    ...authoringProgress(transaction),
   });
 }
 
@@ -270,6 +265,27 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
 
   assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds);
   assertTraversal(traversal, catalog, deliveryPacketIds);
+
+  // A semantic revision can prove that the existing receipt already covers
+  // every packet in the revised catalog. In that state there is no evidence
+  // to deliver, so review-next is an idempotent authoring-status query rather
+  // than an error or a synthetic empty packet.
+  if (deliveryPacketIds.length === 0) {
+    if (cursor !== null) {
+      fail(
+        "REVIEW_CURSOR_INVALID",
+        "A completed zero-packet review must be requested without a cursor.",
+      );
+    }
+
+    return reviewResult({
+      transaction,
+      transactionPath,
+      packet: null,
+      content: null,
+    });
+  }
+
   const selection = deliverySelection({
     traversal,
     cursor,
@@ -288,8 +304,6 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
     );
   }
 
-  let currentTraversal = traversal;
-
   if (!selection.replay) {
     const deliveredPacketCount = selection.packetIndex + 1;
     const complete = deliveredPacketCount === deliveryPacketIds.length;
@@ -301,7 +315,7 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
           priorPacketSha256: packet.sha256,
         });
 
-    currentTraversal = {
+    const currentTraversal = {
       schemaVersion: 1,
       catalogSha256: catalog.catalogSha256,
       deliveredPacketCount,
@@ -318,14 +332,20 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
         })
       : null;
 
-    transaction = updateTransaction(transactionPath, transaction.phase, {
+    const nextState = {
       ...transaction,
+      phase: complete ? "authoring-pending" : transaction.phase,
+      status: complete ? "authoring-pending" : transaction.status,
       review: {
         ...transaction.review,
         receipt,
         traversal: currentTraversal,
       },
-    });
+    };
+
+    transaction = complete
+      ? advanceTransaction(transactionPath, transaction.phase, nextState)
+      : updateTransaction(transactionPath, transaction.phase, nextState);
   }
 
   return reviewResult({
@@ -333,8 +353,6 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
     transactionPath,
     packet,
     content,
-    traversal: currentTraversal,
-    requiredPacketCount: deliveryPacketIds.length,
   });
 }
 
@@ -406,6 +424,16 @@ function textResult(result) {
       "",
       `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
       `Next cursor: ${result.reviewProgress.nextCursor ?? "complete"}`,
+      "",
+    ].join("\n");
+  }
+
+  if (result.reviewProgress?.complete) {
+    return [
+      `Status: ${result.status}`,
+      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
+      `Next action: ${result.nextAction}`,
+      `Input path: ${result.contentPath ?? result.messagePath}`,
       "",
     ].join("\n");
   }
