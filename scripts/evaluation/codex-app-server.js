@@ -28,6 +28,7 @@ import {
 } from "./runtime.js";
 
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
+const DIRECT_WINDOWS_EXECUTABLE_EXTENSIONS = new Set([".com", ".exe"]);
 const APP_SERVER_ARGUMENTS = Object.freeze([
   "-c",
   'cli_auth_credentials_store="file"',
@@ -294,6 +295,19 @@ async function fingerprintFile(path) {
   };
 }
 
+function assertDirectWindowsExecutable(executablePath) {
+  if (
+    process.platform === "win32" &&
+    !DIRECT_WINDOWS_EXECUTABLE_EXTENSIONS.has(
+      extname(executablePath).toLowerCase(),
+    )
+  ) {
+    fail(
+      "Codex App Server requires a direct Windows executable (.exe or .com); wrappers and scripts cannot provide reliable child-process lifecycle evidence. Pass an absolute native executable with --codex-command.",
+    );
+  }
+}
+
 async function boundPrefixFiles(prefixArguments) {
   const files = [];
   for (const [argumentIndex, argument] of prefixArguments.entries()) {
@@ -398,6 +412,7 @@ export async function inspectCodexAppServerToolchain({
   const boundEnvironment = immutableCanonicalSnapshot(environment);
 
   const executablePath = await resolveExecutable(command, boundEnvironment);
+  assertDirectWindowsExecutable(executablePath);
   const executable = await fingerprintFile(executablePath);
   const prefixFiles = await boundPrefixFiles(boundPrefixArguments);
   const { stdoutBytes } = await runCaptured(

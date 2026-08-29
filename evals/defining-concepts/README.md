@@ -114,13 +114,13 @@ Do not pool or compare provider profiles as though they offered the same evidenc
 
 ## Prepare, review, authorize, and run
 
-Preparation is local-only and launches zero model turns. Use a new filesystem-safe UTC directory name derived from the same `--started-at` value, for example `2026-08-29T123456.789Z`; the colons are omitted only from the directory name. Use a fresh non-repository `--working-root`. For Codex, name the initialized managed evaluation-homes root.
+Preparation is local-only and launches zero model turns. Use a new filesystem-safe UTC directory name derived from the same `--started-at` value, for example `2026-08-29T123456.789Z`; the colons are omitted only from the directory name. Use a fresh non-repository `--working-root`. For Codex, bind the reviewed executable and name the initialized managed evaluation-homes root.
 
 ```text
-node evals/defining-concepts/evaluation-runner.mjs prepare --campaign calibration --destination <absolute-results/UTC-timestamp-directory> --baseline-revision <full-commit-oid> --provider codex --model <exact-model-id> --effort <exact-effort> --seed <reviewed-stable-seed> --started-at <RFC-3339-UTC-timestamp> --working-root <absolute-fresh-working-root> --evaluation-homes-root <absolute-managed-evaluation-homes-root>
+node evals/defining-concepts/evaluation-runner.mjs prepare --campaign calibration --destination <absolute-results/UTC-timestamp-directory> --baseline-revision <full-commit-oid> --provider codex --model <exact-model-id> --effort <exact-effort> --seed <reviewed-stable-seed> --started-at <RFC-3339-UTC-timestamp> --working-root <absolute-fresh-working-root> --codex-command <absolute-reviewed-codex-executable> --evaluation-homes-root <absolute-managed-evaluation-homes-root>
 ```
 
-Provider-specific preparation may additionally use the reviewed command and repeatable prefix arguments accepted by the runner. Do not substitute a mutable label such as `latest` for an exact model identifier when the provider offers a stable exact ID.
+Provider-specific preparation may additionally use the repeatable prefix arguments accepted by the runner. On Windows, `--codex-command` must resolve directly to a native `.exe` or `.com`; command wrappers and scripts are rejected because closing a wrapper does not prove that its App Server descendant has closed. Do not substitute a mutable label such as `latest` for an exact model identifier when the provider offers a stable exact ID.
 
 Before execution, review and disclose:
 

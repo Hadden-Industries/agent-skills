@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -398,6 +405,26 @@ test("toolchain inspection binds explicit prefix arguments and a canonical schem
     inheritedScenario: null,
   });
 });
+
+test(
+  "Windows command wrappers are rejected before App Server inspection",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await temporaryRoot(t);
+    const wrapper = join(root, "codex.cmd");
+    await writeFile(wrapper, "@echo off\r\nexit /b 0\r\n", "utf8");
+
+    await assert.rejects(
+      inspectCodexAppServerToolchain({
+        command: wrapper,
+        prefixArguments: [],
+        scratchRoot: join(root, "scratch"),
+        environment: { PATH: process.env.PATH ?? "" },
+      }),
+      /direct Windows executable.*--codex-command/iu,
+    );
+  },
+);
 
 test("preflight accepts the official initialize response and writes terminal evidence last", async (t) => {
   const root = await temporaryRoot(t);
