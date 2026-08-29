@@ -32,7 +32,10 @@ function resultDirectories() {
 }
 
 function currentSchemaFixture() {
-  const caseBytes = Buffer.from('{"id":1,"prompt":"Define distribution."}\n', "utf8");
+  const caseBytes = Buffer.from(
+    '{"id":1,"prompt":"Define distribution."}\n',
+    "utf8",
+  );
   const conversationBytes = Buffer.from(
     '{"turns":[{"id":"initial","prompt":"Define distribution."}]}\n',
     "utf8",
@@ -156,7 +159,9 @@ function validateResultArtifactSet({
   }
 
   if (manifest?.schemaVersion !== 2) {
-    throw new Error("result artifact set must declare an explicitly supported result schema");
+    throw new Error(
+      "result artifact set must declare an explicitly supported result schema",
+    );
   }
 
   assert.equal(manifest.suite, "defining-concepts");
@@ -218,7 +223,9 @@ function validateResultArtifactSet({
   assert.equal(execution.schemaVersion, 1);
   const dispositions = new Set();
   for (const session of execution.sessions) {
-    assert.ok(session.disposition === "valid" || session.disposition === "invalid");
+    assert.ok(
+      session.disposition === "valid" || session.disposition === "invalid",
+    );
     dispositions.add(session.disposition);
   }
   for (const attempt of invalidAttempts) {

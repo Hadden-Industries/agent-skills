@@ -28,10 +28,7 @@ function assertInputs({ repositoryRoot, skillName }) {
   ) {
     fail("repositoryRoot must be an absolute path");
   }
-  if (
-    typeof skillName !== "string" ||
-    !SKILL_NAME_PATTERN.test(skillName)
-  ) {
+  if (typeof skillName !== "string" || !SKILL_NAME_PATTERN.test(skillName)) {
     fail("skillName is invalid");
   }
 }
@@ -75,7 +72,10 @@ function fileRecord(relativePath, bytes) {
 }
 
 function comparePaths(left, right) {
-  return Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8"));
+  return Buffer.compare(
+    Buffer.from(left.path, "utf8"),
+    Buffer.from(right.path, "utf8"),
+  );
 }
 
 function finalizeBundle({ skillName, source, files }) {
@@ -131,11 +131,7 @@ function gitSource(repositoryRoot, revision) {
   return { kind: "git", commitOid, treeOid };
 }
 
-export function captureGitSkillBundle({
-  repositoryRoot,
-  revision,
-  skillName,
-}) {
+export function captureGitSkillBundle({ repositoryRoot, revision, skillName }) {
   assertInputs({ repositoryRoot, skillName });
   const source = gitSource(repositoryRoot, revision);
   const prefix = `skills/${skillName}`;
@@ -152,7 +148,9 @@ export function captureGitSkillBundle({
   );
   const files = entries.map((entry) => {
     if (entry.mode !== "100644" || entry.type !== "blob") {
-      fail(`unsupported Git entry ${entry.mode} ${entry.type} at ${entry.path}`);
+      fail(
+        `unsupported Git entry ${entry.mode} ${entry.type} at ${entry.path}`,
+      );
     }
     const bytes = git(repositoryRoot, ["cat-file", "blob", entry.oid]);
     return fileRecord(entry.path, bytes);
@@ -225,7 +223,12 @@ export function renderSkillBundle(bundle) {
     "Apply the following repository files as one skill. File boundaries are semantic and must be preserved.",
   ];
   for (const file of bundle.files) {
-    sections.push("", `## \`${file.path}\``, "", file.content.replace(/\n$/u, ""));
+    sections.push(
+      "",
+      `## \`${file.path}\``,
+      "",
+      file.content.replace(/\n$/u, ""),
+    );
   }
   return `${sections.join("\n")}\n`;
 }

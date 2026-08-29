@@ -103,7 +103,9 @@ export function normalizeEvaluationConversation(evaluationCase) {
         fail(`follow-up at index ${index} has an invalid id`);
       }
       if (ids.has(followUp.id)) {
-        fail(`conversation contains duplicate follow-up id ${JSON.stringify(followUp.id)}`);
+        fail(
+          `conversation contains duplicate follow-up id ${JSON.stringify(followUp.id)}`,
+        );
       }
       if (!isNonemptyString(followUp.prompt)) {
         fail(`follow-up ${JSON.stringify(followUp.id)} has an empty prompt`);
@@ -147,7 +149,9 @@ export function createScriptedConversationController({
         event?.status !== "completed" ||
         !isNonemptyString(event?.finalAnswer)
       ) {
-        fail(`scripted conversation expected completed turn ${expectedTurnIndex}`);
+        fail(
+          `scripted conversation expected completed turn ${expectedTurnIndex}`,
+        );
       }
 
       if (expectedTurnIndex < conversation.length) {

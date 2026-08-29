@@ -53,7 +53,11 @@ function invoke(args) {
   return spawnSync(process.execPath, [runner, ...args], { encoding: "utf8" });
 }
 
-function bundleRecord({ content, kind = "working-tree", sourceId = "candidate" }) {
+function bundleRecord({
+  content,
+  kind = "working-tree",
+  sourceId = "candidate",
+}) {
   const bytes = Buffer.from(content, "utf8");
   const payload = {
     schemaVersion: 1,
@@ -379,10 +383,9 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     readFileSync(path.join(destination, "packet.json"), "utf8"),
   );
   assert.equal(packet.transmission.continuationPolicy.maxTurns, 2);
-  assert.deepEqual(
-    packet.transmission.continuationPolicy.allowedTransitions,
-    ["select-electric-charge"],
-  );
+  assert.deepEqual(packet.transmission.continuationPolicy.allowedTransitions, [
+    "select-electric-charge",
+  ]);
   assert.equal(
     packet.transmission.continuationPolicy.templates[0].input[0].text,
     "Use the physical quantity sense: electric charge.",

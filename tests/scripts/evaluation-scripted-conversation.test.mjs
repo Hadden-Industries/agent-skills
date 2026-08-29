@@ -101,9 +101,7 @@ test("three-turn controller emits each exact continuation before completing", as
   assert.deepEqual(await controller.onTurnCompleted(completedEvent(2)), {
     action: "continue",
     transitionId: "request-concept-package",
-    input: [
-      { type: "text", text: "Now provide the full concept package." },
-    ],
+    input: [{ type: "text", text: "Now provide the full concept package." }],
   });
   assert.deepEqual(
     await controller.onTurnCompleted(completedEvent(3, "final package")),
@@ -161,10 +159,7 @@ test("continuation policy binds every follow-up exactly once", () => {
   assert.deepEqual(policy, {
     controllerSha256: "5".repeat(64),
     maxTurns: 3,
-    allowedTransitions: [
-      "select-electric-charge",
-      "request-concept-package",
-    ],
+    allowedTransitions: ["select-electric-charge", "request-concept-package"],
     templates: [
       {
         transitionId: "select-electric-charge",

@@ -132,7 +132,13 @@ test("bundle aggregate changes with path, content, or source revision", (t) => {
     revision: "HEAD",
     skillName: "example-skill",
   });
-  git(repositoryRoot, "commit", "--allow-empty", "-m", "test: New source identity");
+  git(
+    repositoryRoot,
+    "commit",
+    "--allow-empty",
+    "-m",
+    "test: New source identity",
+  );
   const secondCommit = captureGitSkillBundle({
     repositoryRoot,
     revision: "HEAD",
@@ -145,7 +151,10 @@ test("bundle aggregate changes with path, content, or source revision", (t) => {
 test("rendering preserves file boundaries and duplicate basenames", (t) => {
   const { repositoryRoot, skillRoot } = createRepository(t);
   mkdirSync(path.join(skillRoot, "other"));
-  writeFileSync(path.join(skillRoot, "other", "details.md"), "Other details.\n");
+  writeFileSync(
+    path.join(skillRoot, "other", "details.md"),
+    "Other details.\n",
+  );
   const bundle = captureWorkingTreeSkillBundle({
     repositoryRoot,
     skillName: "example-skill",
@@ -153,7 +162,10 @@ test("rendering preserves file boundaries and duplicate basenames", (t) => {
 
   const rendered = renderSkillBundle(bundle);
 
-  assert.match(rendered, /## `skills\/example-skill\/references\/details\.md`/u);
+  assert.match(
+    rendered,
+    /## `skills\/example-skill\/references\/details\.md`/u,
+  );
   assert.match(rendered, /## `skills\/example-skill\/other\/details\.md`/u);
   assert.match(rendered, /Committed details\./u);
   assert.match(rendered, /Other details\./u);

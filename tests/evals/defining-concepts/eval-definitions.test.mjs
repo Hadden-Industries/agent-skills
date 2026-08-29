@@ -5,7 +5,10 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const definitions = JSON.parse(
-  readFileSync(path.join(root, "evals", "defining-concepts", "evals.json"), "utf8"),
+  readFileSync(
+    path.join(root, "evals", "defining-concepts", "evals.json"),
+    "utf8",
+  ),
 );
 const triggers = JSON.parse(
   readFileSync(
@@ -49,8 +52,14 @@ const allowedProfiles = new Set([
 test("behavioral manifest declares the approved 16-case three-arm protocol", () => {
   assert.equal(definitions.schema_version, 2);
   assert.equal(definitions.skill_name, "defining-concepts");
-  assert.deepEqual(definitions.evals.map(({ id }) => id), Array.from({ length: 16 }, (_, index) => index + 1));
-  assert.deepEqual(definitions.evals.map(({ name }) => name), expectedNames);
+  assert.deepEqual(
+    definitions.evals.map(({ id }) => id),
+    Array.from({ length: 16 }, (_, index) => index + 1),
+  );
+  assert.deepEqual(
+    definitions.evals.map(({ name }) => name),
+    expectedNames,
+  );
   assert.deepEqual(definitions.campaigns.calibration, {
     case_ids: [1, 3, 8, 9, 10, 11, 12, 13, 14, 15],
     arms: ["no-skill", "current-skill", "candidate-skill"],
@@ -59,13 +68,18 @@ test("behavioral manifest declares the approved 16-case three-arm protocol", () 
   for (const evaluationCase of definitions.evals) {
     assert.ok(allowedRenderers.has(evaluationCase.renderer));
     assert.ok(evaluationCase.profiles.includes("terminology-core"));
-    assert.ok(evaluationCase.profiles.every((profile) => allowedProfiles.has(profile)));
+    assert.ok(
+      evaluationCase.profiles.every((profile) => allowedProfiles.has(profile)),
+    );
     assert.ok(evaluationCase.research_strata.length > 0);
     assert.ok(evaluationCase.qualitative_dimensions.length > 0);
     assert.ok(evaluationCase.critical_expectation_indexes.length > 0);
     assert.ok(
       evaluationCase.critical_expectation_indexes.every(
-        (index) => Number.isSafeInteger(index) && index >= 0 && index < evaluationCase.expectations.length,
+        (index) =>
+          Number.isSafeInteger(index) &&
+          index >= 0 &&
+          index < evaluationCase.expectations.length,
       ),
     );
   }
@@ -91,14 +105,22 @@ test("ISO fallback remains proportional and profile scope is explicit", () => {
   const fallback = definitions.evals[8];
   assert.deepEqual(fallback.profiles, ["terminology-core", "data-definitions"]);
   assert.equal(fallback.standards_scope, "fallback-without-compliance-claim");
-  assert.match(fallback.expectations.join("\n"), /must not claim ISO\/IEC 11179 compliance/iu);
+  assert.match(
+    fallback.expectations.join("\n"),
+    /must not claim ISO\/IEC 11179 compliance/iu,
+  );
 
-  const profileCases = new Map(definitions.evals.map((item) => [item.id, item]));
+  const profileCases = new Map(
+    definitions.evals.map((item) => [item.id, item]),
+  );
   assert.deepEqual(profileCases.get(11).profiles, [
     "terminology-core",
     "knowledge-organization-systems",
   ]);
-  assert.deepEqual(profileCases.get(12).profiles, ["terminology-core", "formal-ontology"]);
+  assert.deepEqual(profileCases.get(12).profiles, [
+    "terminology-core",
+    "formal-ontology",
+  ]);
   assert.deepEqual(profileCases.get(13).profiles, [
     "terminology-core",
     "multilingual-terminology",
@@ -108,7 +130,10 @@ test("ISO fallback remains proportional and profile scope is explicit", () => {
     "epistemic-governance",
   ]);
   for (const id of [11, 12, 13, 14]) {
-    assert.doesNotMatch(profileCases.get(id).expectations.join("\n"), /11179 compliance/iu);
+    assert.doesNotMatch(
+      profileCases.get(id).expectations.join("\n"),
+      /11179 compliance/iu,
+    );
   }
   for (const id of [1, 2, 3, 4, 5, 6]) {
     assert.ok(profileCases.get(id).profiles.includes("data-definitions"));
@@ -128,7 +153,9 @@ test("critical failures and research strata are explicitly observable", () => {
     "illegitimate-universalization-or-authority-claim",
     "definition-not-first-when-responsibly-available",
   ]);
-  const strata = new Set(definitions.evals.flatMap(({ research_strata }) => research_strata));
+  const strata = new Set(
+    definitions.evals.flatMap(({ research_strata }) => research_strata),
+  );
   for (const required of [
     "polysemy",
     "category-trap",
@@ -146,8 +173,12 @@ test("critical failures and research strata are explicitly observable", () => {
 });
 
 test("trigger cases cover every inclusion and exclusion family twice", () => {
-  const positive = triggers.filter(({ should_trigger }) => should_trigger).map(({ query }) => query);
-  const negative = triggers.filter(({ should_trigger }) => !should_trigger).map(({ query }) => query);
+  const positive = triggers
+    .filter(({ should_trigger }) => should_trigger)
+    .map(({ query }) => query);
+  const negative = triggers
+    .filter(({ should_trigger }) => !should_trigger)
+    .map(({ query }) => query);
   const positiveFamilies = [
     /define|definition/iu,
     /audit|revise|replace/iu,
@@ -164,10 +195,16 @@ test("trigger cases cover every inclusion and exclusion family twice", () => {
     /implement|class|validator|unit test/iu,
   ];
   for (const pattern of positiveFamilies) {
-    assert.ok(positive.filter((query) => pattern.test(query)).length >= 2, pattern.toString());
+    assert.ok(
+      positive.filter((query) => pattern.test(query)).length >= 2,
+      pattern.toString(),
+    );
   }
   for (const pattern of negativeFamilies) {
-    assert.ok(negative.filter((query) => pattern.test(query)).length >= 2, pattern.toString());
+    assert.ok(
+      negative.filter((query) => pattern.test(query)).length >= 2,
+      pattern.toString(),
+    );
   }
 });
 

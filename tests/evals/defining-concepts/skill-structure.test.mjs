@@ -11,7 +11,6 @@ import {
 const root = path.resolve(import.meta.dirname, "../../..");
 const skillsRoot = path.join(root, "skills");
 const skillRoot = path.join(skillsRoot, "defining-concepts");
-const skillPath = path.join(skillRoot, "SKILL.md");
 const referencesRoot = path.join(skillRoot, "references");
 const plannedReferences = [
   "concept-entry-model.md",
@@ -38,31 +37,62 @@ function assertMatchesAll(source, patterns) {
 test("router: the canonical graph has nine conditional lower-kebab-case references", () => {
   const skill = read("SKILL.md");
   for (const relativePath of plannedReferences) {
-    assert.ok(existsSync(path.join(referencesRoot, relativePath)), relativePath);
-    assert.match(relativePath, /^(?:profiles\/)?[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u);
-    assert.match(skill, new RegExp(`\\[.*?\\]\\(references/${relativePath.replace("/", "\\/")}\\)`, "u"));
+    assert.ok(
+      existsSync(path.join(referencesRoot, relativePath)),
+      relativePath,
+    );
+    assert.match(
+      relativePath,
+      /^(?:profiles\/)?[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u,
+    );
+    assert.match(
+      skill,
+      new RegExp(
+        `\\[.*?\\]\\(references/${relativePath.replace("/", "\\/")}\\)`,
+        "u",
+      ),
+    );
   }
   assert.doesNotMatch(skill, /read (?:all|every) reference/iu);
-  assert.equal(existsSync(path.join(referencesRoot, "judicial_plea_status_definition.md")), false);
+  assert.equal(
+    existsSync(path.join(referencesRoot, "judicial_plea_status_definition.md")),
+    false,
+  );
   assert.doesNotMatch(skill, /judicial_plea_status_definition/iu);
 });
 
 test("router: every local Markdown link resolves within the skill", () => {
-  for (const relativePath of ["SKILL.md", ...plannedReferences.map((item) => `references/${item}`)]) {
+  for (const relativePath of [
+    "SKILL.md",
+    ...plannedReferences.map((item) => `references/${item}`),
+  ]) {
     const absolutePath = path.join(skillRoot, relativePath);
     const source = readFileSync(absolutePath, "utf8");
     const links = source.matchAll(/\[[^\]]+\]\(([^)]+)\)/gu);
     for (const [, destination] of links) {
       if (/^(?:https?:|#)/u.test(destination)) continue;
       const [filePart] = destination.split("#", 1);
-      assert.ok(existsSync(path.resolve(path.dirname(absolutePath), filePart)), `${relativePath} -> ${destination}`);
+      assert.ok(
+        existsSync(path.resolve(path.dirname(absolutePath), filePart)),
+        `${relativePath} -> ${destination}`,
+      );
     }
   }
 });
 
 test("router: source files preserve canonical ASCII and human-readable physical lines", async () => {
-  assert.equal(validateCanonicalSkillAscii(skillsRoot, { skillNames: ["defining-concepts"] }), 1);
-  assert.equal(await validateCanonicalSkillMarkdownWrapping(skillsRoot, { skillNames: ["defining-concepts"] }), 10);
+  assert.equal(
+    validateCanonicalSkillAscii(skillsRoot, {
+      skillNames: ["defining-concepts"],
+    }),
+    1,
+  );
+  assert.equal(
+    await validateCanonicalSkillMarkdownWrapping(skillsRoot, {
+      skillNames: ["defining-concepts"],
+    }),
+    10,
+  );
 });
 
 test("router: trigger boundary and universal workflow are explicit", () => {
@@ -96,21 +126,41 @@ test("router: decisions, strategies, renderers, and completion gates remain disc
     /false exact mapping/iu,
     /illegitimate authority/iu,
   ]);
-  assert.doesNotMatch(skill, /exactly (?:these )?five|five[- ]section|section 3/iu);
-  assert.doesNotMatch(skill, /numeric confidence|confidence score|probability/iu);
+  assert.doesNotMatch(
+    skill,
+    /exactly (?:these )?five|five[- ]section|section 3/iu,
+  );
+  assert.doesNotMatch(
+    skill,
+    /numeric confidence|confidence score|probability/iu,
+  );
 });
 
 test("router: profiles compose behind explicit activation conditions", () => {
   const skill = read("SKILL.md");
   const routes = [
-    ["profiles/data-definitions.md", /data elements?|metadata registr|fields?|codes?|value domains?/iu],
-    ["profiles/knowledge-organization-systems.md", /thesaur|taxonom|classification|controlled vocabular|concept scheme|mapping/iu],
+    [
+      "profiles/data-definitions.md",
+      /data elements?|metadata registr|fields?|codes?|value domains?/iu,
+    ],
+    [
+      "profiles/knowledge-organization-systems.md",
+      /thesaur|taxonom|classification|controlled vocabular|concept scheme|mapping/iu,
+    ],
     ["profiles/formal-ontology.md", /class|propert|individual|axiom|reason/iu],
-    ["profiles/multilingual-terminology.md", /multilingual|language|script|translat|equivalence/iu],
-    ["profiles/epistemic-governance.md", /contested|situated|normative|community|authority/iu],
+    [
+      "profiles/multilingual-terminology.md",
+      /multilingual|language|script|translat|equivalence/iu,
+    ],
+    [
+      "profiles/epistemic-governance.md",
+      /contested|situated|normative|community|authority/iu,
+    ],
   ];
   for (const [reference, activation] of routes) {
-    const row = skill.split("\n").find((line) => line.includes(`references/${reference}`));
+    const row = skill
+      .split("\n")
+      .find((line) => line.includes(`references/${reference}`));
     assert.ok(row, reference);
     assert.match(row, activation);
   }
@@ -165,7 +215,8 @@ test("concept-entry-model: one format-neutral record owns ten semantic groups an
     "Active-profile extensions",
     "Governance and maintenance",
   ];
-  for (const group of groups) assert.match(source, new RegExp(`## [0-9]+\\. ${group}`, "iu"));
+  for (const group of groups)
+    assert.match(source, new RegExp(`## [0-9]+\\. ${group}`, "iu"));
   assertMatchesAll(source, [
     /preferred.*alternative.*hidden.*deprecated.*forbidden.*candidate/isu,
     /positive examples.*negative examples.*counterexamples.*near misses/isu,
@@ -188,7 +239,10 @@ test("presentation: three projections are definition-first, proportional, and bl
     /definition.*identity and designations.*purpose.*scope.*characteristics.*typed relations.*evidence.*profile.*status.*maintenance/isu,
     /same.*concept identity.*disposition.*status.*evidence.*blocker/isu,
   ]);
-  assert.doesNotMatch(source, /exactly five|five[- ]section|generic numbered/iu);
+  assert.doesNotMatch(
+    source,
+    /exactly five|five[- ]section|generic numbered/iu,
+  );
 });
 
 test("serialization: machine output is conditional, versioned, state-preserving, and honest", () => {
@@ -206,7 +260,9 @@ test("serialization: machine output is conditional, versioned, state-preserving,
 });
 
 test("profiles: every specialist file follows the common composable contract", () => {
-  const profilePaths = plannedReferences.filter((item) => item.startsWith("profiles/"));
+  const profilePaths = plannedReferences.filter((item) =>
+    item.startsWith("profiles/"),
+  );
   const headings = [
     "Activation",
     "Additional questions",
@@ -220,7 +276,12 @@ test("profiles: every specialist file follows the common composable contract", (
   ];
   for (const profilePath of profilePaths) {
     const source = read(`references/${profilePath}`);
-    for (const heading of headings) assert.match(source, new RegExp(`^## ${heading}$`, "imu"), `${profilePath}: ${heading}`);
+    for (const heading of headings)
+      assert.match(
+        source,
+        new RegExp(`^## ${heading}$`, "imu"),
+        `${profilePath}: ${heading}`,
+      );
     assert.match(source, /terminology core/iu);
   }
 });
@@ -231,11 +292,43 @@ test("profiles: specialist semantics remain additive and scope-safe", () => {
   const ontology = read("references/profiles/formal-ontology.md");
   const multilingual = read("references/profiles/multilingual-terminology.md");
   const governance = read("references/profiles/epistemic-governance.md");
-  assertMatchesAll(data, [/ISO\/IEC 11179-4:2004/u, /ISO\/IEC 11179-5:2015/u, /data element concept.*object class.*property.*conceptual domain.*value domain.*permissible value.*representation/isu, /fallback.*must not.*compliance.*registry acceptance/isu]);
-  assertMatchesAll(kos, [/ISO 25964-1:2011/u, /ISO 25964-2:2013/u, /SKOS.*18 August 2009/isu, /broader.*narrower.*partitive.*associative/isu, /exact.*close.*broad.*narrow.*related.*mapping/isu, /SKOS concept.*OWL class/isu]);
-  assertMatchesAll(ontology, [/competency questions.*intended inferences/isu, /class.*individual.*property.*role.*quality.*process.*information object.*carrier/isu, /necessary.*sufficient.*constraint.*mapping/isu, /OntoClean/iu, /OBO.*CIDOC CRM/isu, /proposed.*parser.*SHACL.*reasoner.*conceptual correctness/isu]);
-  assertMatchesAll(multilingual, [/concept orientation.*translation/isu, /language variety.*script.*jurisdiction.*designation status/isu, /full.*partial.*directional.*pragmatic.*absent equivalence/isu, /ISO 30042:2019.*TBX/isu, /OntoLex-Lemon.*Community Group Report/isu, /native.*community review.*not.*occurred/isu]);
-  assertMatchesAll(governance, [/whose knowledge.*standpoint.*jurisdiction.*authority.*affected/isu, /empirical.*terminological.*normative.*perspective-dependent/isu, /CARE.*collective benefit.*authority.*responsibility.*ethics/isu, /FAIR.*does not.*legitimacy/isu, /provisional.*co-governance.*defer/isu]);
+  assertMatchesAll(data, [
+    /ISO\/IEC 11179-4:2004/u,
+    /ISO\/IEC 11179-5:2015/u,
+    /data element concept.*object class.*property.*conceptual domain.*value domain.*permissible value.*representation/isu,
+    /fallback.*must not.*compliance.*registry acceptance/isu,
+  ]);
+  assertMatchesAll(kos, [
+    /ISO 25964-1:2011/u,
+    /ISO 25964-2:2013/u,
+    /SKOS.*18 August 2009/isu,
+    /broader.*narrower.*partitive.*associative/isu,
+    /exact.*close.*broad.*narrow.*related.*mapping/isu,
+    /SKOS concept.*OWL class/isu,
+  ]);
+  assertMatchesAll(ontology, [
+    /competency questions.*intended inferences/isu,
+    /class.*individual.*property.*role.*quality.*process.*information object.*carrier/isu,
+    /necessary.*sufficient.*constraint.*mapping/isu,
+    /OntoClean/iu,
+    /OBO.*CIDOC CRM/isu,
+    /proposed.*parser.*SHACL.*reasoner.*conceptual correctness/isu,
+  ]);
+  assertMatchesAll(multilingual, [
+    /concept orientation.*translation/isu,
+    /language variety.*script.*jurisdiction.*designation status/isu,
+    /full.*partial.*directional.*pragmatic.*absent equivalence/isu,
+    /ISO 30042:2019.*TBX/isu,
+    /OntoLex-Lemon.*Community Group Report/isu,
+    /native.*community review.*not.*occurred/isu,
+  ]);
+  assertMatchesAll(governance, [
+    /whose knowledge.*standpoint.*jurisdiction.*authority.*affected/isu,
+    /empirical.*terminological.*normative.*perspective-dependent/isu,
+    /CARE.*collective benefit.*authority.*responsibility.*ethics/isu,
+    /FAIR.*does not.*legitimacy/isu,
+    /provisional.*co-governance.*defer/isu,
+  ]);
   assert.match(data, /compose.*multilingual/iu);
   assert.match(kos, /compose.*multilingual/iu);
   assert.match(ontology, /compose.*epistemic governance/iu);

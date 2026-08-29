@@ -139,11 +139,7 @@ function validateFollowUpTurns({
 
     const fields = Object.keys(followUp).sort();
 
-    if (
-      fields.length !== 2 ||
-      fields[0] !== "id" ||
-      fields[1] !== "prompt"
-    ) {
+    if (fields.length !== 2 || fields[0] !== "id" || fields[1] !== "prompt") {
       violations.push(
         `${displayPath} ${evaluationLabel} ${followUpLabel} must contain exactly id and prompt`,
       );
