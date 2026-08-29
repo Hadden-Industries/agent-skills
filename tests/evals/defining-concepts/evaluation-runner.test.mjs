@@ -9,6 +9,7 @@ import {
   buildCampaignMatrix,
   prepareCampaign,
   prepareCampaignGrading,
+  readPreparedSessionResult,
   runPreparedCampaign,
 } from "../../../evals/defining-concepts/evaluation-runner.mjs";
 import {
@@ -47,7 +48,11 @@ function bundle(kind, marker) {
     skillName: "defining-concepts",
     source:
       kind === "git"
-        ? { kind, commitOid: marker.repeat(40).slice(0, 40), treeOid: marker.repeat(40).slice(0, 40) }
+        ? {
+            kind,
+            commitOid: marker.repeat(40).slice(0, 40),
+            treeOid: marker.repeat(40).slice(0, 40),
+          }
         : {
             kind,
             headCommitOid: marker.repeat(40).slice(0, 40),
@@ -85,7 +90,12 @@ function packetFor(cell) {
     transport: "codex-app-server",
     toolchain: { fixture: true },
     runtimeFingerprint: { fixture: true },
-    capabilities: { network: false, webSearch: false, tools: [], providerFacilities: [] },
+    capabilities: {
+      network: false,
+      webSearch: false,
+      tools: [],
+      providerFacilities: [],
+    },
     isolation: { fixture: true },
     harnessControlledInputs: [],
     continuationPolicy: {
@@ -129,6 +139,61 @@ function preparedFixture() {
   return { destination, manifest, providerCalls, temporary };
 }
 
+function writeAuthorizations(context) {
+  const authorizationDirectory = path.join(context.temporary, "authorizations");
+  mkdirSync(authorizationDirectory);
+  for (const session of context.manifest.sessions) {
+    writeFileSync(
+      path.join(authorizationDirectory, `${session.blindAlias}.json`),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        decision: "authorized",
+        statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+        allowExternalModel: true,
+        provider: context.manifest.protocol.provider,
+        model: context.manifest.protocol.model,
+        effort: context.manifest.protocol.effort,
+        transmissionSha256: session.transmissionSha256,
+      })}\n`,
+      { encoding: "utf8", flag: "wx" },
+    );
+  }
+  return authorizationDirectory;
+}
+
+function completeGradeRecords(manifest) {
+  return manifest.sessions.map((session) => ({
+    blindAlias: session.blindAlias,
+    critical: [
+      {
+        expectationId: `critical-${session.caseId}`,
+        passed: true,
+        excerpt: "boundary",
+        reason: "supported",
+      },
+    ],
+    dimensions: [
+      {
+        id: "semantic-accuracy",
+        rating: "meets",
+        excerpt: "accurate definition",
+        reason: "the concept boundary is preserved",
+      },
+    ],
+    tokens: 10,
+    durationMs: 20,
+  }));
+}
+
+function completePairwiseGrades() {
+  return cases.map(({ id }) => ({
+    caseId: id,
+    outcome: "candidate",
+    excerpt: "candidate distinguishes the boundary",
+    reason: "candidate is semantically more precise",
+  }));
+}
+
 test("calibration matrix contains exactly one run for every case and arm", () => {
   const matrix = buildCampaignMatrix({
     caseIds: cases.map(({ id }) => id),
@@ -140,7 +205,11 @@ test("calibration matrix contains exactly one run for every case and arm", () =>
   assert.equal(new Set(matrix.map(({ internalId }) => internalId)).size, 30);
   assert.equal(new Set(matrix.map(({ blindAlias }) => blindAlias)).size, 30);
   assert.ok(matrix.every(({ repetition }) => repetition === 1));
-  assert.ok(matrix.every(({ blindAlias }) => !/current|candidate|skill/iu.test(blindAlias)));
+  assert.ok(
+    matrix.every(
+      ({ blindAlias }) => !/current|candidate|skill/iu.test(blindAlias),
+    ),
+  );
   assert.deepEqual(
     buildCampaignMatrix({
       caseIds: cases.map(({ id }) => id),
@@ -175,10 +244,17 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
   assert.equal(context.manifest.limitations.repeatedSampling, false);
   assert.equal(context.manifest.limitations.humanUsabilityEvaluated, false);
   assert.equal(
-    JSON.parse(readFileSync(path.join(context.destination, "manifest.json"), "utf8")).blindMappingSealSha256,
+    JSON.parse(
+      readFileSync(path.join(context.destination, "manifest.json"), "utf8"),
+    ).blindMappingSealSha256,
     context.manifest.blindMappingSealSha256,
   );
-  assert.throws(() => preparedFixture().manifest && prepareCampaign({ destination: context.destination }), /new directory/iu);
+  assert.throws(
+    () =>
+      preparedFixture().manifest &&
+      prepareCampaign({ destination: context.destination }),
+    /new directory/iu,
+  );
 });
 
 test("run validates every exact authorization before launching any session", () => {
@@ -200,7 +276,10 @@ test("run validates every exact authorization before launching any session", () 
 
   mkdirSync(authorizationDirectory);
   for (const session of context.manifest.sessions) {
-    const target = path.join(authorizationDirectory, `${session.blindAlias}.json`);
+    const target = path.join(
+      authorizationDirectory,
+      `${session.blindAlias}.json`,
+    );
     writeFileSync(
       target,
       `${JSON.stringify({
@@ -221,7 +300,12 @@ test("run validates every exact authorization before launching any session", () 
     authorizationDirectory,
     executeSession(session) {
       executions.push(session.blindAlias);
-      return { status: "completed", finalAnswer: `answer ${session.blindAlias}`, tokens: 10, durationMs: 20 };
+      return {
+        status: "completed",
+        finalAnswer: `answer ${session.blindAlias}`,
+        tokens: 10,
+        durationMs: 20,
+      };
     },
   });
   assert.equal(executions.length, 30);
@@ -229,12 +313,109 @@ test("run validates every exact authorization before launching any session", () 
   assert.equal(completed.sessions.length, 30);
 });
 
+test("prepared session results retain transcript, token, and timing evidence", () => {
+  const preparedSession = mkdtempSync(
+    path.join(tmpdir(), "defining-session-result-"),
+  );
+  mkdirSync(path.join(preparedSession, "outputs"));
+  const transcript = '{"type":"assistant","text":"retained answer"}\n';
+  writeFileSync(
+    path.join(preparedSession, "run.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      status: "completed",
+      failureClass: null,
+      error: null,
+      suiteResult: { finalAnswer: "retained answer" },
+    }),
+  );
+  writeFileSync(
+    path.join(preparedSession, "outputs", "transcript.jsonl"),
+    transcript,
+  );
+  writeFileSync(
+    path.join(preparedSession, "metrics.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      nativeUsage: null,
+      normalizedUsage: { totalTokens: 42 },
+    }),
+  );
+  writeFileSync(
+    path.join(preparedSession, "timing.json"),
+    JSON.stringify({ schemaVersion: 1, durationMs: 123 }),
+  );
+
+  assert.deepEqual(readPreparedSessionResult(preparedSession), {
+    status: "completed",
+    failureClass: null,
+    error: null,
+    finalAnswer: "retained answer",
+    transcript,
+    tokens: 42,
+    durationMs: 123,
+  });
+});
+
+test("invalid provider results are retained and cannot enter grading", () => {
+  const context = preparedFixture();
+  const authorizationDirectory = writeAuthorizations(context);
+  const firstAlias = context.manifest.sessions[0].blindAlias;
+  const executed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      if (session.blindAlias === firstAlias) {
+        return {
+          status: "failed",
+          failureClass: "provider-failed",
+          error: "fixture provider failure",
+          finalAnswer: null,
+          transcript: "",
+          tokens: null,
+          durationMs: 20,
+        };
+      }
+      return {
+        status: "completed",
+        finalAnswer: `answer ${session.blindAlias}`,
+        transcript: "retained transcript",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+
+  assert.equal(executed.sessions[0].disposition, "invalid");
+  assert.equal(
+    JSON.parse(
+      readFileSync(
+        path.join(
+          context.destination,
+          "invalid-attempts",
+          "attempt-01",
+          "attempt.json",
+        ),
+        "utf8",
+      ),
+    ).failureClass,
+    "provider-failed",
+  );
+  assert.throws(
+    () => prepareCampaignGrading({ campaignDirectory: context.destination }),
+    /invalid session/iu,
+  );
+});
+
 test("grading packets are blind and pairwise side assignment is sealed", () => {
   const context = preparedFixture();
   const authorizationDirectory = path.join(context.temporary, "authorizations");
   mkdirSync(authorizationDirectory);
   for (const session of context.manifest.sessions) {
-    const target = path.join(authorizationDirectory, `${session.blindAlias}.json`);
+    const target = path.join(
+      authorizationDirectory,
+      `${session.blindAlias}.json`,
+    );
     writeFileSync(
       target,
       `${JSON.stringify({
@@ -263,11 +444,16 @@ test("grading packets are blind and pairwise side assignment is sealed", () => {
       };
     },
   });
-  const grading = prepareCampaignGrading({ campaignDirectory: context.destination });
+  const grading = prepareCampaignGrading({
+    campaignDirectory: context.destination,
+  });
   assert.equal(grading.state, "grading-prepared");
   assert.equal(grading.criticalPackets.length, 30);
   assert.equal(grading.pairwisePackets.length, 10);
-  for (const packet of [...grading.criticalPackets, ...grading.pairwisePackets]) {
+  for (const packet of [
+    ...grading.criticalPackets,
+    ...grading.pairwisePackets,
+  ]) {
     const serialized = JSON.stringify(packet);
     assert.doesNotMatch(serialized, /current-skill|candidate-skill|no-skill/u);
   }
@@ -276,17 +462,12 @@ test("grading packets are blind and pairwise side assignment is sealed", () => {
 
 test("aggregate enforces complete grades and one-repetition limitations", () => {
   const context = preparedFixture();
-  const gradeRecords = context.manifest.sessions.map((session) => ({
-    blindAlias: session.blindAlias,
-    critical: [{ expectationId: `critical-${session.caseId}`, passed: true, excerpt: "boundary", reason: "supported" }],
-    dimensions: [{ id: "semantic-accuracy", rating: "meets" }],
-    tokens: 10,
-    durationMs: 20,
-  }));
+  const gradeRecords = completeGradeRecords(context.manifest);
+  const pairwiseGrades = completePairwiseGrades();
   const aggregate = aggregateCampaignGrades({
     manifest: context.manifest,
     gradeRecords,
-    pairwiseGrades: cases.map(({ id }) => ({ caseId: id, outcome: "candidate" })),
+    pairwiseGrades,
     disagreements: [],
   });
   assert.equal(aggregate.critical.total, 30);
@@ -309,5 +490,51 @@ test("aggregate enforces complete grades and one-repetition limitations", () => 
         disagreements: [],
       }),
     /complete/iu,
+  );
+  assert.throws(
+    () =>
+      aggregateCampaignGrades({
+        manifest: context.manifest,
+        gradeRecords: gradeRecords.map((grade, index) =>
+          index === 0 ? { ...grade, critical: [] } : grade,
+        ),
+        pairwiseGrades,
+        disagreements: [],
+      }),
+    /critical expectations/iu,
+  );
+  assert.throws(
+    () =>
+      aggregateCampaignGrades({
+        manifest: context.manifest,
+        gradeRecords: gradeRecords.map((grade, index) =>
+          index === 0 ? { ...grade, dimensions: [] } : grade,
+        ),
+        pairwiseGrades,
+        disagreements: [],
+      }),
+    /qualitative dimensions/iu,
+  );
+  assert.throws(
+    () =>
+      aggregateCampaignGrades({
+        manifest: context.manifest,
+        gradeRecords,
+        pairwiseGrades: pairwiseGrades.slice(1),
+        disagreements: [],
+      }),
+    /pairwise grades/iu,
+  );
+  assert.throws(
+    () =>
+      aggregateCampaignGrades({
+        manifest: context.manifest,
+        gradeRecords,
+        pairwiseGrades: pairwiseGrades.map((grade, index) =>
+          index === 0 ? { ...grade, outcome: "broadly-better" } : grade,
+        ),
+        disagreements: [],
+      }),
+    /pairwise outcome/iu,
   );
 });

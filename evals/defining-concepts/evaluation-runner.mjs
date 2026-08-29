@@ -33,8 +33,7 @@ const CANONICAL_ARMS = Object.freeze([
   "current-skill",
   "candidate-skill",
 ]);
-const TIMESTAMP_DIRECTORY_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{6}(?:\.\d{3})?Z$/u;
+const TIMESTAMP_DIRECTORY_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{6}(?:\.\d{3})?Z$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 
 function fail(message) {
@@ -66,6 +65,68 @@ function readJson(target, label) {
   }
 }
 
+function optionalNonnegativeNumber(value, label) {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    fail(`${label} must be a nonnegative finite number or null`);
+  }
+  return value;
+}
+
+export function readPreparedSessionResult(preparedSession) {
+  if (
+    typeof preparedSession !== "string" ||
+    path.resolve(preparedSession) !== preparedSession
+  ) {
+    fail("preparedSession must be an absolute path");
+  }
+  const run = readJson(
+    path.join(preparedSession, "run.json"),
+    "session result",
+  );
+  const metrics = readJson(
+    path.join(preparedSession, "metrics.json"),
+    "session metrics",
+  );
+  const timing = readJson(
+    path.join(preparedSession, "timing.json"),
+    "session timing",
+  );
+  if (!new Set(["completed", "failed"]).has(run.status)) {
+    fail("session result status must be completed or failed");
+  }
+  const finalAnswer = run.suiteResult?.finalAnswer ?? null;
+  if (
+    run.status === "completed" &&
+    (typeof finalAnswer !== "string" || finalAnswer.trim().length === 0)
+  ) {
+    fail("completed session result must retain a nonempty final answer");
+  }
+  const transcriptPath = path.join(
+    preparedSession,
+    "outputs",
+    "transcript.jsonl",
+  );
+  const transcript = existsSync(transcriptPath)
+    ? readFileSync(transcriptPath, "utf8")
+    : null;
+  return deepFreeze({
+    status: run.status,
+    failureClass: run.failureClass ?? null,
+    error: run.error ?? null,
+    finalAnswer,
+    transcript,
+    tokens: optionalNonnegativeNumber(
+      metrics.normalizedUsage?.totalTokens ?? null,
+      "normalized total tokens",
+    ),
+    durationMs: optionalNonnegativeNumber(
+      timing.durationMs ?? null,
+      "session duration",
+    ),
+  });
+}
+
 function safeTimestamp(date) {
   return date.toISOString().replaceAll(":", "");
 }
@@ -84,16 +145,13 @@ function assertCanonicalArms(arms) {
     arms.length !== CANONICAL_ARMS.length ||
     arms.some((arm, index) => arm !== CANONICAL_ARMS[index])
   ) {
-    fail("arms must be no-skill, current-skill, and candidate-skill in canonical order");
+    fail(
+      "arms must be no-skill, current-skill, and candidate-skill in canonical order",
+    );
   }
 }
 
-export function buildCampaignMatrix({
-  caseIds,
-  arms,
-  repetitionCount,
-  seed,
-}) {
+export function buildCampaignMatrix({ caseIds, arms, repetitionCount, seed }) {
   if (
     !Array.isArray(caseIds) ||
     caseIds.length === 0 ||
@@ -128,7 +186,9 @@ export function buildCampaignMatrix({
   cells.sort((left, right) =>
     left.orderingDigest.localeCompare(right.orderingDigest, "en"),
   );
-  if (new Set(cells.map(({ blindAlias }) => blindAlias)).size !== cells.length) {
+  if (
+    new Set(cells.map(({ blindAlias }) => blindAlias)).size !== cells.length
+  ) {
     fail("blind alias collision; select a different seed");
   }
   return deepFreeze(
@@ -174,7 +234,9 @@ function caseSnapshot(evaluationCase) {
 
 function validatePreparedPacket(result, cell) {
   if (result?.modelTurns !== 0 || result?.packet === undefined) {
-    fail(`preparation for ${cell.internalId} must return zero model turns and one packet`);
+    fail(
+      `preparation for ${cell.internalId} must return zero model turns and one packet`,
+    );
   }
   const packet = result.packet;
   if (
@@ -186,7 +248,9 @@ function validatePreparedPacket(result, cell) {
     packet.transmission?.session?.arm !== cell.arm ||
     packet.transmission?.session?.repetition !== 1
   ) {
-    fail(`prepared packet for ${cell.internalId} is not bound to its campaign cell`);
+    fail(
+      `prepared packet for ${cell.internalId} is not bound to its campaign cell`,
+    );
   }
   return canonicalRecord(packet);
 }
@@ -206,14 +270,18 @@ export function prepareCampaign({
   now = new Date(),
   prepareSession,
 }) {
-  if (typeof destination !== "string" || path.resolve(destination) !== destination) {
+  if (
+    typeof destination !== "string" ||
+    path.resolve(destination) !== destination
+  ) {
     fail("destination must be an absolute new directory");
   }
   if (existsSync(destination)) fail("destination must be a new directory");
   if (!TIMESTAMP_DIRECTORY_PATTERN.test(path.basename(destination))) {
     fail("destination must use a filesystem-safe ISO UTC timestamp name");
   }
-  if (!(now instanceof Date) || Number.isNaN(now.valueOf())) fail("now must be a valid Date");
+  if (!(now instanceof Date) || Number.isNaN(now.valueOf()))
+    fail("now must be a valid Date");
   if (path.basename(destination) !== safeTimestamp(now)) {
     fail("destination timestamp must match the frozen campaign start time");
   }
@@ -234,10 +302,17 @@ export function prepareCampaign({
   if (currentBundle.aggregateSha256 === candidateBundle.aggregateSha256) {
     fail("current and candidate skill bundle aggregates must differ");
   }
-  for (const [name, value] of Object.entries({ provider, model, effort, seed })) {
-    if (typeof value !== "string" || value.length === 0) fail(`${name} must be nonempty`);
+  for (const [name, value] of Object.entries({
+    provider,
+    model,
+    effort,
+    seed,
+  })) {
+    if (typeof value !== "string" || value.length === 0)
+      fail(`${name} must be nonempty`);
   }
-  if (typeof prepareSession !== "function") fail("prepareSession must be a function");
+  if (typeof prepareSession !== "function")
+    fail("prepareSession must be a function");
 
   const matrix = buildCampaignMatrix({
     caseIds: cases.map(({ id }) => id),
@@ -254,7 +329,11 @@ export function prepareCampaign({
       const snapshot = caseSnapshot(evaluationCase);
       snapshots.set(evaluationCase.id, snapshot);
       writeCanonicalExclusive(
-        path.join(staging, "cases", `case-${String(evaluationCase.id).padStart(2, "0")}.json`),
+        path.join(
+          staging,
+          "cases",
+          `case-${String(evaluationCase.id).padStart(2, "0")}.json`,
+        ),
         snapshot.record,
       );
     }
@@ -290,8 +369,13 @@ export function prepareCampaign({
         cell,
       );
       const packetPath = path.join(sessionDirectory, "packet.json");
-      if (!existsSync(packetPath)) writeCanonicalExclusive(packetPath, prepared);
-      else if (!canonicalJsonBytes(readJson(packetPath, "prepared packet")).equals(canonicalJsonBytes(prepared))) {
+      if (!existsSync(packetPath))
+        writeCanonicalExclusive(packetPath, prepared);
+      else if (
+        !canonicalJsonBytes(readJson(packetPath, "prepared packet")).equals(
+          canonicalJsonBytes(prepared),
+        )
+      ) {
         fail(`prepared packet bytes disagree for ${cell.internalId}`);
       }
       sessions.push({
@@ -346,21 +430,25 @@ export function prepareCampaign({
           relativePath: "bundles/current-skill.json",
           aggregateSha256: currentBundle.aggregateSha256,
           source: currentBundle.source,
-          files: currentBundle.files.map(({ path: filePath, byteLength, sha256 }) => ({
-            path: filePath,
-            byteLength,
-            sha256,
-          })),
+          files: currentBundle.files.map(
+            ({ path: filePath, byteLength, sha256 }) => ({
+              path: filePath,
+              byteLength,
+              sha256,
+            }),
+          ),
         },
         candidateSkill: {
           relativePath: "bundles/candidate-skill.json",
           aggregateSha256: candidateBundle.aggregateSha256,
           source: candidateBundle.source,
-          files: candidateBundle.files.map(({ path: filePath, byteLength, sha256 }) => ({
-            path: filePath,
-            byteLength,
-            sha256,
-          })),
+          files: candidateBundle.files.map(
+            ({ path: filePath, byteLength, sha256 }) => ({
+              path: filePath,
+              byteLength,
+              sha256,
+            }),
+          ),
         },
       },
       caseSnapshots: cases.map(({ id }) => ({
@@ -376,6 +464,7 @@ export function prepareCampaign({
         profiles: evaluationCase.profiles,
         research_strata: evaluationCase.research_strata,
         qualitative_dimensions: evaluationCase.qualitative_dimensions,
+        expectations: gradingExpectations(evaluationCase),
       })),
       blindMappingSealSha256,
       sessions,
@@ -406,8 +495,23 @@ function assertAuthorization(authorization, manifest, session) {
     transmissionSha256: session.transmissionSha256,
   };
   if (!canonicalJsonBytes(authorization).equals(canonicalJsonBytes(expected))) {
-    fail(`authorization for ${session.blindAlias} does not match its exact transmission`);
+    fail(
+      `authorization for ${session.blindAlias} does not match its exact transmission`,
+    );
   }
+}
+
+function retainInvalidAttempt(campaignDirectory, attemptNumber, record) {
+  const invalidDirectory = path.join(
+    campaignDirectory,
+    "invalid-attempts",
+    `attempt-${String(attemptNumber).padStart(2, "0")}`,
+  );
+  writeCanonicalExclusive(path.join(invalidDirectory, "attempt.json"), {
+    schemaVersion: 1,
+    disposition: "invalid",
+    ...record,
+  });
 }
 
 export function runPreparedCampaign({
@@ -415,18 +519,28 @@ export function runPreparedCampaign({
   authorizationDirectory,
   executeSession,
 }) {
-  const manifest = readJson(path.join(campaignDirectory, "manifest.json"), "campaign manifest");
+  const manifest = readJson(
+    path.join(campaignDirectory, "manifest.json"),
+    "campaign manifest",
+  );
   if (manifest.schemaVersion !== 2 || manifest.state !== "prepared") {
     fail("campaign is not in the prepared state");
   }
   if (existsSync(path.join(campaignDirectory, "executed.json"))) {
     fail("campaign execution state already exists and cannot be overwritten");
   }
-  if (typeof executeSession !== "function") fail("executeSession must be a function");
+  if (typeof executeSession !== "function")
+    fail("executeSession must be a function");
   const authorizations = new Map();
   for (const session of manifest.sessions) {
-    const target = path.join(authorizationDirectory, `${session.blindAlias}.json`);
-    const authorization = readJson(target, `authorization for ${session.blindAlias}`);
+    const target = path.join(
+      authorizationDirectory,
+      `${session.blindAlias}.json`,
+    );
+    const authorization = readJson(
+      target,
+      `authorization for ${session.blindAlias}`,
+    );
     assertAuthorization(authorization, manifest, session);
     authorizations.set(session.blindAlias, authorization);
   }
@@ -440,27 +554,47 @@ export function runPreparedCampaign({
         authorizations.get(session.blindAlias),
       );
     } catch (error) {
-      const invalidDirectory = path.join(
-        campaignDirectory,
-        "invalid-attempts",
-        `attempt-${String(results.length + 1).padStart(2, "0")}`,
-      );
-      writeCanonicalExclusive(path.join(invalidDirectory, "attempt.json"), {
-        schemaVersion: 1,
+      retainInvalidAttempt(campaignDirectory, results.length + 1, {
         blindAlias: session.blindAlias,
-        disposition: "invalid",
         reason: error.message,
       });
       throw error;
     }
-    if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    if (
+      result === null ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      retainInvalidAttempt(campaignDirectory, results.length + 1, {
+        blindAlias: session.blindAlias,
+        reason: "execution returned a malformed result",
+      });
       fail(`execution for ${session.blindAlias} returned a malformed result`);
+    }
+    if (!new Set(["completed", "failed"]).has(result.status)) {
+      retainInvalidAttempt(campaignDirectory, results.length + 1, {
+        blindAlias: session.blindAlias,
+        reason: "execution returned an unsupported status",
+      });
+      fail(
+        `execution for ${session.blindAlias} returned an unsupported status`,
+      );
+    }
+    if (result.status !== "completed") {
+      retainInvalidAttempt(campaignDirectory, results.length + 1, {
+        blindAlias: session.blindAlias,
+        status: result.status,
+        failureClass: result.failureClass ?? null,
+        error: result.error ?? null,
+      });
     }
     results.push({
       blindAlias: session.blindAlias,
       caseId: session.caseId,
       status: result.status,
       disposition: result.status === "completed" ? "valid" : "invalid",
+      failureClass: result.failureClass ?? null,
+      error: result.error ?? null,
       finalAnswer: result.finalAnswer ?? null,
       transcript: result.transcript ?? null,
       tokens: result.tokens ?? null,
@@ -473,7 +607,10 @@ export function runPreparedCampaign({
     campaignManifestSha256: sha256Hex(canonicalJsonBytes(manifest)),
     sessions: results,
   };
-  writeCanonicalExclusive(path.join(campaignDirectory, "executed.json"), record);
+  writeCanonicalExclusive(
+    path.join(campaignDirectory, "executed.json"),
+    record,
+  );
   return deepFreeze(canonicalRecord(record));
 }
 
@@ -498,10 +635,48 @@ function gradingExpectations(evaluationCase) {
 }
 
 export function prepareCampaignGrading({ campaignDirectory }) {
-  const manifest = readJson(path.join(campaignDirectory, "manifest.json"), "campaign manifest");
-  const executed = readJson(path.join(campaignDirectory, "executed.json"), "executed campaign");
+  const manifest = readJson(
+    path.join(campaignDirectory, "manifest.json"),
+    "campaign manifest",
+  );
+  const executed = readJson(
+    path.join(campaignDirectory, "executed.json"),
+    "executed campaign",
+  );
   if (manifest.schemaVersion !== 2 || executed.state !== "executed") {
     fail("campaign must be executed before grading preparation");
+  }
+  if (
+    executed.campaignManifestSha256 !== sha256Hex(canonicalJsonBytes(manifest))
+  ) {
+    fail("executed campaign does not match its manifest");
+  }
+  const expectedAliases = new Set(
+    manifest.sessions.map(({ blindAlias }) => blindAlias),
+  );
+  if (
+    !Array.isArray(executed.sessions) ||
+    executed.sessions.length !== manifest.sessions.length ||
+    new Set(executed.sessions.map(({ blindAlias }) => blindAlias)).size !==
+      expectedAliases.size ||
+    executed.sessions.some(({ blindAlias }) => !expectedAliases.has(blindAlias))
+  ) {
+    fail(
+      "executed campaign does not contain one result for every prepared session",
+    );
+  }
+  for (const result of executed.sessions) {
+    if (result.status !== "completed" || result.disposition !== "valid") {
+      fail(`invalid session ${result.blindAlias} cannot enter grading`);
+    }
+    if (
+      typeof result.finalAnswer !== "string" ||
+      result.finalAnswer.trim().length === 0 ||
+      result.transcript === null ||
+      result.transcript === undefined
+    ) {
+      fail(`session ${result.blindAlias} lacks gradable output evidence`);
+    }
   }
   if (existsSync(path.join(campaignDirectory, "grading-prepared.json"))) {
     fail("grading preparation already exists and cannot be overwritten");
@@ -514,7 +689,8 @@ export function prepareCampaignGrading({ campaignDirectory }) {
     const evaluationCase = readJson(
       path.join(
         campaignDirectory,
-        manifest.caseSnapshots.find(({ id }) => id === session.caseId).relativePath,
+        manifest.caseSnapshots.find(({ id }) => id === session.caseId)
+          .relativePath,
       ),
       `case ${session.caseId}`,
     );
@@ -531,7 +707,12 @@ export function prepareCampaignGrading({ campaignDirectory }) {
     };
     criticalPackets.push(packet);
     writeCanonicalExclusive(
-      path.join(campaignDirectory, "grading", "critical", `${session.blindAlias}.json`),
+      path.join(
+        campaignDirectory,
+        "grading",
+        "critical",
+        `${session.blindAlias}.json`,
+      ),
       packet,
     );
   }
@@ -544,11 +725,16 @@ export function prepareCampaignGrading({ campaignDirectory }) {
         session.caseId === caseId &&
         ["current-skill", "candidate-skill"].includes(session.arm),
     );
-    if (selected.length !== 2) fail(`case ${caseId} lacks a current/candidate pair`);
-    const flip = Number.parseInt(
-      stableDigest(manifest.blindMappingSealSha256, `pair-${caseId}`).slice(0, 2),
-      16,
-    ) % 2;
+    if (selected.length !== 2)
+      fail(`case ${caseId} lacks a current/candidate pair`);
+    const flip =
+      Number.parseInt(
+        stableDigest(manifest.blindMappingSealSha256, `pair-${caseId}`).slice(
+          0,
+          2,
+        ),
+        16,
+      ) % 2;
     const sides = flip === 0 ? selected : [...selected].reverse();
     const packet = {
       schemaVersion: 1,
@@ -566,12 +752,19 @@ export function prepareCampaignGrading({ campaignDirectory }) {
     pairwisePackets.push(packet);
     mapping.push({ caseId, sideA: sides[0].arm, sideB: sides[1].arm });
     writeCanonicalExclusive(
-      path.join(campaignDirectory, "grading", "pairwise", `${packet.packetId}.json`),
+      path.join(
+        campaignDirectory,
+        "grading",
+        "pairwise",
+        `${packet.packetId}.json`,
+      ),
       packet,
     );
   }
   const mappingRecord = { schemaVersion: 1, pairs: mapping };
-  const pairwiseMappingSealSha256 = sha256Hex(canonicalJsonBytes(mappingRecord));
+  const pairwiseMappingSealSha256 = sha256Hex(
+    canonicalJsonBytes(mappingRecord),
+  );
   writeCanonicalExclusive(
     path.join(campaignDirectory, "sealed", "pairwise-mapping.json"),
     mappingRecord,
@@ -606,43 +799,152 @@ function countGroups(items, valuesForItem) {
     .map(([id, count]) => ({ id, count }));
 }
 
+function isNonemptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function assertExactStringIds(actual, expected, label) {
+  if (
+    !Array.isArray(actual) ||
+    actual.some((id) => !isNonemptyString(id)) ||
+    new Set(actual).size !== actual.length ||
+    actual.length !== expected.length ||
+    [...actual].sort().join("\u0000") !== [...expected].sort().join("\u0000")
+  ) {
+    fail(`${label} must match the frozen campaign exactly`);
+  }
+}
+
+function assertCitedJudgment(record, label) {
+  if (
+    record === null ||
+    typeof record !== "object" ||
+    Array.isArray(record) ||
+    !isNonemptyString(record.excerpt) ||
+    !isNonemptyString(record.reason)
+  ) {
+    fail(`${label} must include a nonempty excerpt and reason`);
+  }
+}
+
+function validateSessionGrade(grade, session, evaluationCase) {
+  if (grade === null || typeof grade !== "object" || Array.isArray(grade)) {
+    fail(`grade for ${session.blindAlias} is malformed`);
+  }
+  const expectedCritical = (evaluationCase.expectations ?? [])
+    .filter(({ critical }) => critical === true)
+    .map(({ id }) => id);
+  assertExactStringIds(
+    grade.critical?.map(({ expectationId }) => expectationId),
+    expectedCritical,
+    `critical expectations for ${session.blindAlias}`,
+  );
+  for (const judgment of grade.critical) {
+    assertCitedJudgment(
+      judgment,
+      `critical expectation ${judgment.expectationId}`,
+    );
+    if (typeof judgment.passed !== "boolean") {
+      fail(
+        `critical expectation ${judgment.expectationId} must have a boolean outcome`,
+      );
+    }
+  }
+
+  const expectedDimensions = evaluationCase.qualitative_dimensions ?? [];
+  assertExactStringIds(
+    grade.dimensions?.map(({ id }) => id),
+    expectedDimensions,
+    `qualitative dimensions for ${session.blindAlias}`,
+  );
+  for (const judgment of grade.dimensions) {
+    assertCitedJudgment(judgment, `qualitative dimension ${judgment.id}`);
+    if (!isNonemptyString(judgment.rating)) {
+      fail(`qualitative dimension ${judgment.id} must have a nonempty rating`);
+    }
+  }
+  optionalNonnegativeNumber(grade.tokens ?? null, "grade token count");
+  optionalNonnegativeNumber(grade.durationMs ?? null, "grade duration");
+}
+
+function validatePairwiseGrades(pairwiseGrades, caseIds) {
+  if (
+    !Array.isArray(pairwiseGrades) ||
+    pairwiseGrades.length !== caseIds.length ||
+    new Set(pairwiseGrades.map(({ caseId }) => caseId)).size !==
+      caseIds.length ||
+    pairwiseGrades.some(({ caseId }) => !caseIds.includes(caseId))
+  ) {
+    fail("pairwise grades must contain one complete unique grade per case");
+  }
+  for (const grade of pairwiseGrades) {
+    assertCitedJudgment(grade, `pairwise grade for case ${grade.caseId}`);
+    if (!new Set(["candidate", "current", "tie"]).has(grade.outcome)) {
+      fail(`pairwise outcome for case ${grade.caseId} is invalid`);
+    }
+  }
+}
+
 export function aggregateCampaignGrades({
   manifest,
   gradeRecords,
   pairwiseGrades,
   disagreements,
 }) {
-  if (manifest?.schemaVersion !== 2 || manifest.protocol?.repetitionCount !== 1) {
+  if (
+    manifest?.schemaVersion !== 2 ||
+    manifest.protocol?.repetitionCount !== 1
+  ) {
     fail("aggregate requires a current one-repetition campaign manifest");
   }
   if (
     !Array.isArray(gradeRecords) ||
     gradeRecords.length !== manifest.sessions.length ||
-    new Set(gradeRecords.map(({ blindAlias }) => blindAlias)).size !== manifest.sessions.length
+    new Set(gradeRecords.map(({ blindAlias }) => blindAlias)).size !==
+      manifest.sessions.length
   ) {
     fail("grade records must provide one complete unique grade per session");
   }
-  const knownAliases = new Set(manifest.sessions.map(({ blindAlias }) => blindAlias));
+  const knownAliases = new Set(
+    manifest.sessions.map(({ blindAlias }) => blindAlias),
+  );
   if (gradeRecords.some(({ blindAlias }) => !knownAliases.has(blindAlias))) {
     fail("grade records contain an unknown blind alias");
   }
-  if (!Array.isArray(pairwiseGrades) || !Array.isArray(disagreements)) {
-    fail("pairwise grades and disagreements must be arrays");
-  }
-  const criticalItems = gradeRecords.flatMap((grade) => grade.critical ?? []);
-  const criticalFailed = criticalItems.filter(({ passed }) => passed !== true).length;
-  const pairwise = {
-    candidateWins: pairwiseGrades.filter(({ outcome }) => outcome === "candidate").length,
-    currentWins: pairwiseGrades.filter(({ outcome }) => outcome === "current").length,
-    ties: pairwiseGrades.filter(({ outcome }) => outcome === "tie").length,
-    total: pairwiseGrades.length,
-  };
+  if (!Array.isArray(disagreements)) fail("disagreements must be an array");
   const sessionByAlias = new Map(
     manifest.sessions.map((session) => [session.blindAlias, session]),
   );
   const caseById = new Map(
-    (manifest.caseRecords ?? []).map((evaluationCase) => [evaluationCase.id, evaluationCase]),
+    (manifest.caseRecords ?? []).map((evaluationCase) => [
+      evaluationCase.id,
+      evaluationCase,
+    ]),
   );
+  if (
+    caseById.size !== manifest.protocol.caseIds.length ||
+    manifest.protocol.caseIds.some((caseId) => !caseById.has(caseId))
+  ) {
+    fail("campaign manifest lacks complete frozen case grading metadata");
+  }
+  for (const grade of gradeRecords) {
+    const session = sessionByAlias.get(grade.blindAlias);
+    validateSessionGrade(grade, session, caseById.get(session.caseId));
+  }
+  validatePairwiseGrades(pairwiseGrades, manifest.protocol.caseIds);
+  const criticalItems = gradeRecords.flatMap((grade) => grade.critical ?? []);
+  const criticalFailed = criticalItems.filter(
+    ({ passed }) => passed !== true,
+  ).length;
+  const pairwise = {
+    candidateWins: pairwiseGrades.filter(
+      ({ outcome }) => outcome === "candidate",
+    ).length,
+    currentWins: pairwiseGrades.filter(({ outcome }) => outcome === "current")
+      .length,
+    ties: pairwiseGrades.filter(({ outcome }) => outcome === "tie").length,
+    total: pairwiseGrades.length,
+  };
   const caseMetadata = (caseId) => caseById.get(caseId) ?? {};
   const enriched = gradeRecords.map((grade) => ({
     ...grade,
@@ -657,7 +959,8 @@ export function aggregateCampaignGrades({
       failed: criticalFailed,
       candidateHasCriticalFailure: enriched.some(
         ({ critical = [], session }) =>
-          session.arm === "candidate-skill" && critical.some(({ passed }) => passed !== true),
+          session.arm === "candidate-skill" &&
+          critical.some(({ passed }) => passed !== true),
       ),
     },
     dimensions: countGroups(
@@ -666,9 +969,13 @@ export function aggregateCampaignGrades({
     ),
     byCase: manifest.protocol.caseIds.map((caseId) => ({
       caseId,
-      gradeCount: enriched.filter(({ session }) => session.caseId === caseId).length,
+      gradeCount: enriched.filter(({ session }) => session.caseId === caseId)
+        .length,
     })),
-    byProfile: countGroups(enriched, ({ session }) => caseMetadata(session.caseId).profiles ?? []),
+    byProfile: countGroups(
+      enriched,
+      ({ session }) => caseMetadata(session.caseId).profiles ?? [],
+    ),
     byResearchStratum: countGroups(
       enriched,
       ({ session }) => caseMetadata(session.caseId).research_strata ?? [],
@@ -676,8 +983,14 @@ export function aggregateCampaignGrades({
     pairwise,
     disagreements: canonicalRecord(disagreements),
     usage: {
-      totalTokens: gradeRecords.reduce((sum, grade) => sum + (grade.tokens ?? 0), 0),
-      totalDurationMs: gradeRecords.reduce((sum, grade) => sum + (grade.durationMs ?? 0), 0),
+      totalTokens: gradeRecords.reduce(
+        (sum, grade) => sum + (grade.tokens ?? 0),
+        0,
+      ),
+      totalDurationMs: gradeRecords.reduce(
+        (sum, grade) => sum + (grade.durationMs ?? 0),
+        0,
+      ),
     },
     limitations: {
       repeatedSampling: false,
@@ -700,7 +1013,8 @@ function parseCli(arguments_) {
   for (let index = 1; index < arguments_.length; index += 2) {
     const name = arguments_[index];
     const value = arguments_[index + 1];
-    if (!name?.startsWith("--") || value === undefined) fail("CLI arguments must use --name value pairs");
+    if (!name?.startsWith("--") || value === undefined)
+      fail("CLI arguments must use --name value pairs");
     if (repeated.has(name)) repeated.get(name).push(value);
     else if (values.has(name)) fail(`duplicate CLI argument ${name}`);
     else values.set(name, value);
@@ -720,7 +1034,9 @@ function providerPrepareArguments(values, repeated) {
     return [
       "--codex-command",
       values.get("--codex-command") ?? "codex",
-      ...repeated.get("--codex-prefix-arg").flatMap((item) => ["--codex-prefix-arg", item]),
+      ...repeated
+        .get("--codex-prefix-arg")
+        .flatMap((item) => ["--codex-prefix-arg", item]),
       "--evaluation-homes-root",
       requireCli(values, "--evaluation-homes-root"),
     ];
@@ -729,7 +1045,9 @@ function providerPrepareArguments(values, repeated) {
     return [
       "--claude-command",
       values.get("--claude-command") ?? "claude",
-      ...repeated.get("--claude-prefix-arg").flatMap((item) => ["--claude-prefix-arg", item]),
+      ...repeated
+        .get("--claude-prefix-arg")
+        .flatMap((item) => ["--claude-prefix-arg", item]),
       "--max-budget-usd",
       values.get("--max-budget-usd") ?? "2",
     ];
@@ -738,7 +1056,9 @@ function providerPrepareArguments(values, repeated) {
     return [
       "--antigravity-command",
       requireCli(values, "--antigravity-command"),
-      ...repeated.get("--antigravity-prefix-arg").flatMap((item) => ["--antigravity-prefix-arg", item]),
+      ...repeated
+        .get("--antigravity-prefix-arg")
+        .flatMap((item) => ["--antigravity-prefix-arg", item]),
     ];
   }
   fail(`unsupported provider ${provider}`);
@@ -750,15 +1070,23 @@ function prepareFromCli(values, repeated) {
   const baselineRevision = requireCli(values, "--baseline-revision");
   const providerOption = requireCli(values, "--provider");
   const provider =
-    providerOption === "codex" ? "openai" : providerOption === "claude" ? "anthropic" : "google";
+    providerOption === "codex"
+      ? "openai"
+      : providerOption === "claude"
+        ? "anthropic"
+        : "google";
   const model = requireCli(values, "--model");
   const effort = requireCli(values, "--effort");
   const seed = requireCli(values, "--seed");
   const now = new Date(requireCli(values, "--started-at"));
   const workingRoot = path.resolve(requireCli(values, "--working-root"));
-  const definitions = readJson(path.join(import.meta.dirname, "evals.json"), "evaluation definitions");
+  const definitions = readJson(
+    path.join(import.meta.dirname, "evals.json"),
+    "evaluation definitions",
+  );
   const campaignDefinition = definitions.campaigns?.[campaign];
-  if (campaignDefinition === undefined) fail(`evaluation definitions do not declare campaign ${campaign}`);
+  if (campaignDefinition === undefined)
+    fail(`evaluation definitions do not declare campaign ${campaign}`);
   const selected = campaignDefinition.case_ids.map((id) =>
     definitions.evals.find((evaluationCase) => evaluationCase.id === id),
   );
@@ -809,13 +1137,19 @@ function prepareFromCli(values, repeated) {
         effort,
       ];
       if (cell.bundle !== null) {
-        const bundleFile = path.join(cell.sessionDirectory, "skill-bundle.json");
+        const bundleFile = path.join(
+          cell.sessionDirectory,
+          "skill-bundle.json",
+        );
         writeCanonicalExclusive(bundleFile, cell.bundle);
         arguments_.push("--skill-bundle-file", bundleFile);
       }
       arguments_.push(...providerArguments);
-      const result = spawnSync(process.execPath, arguments_, { encoding: "utf8" });
-      if (result.status !== 0) fail(`session preparation failed: ${result.stderr}`);
+      const result = spawnSync(process.execPath, arguments_, {
+        encoding: "utf8",
+      });
+      if (result.status !== 0)
+        fail(`session preparation failed: ${result.stderr}`);
       return {
         modelTurns: 0,
         packet: readJson(
@@ -829,7 +1163,9 @@ function prepareFromCli(values, repeated) {
 
 function runFromCli(values) {
   const campaignDirectory = path.resolve(requireCli(values, "--campaign-dir"));
-  const authorizationDirectory = path.resolve(requireCli(values, "--authorization-dir"));
+  const authorizationDirectory = path.resolve(
+    requireCli(values, "--authorization-dir"),
+  );
   return runPreparedCampaign({
     campaignDirectory,
     authorizationDirectory,
@@ -856,40 +1192,52 @@ function runFromCli(values) {
         ],
         { encoding: "utf8" },
       );
-      const run = readJson(path.join(preparedSession, "run.json"), "session result");
-      if (result.status !== 0 && run.status === "completed") {
-        fail(`session runner failed after reporting completion: ${result.stderr}`);
+      const retained = readPreparedSessionResult(preparedSession);
+      if (result.status !== 0 && retained.status === "completed") {
+        fail(
+          `session runner failed after reporting completion: ${result.stderr}`,
+        );
       }
-      return {
-        status: run.status,
-        finalAnswer: run.suiteResult?.finalAnswer ?? null,
-        transcript: null,
-        tokens: null,
-        durationMs: null,
-      };
+      return retained;
     },
   });
 }
 
 function aggregateFromCli(values) {
   const campaignDirectory = path.resolve(requireCli(values, "--campaign-dir"));
-  const manifest = readJson(path.join(campaignDirectory, "manifest.json"), "campaign manifest");
+  const manifest = readJson(
+    path.join(campaignDirectory, "manifest.json"),
+    "campaign manifest",
+  );
   const gradesDirectory = path.join(campaignDirectory, "grading", "grades");
-  const pairwiseDirectory = path.join(campaignDirectory, "grading", "pairwise-grades");
+  const pairwiseDirectory = path.join(
+    campaignDirectory,
+    "grading",
+    "pairwise-grades",
+  );
   const gradeRecords = readdirSync(gradesDirectory).map((name) =>
     readJson(path.join(gradesDirectory, name), `grade ${name}`),
   );
   const pairwiseGrades = readdirSync(pairwiseDirectory).map((name) =>
     readJson(path.join(pairwiseDirectory, name), `pairwise grade ${name}`),
   );
-  const disagreementsPath = path.join(campaignDirectory, "grading", "disagreements.json");
+  const disagreementsPath = path.join(
+    campaignDirectory,
+    "grading",
+    "disagreements.json",
+  );
   const aggregate = aggregateCampaignGrades({
     manifest,
     gradeRecords,
     pairwiseGrades,
-    disagreements: existsSync(disagreementsPath) ? readJson(disagreementsPath, "disagreements") : [],
+    disagreements: existsSync(disagreementsPath)
+      ? readJson(disagreementsPath, "disagreements")
+      : [],
   });
-  writeCanonicalExclusive(path.join(campaignDirectory, "aggregate.generated.json"), aggregate);
+  writeCanonicalExclusive(
+    path.join(campaignDirectory, "aggregate.generated.json"),
+    aggregate,
+  );
   return aggregate;
 }
 
@@ -903,11 +1251,15 @@ async function cli() {
       campaignDirectory: path.resolve(requireCli(values, "--campaign-dir")),
     });
   } else if (command === "aggregate") result = aggregateFromCli(values);
-  else fail("first argument must be prepare, run, prepare-grading, or aggregate");
+  else
+    fail("first argument must be prepare, run, prepare-grading, or aggregate");
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   cli().catch((error) => {
     process.stderr.write(`${error.stack ?? error.message}\n`);
     process.exitCode = 1;
