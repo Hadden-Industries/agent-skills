@@ -28,11 +28,15 @@ Never mint an identifier, namespace, IRI, registry key, version, language tag, m
 
 For versioned plain JSON, use a concise top-level object with a local `formatVersion` and only populated concept-entry groups. Encode missing states with an explicit status object or another unambiguous convention documented in the same output. Do not call the shape a JSON Schema or claim compatibility with a standard merely because field names resemble it.
 
+Machine-readable output is a projection, not an exhaustive dump. Put the short human definition preface before the representation, then emit one concise object containing only requested or materially necessary fields. Omit the internal ConceptBrief, audit checklist, repeated state explanations, and full claim or evidence ledger unless the user explicitly requests them or they are necessary to interpret a consequential decision.
+
 Use stable, semantically descriptive lowerCamelCase property names unless the user supplies another naming convention. Keep human-readable definition text separate from machine relationships, and keep source metadata linked to the claims or fields it supports rather than as an undifferentiated bibliography.
 
 ## Validation disclosure
 
 For every material parser, schema, SHACL, reasoner, mapping, or registry check, state the exact tool or method, target bytes or graph, applicable profile or version, and whether it was performed, passed, failed, produced a warning, was not run, or was not applicable. A textual model review is not parser execution, schema validation, SHACL conformance, reasoning, registry acceptance, or legal review.
+
+A generated representation is not evidence that a parser ran. If the exact emitted bytes or graph exist only in the final response, or the current-task record contains no invocation and result for the named validator on that exact target, report parser, round-trip, syntax-execution, schema, SHACL, reasoner, mapping, or registry validation as `not run`. Manual structural review may be reported as manual review, but it must not receive a tool-execution pass label.
 
 For OWL, distinguish proposed axioms, syntax parsed, profile or conformance checks, consistency, class satisfiability, and whether intended competency-question inferences were actually tested. For SHACL, distinguish shapes-graph syntax from data-graph conformance and conceptual correctness. For TBX, SKOS, JSON-LD, RDF, or OntoLex-Lemon, identify the exact specification, profile, dialect, context, or vocabulary actually checked.
 
