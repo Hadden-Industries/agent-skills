@@ -27,8 +27,8 @@
 - Put the definition or revised definition first whenever responsible formulation is possible. Do not restore a universal section count.
 - Keep human usability evaluation outside this implementation and promotion gate. Document it only as a recommended immediate follow-up.
 - Use exactly one run per arm per scenario. Add independent cases for broader evidence; do not add hidden repetitions.
-- Run two separately frozen and separately aggregated model-effort groups: a representative `gpt-5.6-sol` group at the model catalog's default effort (`low` for the 2026-08-29 iteration) and a capability-ceiling `gpt-5.6-sol` group at `max`. Keep `ultra` outside this matched protocol because automatic task delegation changes capabilities rather than only reasoning depth.
-- Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. The user expressly approved the 2026-08-29 amendment that advances `evals.json` to schema version 3, adds exact compatibility interpretations, the `bundled-skill-files`, `web-search`, and `url-fetch` semantic capability vocabulary, per-case requirements for cases 1, 3, and 8, and a default-deny campaign-wide policy that applies the same resolved envelope to every arm. No other case, prompt, expectation, trigger, or campaign-selection change is authorized by that amendment.
+- Run three separately frozen and separately aggregated model-execution profiles: a representative `gpt-5.6-sol` profile at the installed Codex catalog's default effort (`low` for the 2026-08-29 iteration), a same-model capability-ceiling `gpt-5.6-sol` profile at `max`, and a portability-stress `gpt-5.3-codex-spark` profile at deliberately constrained effort `low`. Treat Spark-low as a different-model robustness condition, not a representative default or another point on the Sol effort axis. Keep `ultra` outside this single-agent protocol because automatic task delegation changes capabilities rather than only reasoning depth.
+- Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. The user expressly approved the 2026-08-29 amendment that advances `evals.json` to schema version 3, adds exact compatibility interpretations, the `bundled-skill-files`, `web-search`, and `url-fetch` semantic capability vocabulary, per-case requirements for cases 1, 3, and 8, and a default-deny campaign-wide policy that applies the same resolved envelope to every arm. The separately approved portability-stress amendment adds an exact model-execution profile through the runner's existing model and effort inputs; it changes no JSON configuration, case selection, prompt, expectation, trigger, or capability policy.
 - Do not modify `package.json`, lockfiles, build configuration, lint configuration, formatting configuration, CI, environment configuration, or repository policy as part of this work.
 - Do not call an external model until the exact skill bundle, every prompt and follow-up turn, provider, model, effort, runtime fingerprint, and transmission SHA-256 have been prepared and explicitly authorized.
 - Before creating any packet or hash, read the exact `compatibility` value from every frozen skill-bearing arm and require a reviewed exact-text interpretation in `evals.json`; never infer requirements with regexes, keywords, or another model call. Requirements do not grant permission. Reconcile their union with case requirements, the explicit campaign policy, and provider availability, bind the successful receipt into every transmission and the manifest, and fail closed on missing, denied, unavailable, extra, changed, or unreviewed capability state.
@@ -1089,17 +1089,17 @@ Where a single case cannot make a research stratum observable without becoming c
 
   Confirm the canonical `compatibility` field remains valid portable Agent Skills prose; exact interpretations live only in approved suite configuration; no heuristic parser or private frontmatter grammar was introduced; cases 1, 3, and 8 drive the live-web requirement; all three arms receive one reconciled envelope; each packet and manifest binds the receipt; Codex requests native web while denying process network and unrelated facilities; and a campaign cannot start twice, retry, or resume after any execution attempt.
 
-## Task 15: Prepare and authorize the two-profile 60-session calibration
+## Task 15: Prepare and authorize the three-profile 90-session calibration
 
 **Blocking prerequisite:** Tasks 1-14 pass, candidate bytes are frozen, and the user wants provider-backed evaluation to proceed.
 
 - [ ] **Step 1: Prepare without executing**
 
-  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare two new timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its declared default effort `low`, and a capability-ceiling `gpt-5.6-sol` campaign at `max`. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, one exact capability-reconciliation receipt, and 30 exact transmission hashes. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for the matched single-agent ceiling campaign.
+  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare three timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its installed Codex default effort `low`, a capability-ceiling `gpt-5.6-sol` campaign at `max`, and a portability-stress `gpt-5.3-codex-spark` campaign at deliberately constrained effort `low`. If the Sol campaigns have already been successfully prepared and preflighted, preserve those directories byte-for-byte and add only the Spark campaign; do not regenerate frozen evidence to make the timestamps adjacent. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, one exact capability-reconciliation receipt, and 30 exact transmission hashes. Record that the inspected catalog declares Spark's default effort as `high`, making Spark-low a stress condition rather than a default-user proxy. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for any single-agent profile.
 
 - [ ] **Step 2: Pass the mandatory zero-turn campaign gate**
 
-  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, capability-reconciliation receipt digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed provider-process closure. Treat provider and host inventories as availability rather than activation: broader provider availability is acceptable, requested native web must be available even though zero turns means it is not used during preflight, skill and installed-app inventories are not queried or retained, and a requested but unavailable facility fails closed. Confirm that the reconciled `config.web_search` mode is packet-bound at `thread/start`, exact effort, execution roots, workspace sandbox, and input are packet-bound at `turn/start`, and runtime enforcement rejects unrequested events. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
+  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, capability-reconciliation receipt digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed provider-process closure. Treat provider and host inventories as availability rather than activation: broader provider availability is acceptable, the exact selected model must be listed, requested native web must be provider-available even though zero turns means it is not used during preflight, skill and installed-app inventories are not queried or retained, and a requested but unavailable facility fails closed. Because App Server binds the model and effort only at `turn/start`, the zero-turn gate cannot prove that a listed model will successfully use native web; state that limitation instead of inventing model-specific capability evidence, and retain fail-closed runtime enforcement for unsupported or unrequested events. Confirm that the reconciled `config.web_search` mode is packet-bound at `thread/start`, exact model, effort, execution roots, workspace sandbox, and input are packet-bound at `turn/start`. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
 
 - [ ] **Step 3: Review the frozen campaign**
 
@@ -1107,24 +1107,24 @@ Where a single case cannot make a research stratum observable without becoming c
 
   - exact current and candidate bundle inventories and aggregate hashes;
   - exact ten initial prompts and every follow-up turn;
-  - the model-catalog evidence supporting the representative and ceiling labels;
+  - the model-catalog evidence supporting the representative, ceiling, and portability-stress labels, including Spark's catalog default of `high` and the deliberate `low` override;
   - each successful zero-turn preflight record, its selected session, actual thread isolation, cleanup, and exact manifest binding;
   - provider, exact model, and exact effort for each group;
-  - both sets of 30 transmission hashes;
+  - all three sets of 30 transmission hashes;
   - the exact compatibility interpretations, capability requirements, campaign policy, provider resolution, reconciliation receipt, and receipt digest bound to each group;
-  - 60 expected external sessions and at most 66 total model turns across the two groups;
+  - 90 expected external sessions and at most 99 total model turns across the three profiles;
   - expected grading calls, which remain separately authorized;
-  - both output destinations;
+  - all three output destinations;
   - confirmation that one repetition is enforced per case/arm/profile cell; and
-  - confirmation that `ultra` and automatic task delegation are outside the matched protocol.
+  - confirmation that `ultra` and automatic task delegation are outside the single-agent protocol.
 
 - [ ] **Step 4: Obtain exact authorization**
 
-  Stop until the user explicitly authorizes the exact frozen transmissions for each model-effort group. Authorization may cover both fully disclosed manifests in one statement, but it must identify both manifest digests, both exact efforts, all 60 packet digests by reference to the disclosed lists, the 66-turn ceiling, and the absence or presence of grading calls. Do not reuse the earlier four-prompt/eight-run authorization, an authorization for a superseded effort, or approval of this plan.
+  Stop until the user explicitly authorizes the exact frozen transmissions for each model-execution profile. Authorization may cover all three fully disclosed manifests in one statement, but it must identify all three manifest digests, each exact model and effort, all 90 packet digests by reference to the disclosed lists, the 99-turn ceiling, and the absence or presence of grading calls. An authorization for either Sol campaign does not authorize Spark, and approval of this plan or campaign preparation authorizes no external model turn. Do not reuse the earlier four-prompt/eight-run authorization or any authorization for a superseded manifest, model, or effort.
 
 - [ ] **Step 5: Execute each session once**
 
-  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Preserve failures and invalid attempts without silently replacing them. Any failure closes the campaign: write the terminal execution-failed record, launch no further session, and never resume or retry that directory. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
+  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Preserve failures and invalid attempts without silently replacing them. Any failure closes the campaign: write the terminal execution-failed record, launch no further session, and never resume or retry that directory. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative, ceiling, and portability-stress evidence in their respective campaign directories. A Spark provider/model failure is diagnostic evidence, not permission to continue the remaining sessions or substitute a different model under the same manifest.
 
 - [ ] **Step 6: Prepare blind grading packets**
 
@@ -1132,11 +1132,11 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 7: Grade and aggregate**
 
-  Produce expectation evidence, critical-gate outcomes, applicable-dimension judgments, per-skill-profile and per-research-stratum summaries, pairwise outcomes, disagreement records, token/time summaries, and limitations separately for the representative and capability-ceiling campaigns. Only after both aggregates are frozen, compare profile-conditioned outcomes without pooling their scores or treating effort as a repetition. Report exact/close/broad/narrow/related mapping results separately where labeled cases permit it. Treat any candidate critical failure as non-compensable under the preregistered rule. Do not calculate within-cell variance, standard deviation across repetitions, calibrated confidence, or a general pass probability.
+  Produce expectation evidence, critical-gate outcomes, applicable-dimension judgments, per-skill-profile and per-research-stratum summaries, pairwise outcomes, disagreement records, token/time summaries, and limitations separately for the representative, capability-ceiling, and portability-stress campaigns. Only after all three aggregates are frozen, compare profile-conditioned outcomes without pooling their scores, treating profiles as repetitions, or attributing Spark-versus-Sol differences to effort alone. Report exact/close/broad/narrow/related mapping results separately where labeled cases permit it. Treat any candidate critical failure as non-compensable under the preregistered rule, while distinguishing candidate defects from provider/model failures through retained evidence. Do not calculate within-cell variance, standard deviation across repetitions, calibrated confidence, or a general pass probability.
 
 - [ ] **Step 8: Apply the iteration rule**
 
-  If a critical failure or material design problem in either model-effort group requires a skill change, close this candidate iteration. Modify the skill through a new test-first cycle, freeze new bytes, create new timestamped representative and ceiling campaigns, and obtain new authorization. Do not overwrite either prior campaign.
+  If a critical failure or material design problem in any model-execution profile requires a skill change, close this candidate iteration. Modify the skill through a new test-first cycle, freeze new bytes, create new timestamped representative, ceiling, and portability-stress campaigns, and obtain new authorization. Do not overwrite any prior campaign.
 
 ## Task 16: Freeze and run the confirmatory campaign
 
@@ -1152,7 +1152,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 3: Freeze the confirmatory protocol**
 
-  Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, runtime, and transmission hashes before execution. Preserve the two-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
+  Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, portability-stress model and effort, runtime, and transmission hashes before execution. Preserve the three-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
 
 - [ ] **Step 4: Preflight, obtain exact authorization, and execute**
 
@@ -1160,7 +1160,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 5: Apply the promotion gate**
 
-  Promote only if deterministic gates pass, no unresolved candidate critical failure remains in either retained model-effort profile, preregistered primary comparisons improve over `current-skill`, no semantic or model-effort capability stratum materially regresses, negative trigger precision is preserved, and evidence is complete.
+  Promote only if deterministic gates pass, no unresolved candidate critical failure remains in any retained model-execution profile, preregistered primary comparisons improve over `current-skill`, no semantic or execution-profile capability stratum materially regresses, negative trigger precision is preserved, and evidence is complete.
 
 - [ ] **Step 6: Bound the final claim**
 
