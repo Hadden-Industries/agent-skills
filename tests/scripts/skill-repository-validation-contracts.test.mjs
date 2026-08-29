@@ -32,6 +32,35 @@ const VALID_TRIGGERS = [
   { query: "Use the example skill for this task.", should_trigger: true },
   { query: "Handle this adjacent task another way.", should_trigger: false },
 ];
+const VALID_COMPATIBILITY = "Requires access to bundled skill files.";
+const VALID_CAPABILITY_CONTRACT = {
+  schema_version: 1,
+  capability_ids: ["bundled-skill-files"],
+  arm_requirements: {
+    "no-skill": [],
+    "current-skill": ["bundled-skill-files"],
+    "candidate-skill": ["bundled-skill-files"],
+  },
+  compatibility_interpretations: [
+    {
+      arm: "current-skill",
+      exact_text: "Requires access to the historical skill bundle.",
+      always_required_capabilities: ["bundled-skill-files"],
+      conditional_case_capabilities: [],
+    },
+    {
+      arm: "candidate-skill",
+      exact_text: VALID_COMPATIBILITY,
+      always_required_capabilities: ["bundled-skill-files"],
+      conditional_case_capabilities: [],
+    },
+  ],
+  campaign_policy: {
+    default: "deny",
+    allowed_capabilities: ["bundled-skill-files"],
+    uniform_across_arms: true,
+  },
+};
 
 function writeTriggerEvaluations(directory, triggers = VALID_TRIGGERS) {
   writeFileSync(
@@ -42,7 +71,12 @@ function writeTriggerEvaluations(directory, triggers = VALID_TRIGGERS) {
 
 function createEvaluationLayout(
   t,
-  { definition, triggers = VALID_TRIGGERS, triggerSource },
+  {
+    definition,
+    skillSource = "# Example skill\n",
+    triggers = VALID_TRIGGERS,
+    triggerSource,
+  },
 ) {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-contract-"));
   const skillsRoot = join(root, "skills");
@@ -53,7 +87,7 @@ function createEvaluationLayout(
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(evaluationSuite, "fixtures"), { recursive: true });
   mkdirSync(skill, { recursive: true });
-  writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
+  writeFileSync(join(skill, "SKILL.md"), skillSource);
   writeFileSync(join(evaluationSuite, "fixtures", "sample.txt"), "fixture\n");
   writeFileSync(
     join(evaluationSuite, "evals.json"),
@@ -367,6 +401,87 @@ test("repository evaluation layout accepts ordered declarative follow-up turns",
     VALID_FOLLOW_UP_TURNS,
   );
 });
+
+test("repository evaluation layout reconciles a schema-v3 capability contract with canonical compatibility", (t) => {
+  const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+    definition: {
+      schema_version: 3,
+      skill_name: "example-skill",
+      capability_contract: structuredClone(VALID_CAPABILITY_CONTRACT),
+      evals: [{ ...VALID_EVALUATION, required_capabilities: [] }],
+    },
+    skillSource: `---\nname: example-skill\ndescription: Fixture skill.\ncompatibility: ${VALID_COMPATIBILITY}\n---\n\n# Example skill\n`,
+  });
+
+  assert.doesNotThrow(() =>
+    skillBuild.validateRepositoryEvaluationLayout({
+      skillsRoot,
+      evaluationsRoot,
+    }),
+  );
+});
+
+for (const [label, mutate, expectedMessage] of [
+  [
+    "unreviewed canonical compatibility text",
+    ({ definition }) => {
+      definition.capability_contract.compatibility_interpretations[1].exact_text =
+        "Requires some other capability.";
+    },
+    /candidate-skill compatibility interpretation does not exactly match SKILL\.md/u,
+  ],
+  [
+    "a missing case capability declaration",
+    ({ definition }) => {
+      delete definition.evals[0].required_capabilities;
+    },
+    /case 1 required_capabilities must be an array/u,
+  ],
+  [
+    "an undeclared case capability",
+    ({ definition }) => {
+      definition.evals[0].required_capabilities = ["web-search"];
+    },
+    /case 1 required_capabilities contains undeclared capability web-search/u,
+  ],
+  [
+    "a campaign policy that denies an arm requirement",
+    ({ definition }) => {
+      definition.capability_contract.campaign_policy.allowed_capabilities = [];
+    },
+    /campaign policy denied required capability bundled-skill-files/u,
+  ],
+  [
+    "capability declarations on an unversioned suite",
+    ({ definition }) => {
+      delete definition.schema_version;
+    },
+    /capability declarations require evals schema_version 3/u,
+  ],
+]) {
+  test(`repository evaluation layout rejects ${label}`, (t) => {
+    const definition = {
+      schema_version: 3,
+      skill_name: "example-skill",
+      capability_contract: structuredClone(VALID_CAPABILITY_CONTRACT),
+      evals: [{ ...VALID_EVALUATION, required_capabilities: [] }],
+    };
+    mutate({ definition });
+    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+      definition,
+      skillSource: `---\nname: example-skill\ndescription: Fixture skill.\ncompatibility: ${VALID_COMPATIBILITY}\n---\n\n# Example skill\n`,
+    });
+
+    assert.throws(
+      () =>
+        skillBuild.validateRepositoryEvaluationLayout({
+          skillsRoot,
+          evaluationsRoot,
+        }),
+      expectedMessage,
+    );
+  });
+}
 
 for (const [label, definition, expectedMessage] of [
   [

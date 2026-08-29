@@ -1,6 +1,54 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "skill_name": "defining-concepts",
+  "capability_contract": {
+    "schema_version": 1,
+    "capability_ids": [
+      "bundled-skill-files",
+      "url-fetch",
+      "web-search"
+    ],
+    "arm_requirements": {
+      "no-skill": [],
+      "current-skill": [
+        "bundled-skill-files"
+      ],
+      "candidate-skill": [
+        "bundled-skill-files"
+      ]
+    },
+    "compatibility_interpretations": [
+      {
+        "arm": "current-skill",
+        "exact_text": "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.",
+        "always_required_capabilities": [],
+        "conditional_case_capabilities": [
+          "url-fetch",
+          "web-search"
+        ]
+      },
+      {
+        "arm": "candidate-skill",
+        "exact_text": "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.",
+        "always_required_capabilities": [
+          "bundled-skill-files"
+        ],
+        "conditional_case_capabilities": [
+          "url-fetch",
+          "web-search"
+        ]
+      }
+    ],
+    "campaign_policy": {
+      "default": "deny",
+      "allowed_capabilities": [
+        "bundled-skill-files",
+        "url-fetch",
+        "web-search"
+      ],
+      "uniform_across_arms": true
+    }
+  },
   "notes": "Definition-first concept-engineering regression suite. Grade only applicable dimensions, apply critical gates before aggregate quality, and distinguish semantic relationship from permission to reuse wording. One run per case and arm provides no within-cell variance or pass probability. Provider-backed grading requires direct evidence for source, version, licensing, conformance, and validation claims.",
   "renderers": [
     "definition-answer",
@@ -73,6 +121,10 @@
       "prompt": "Our public-sector catalog needs a concept package for Dataset in the W3C Data Catalog Vocabulary context. Treat the dataset as the conceptual collection, not a downloadable file, serialization, API response, or distribution. Research the exact current W3C destination and state separately whether its wording may be reused verbatim.",
       "expected_output": "A definition-first concept package that preserves the dataset/distribution boundary, verifies the exact source and version, and separates semantic reuse from wording permission.",
       "files": [],
+      "required_capabilities": [
+        "url-fetch",
+        "web-search"
+      ],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -112,6 +164,7 @@
       "prompt": "Define Customer Contact Preference Status for a customer master-data registry. Permitted values are Not known, No preference recorded, Email, Telephone, Post, and Do not contact. Give a concise definition answer and keep the concept distinct from its stored code, field, and value domain.",
       "expected_output": "A definition-first answer for the recorded contact-preference condition that uses values as boundary evidence without turning them into the concept definition.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core",
@@ -145,6 +198,10 @@
       "prompt": "Audit and replace this definition of Document Language Code: 'A two-letter string written in a metadata field that tells which language the document uses.' The registry may later adopt language tags that are not two letters. Verify the applicable current language-code or language-tag source and explain the representation error.",
       "expected_output": "A revision audit whose replacement definition treats the code or tag as a representation of document-content language, not the language, document, field, or serialized characters.",
       "files": [],
+      "required_capabilities": [
+        "url-fetch",
+        "web-search"
+      ],
       "renderer": "revision-audit",
       "profiles": [
         "terminology-core",
@@ -183,6 +240,7 @@
       "prompt": "Audit and replace this definition of Identity Verification Outcome: 'A process that checks a person's evidence and returns Pass, Fail, or Inconclusive.' The concept records the result reached by an identity-verification process; the labels belong to a separate value domain.",
       "expected_output": "A revision audit that corrects the process/result category error and defines the outcome without embedding the value labels.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "revision-audit",
       "profiles": [
         "terminology-core",
@@ -215,6 +273,7 @@
       "prompt": "Replace this definition of Service Availability Status: 'The SLA status that is not an unavailable service.' The status records whether a monitored service met its agreed availability target during a reporting interval; values are Unknown, Met, and Not met.",
       "expected_output": "A positive, non-circular, abbreviation-free definition revision that separates the recorded assessment from the service, agreement, measurement process, code, and values.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "revision-audit",
       "profiles": [
         "terminology-core",
@@ -248,6 +307,7 @@
       "prompt": "Define Invoice Issue Date for a finance metadata registry. It is the date associated with the issuer's formal issuance of an invoice and must remain distinct from receipt date, delivery date, payment-due date, and payment date. Give a concise definition answer.",
       "expected_output": "A definition-first answer using date as the immediate superordinate and formal issuance by the issuer as the delimiting characteristic.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core",
@@ -279,6 +339,7 @@
       "prompt": "Define Charge for a physics glossary. Here it means the measurable electrostatic quantity, not a price, legal accusation, task assignment, battery state, unit, elementary-charge constant, current, or charged object. Assess whether Electric Charge is the less ambiguous designation.",
       "expected_output": "A definition-first scientific terminology answer that resolves polysemy, separates quantity from unit and related entities, and evaluates the designation without silently renaming it.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core"
@@ -311,6 +372,10 @@
       "prompt": "Create a concept package for Evidence Retention Authorization Status in a justice evidence registry. It records whether continued retention of an evidence item is authorized. A colleague says https://www.w3.org/TR/vocab-dcat-3/ is the authoritative exact definition; verify that destination and do not invent a source if it is irrelevant or inaccessible.",
       "expected_output": "A definition-first package that verifies and rejects the false DCAT attribution, searches proportionately, and formulates or defers without fabricating exact evidence.",
       "files": [],
+      "required_capabilities": [
+        "url-fetch",
+        "web-search"
+      ],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -349,6 +414,7 @@
       "prompt": "Define bicycle parking capacity for our internal glossary. Keep it compact and tell me if any assumption materially limits the definition.",
       "expected_output": "A compact definition-first answer that applies terminology discipline and the data-definitions fallback proportionately without claiming registry acceptance or ISO/IEC 11179 compliance.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core",
@@ -389,6 +455,7 @@
       ],
       "expected_output": "A two-turn interaction whose one focused clarification resolves the operational threshold and jurisdiction before a definition-first answer.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core",
@@ -423,6 +490,7 @@
       "prompt": "Assess a proposed mapping between Scheme A's Research dataset and Scheme B's Dataset. Scheme A excludes administrative records and requires data collected for a research question; Scheme B covers any organized collection of data. Produce a concept package and choose among exact, close, broad, narrow, related, or no supported mapping. Do not infer equivalence from the labels.",
       "expected_output": "A definition-first mapping package that compares intension, extension, scope, system position, and use, and rejects false exact equivalence.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -457,6 +525,7 @@
       "prompt": "Build a concept package for Digital preservation action in a formal ontology. It must answer whether an action can have multiple input information objects, whether a software execution is an action instance, and which agent bears responsibility. Separate the textual definition, necessary and sufficient conditions, constraints, and any proposed axiom; no ontology tool is available.",
       "expected_output": "A definition-first ontology package driven by competency questions, with honest proposed/not-run states and no invented reasoning result.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -493,6 +562,7 @@
       "prompt": "Create a multilingual terminology concept package for English accountability and French responsabilite in public-administration policy. Do not assume full equivalence from a dictionary translation or similar spelling; record any directional or partial equivalence, language variety, jurisdiction, and review need.",
       "expected_output": "A definition-first multilingual package that starts from concepts, preserves non-equivalence, and does not invent native-speaker or community validation.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -528,6 +598,7 @@
       "prompt": "Create a concept package for Traditional ecological knowledge for a cross-agency data catalog. One agency wants a universal interoperability definition; an Indigenous governance group says its own locally supplied definition and access rules govern use. Identify who has authority, preserve material alternatives, and defer any claim the agent cannot legitimately settle.",
       "expected_output": "A definition-first or explicitly deferred governance-sensitive package that prioritizes local authority and does not treat interoperability as legitimacy.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -564,6 +635,7 @@
       "prompt": "Return a machine-readable concept entry for Record retention trigger as plain JSON. Include a definition first in the human preface, typed relations, evidence status, source version and wording permission, lifecycle and review status, and performed versus not-run validation. Do not invent an identifier. Unknown, not applicable, not assessed, and not found must remain distinguishable.",
       "expected_output": "A concise definition-first preface followed by versioned plain JSON that preserves semantic states and does not imply unperformed schema, ontology, or registry validation.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "concept-package",
       "profiles": [
         "terminology-core",
@@ -602,6 +674,7 @@
       "prompt": "Define meeting cancellation reason in one or two sentences for an internal glossary. It means the circumstance that explains why a scheduled meeting was cancelled. Do not give me a research report or machine-readable package.",
       "expected_output": "A compact definition-first answer that performs internal semantic checks without exposing a fixed template or unnecessary analysis.",
       "files": [],
+      "required_capabilities": [],
       "renderer": "definition-answer",
       "profiles": [
         "terminology-core"

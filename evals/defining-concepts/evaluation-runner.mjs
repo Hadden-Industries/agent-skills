@@ -19,6 +19,10 @@ import {
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
 import {
+  assertCapabilityReconciliation,
+  reconcileEvaluationCapabilities,
+} from "../../scripts/evaluation/capability-reconciliation.js";
+import {
   captureGitSkillBundle,
   captureWorkingTreeSkillBundle,
 } from "../../scripts/evaluation/skill-bundle.js";
@@ -254,7 +258,7 @@ function caseSnapshot(evaluationCase) {
   };
 }
 
-function validatePreparedPacket(result, cell) {
+function validatePreparedPacket(result, cell, capabilityReconciliation) {
   if (result?.modelTurns !== 0 || result?.packet === undefined) {
     fail(
       `preparation for ${cell.internalId} must return zero model turns and one packet`,
@@ -268,7 +272,13 @@ function validatePreparedPacket(result, cell) {
       sha256Hex(canonicalJsonBytes(packet.transmission)) ||
     packet.transmission?.session?.caseId !== cell.caseId ||
     packet.transmission?.session?.arm !== cell.arm ||
-    packet.transmission?.session?.repetition !== 1
+    packet.transmission?.session?.repetition !== 1 ||
+    !canonicalJsonBytes(packet.transmission?.capabilityReconciliation).equals(
+      canonicalJsonBytes(capabilityReconciliation),
+    ) ||
+    !canonicalJsonBytes(packet.transmission?.capabilities).equals(
+      canonicalJsonBytes(capabilityReconciliation.receipt.runtimeCapabilities),
+    )
   ) {
     fail(
       `prepared packet for ${cell.internalId} is not bound to its campaign cell`,
@@ -285,6 +295,8 @@ export function prepareCampaign({
   repetitionCount,
   currentBundle,
   candidateBundle,
+  capabilityContract,
+  providerResolution,
   provider,
   model,
   effort,
@@ -336,6 +348,19 @@ export function prepareCampaign({
   if (typeof prepareSession !== "function")
     fail("prepareSession must be a function");
 
+  const capabilityReconciliation = reconcileEvaluationCapabilities({
+    suite: "defining-concepts",
+    contract: capabilityContract,
+    cases,
+    arms,
+    skillBundles: {
+      "current-skill": currentBundle,
+      "candidate-skill": candidateBundle,
+    },
+    providerResolution,
+  });
+  assertCapabilityReconciliation(capabilityReconciliation);
+
   const matrix = buildCampaignMatrix({
     caseIds: cases.map(({ id }) => id),
     arms,
@@ -367,6 +392,10 @@ export function prepareCampaign({
       path.join(staging, "bundles", "candidate-skill.json"),
       candidateBundle,
     );
+    writeCanonicalExclusive(
+      path.join(staging, "capability-reconciliation.json"),
+      capabilityReconciliation,
+    );
 
     const sessions = [];
     const mapping = [];
@@ -386,9 +415,11 @@ export function prepareCampaign({
           ...cell,
           caseRecord: snapshot.record,
           bundle,
+          capabilityReconciliation,
           sessionDirectory,
         }),
         cell,
+        capabilityReconciliation,
       );
       const packetPath = path.join(sessionDirectory, "packet.json");
       if (!existsSync(packetPath))
@@ -413,6 +444,7 @@ export function prepareCampaign({
         model,
         effort,
         runtimeFingerprint: prepared.transmission.runtimeFingerprint,
+        capabilityReconciliationSha256: capabilityReconciliation.receiptSha256,
         transmissionSha256: prepared.transmissionSha256,
         relativeSessionPath: `sessions/${cell.blindAlias}`,
         disposition: "prepared",
@@ -433,7 +465,7 @@ export function prepareCampaign({
       mappingRecord,
     );
     const manifest = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       suite: "defining-concepts",
       campaign,
       state: "prepared",
@@ -446,6 +478,10 @@ export function prepareCampaign({
         provider,
         model,
         effort,
+      },
+      capabilityReconciliation: {
+        relativePath: "capability-reconciliation.json",
+        receiptSha256: capabilityReconciliation.receiptSha256,
       },
       skillBundles: {
         currentSkill: {
@@ -485,6 +521,7 @@ export function prepareCampaign({
         renderer: evaluationCase.renderer,
         profiles: evaluationCase.profiles,
         research_strata: evaluationCase.research_strata,
+        required_capabilities: evaluationCase.required_capabilities,
         qualitative_dimensions: evaluationCase.qualitative_dimensions,
         expectations: gradingExpectations(evaluationCase),
       })),
@@ -540,6 +577,61 @@ function campaignManifestSha256(manifest) {
   return sha256Hex(canonicalJsonBytes(manifest));
 }
 
+function assertCampaignCapabilityReconciliation(campaignDirectory, manifest) {
+  const binding = manifest.capabilityReconciliation;
+  if (
+    binding?.relativePath !== "capability-reconciliation.json" ||
+    !SHA256_PATTERN.test(binding?.receiptSha256 ?? "")
+  ) {
+    fail("campaign capability reconciliation binding is invalid");
+  }
+  const reconciliation = readJson(
+    path.join(campaignDirectory, binding.relativePath),
+    "campaign capability reconciliation",
+  );
+  assertCapabilityReconciliation(reconciliation);
+  if (
+    reconciliation.receiptSha256 !== binding.receiptSha256 ||
+    reconciliation.receipt.suite !== manifest.suite ||
+    reconciliation.receipt.providerResolution?.provider !==
+      manifest.protocol.provider ||
+    !canonicalJsonBytes(reconciliation.receipt.arms).equals(
+      canonicalJsonBytes(manifest.protocol.arms),
+    ) ||
+    !canonicalJsonBytes(reconciliation.receipt.selectedCaseIds).equals(
+      canonicalJsonBytes(
+        [...manifest.protocol.caseIds].sort((left, right) => left - right),
+      ),
+    )
+  ) {
+    fail("campaign capability reconciliation does not match the manifest");
+  }
+  const caseRequirements = new Map(
+    reconciliation.receipt.caseRequirements?.map(({ caseId, capabilities }) => [
+      caseId,
+      capabilities,
+    ]) ?? [],
+  );
+  if (
+    !Array.isArray(manifest.caseRecords) ||
+    manifest.caseRecords.length !== manifest.protocol.caseIds.length ||
+    manifest.caseRecords.some(
+      (record) =>
+        !caseRequirements.has(record.id) ||
+        !canonicalJsonBytes(record.required_capabilities).equals(
+          canonicalJsonBytes(caseRequirements.get(record.id)),
+        ),
+    ) ||
+    manifest.sessions.some(
+      (session) =>
+        session.capabilityReconciliationSha256 !== binding.receiptSha256,
+    )
+  ) {
+    fail("campaign capability requirements do not match the manifest");
+  }
+  return reconciliation;
+}
+
 function selectedPreflightSession(manifest) {
   if (!Array.isArray(manifest.sessions)) {
     fail("campaign manifest sessions must be an array");
@@ -553,6 +645,8 @@ function selectedPreflightSession(manifest) {
     session.provider !== manifest.protocol.provider ||
     session.model !== manifest.protocol.model ||
     session.effort !== manifest.protocol.effort ||
+    session.capabilityReconciliationSha256 !==
+      manifest.capabilityReconciliation?.receiptSha256 ||
     !SHA256_PATTERN.test(session.transmissionSha256 ?? "")
   ) {
     fail("campaign preflight session does not match the campaign protocol");
@@ -568,6 +662,7 @@ function preflightSessionBinding(session) {
     provider: session.provider,
     model: session.model,
     effort: session.effort,
+    capabilityReconciliationSha256: session.capabilityReconciliationSha256,
   };
 }
 
@@ -614,14 +709,18 @@ export function preflightPreparedCampaign({
     path.join(campaignDirectory, "manifest.json"),
     "campaign manifest",
   );
-  if (manifest.schemaVersion !== 2 || manifest.state !== "prepared") {
+  if (manifest.schemaVersion !== 3 || manifest.state !== "prepared") {
     fail("campaign is not in the prepared state");
   }
+  assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
   if (manifest.protocol.provider !== "openai") {
     fail("campaign zero-turn preflight supports only OpenAI");
   }
-  if (existsSync(path.join(campaignDirectory, "executed.json"))) {
-    fail("executed campaigns cannot be preflighted");
+  if (
+    existsSync(path.join(campaignDirectory, "executed.json")) ||
+    existsSync(path.join(campaignDirectory, "execution-start.json"))
+  ) {
+    fail("campaigns with execution state cannot be preflighted");
   }
   const target = path.join(campaignDirectory, "preflight.json");
   if (existsSync(target)) {
@@ -648,6 +747,8 @@ export function preflightPreparedCampaign({
     schemaVersion: 1,
     state: "preflighted",
     campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
     session: preflightSessionBinding(session),
     status: result.status,
     modelTurns: result.modelTurns,
@@ -669,6 +770,8 @@ function assertSuccessfulCampaignPreflight(campaignDirectory, manifest) {
     record.schemaVersion !== 1 ||
     record.state !== "preflighted" ||
     record.campaignManifestSha256 !== campaignManifestSha256(manifest) ||
+    record.capabilityReconciliationSha256 !==
+      manifest.capabilityReconciliation?.receiptSha256 ||
     !canonicalJsonBytes(record.session).equals(
       canonicalJsonBytes(preflightSessionBinding(session)),
     )
@@ -692,19 +795,28 @@ export function runPreparedCampaign({
   campaignDirectory,
   authorizationDirectory,
   executeSession,
+  now = new Date(),
 }) {
   const manifest = readJson(
     path.join(campaignDirectory, "manifest.json"),
     "campaign manifest",
   );
-  if (manifest.schemaVersion !== 2 || manifest.state !== "prepared") {
+  if (manifest.schemaVersion !== 3 || manifest.state !== "prepared") {
     fail("campaign is not in the prepared state");
   }
-  if (existsSync(path.join(campaignDirectory, "executed.json"))) {
-    fail("campaign execution state already exists and cannot be overwritten");
+  assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
+  if (
+    existsSync(path.join(campaignDirectory, "executed.json")) ||
+    existsSync(path.join(campaignDirectory, "execution-start.json")) ||
+    existsSync(path.join(campaignDirectory, "execution-failed.json"))
+  ) {
+    fail("campaign execution already started and cannot resume or retry");
   }
   if (typeof executeSession !== "function")
     fail("executeSession must be a function");
+  if (!(now instanceof Date) || Number.isNaN(now.valueOf())) {
+    fail("execution start time must be a valid Date");
+  }
   if (manifest.protocol.provider === "openai") {
     assertSuccessfulCampaignPreflight(campaignDirectory, manifest);
   }
@@ -722,6 +834,54 @@ export function runPreparedCampaign({
     authorizations.set(session.blindAlias, authorization);
   }
 
+  const authorizationSet = {
+    schemaVersion: 1,
+    sessions: manifest.sessions.map((session) => ({
+      blindAlias: session.blindAlias,
+      transmissionSha256: session.transmissionSha256,
+      authorizationSha256: sha256Hex(
+        canonicalJsonBytes(authorizations.get(session.blindAlias)),
+      ),
+    })),
+  };
+  const authorizationSetSha256 = sha256Hex(
+    canonicalJsonBytes(authorizationSet),
+  );
+  const executionStart = {
+    schemaVersion: 1,
+    state: "execution-started",
+    startedAt: now.toISOString(),
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    authorizationSet,
+    authorizationSetSha256,
+  };
+  writeCanonicalExclusive(
+    path.join(campaignDirectory, "execution-start.json"),
+    executionStart,
+  );
+  const executionStartSha256 = sha256Hex(canonicalJsonBytes(executionStart));
+
+  function closeFailedExecution(session, record) {
+    writeCanonicalExclusive(
+      path.join(campaignDirectory, "execution-failed.json"),
+      {
+        schemaVersion: 1,
+        state: "execution-failed",
+        campaignManifestSha256: campaignManifestSha256(manifest),
+        capabilityReconciliationSha256:
+          manifest.capabilityReconciliation.receiptSha256,
+        executionStartSha256,
+        authorizationSetSha256,
+        blindAlias: session.blindAlias,
+        caseId: session.caseId,
+        completedSessionCount: results.length,
+        ...record,
+      },
+    );
+  }
+
   const results = [];
   for (const session of manifest.sessions) {
     let result;
@@ -735,6 +895,14 @@ export function runPreparedCampaign({
         blindAlias: session.blindAlias,
         reason: error.message,
       });
+      closeFailedExecution(session, {
+        failureClass: "execution-threw",
+        error: {
+          name: error?.name ?? "Error",
+          code: error?.code ?? null,
+          message: error?.message ?? String(error),
+        },
+      });
       throw error;
     }
     if (
@@ -746,12 +914,28 @@ export function runPreparedCampaign({
         blindAlias: session.blindAlias,
         reason: "execution returned a malformed result",
       });
+      closeFailedExecution(session, {
+        failureClass: "malformed-result",
+        error: {
+          name: "Error",
+          code: "MALFORMED_EXECUTION_RESULT",
+          message: "execution returned a malformed result",
+        },
+      });
       fail(`execution for ${session.blindAlias} returned a malformed result`);
     }
     if (!new Set(["completed", "failed"]).has(result.status)) {
       retainInvalidAttempt(campaignDirectory, results.length + 1, {
         blindAlias: session.blindAlias,
         reason: "execution returned an unsupported status",
+      });
+      closeFailedExecution(session, {
+        failureClass: "malformed-result",
+        error: {
+          name: "Error",
+          code: "UNSUPPORTED_EXECUTION_STATUS",
+          message: "execution returned an unsupported status",
+        },
       });
       fail(
         `execution for ${session.blindAlias} returned an unsupported status`,
@@ -764,6 +948,13 @@ export function runPreparedCampaign({
         failureClass: result.failureClass ?? null,
         error: result.error ?? null,
       });
+      closeFailedExecution(session, {
+        failureClass: result.failureClass ?? "execution-failed",
+        error: result.error ?? null,
+      });
+      fail(
+        `campaign execution failed for ${session.blindAlias}: ${result.failureClass ?? "execution-failed"}`,
+      );
     }
     results.push({
       blindAlias: session.blindAlias,
@@ -782,6 +973,10 @@ export function runPreparedCampaign({
     schemaVersion: 1,
     state: "executed",
     campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    executionStartSha256,
+    authorizationSetSha256,
     sessions: results,
   };
   writeCanonicalExclusive(
@@ -820,9 +1015,10 @@ export function prepareCampaignGrading({ campaignDirectory }) {
     path.join(campaignDirectory, "executed.json"),
     "executed campaign",
   );
-  if (manifest.schemaVersion !== 2 || executed.state !== "executed") {
+  if (manifest.schemaVersion !== 3 || executed.state !== "executed") {
     fail("campaign must be executed before grading preparation");
   }
+  assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
   if (
     executed.campaignManifestSha256 !== sha256Hex(canonicalJsonBytes(manifest))
   ) {
@@ -1069,7 +1265,7 @@ export function aggregateCampaignGrades({
   disagreements,
 }) {
   if (
-    manifest?.schemaVersion !== 2 ||
+    manifest?.schemaVersion !== 3 ||
     manifest.protocol?.repetitionCount !== 1
   ) {
     fail("aggregate requires a current one-repetition campaign manifest");
@@ -1241,6 +1437,33 @@ function providerPrepareArguments(values, repeated) {
   fail(`unsupported provider ${provider}`);
 }
 
+function campaignProviderResolution(provider) {
+  if (provider !== "openai") {
+    fail(
+      "the defining-concepts default-deny live-research campaign currently supports only OpenAI Codex",
+    );
+  }
+  return {
+    provider,
+    supportedCapabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+    enabledCapabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+    bindings: [
+      {
+        capability: "bundled-skill-files",
+        mechanism: "harness-controlled-input",
+      },
+      { capability: "url-fetch", mechanism: "native-web-search" },
+      { capability: "web-search", mechanism: "native-web-search" },
+    ],
+    runtimeCapabilities: {
+      network: false,
+      webSearch: true,
+      tools: [],
+      providerFacilities: [],
+    },
+  };
+}
+
 function prepareFromCli(values, repeated) {
   const campaign = requireCli(values, "--campaign");
   const destination = path.resolve(requireCli(values, "--destination"));
@@ -1286,6 +1509,8 @@ function prepareFromCli(values, repeated) {
       repetitionCount: campaignDefinition.repetitions,
       currentBundle,
       candidateBundle,
+      capabilityContract: definitions.capability_contract,
+      providerResolution: campaignProviderResolution(provider),
       provider,
       model,
       effort,
@@ -1294,6 +1519,14 @@ function prepareFromCli(values, repeated) {
       prepareSession(cell) {
         const caseFile = path.join(cell.sessionDirectory, "case.json");
         writeCanonicalExclusive(caseFile, cell.caseRecord);
+        const capabilityReconciliationFile = path.join(
+          cell.sessionDirectory,
+          "capability-reconciliation.json",
+        );
+        writeCanonicalExclusive(
+          capabilityReconciliationFile,
+          cell.capabilityReconciliation,
+        );
         const arguments_ = [
           SESSION_RUNNER,
           "prepare",
@@ -1313,6 +1546,8 @@ function prepareFromCli(values, repeated) {
           model,
           "--effort",
           effort,
+          "--capability-reconciliation-file",
+          capabilityReconciliationFile,
         ];
         if (cell.bundle !== null) {
           const bundleFile = path.join(

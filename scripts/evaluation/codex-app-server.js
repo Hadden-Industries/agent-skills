@@ -1264,6 +1264,9 @@ function threadStartParams(policy) {
     approvalPolicy: "on-request",
     approvalsReviewer: "user",
     baseInstructions: policy.instructions.base,
+    config: {
+      web_search: policy.capabilities.webSearch ? "live" : "disabled",
+    },
     cwd: policy.isolation.workingDirectory,
     developerInstructions: policy.instructions.developer,
     dynamicTools: [],

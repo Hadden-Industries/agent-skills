@@ -55,6 +55,7 @@ const PACKET_KEYS = Object.freeze([
   "transmissionSha256",
 ]);
 const TRANSMISSION_KEYS = Object.freeze([
+  "capabilityReconciliation",
   "capabilities",
   "continuationPolicy",
   "effort",
@@ -67,6 +68,14 @@ const TRANSMISSION_KEYS = Object.freeze([
   "suite",
   "toolchain",
   "transport",
+]);
+const REQUIRED_TRANSMISSION_KEYS = Object.freeze(
+  TRANSMISSION_KEYS.filter((name) => name !== "capabilityReconciliation"),
+);
+const CAPABILITY_RECONCILIATION_KEYS = Object.freeze([
+  "receipt",
+  "receiptSha256",
+  "schemaVersion",
 ]);
 const INPUT_KEYS = Object.freeze([
   "byteLength",
@@ -498,8 +507,51 @@ function assertSession(session) {
   assertSuiteArtifacts(session.suiteArtifacts);
 }
 
+function assertCapabilityReconciliation(value, transmission) {
+  assertExactKeys(
+    value,
+    CAPABILITY_RECONCILIATION_KEYS,
+    "transmission.capabilityReconciliation",
+  );
+  if (value.schemaVersion !== 1) {
+    fail("transmission capability reconciliation schema is unsupported");
+  }
+  assertPlainObject(
+    value.receipt,
+    "transmission.capabilityReconciliation.receipt",
+  );
+  assertSha256(
+    value.receiptSha256,
+    "transmission.capabilityReconciliation.receiptSha256",
+  );
+  if (value.receiptSha256 !== sha256Hex(canonicalJsonBytes(value.receipt))) {
+    fail("transmission capability reconciliation receipt digest is invalid");
+  }
+  if (value.receipt.suite !== transmission.suite) {
+    fail("transmission capability reconciliation suite does not match");
+  }
+  assertPlainObject(
+    value.receipt.runtimeCapabilities,
+    "transmission capability reconciliation runtime capabilities",
+  );
+  if (
+    !canonicalJsonBytes(value.receipt.runtimeCapabilities).equals(
+      canonicalJsonBytes(transmission.capabilities),
+    )
+  ) {
+    fail(
+      "reconciled runtime capabilities do not match transmission capabilities",
+    );
+  }
+}
+
 function assertTransmission(transmission) {
-  assertExactKeys(transmission, TRANSMISSION_KEYS, "transmission");
+  assertAllowedKeys(
+    transmission,
+    TRANSMISSION_KEYS,
+    REQUIRED_TRANSMISSION_KEYS,
+    "transmission",
+  );
   if (
     typeof transmission.suite !== "string" ||
     !LOWERCASE_ID_PATTERN.test(transmission.suite)
@@ -536,6 +588,13 @@ function assertTransmission(transmission) {
     "continuationPolicy",
   ]) {
     assertPlainObject(transmission[name], `transmission.${name}`);
+  }
+
+  if (Object.hasOwn(transmission, "capabilityReconciliation")) {
+    assertCapabilityReconciliation(
+      transmission.capabilityReconciliation,
+      transmission,
+    );
   }
 
   assertPositiveSafeInteger(

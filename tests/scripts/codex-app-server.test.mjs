@@ -267,6 +267,7 @@ async function executeAdapterFixture(
     timeoutMs = 5_000,
     continuationPolicy,
     signal,
+    configurePolicy,
     mutatePolicy,
   },
 ) {
@@ -277,6 +278,7 @@ async function executeAdapterFixture(
   await mkdir(fixtureRoot);
   await mkdir(homePath);
   const policy = policyFixture(fixtureRoot);
+  configurePolicy?.(policy);
   const toolchain = await inspectFakeToolchain(t, root, scenario);
   const packet = createTransmissionPacket(
     transmissionFixture(toolchain, policy, continuationPolicy),
@@ -547,6 +549,7 @@ test("preflight accepts the official initialize response and writes terminal evi
     approvalPolicy: "on-request",
     approvalsReviewer: "user",
     baseInstructions: "Use only the packet-bound evaluation instructions.",
+    config: { web_search: "disabled" },
     cwd: fixtureRoot,
     developerInstructions: "Do not discover ambient instructions.",
     dynamicTools: [],
@@ -1240,6 +1243,153 @@ test("execution consumes one launch, returns the authoritative final agent item,
   assert.deepEqual(normalizedCompletion.params, completionEvent);
   assert.equal(
     (await readFile(eventsPath, "utf8")).includes("later non-final commentary"),
+    false,
+  );
+});
+
+test("passive MCP startup status does not count as external capability use", async (t) => {
+  const controller = Object.freeze({
+    schemaVersion: 1,
+    maxTurns: 1,
+    initialInput: Object.freeze([
+      Object.freeze({ type: "text", text: "Packet-bound evaluation prompt" }),
+    ]),
+    async onTurnCompleted(event) {
+      return {
+        action: "complete",
+        suiteResult: { finalAnswer: event.finalAnswer },
+      };
+    },
+    async onApprovalRequest() {
+      throw new Error("approval was not expected");
+    },
+  });
+
+  const execution = await executeAdapterFixture(t, {
+    controller,
+    scenario: "passive-mcp-startup-status-turn",
+  });
+
+  assert.equal(execution.result.status, "completed");
+  assert.equal(execution.result.failureClass, null);
+  assert.deepEqual(execution.result.suiteResult, {
+    finalAnswer: "authoritative final answer 1",
+  });
+
+  const transcript = await readJsonLines(
+    join(execution.preparedSession, "outputs", "transcript.jsonl"),
+  );
+  const startupStatuses = transcript.filter(
+    ({ method }) => method === "mcpServer/startupStatus/updated",
+  );
+  assert.deepEqual(
+    startupStatuses.map(({ params }) => ({
+      name: params.name,
+      status: params.status,
+      error: params.error,
+      failureReason: params.failureReason,
+    })),
+    [
+      {
+        name: "codex_apps",
+        status: "starting",
+        error: null,
+        failureReason: null,
+      },
+      {
+        name: "codex_apps",
+        status: "ready",
+        error: null,
+        failureReason: null,
+      },
+    ],
+  );
+  assert.equal(
+    startupStatuses.every(
+      ({ params }) =>
+        typeof params.threadId === "string" && params.threadId.length > 0,
+    ),
+    true,
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "mcpServer/status/changed"),
+    false,
+  );
+  assert.equal(
+    transcript.some(({ params }) => params?.item?.type === "mcpToolCall"),
+    false,
+  );
+});
+
+test("authorized native web evidence is retained without enabling other facilities", async (t) => {
+  const controller = Object.freeze({
+    schemaVersion: 1,
+    maxTurns: 1,
+    initialInput: Object.freeze([
+      Object.freeze({ type: "text", text: "Packet-bound evaluation prompt" }),
+    ]),
+    async onTurnCompleted(event) {
+      return {
+        action: "complete",
+        suiteResult: { finalAnswer: event.finalAnswer },
+      };
+    },
+    async onApprovalRequest() {
+      throw new Error("approval was not expected");
+    },
+  });
+
+  const execution = await executeAdapterFixture(t, {
+    controller,
+    scenario: "authorized-web-turn",
+    configurePolicy(policy) {
+      policy.capabilities.webSearch = true;
+    },
+  });
+
+  assert.equal(
+    execution.result.status,
+    "completed",
+    JSON.stringify(execution.result),
+  );
+  assert.equal(execution.result.failureClass, null);
+  const transcript = await readJsonLines(
+    join(execution.preparedSession, "outputs", "transcript.jsonl"),
+  );
+  assert.deepEqual(
+    transcript.find(({ method }) => method === "thread/start").params.config,
+    { web_search: "live" },
+  );
+  const turnStart = transcript.find(({ method }) => method === "turn/start");
+  assert.equal(turnStart.params.sandboxPolicy.networkAccess, false);
+  assert.deepEqual(
+    transcript.find(({ method }) => method === "thread/start").params
+      .dynamicTools,
+    [],
+  );
+  const webEvent = transcript.find(
+    ({ params }) => params?.item?.type === "webSearch",
+  );
+  assert.deepEqual(webEvent.params.item, {
+    id: "turn-1-web",
+    type: "webSearch",
+    query: "ISO IEC 11179 Part 4 current destination",
+    destination: "https://www.iso.org/standard/35346.html",
+    evidence: [
+      {
+        title: "ISO/IEC 11179-4:2004",
+        url: "https://www.iso.org/standard/35346.html",
+        snippet:
+          "Metadata registries - Part 4: Formulation of data definitions",
+      },
+    ],
+  });
+  assert.equal(
+    transcript.some(({ params }) => params?.item?.type === "mcpToolCall"),
+    false,
+  );
+  assert.equal(
+    transcript.some(({ params }) => params?.item?.type === "imageGeneration"),
     false,
   );
 });

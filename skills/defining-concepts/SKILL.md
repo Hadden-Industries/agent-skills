@@ -2,7 +2,7 @@
 name: defining-concepts
 description: Engineers source-grounded concepts and definitions, including definition, revision, audit, comparison, mapping, formalization, multilingual equivalence, and epistemic-governance work. Use for deliberate semantic work on a concept's identity, boundary, designation, reuse, relation, or representation. Do NOT use for casual dictionary lookup, code-symbol naming, product or brand naming, copyediting without semantic work, or implementation-only requests.
 license: MPL-2.0
-compatibility: Works with file-reading agents; source retrieval, web research, machine validation, and subagent research are capability-dependent and must be reported truthfully when unavailable or not run.
+compatibility: Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.
 metadata:
   category: research
 ---

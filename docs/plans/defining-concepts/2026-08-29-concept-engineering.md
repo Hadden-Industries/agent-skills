@@ -4,7 +4,7 @@
 
 **Goal:** Replace the metadata-only, fixed-five-section `defining-concepts` workflow with a definition-first, source-grounded concept-engineering router; implement a proportional ConceptBrief, competency questions, concept-system and boundary analysis, claim-level evidence and licensing discipline, risk-aware validation, capability-aware parallel research, five composable specialist profiles, and three adaptive renderers; and establish a reproducible three-arm, one-repetition behavioral evaluation protocol with backward-compatible declarative multi-turn support.
 
-**Architecture:** Keep one model-invoked `SKILL.md` as the universal router and execution spine. Disclose the format-neutral concept-entry model, detailed evidence/provenance contract, presentation rules, serialization rules, and five specialist profiles through purpose-specific Markdown references. Extend the shared evaluation layer with deterministic scripted follow-up turns and immutable skill-bundle capture, while keeping definition-specific cases, graders, and campaign policy in `evals/defining-concepts/`.
+**Architecture:** Keep one model-invoked `SKILL.md` as the universal router and execution spine. Disclose the format-neutral concept-entry model, detailed evidence/provenance contract, presentation rules, serialization rules, and five specialist profiles through purpose-specific Markdown references. Extend the shared evaluation layer with deterministic scripted follow-up turns, immutable skill-bundle capture, and fail-closed compatibility/capability reconciliation, while keeping definition-specific cases, graders, compatibility interpretations, and campaign policy in `evals/defining-concepts/`.
 
 **Tech stack:** Repository-authored Markdown skills, Node.js 24+ ECMAScript modules, Node's built-in test runner, JSON evaluation manifests, Git object reads, SHA-256 evidence binding, and the existing OpenAI, Anthropic, and Google evaluation adapters. Add no runtime or development dependencies.
 
@@ -28,10 +28,13 @@
 - Keep human usability evaluation outside this implementation and promotion gate. Document it only as a recommended immediate follow-up.
 - Use exactly one run per arm per scenario. Add independent cases for broader evidence; do not add hidden repetitions.
 - Run two separately frozen and separately aggregated model-effort groups: a representative `gpt-5.6-sol` group at the model catalog's default effort (`low` for the 2026-08-29 iteration) and a capability-ceiling `gpt-5.6-sol` group at `max`. Keep `ultra` outside this matched protocol because automatic task delegation changes capabilities rather than only reasoning depth.
-- Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. Do not edit either file until the user explicitly approves the exact proposed fields, case inventory, prompts, expectations, trigger queries, and campaign selection.
+- Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. The user expressly approved the 2026-08-29 amendment that advances `evals.json` to schema version 3, adds exact compatibility interpretations, the `bundled-skill-files`, `web-search`, and `url-fetch` semantic capability vocabulary, per-case requirements for cases 1, 3, and 8, and a default-deny campaign-wide policy that applies the same resolved envelope to every arm. No other case, prompt, expectation, trigger, or campaign-selection change is authorized by that amendment.
 - Do not modify `package.json`, lockfiles, build configuration, lint configuration, formatting configuration, CI, environment configuration, or repository policy as part of this work.
 - Do not call an external model until the exact skill bundle, every prompt and follow-up turn, provider, model, effort, runtime fingerprint, and transmission SHA-256 have been prepared and explicitly authorized.
-- For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, the minimal preflight thread attests zero-turn isolation, exact execution settings are bound at `turn/start`, and runtime events establish whether an unrequested facility was used. Do not query skill or installed-app inventories as activation evidence; accept only well-formed disabled hooks. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
+- Before creating any packet or hash, read the exact `compatibility` value from every frozen skill-bearing arm and require a reviewed exact-text interpretation in `evals.json`; never infer requirements with regexes, keywords, or another model call. Requirements do not grant permission. Reconcile their union with case requirements, the explicit campaign policy, and provider availability, bind the successful receipt into every transmission and the manifest, and fail closed on missing, denied, unavailable, extra, changed, or unreviewed capability state.
+- For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest, capability-reconciliation receipt, and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, the minimal preflight thread attests zero-turn isolation, exact execution settings are bound at `turn/start`, and runtime events establish whether an unrequested facility was used. Do not query skill or installed-app inventories as activation evidence; accept only well-formed disabled hooks. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
+- Permit provider-native web search and URL fetching for the complete matched campaign because selected cases 1, 3, and 8 require live research. For Codex, resolve both semantic capabilities to `webSearch: true` while retaining `network: false` for arbitrary process or sandbox egress. Deny general tools, MCP or app calls, provider-default context, image generation, and automatic delegation. Preserve authorized web queries, destinations, and returned evidence in the sealed transcript.
+- Immediately before the first model launch, create one exclusive execution-start record bound to the manifest and authorization set. Its existence consumes the campaign's only execution attempt. A policy, infrastructure, provider, protocol, or runtime failure terminates the campaign without retry or resume; retain it and prepare a fresh timestamped campaign after repair.
 - A materially changed candidate is a new iteration. Never reuse a prior candidate's authorization, campaign identity, or result directory.
 - Do not claim human usability, general expert superiority, calibrated probability, within-prompt repeatability, or stochastic variance from this campaign.
 - Commits require explicit authorization through `committing-to-git`; pushes require a separate explicit authorization.
@@ -56,12 +59,17 @@
 
 - Create: `scripts/evaluation/scripted-conversation.js`
 - Create: `scripts/evaluation/skill-bundle.js`
+- Create: `scripts/evaluation/capability-reconciliation.js`
 - Modify: `scripts/validateSkillRepository.js`
-- Modify only if contract integration requires it: `scripts/evaluation/runtime.js`
+- Modify: `scripts/evaluation/runtime.js`
+- Modify: `scripts/evaluation/codex-app-server.js`
 - Create: `tests/scripts/evaluation-scripted-conversation.test.mjs`
 - Create: `tests/scripts/evaluation-skill-bundle.test.mjs`
+- Create: `tests/scripts/evaluation-capability-reconciliation.test.mjs`
 - Modify: `tests/scripts/skill-repository-validation-contracts.test.mjs`
-- Modify only if `runtime.js` changes: `tests/scripts/evaluation-runtime.test.mjs`
+- Modify: `tests/scripts/evaluation-runtime.test.mjs`
+- Modify: `tests/scripts/codex-app-server.test.mjs`
+- Modify: `tests/scripts/fixtures/codex-app-server-fake-engine.mjs`
 
 ### Defining-concepts evaluation suite
 
@@ -410,11 +418,70 @@ Each bundle contains:
 
 - [ ] **Step 7: Preserve transport-specific capability truth**
 
-  Do not claim live web search for a provider configuration that lacks it. Reject unsupported multi-turn/provider combinations before execution. Keep all existing exact authorization and managed-home safeguards. For Codex, distinguish provider and host inventory availability from per-thread activation, inspect enabled hook state, attest a minimal zero-turn thread, and bind exact effort, workspace roots, sandbox policy, and input at `turn/start`.
+  Do not claim live web search for a provider configuration that lacks it. Reject unsupported multi-turn/provider combinations before execution. Keep all existing exact authorization and managed-home safeguards. For Codex, distinguish provider and host inventory availability from per-thread activation, inspect enabled hook state, attest a minimal zero-turn thread, bind the reconciled native-web mode explicitly as `config.web_search` at `thread/start`, and bind exact effort, workspace roots, sandbox policy, and input at `turn/start`. Permit native web events only when both the capability receipt and packet authorize them; retain their queries, destinations, and returned evidence in the sealed transcript while rejecting arbitrary process network, general tools, MCP or app calls, image generation, provider-default context, and automatic delegation.
 
 - [ ] **Step 8: Run focused tests and confirm GREEN**
 
   Run the command from Step 5 and all existing defining-concepts runner tests.
+
+## Task 5A: Reconcile skill compatibility with evaluation capabilities
+
+**Files:**
+
+- Create: `scripts/evaluation/capability-reconciliation.js`
+- Create: `tests/scripts/evaluation-capability-reconciliation.test.mjs`
+- Modify: `scripts/evaluation/runtime.js`
+- Modify: `scripts/evaluation/codex-app-server.js`
+- Modify: `tests/scripts/evaluation-runtime.test.mjs`
+- Modify: `tests/scripts/codex-app-server.test.mjs`
+- Modify: `tests/scripts/fixtures/codex-app-server-fake-engine.mjs`
+- Modify: `evals/defining-concepts/run-evaluation-session.mjs`
+- Modify: `tests/evals/defining-concepts/run-evaluation-session.test.mjs`
+
+**Interfaces:**
+
+- Keep standard `SKILL.md` `compatibility` as portable free prose; do not parse it with keywords, regular expressions, a model, or a repository-private grammar.
+- Consume exact reviewed interpretations from suite configuration. Each interpretation binds an arm, exact compatibility text, and semantic requirements. A skill-bearing arm with absent, changed, duplicate, or unreviewed text fails before packet creation; `no-skill` must have neither a bundle nor compatibility text.
+- Consume explicit per-case semantic requirements and an explicit default-deny campaign policy. Requirements never grant permissions.
+- Reconcile over the complete selected campaign, then apply one provider-specific runtime envelope uniformly to all arms. The initial semantic vocabulary is `bundled-skill-files`, `web-search`, and `url-fetch`.
+- Emit one canonical, immutable receipt containing source-text and bundle digests, selected cases and arms, interpreted requirements, requirement union, policy, provider availability and resolution, and the final runtime capability object. Bind the receipt and its digest into every transmission and the campaign manifest.
+- For Codex, satisfy immutable bundled files through packet capture; map `web-search` plus `url-fetch` to `webSearch: true`; retain `network: false`; and leave general tools and unrelated provider facilities empty.
+
+- [ ] **Step 1: Write exact-interpretation tests and confirm RED**
+
+  Add cases for an exact current-skill match, an exact candidate-skill match, and a valid `no-skill` arm. Reject absent, changed, duplicate, arm-mismatched, or unreviewed compatibility text. Prove that suggestive words in unreviewed prose do not grant or infer any capability.
+
+- [ ] **Step 2: Write policy-reconciliation tests**
+
+  Assert that preparation unions requirements across every selected case and skill-bearing arm, distinguishes requirements from grants, and fails on denied, unavailable, undeclared, extra, or provider-unmapped capabilities. Assert that cases 1, 3, and 8 require `web-search` and `url-fetch`, while the other calibration cases do not independently introduce them. Assert that all three arms receive the same resolved campaign envelope.
+
+- [ ] **Step 3: Write canonical-receipt and binding tests**
+
+  Assert stable canonical ordering and SHA-256 identity for semantically identical inputs. Mutate compatibility text, interpretation, selected cases, policy, provider resolution, or runtime capabilities and assert a changed receipt digest. Assert that packets and manifests reject absent or mismatched receipts before transmission or authorization validation.
+
+- [ ] **Step 4: Write Codex event-enforcement tests**
+
+  Keep the passive startup-status regression: well-formed `mcpServer/startupStatus/updated` notifications that merely report `starting` or `ready` do not constitute MCP use. Add an authorized native-web fixture and assert it succeeds only with `webSearch: true`, while preserving the exact query, destination, and returned-evidence event data. Assert that the same event fails when disabled and that actual MCP or app calls, image generation, automatic delegation, general tool calls, and process-network requests remain rejected.
+
+- [ ] **Step 5: Implement the smallest shared reconciler**
+
+  Validate closed input shapes and semantic capability IDs, perform exact-text lookup only, compute campaign-wide requirements, compare them with explicit policy and provider availability, and return a deeply immutable canonical receipt plus digest. Keep suite-specific compatibility text and case semantics in `evals/defining-concepts/evals.json`; keep provider mappings in adapter-owned code. Add no third-party dependency.
+
+- [ ] **Step 6: Bind reconciliation before packet creation**
+
+  Run reconciliation after cases, arms, and frozen bundles are selected but before any transmission packet or hash is created. Include the exact receipt and digest in the packet's authenticated body and campaign manifest. Make authorization, preflight, and execution reject any recomputed mismatch or capability object that does not exactly equal the reconciled envelope.
+
+- [ ] **Step 7: Enforce and retain authorized native-web evidence**
+
+  Bind the reconciled Codex native-web mode explicitly as `config.web_search = "live"` or `"disabled"` at `thread/start`; the installed App Server schema has no turn-level web-search field. Treat provider inventory as availability rather than activation. Permit only authorized native web-search and URL-fetch events, preserve their full protocol payloads in the sealed transcript, and reject unrequested facilities fail-closed. Do not mistake passive MCP startup-status telemetry for an external call.
+
+- [ ] **Step 8: Run focused tests and confirm GREEN**
+
+  Run:
+
+  ```text
+  node --test tests/scripts/evaluation-capability-reconciliation.test.mjs tests/scripts/evaluation-runtime.test.mjs tests/scripts/codex-app-server.test.mjs tests/evals/defining-concepts/run-evaluation-session.test.mjs
+  ```
 
 ## Task 6: Add a deterministic campaign orchestrator
 
@@ -435,7 +502,7 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
 `prepare` is read-only with respect to the repository and makes no provider calls. It snapshots approved cases, captures the current and candidate skill bundles once, creates all three arm transmissions, assigns blind aliases from a recorded seed, and writes an immutable campaign manifest.
 
-`preflight` deterministically selects the manifest's sequence-1 session, performs one zero-turn OpenAI provider-protocol check, and exclusively records its result against the manifest and transmission. `run` requires that exact successful record, then validates every session's exact authorization before executing any session. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
+`preflight` deterministically selects the manifest's sequence-1 session, performs one zero-turn OpenAI provider-protocol check, and exclusively records its result against the manifest, capability receipt, and transmission. `run` requires that exact successful record, validates every session's exact authorization, atomically consumes the campaign's sole execution attempt, and only then executes the first session. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
 
 - [ ] **Step 1: Write a 30-session calibration-matrix test**
 
@@ -451,11 +518,11 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
 - [ ] **Step 4: Write campaign preflight tests**
 
-  Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the disabled packet policy; host skill and app inventories are not treated as activation or retained; disabled hooks are accepted while enabled or malformed hooks fail closed; the preflight thread is ephemeral, read-only, networkless, and has no instruction sources or workspace roots; exact effort, execution roots, sandbox policy, and input are bound at `turn/start`; and the record binds the exact manifest and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
+  Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the reconciled request; requested native web availability is required even though no web event can occur in a zero-turn preflight; host skill and app inventories are not treated as activation or retained; disabled hooks are accepted while enabled or malformed hooks fail closed; the preflight thread is ephemeral, read-only, process-networkless, and has no instruction sources or workspace roots; the reconciled `config.web_search` mode is bound at `thread/start`; exact effort, execution roots, sandbox policy, and input are bound at `turn/start`; and the record binds the exact manifest, capability receipt, and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
 
 - [ ] **Step 5: Write execution authorization tests**
 
-  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29.
+  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29. Assert that `run` exclusively creates an execution-start record bound to the manifest, capability-reconciliation receipt, and complete authorization-set digest immediately before the first launch; any existing start record prevents execution; any subsequent policy, infrastructure, provider, protocol, or runtime failure writes one immutable terminal execution-failed record and closes the campaign without retry or resume.
 
 - [ ] **Step 6: Write grading-packet tests**
 
@@ -475,7 +542,7 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
 - [ ] **Step 9: Implement the smallest campaign state machine**
 
-  Use explicit states such as `prepared`, `preflighted`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Failed or invalid execution attempts live under a bounded `invalid-attempts/` branch and never count as valid evidence.
+  Use explicit states such as `prepared`, `preflighted`, `execution-started`, `execution-failed`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Creation of the exclusive execution-start record consumes the campaign's one execution attempt; an interrupted or failed campaign is terminal and cannot be resumed. Failed or invalid execution attempts live under a bounded `invalid-attempts/` branch and never count as valid evidence.
 
 - [ ] **Step 10: Run campaign and session tests and confirm GREEN**
 
@@ -537,7 +604,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 1: Write manifest contract tests before changing JSON**
 
-  Assert unique IDs and stable names, the complete coverage matrix, allowed renderer and profile names, exactly one calibration repetition, exactly ten calibration IDs, exactly three canonical arms, and valid follow-up declarations.
+  Assert schema version 3, unique IDs and stable names, the complete coverage matrix, allowed renderer and profile names, exactly one calibration repetition, exactly ten calibration IDs, exactly three canonical arms, and valid follow-up declarations. Assert a closed capability contract containing exact-text interpretations for both skill-bearing arms, the three approved semantic capability IDs, an explicit default-deny campaign policy, and `required_capabilities` on every case. Require cases 1, 3, and 8 to declare exactly `web-search` and `url-fetch`; require the remaining cases to declare no external capability.
 
   Represent each case's applicable critical gates and qualitative dimensions declaratively. Do not force non-applicable dimensions to receive a score, and do not add a field that rewards use of subagents or batched tools.
 
@@ -567,7 +634,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 7: Apply only the exactly approved JSON changes**
 
-  Preserve the semantic purpose of IDs 1-8, replace their presentation assertions, add the approved new cases, and add only the approved trigger queries. Do not adjust prompts or expectations opportunistically after approval.
+  Preserve the semantic purpose of IDs 1-8, replace their presentation assertions, add the approved new cases, add the approved exact compatibility interpretations and capability contract, and add only the approved trigger queries. Use the exact frozen current-skill and candidate-skill `compatibility` strings; do not normalize, paraphrase, or heuristically derive them. Do not adjust prompts or expectations opportunistically after approval.
 
 - [ ] **Step 8: Run focused validation and confirm GREEN**
 
@@ -602,6 +669,8 @@ Where a single case cannot make a research stratum observable without becoming c
   - every local Markdown link resolves;
   - `SKILL.md` is ASCII-only and does not contain automated prose wrapping;
   - the old five-section contract and section-3 definition placement are absent;
+  - frontmatter contains exactly `compatibility: Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.`;
+  - compatibility stays portable prose and does not contain a private grammar, vendor tool identifier, `allowed-tools` dependency declaration, nested capability metadata, or invented MCP dependency;
   - the universal workflow, four dispositions, three renderer choices, five profile routes, fallback rule, qualitative status, and anti-invention boundary remain discoverable;
   - the parallel-work rule contains an eligibility gate, shared brief/return contract, coordinator ownership, material-evidence reverification, and sequential fallback; and
   - no test requires subagents to be available or spawned.
@@ -618,7 +687,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 4: Rewrite the trigger and routing boundary**
 
-  Cover deliberate definition, audit, comparison, mapping, formalization, multilingual, and epistemic-governance requests. Exclude casual dictionary lookup, code or product naming, copyediting without semantic work, and implementation-only requests. Route an otherwise-unqualified deliberate definition through the terminology core plus the data-definitions fallback while explicitly limiting ISO/IEC 11179 claims to its scope.
+  Cover deliberate definition, audit, comparison, mapping, formalization, multilingual, and epistemic-governance requests. Exclude casual dictionary lookup, code or product naming, copyediting without semantic work, and implementation-only requests. Route an otherwise-unqualified deliberate definition through the terminology core plus the data-definitions fallback while explicitly limiting ISO/IEC 11179 claims to its scope. Set the exact approved portable `compatibility` prose. Keep optional validators and subagent support out of it because the workflow has truthful unavailable/not-run and sequential fallbacks; keep runtime permission and provider dependency declarations outside standard skill frontmatter.
 
 - [ ] **Step 5: Author the proportional universal workflow**
 
@@ -888,7 +957,10 @@ Where a single case cannot make a research stratum observable without becoming c
   - three arms and immutable bundle capture;
   - calibration IDs and the 30-session arithmetic;
   - preparation and a mandatory sequence-1 zero-turn campaign preflight before authorization;
-  - provider capability availability versus actual thread activation and runtime event enforcement;
+  - standard free-prose skill compatibility versus suite-owned exact-text capability interpretation;
+  - campaign-wide requirement union, default-deny policy, equal capability envelopes across arms, and the sealed reconciliation receipt;
+  - provider capability availability versus actual thread activation and runtime event enforcement, including native web access with arbitrary process network still denied;
+  - the exclusive execution-start record, one-attempt campaign rule, immutable failure evidence, and prohibition on retry or resume;
   - separate authorization for every external model and grader transmission;
   - blind critical grading, qualitative dimensions, and pairwise comparison;
   - the non-compensable critical-failure register and why aggregate prose quality cannot override it;
@@ -904,7 +976,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 2: Update the shared evaluation README**
 
-  Add the generic `follow_up_turns` contract, shared scripted-controller boundary, provider capability preflight, skill-bundle semantics, three-arm naming, and schema-version rule for historical artifacts. Keep suite-specific semantics out of the shared document.
+  Add the generic `follow_up_turns` contract, shared scripted-controller boundary, portable `compatibility` treatment, exact reviewed suite interpretations, default-deny capability reconciliation and receipt binding, provider capability preflight, authorized-event retention, exclusive execution-attempt semantics, skill-bundle semantics, three-arm naming, and schema-version rule for historical artifacts. Keep suite-specific compatibility strings, capability requirements, and provider mappings out of the shared document.
 
 - [ ] **Step 3: Update the root README skill description and tree**
 
@@ -1003,11 +1075,19 @@ Where a single case cannot make a research stratum observable without becoming c
   - one repetition;
   - no human usability claim;
   - three blinded arms;
-  - immutable legacy evidence.
+  - immutable legacy evidence;
+  - portable free-prose compatibility plus deterministic suite-owned capability reconciliation;
+  - the same resolved capability envelope for every matched arm;
+  - authorized native-web event retention with arbitrary process network and unrelated facilities denied;
+  - an exclusive, non-resumable single campaign execution attempt.
 
 - [ ] **Step 7: Review the research recommendation disposition**
 
   Walk every row in the design's adopt/adapt/defer/reject table against the final diff. Confirm that the implementation contains the adopted semantic capabilities, preserves the adapted four-disposition and five-profile architecture, and has not accidentally introduced the deferred JSON Schema, reasoner/service, registry, workbench, monitoring, human study, or numeric confidence formula. Record any intentional difference as a design change requiring user review rather than silently improvising.
+
+- [ ] **Step 8: Review compatibility and capability invariants**
+
+  Confirm the canonical `compatibility` field remains valid portable Agent Skills prose; exact interpretations live only in approved suite configuration; no heuristic parser or private frontmatter grammar was introduced; cases 1, 3, and 8 drive the live-web requirement; all three arms receive one reconciled envelope; each packet and manifest binds the receipt; Codex requests native web while denying process network and unrelated facilities; and a campaign cannot start twice, retry, or resume after any execution attempt.
 
 ## Task 15: Prepare and authorize the two-profile 60-session calibration
 
@@ -1015,11 +1095,11 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 1: Prepare without executing**
 
-  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare two new timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its declared default effort `low`, and a capability-ceiling `gpt-5.6-sol` campaign at `max`. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, and 30 exact transmission hashes. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for the matched single-agent ceiling campaign.
+  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare two new timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its declared default effort `low`, and a capability-ceiling `gpt-5.6-sol` campaign at `max`. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, one exact capability-reconciliation receipt, and 30 exact transmission hashes. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for the matched single-agent ceiling campaign.
 
 - [ ] **Step 2: Pass the mandatory zero-turn campaign gate**
 
-  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, well-formed disabled hooks, a read-only and networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed provider-process closure. Treat provider and host inventories as availability rather than activation: broader provider availability is acceptable when the packet disables the facility, skill and installed-app inventories are not queried or retained, and a packet-requested but unavailable facility fails closed. Confirm that exact effort, execution roots, workspace sandbox, and input are packet-bound at `turn/start`, with runtime rejection of unrequested events. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
+  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, capability-reconciliation receipt digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed provider-process closure. Treat provider and host inventories as availability rather than activation: broader provider availability is acceptable, requested native web must be available even though zero turns means it is not used during preflight, skill and installed-app inventories are not queried or retained, and a requested but unavailable facility fails closed. Confirm that the reconciled `config.web_search` mode is packet-bound at `thread/start`, exact effort, execution roots, workspace sandbox, and input are packet-bound at `turn/start`, and runtime enforcement rejects unrequested events. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
 
 - [ ] **Step 3: Review the frozen campaign**
 
@@ -1031,6 +1111,7 @@ Where a single case cannot make a research stratum observable without becoming c
   - each successful zero-turn preflight record, its selected session, actual thread isolation, cleanup, and exact manifest binding;
   - provider, exact model, and exact effort for each group;
   - both sets of 30 transmission hashes;
+  - the exact compatibility interpretations, capability requirements, campaign policy, provider resolution, reconciliation receipt, and receipt digest bound to each group;
   - 60 expected external sessions and at most 66 total model turns across the two groups;
   - expected grading calls, which remain separately authorized;
   - both output destinations;
@@ -1043,7 +1124,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 5: Execute each session once**
 
-  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. Preserve failures and invalid attempts without silently replacing them. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
+  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Preserve failures and invalid attempts without silently replacing them. Any failure closes the campaign: write the terminal execution-failed record, launch no further session, and never resume or retry that directory. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
 
 - [ ] **Step 6: Prepare blind grading packets**
 

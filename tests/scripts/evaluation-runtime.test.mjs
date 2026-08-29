@@ -127,6 +127,20 @@ function transmissionFixture() {
   };
 }
 
+function capabilityReconciliationFixture(capabilities) {
+  const receipt = {
+    schemaVersion: 1,
+    suite: "defining-concepts",
+    requiredCapabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+    runtimeCapabilities: structuredClone(capabilities),
+  };
+  return {
+    schemaVersion: 1,
+    receipt,
+    receiptSha256: sha256Hex(canonicalJsonBytes(receipt)),
+  };
+}
+
 function mutateTransmission(mutator) {
   const transmission = structuredClone(transmissionFixture());
   mutator(transmission);
@@ -477,6 +491,54 @@ test("createTransmissionPacket binds every transmission domain", () => {
     const changed = createTransmissionPacket(mutateTransmission(mutate));
     assert.notEqual(changed.transmissionSha256, baseline.transmissionSha256);
   }
+});
+
+test("a capability reconciliation receipt is authenticated when present", () => {
+  const transmission = transmissionFixture();
+  transmission.capabilities.webSearch = true;
+  transmission.capabilityReconciliation = capabilityReconciliationFixture(
+    transmission.capabilities,
+  );
+  const packet = createTransmissionPacket(transmission);
+
+  assert.deepEqual(
+    packet.transmission.capabilityReconciliation,
+    transmission.capabilityReconciliation,
+  );
+  const changed = structuredClone(packet);
+  changed.transmission.capabilityReconciliation.receipt.requiredCapabilities = [
+    "bundled-skill-files",
+  ];
+  changed.transmissionSha256 = sha256Hex(
+    canonicalJsonBytes(changed.transmission),
+  );
+  assert.throws(
+    () => assertTransmissionPacket(changed),
+    /capability reconciliation.*digest/iu,
+  );
+});
+
+test("a reconciled runtime envelope must exactly match packet capabilities", () => {
+  const transmission = transmissionFixture();
+  transmission.capabilityReconciliation = capabilityReconciliationFixture({
+    ...transmission.capabilities,
+    webSearch: true,
+  });
+
+  assert.throws(
+    () => createTransmissionPacket(transmission),
+    /runtime capabilities.*transmission capabilities/iu,
+  );
+});
+
+test("legacy packets may omit capability reconciliation", () => {
+  const packet = createTransmissionPacket(transmissionFixture());
+
+  assert.equal(
+    Object.hasOwn(packet.transmission, "capabilityReconciliation"),
+    false,
+  );
+  assert.doesNotThrow(() => assertTransmissionPacket(packet));
 });
 
 test("Google transmissions require the Antigravity CLI transport", () => {

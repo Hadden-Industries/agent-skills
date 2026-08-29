@@ -211,7 +211,10 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
             webSearch:
               scenario === "provider-capabilities-malformed"
                 ? "available"
-                : scenario === "provider-capabilities-available",
+                : [
+                    "provider-capabilities-available",
+                    "authorized-web-turn",
+                  ].includes(scenario),
           },
         });
         if (state.pendingModelRequest !== null) {
@@ -464,6 +467,31 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
         ) {
           return;
         }
+        if (scenario === "authorized-web-turn") {
+          writeMessage({
+            method: "item/completed",
+            params: {
+              item: {
+                id: `${turnId}-web`,
+                type: "webSearch",
+                query: "ISO IEC 11179 Part 4 current destination",
+                destination: "https://www.iso.org/standard/35346.html",
+                evidence: [
+                  {
+                    title: "ISO/IEC 11179-4:2004",
+                    url: "https://www.iso.org/standard/35346.html",
+                    snippet:
+                      "Metadata registries - Part 4: Formulation of data definitions",
+                  },
+                ],
+              },
+              threadId: state.threadId,
+              turnId,
+            },
+          });
+          finishTurn();
+          return;
+        }
         if (scenario === "external-item-turn") {
           writeMessage({
             method: "item/completed",
@@ -475,6 +503,30 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
               },
               threadId: state.threadId,
               turnId,
+            },
+          });
+          finishTurn();
+          return;
+        }
+        if (scenario === "passive-mcp-startup-status-turn") {
+          writeMessage({
+            method: "mcpServer/startupStatus/updated",
+            params: {
+              threadId: state.threadId,
+              name: "codex_apps",
+              status: "starting",
+              error: null,
+              failureReason: null,
+            },
+          });
+          writeMessage({
+            method: "mcpServer/startupStatus/updated",
+            params: {
+              threadId: state.threadId,
+              name: "codex_apps",
+              status: "ready",
+              error: null,
+              failureReason: null,
             },
           });
           finishTurn();

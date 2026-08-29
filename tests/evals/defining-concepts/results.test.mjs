@@ -39,7 +39,7 @@ function resultSchemaKind(manifest) {
     );
     return "legacy";
   }
-  if (manifest?.schemaVersion === 2) {
+  if (manifest?.schemaVersion === 2 || manifest?.schemaVersion === 3) {
     return "current";
   }
   throw new Error(
@@ -75,6 +75,20 @@ function currentSchemaFixture() {
     '{"schemaVersion":1,"seed":"fixture-seed","sessions":[]}\n',
     "utf8",
   );
+  const capabilityReceipt = {
+    schemaVersion: 1,
+    suite: "defining-concepts",
+    requiredCapabilities: ["bundled-skill-files"],
+  };
+  const capabilityReconciliation = {
+    schemaVersion: 1,
+    receipt: capabilityReceipt,
+    receiptSha256: sha256(Buffer.from(JSON.stringify(capabilityReceipt))),
+  };
+  const capabilityBytes = Buffer.from(
+    `${JSON.stringify(capabilityReconciliation)}\n`,
+    "utf8",
+  );
   const caseSha256 = sha256(caseBytes);
   const conversationSha256 = sha256(conversationBytes);
   const runtimeFingerprint = "c".repeat(64);
@@ -85,7 +99,7 @@ function currentSchemaFixture() {
   };
   return {
     manifest: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       suite: "defining-concepts",
       campaign: "calibration",
       state: "prepared",
@@ -96,6 +110,10 @@ function currentSchemaFixture() {
         provider: "codex",
         model: "gpt-fixture",
         effort: "high",
+      },
+      capabilityReconciliation: {
+        relativePath: "capability-reconciliation.json",
+        receiptSha256: capabilityReconciliation.receiptSha256,
       },
       skillBundles: {
         currentSkill: {
@@ -135,6 +153,7 @@ function currentSchemaFixture() {
         model: "gpt-fixture",
         effort: "high",
         runtimeFingerprint,
+        capabilityReconciliationSha256: capabilityReconciliation.receiptSha256,
         transmissionSha256: transmissions[blindAlias],
         disposition: "prepared",
       })),
@@ -149,10 +168,12 @@ function currentSchemaFixture() {
       conversationBytes,
       currentBundleBytes,
       candidateBundleBytes,
+      capabilityBytes,
       mappingBytes,
     },
     execution: {
       schemaVersion: 1,
+      capabilityReconciliationSha256: capabilityReconciliation.receiptSha256,
       sessions: [
         { blindAlias: "blind-01", disposition: "valid" },
         { blindAlias: "blind-02", disposition: "valid" },
@@ -177,13 +198,25 @@ function validateResultArtifactSet({
     return "legacy";
   }
 
-  if (manifest?.schemaVersion !== 2) {
+  if (manifest?.schemaVersion !== 2 && manifest?.schemaVersion !== 3) {
     throw new Error(
       "result artifact set must declare an explicitly supported result schema",
     );
   }
 
   assert.equal(manifest.suite, "defining-concepts");
+  if (manifest.schemaVersion === 3) {
+    const reconciliation = JSON.parse(bytes.capabilityBytes.toString("utf8"));
+    assert.equal(reconciliation.schemaVersion, 1);
+    assert.equal(
+      reconciliation.receiptSha256,
+      sha256(Buffer.from(JSON.stringify(reconciliation.receipt))),
+    );
+    assert.equal(
+      manifest.capabilityReconciliation.receiptSha256,
+      reconciliation.receiptSha256,
+    );
+  }
   assert.deepEqual(manifest.protocol.arms, [
     "no-skill",
     "current-skill",
@@ -234,12 +267,24 @@ function validateResultArtifactSet({
     assert.equal(session.model, manifest.protocol.model);
     assert.equal(session.effort, manifest.protocol.effort);
     assert.match(session.runtimeFingerprint, /^[0-9a-f]{64}$/u);
+    if (manifest.schemaVersion === 3) {
+      assert.equal(
+        session.capabilityReconciliationSha256,
+        manifest.capabilityReconciliation.receiptSha256,
+      );
+    }
     assert.match(session.transmissionSha256, /^[0-9a-f]{64}$/u);
     assert.equal(session.disposition, "prepared");
   }
   assert.deepEqual(sessionArms, new Set(manifest.protocol.arms));
 
   assert.equal(execution.schemaVersion, 1);
+  if (manifest.schemaVersion === 3) {
+    assert.equal(
+      execution.capabilityReconciliationSha256,
+      manifest.capabilityReconciliation.receiptSha256,
+    );
+  }
   const dispositions = new Set();
   for (const session of execution.sessions) {
     assert.ok(
@@ -304,6 +349,30 @@ function validateCurrentResultDirectory(resultDirectory) {
     manifest.sessions.length,
     manifest.protocol.caseIds.length * manifest.protocol.arms.length,
   );
+  const capabilityAware = manifest.schemaVersion === 3;
+  let capabilityReceiptSha256 = null;
+  if (capabilityAware) {
+    assert.deepEqual(manifest.capabilityReconciliation, {
+      relativePath: "capability-reconciliation.json",
+      receiptSha256: manifest.capabilityReconciliation.receiptSha256,
+    });
+    const reconciliation = readJson(
+      resultDirectory,
+      manifest.capabilityReconciliation.relativePath,
+    );
+    assert.equal(reconciliation.schemaVersion, 1);
+    assert.equal(
+      reconciliation.receiptSha256,
+      sha256(Buffer.from(JSON.stringify(reconciliation.receipt))),
+    );
+    assert.equal(
+      reconciliation.receiptSha256,
+      manifest.capabilityReconciliation.receiptSha256,
+    );
+    assert.equal(reconciliation.receipt.suite, manifest.suite);
+    assert.deepEqual(reconciliation.receipt.arms, manifest.protocol.arms);
+    capabilityReceiptSha256 = reconciliation.receiptSha256;
+  }
 
   for (const [manifestKey, fileName] of [
     ["currentSkill", "current-skill.json"],
@@ -372,6 +441,12 @@ function validateCurrentResultDirectory(resultDirectory) {
     );
     assert.equal(typeof session.runtimeFingerprint, "object");
     assert.ok(Array.isArray(session.runtimeFingerprint.modules));
+    if (capabilityAware) {
+      assert.equal(
+        session.capabilityReconciliationSha256,
+        capabilityReceiptSha256,
+      );
+    }
     assert.match(session.transmissionSha256, /^[0-9a-f]{64}$/u);
     const packet = readJson(
       resultDirectory,
@@ -379,6 +454,17 @@ function validateCurrentResultDirectory(resultDirectory) {
       "packet.json",
     );
     assert.equal(packet.transmissionSha256, session.transmissionSha256);
+    if (capabilityAware) {
+      assert.equal(
+        packet.transmission.capabilityReconciliation.receiptSha256,
+        capabilityReceiptSha256,
+      );
+      assert.deepEqual(
+        packet.transmission.capabilities,
+        packet.transmission.capabilityReconciliation.receipt
+          .runtimeCapabilities,
+      );
+    }
   }
 
   assert.deepEqual(manifest.limitations, {
@@ -402,7 +488,16 @@ function validateCurrentResultDirectory(resultDirectory) {
       provider: selected[0].provider,
       model: selected[0].model,
       effort: selected[0].effort,
+      ...(capabilityAware
+        ? { capabilityReconciliationSha256: capabilityReceiptSha256 }
+        : {}),
     });
+    if (capabilityAware) {
+      assert.equal(
+        preflight.capabilityReconciliationSha256,
+        capabilityReceiptSha256,
+      );
+    }
     assert.ok(
       preflight.status === "completed" || preflight.status === "failed",
     );
@@ -416,6 +511,11 @@ function validateCurrentResultDirectory(resultDirectory) {
   }
 
   const executedPath = path.join(resultDirectory, "executed.json");
+  const executionStartPath = path.join(resultDirectory, "execution-start.json");
+  const executionFailedPath = path.join(
+    resultDirectory,
+    "execution-failed.json",
+  );
   const gradingPreparedPath = path.join(
     resultDirectory,
     "grading-prepared.json",
@@ -424,6 +524,31 @@ function validateCurrentResultDirectory(resultDirectory) {
   if (!existsSync(executedPath)) {
     assert.equal(existsSync(gradingPreparedPath), false);
     assert.equal(existsSync(aggregatePath), false);
+    if (existsSync(executionFailedPath)) {
+      assert.equal(capabilityAware, true);
+      assert.equal(existsSync(executionStartPath), true);
+      const executionStart = readJson(executionStartPath);
+      const executionFailed = readJson(executionFailedPath);
+      assert.equal(executionStart.state, "execution-started");
+      assert.equal(executionFailed.state, "execution-failed");
+      assert.equal(
+        executionStart.capabilityReconciliationSha256,
+        capabilityReceiptSha256,
+      );
+      assert.equal(
+        executionFailed.capabilityReconciliationSha256,
+        capabilityReceiptSha256,
+      );
+      assert.equal(
+        executionFailed.executionStartSha256,
+        sha256(Buffer.from(JSON.stringify(executionStart))),
+      );
+      return "execution-failed";
+    }
+    if (existsSync(executionStartPath)) {
+      assert.equal(capabilityAware, true);
+      return "execution-started";
+    }
     return preflight === null
       ? "prepared"
       : preflight.status === "completed"
@@ -437,6 +562,27 @@ function validateCurrentResultDirectory(resultDirectory) {
   assert.equal(executed.schemaVersion, 1);
   assert.equal(executed.state, "executed");
   assert.equal(executed.campaignManifestSha256, sha256(manifestBytes));
+  if (capabilityAware) {
+    assert.equal(existsSync(executionStartPath), true);
+    assert.equal(existsSync(executionFailedPath), false);
+    const executionStart = readJson(executionStartPath);
+    assert.equal(
+      executionStart.capabilityReconciliationSha256,
+      capabilityReceiptSha256,
+    );
+    assert.equal(
+      executed.capabilityReconciliationSha256,
+      capabilityReceiptSha256,
+    );
+    assert.equal(
+      executed.executionStartSha256,
+      sha256(Buffer.from(JSON.stringify(executionStart))),
+    );
+    assert.equal(
+      executed.authorizationSetSha256,
+      executionStart.authorizationSetSha256,
+    );
+  }
   assert.equal(executed.sessions.length, manifest.sessions.length);
   assert.deepEqual(
     new Set(executed.sessions.map(({ blindAlias }) => blindAlias)),

@@ -44,6 +44,10 @@ import {
   normalizeEvaluationConversation,
 } from "../../scripts/evaluation/scripted-conversation.js";
 import { renderSkillBundle } from "../../scripts/evaluation/skill-bundle.js";
+import {
+  assertCapabilityReconciliation,
+  extractSkillCompatibility,
+} from "../../scripts/evaluation/capability-reconciliation.js";
 import { createDefiningConceptController } from "./session-controller.mjs";
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "../..");
@@ -72,6 +76,7 @@ const COMMON_RUNTIME_MODULES = [
   "evals/defining-concepts/session-controller.mjs",
   "scripts/evaluation/scripted-conversation.js",
   "scripts/evaluation/skill-bundle.js",
+  "scripts/evaluation/capability-reconciliation.js",
   "scripts/evaluation/runtime.js",
 ];
 const PROVIDER_RUNTIME_MODULES = Object.freeze({
@@ -235,11 +240,16 @@ function validateSkillBundle(bundle, arm) {
       typeof file.path !== "string" ||
       !file.path.startsWith("skills/defining-concepts/") ||
       file.path.includes("\\") ||
-      file.path.split("/").some((part) => part === "" || part === "." || part === "..")
+      file.path
+        .split("/")
+        .some((part) => part === "" || part === "." || part === "..")
     ) {
       fail(`skill bundle file ${index} has an invalid path`);
     }
-    if (previousPath !== null && Buffer.compare(Buffer.from(previousPath), Buffer.from(file.path)) >= 0) {
+    if (
+      previousPath !== null &&
+      Buffer.compare(Buffer.from(previousPath), Buffer.from(file.path)) >= 0
+    ) {
       fail("skill bundle files must use unique stable path order");
     }
     previousPath = file.path;
@@ -247,11 +257,18 @@ function validateSkillBundle(bundle, arm) {
       fail(`skill bundle file ${index} content must be text`);
     }
     const bytes = Buffer.from(file.content, "utf8");
-    if (file.byteLength !== bytes.byteLength || file.sha256 !== sha256Hex(bytes)) {
+    if (
+      file.byteLength !== bytes.byteLength ||
+      file.sha256 !== sha256Hex(bytes)
+    ) {
       fail(`skill bundle file ${index} digest does not match its content`);
     }
   }
-  if (!bundle.files.some((file) => file.path === "skills/defining-concepts/SKILL.md")) {
+  if (
+    !bundle.files.some(
+      (file) => file.path === "skills/defining-concepts/SKILL.md",
+    )
+  ) {
     fail("skill bundle is missing skills/defining-concepts/SKILL.md");
   }
   const payload = {
@@ -270,6 +287,82 @@ function validateSkillBundle(bundle, arm) {
     fail("candidate-skill requires a working-tree skill bundle");
   }
   return bundle;
+}
+
+function validateSessionCapabilityReconciliation({
+  value,
+  evaluationCaseId,
+  arm,
+  bundle,
+  provider,
+}) {
+  assertCapabilityReconciliation(value);
+  const { receipt } = value;
+  if (receipt.suite !== "defining-concepts") {
+    fail("capability reconciliation suite is invalid");
+  }
+  if (
+    !Array.isArray(receipt.selectedCaseIds) ||
+    !receipt.selectedCaseIds.includes(evaluationCaseId)
+  ) {
+    fail("capability reconciliation does not include the evaluation case");
+  }
+  const canonicalArms = ["no-skill", "current-skill", "candidate-skill"];
+  if (
+    !Array.isArray(receipt.arms) ||
+    receipt.arms.length !== canonicalArms.length ||
+    receipt.arms.some((item, index) => item !== canonicalArms[index])
+  ) {
+    fail("capability reconciliation does not bind all canonical arms");
+  }
+  if (receipt.providerResolution?.provider !== provider) {
+    fail("capability reconciliation provider does not match the session");
+  }
+  if (
+    receipt.runtimeCapabilities === null ||
+    typeof receipt.runtimeCapabilities !== "object" ||
+    Array.isArray(receipt.runtimeCapabilities)
+  ) {
+    fail("capability reconciliation runtime capabilities are malformed");
+  }
+  if (
+    !Array.isArray(receipt.armEnvelopes) ||
+    receipt.armEnvelopes.length !== canonicalArms.length ||
+    receipt.armEnvelopes.some(
+      (item, index) => item?.arm !== canonicalArms[index],
+    )
+  ) {
+    fail("capability reconciliation arm envelopes are malformed");
+  }
+  const envelope = canonicalJsonBytes(receipt.armEnvelopes[0].capabilities);
+  if (
+    receipt.armEnvelopes.some(
+      ({ capabilities }) => !canonicalJsonBytes(capabilities).equals(envelope),
+    )
+  ) {
+    fail("capability reconciliation arm envelopes are not uniform");
+  }
+  if (!Array.isArray(receipt.compatibility)) {
+    fail("capability reconciliation compatibility evidence is malformed");
+  }
+  const matching = receipt.compatibility.filter((item) => item?.arm === arm);
+  if (arm === "no-skill") {
+    if (bundle !== null || matching.length !== 0) {
+      fail("no-skill capability reconciliation must not bind compatibility");
+    }
+  } else {
+    if (bundle === null || matching.length !== 1) {
+      fail(`${arm} capability reconciliation must bind one skill bundle`);
+    }
+    const extracted = extractSkillCompatibility(bundle);
+    if (
+      matching[0].bundleSha256 !== bundle.aggregateSha256 ||
+      matching[0].exactText !== extracted.text
+    ) {
+      fail(`${arm} capability reconciliation bundle does not match`);
+    }
+  }
+  return value;
 }
 
 function controllerDigest() {
@@ -386,6 +479,9 @@ function preparedInputs(transmission) {
 async function prepare(options) {
   const { values, repeated } = options;
   const casePath = path.resolve(requireValue(values, "--case-file"));
+  const capabilityReconciliationPath = path.resolve(
+    requireValue(values, "--capability-reconciliation-file"),
+  );
   const destination = path.resolve(requireValue(values, "--destination"));
   const workingDirectory = path.resolve(requireValue(values, "--working-dir"));
   const arm = requireValue(values, "--arm");
@@ -418,7 +514,9 @@ async function prepare(options) {
   const evalId = positiveInteger(evaluationCase.id, "evaluation case id");
   const declaredConversation = normalizeEvaluationConversation(evaluationCase);
   if (providerOption === "claude" && declaredConversation.length > 1) {
-    fail("Claude CLI evaluation sessions do not support scripted follow-up turns");
+    fail(
+      "Claude CLI evaluation sessions do not support scripted follow-up turns",
+    );
   }
   const bundle =
     bundlePath === null
@@ -432,22 +530,17 @@ async function prepare(options) {
       : providerOption === "claude"
         ? "anthropic"
         : "google";
-  const capabilities =
-    provider === "openai"
-      ? { network: false, webSearch: false, tools: [], providerFacilities: [] }
-      : provider === "anthropic"
-        ? {
-            network: true,
-            webSearch: true,
-            tools: ["WebSearch", "WebFetch"],
-            providerFacilities: [],
-          }
-        : {
-            network: false,
-            webSearch: false,
-            tools: [],
-            providerFacilities: ["provider-default-context"],
-          };
+  const capabilityReconciliation = validateSessionCapabilityReconciliation({
+    value: readJsonFile(
+      capabilityReconciliationPath,
+      "capability reconciliation",
+    ),
+    evaluationCaseId: evalId,
+    arm,
+    bundle,
+    provider,
+  });
+  const capabilities = capabilityReconciliation.receipt.runtimeCapabilities;
   const instructions = instructionText(renderedBundle, capabilities.webSearch);
   const preparedSessionId = randomBytes(16).toString("hex");
   let toolchain;
@@ -675,6 +768,7 @@ async function prepare(options) {
       sequence: 1,
       metadata: {
         conversationTurnIds: declaredConversation.map(({ id }) => id),
+        capabilityReconciliationSha256: capabilityReconciliation.receiptSha256,
         skillBundleAggregateSha256: bundle?.aggregateSha256 ?? null,
         skillBundleSource: bundle?.source ?? null,
       },
@@ -691,6 +785,7 @@ async function prepare(options) {
           : "antigravity-cli",
     toolchain,
     runtimeFingerprint: fingerprint(provider),
+    capabilityReconciliation,
     capabilities,
     isolation,
     harnessControlledInputs: inputs,
@@ -776,13 +871,8 @@ function codexPolicyFromTransmission(transmission) {
 }
 
 function assertPreparedRuntimeCurrent(transmission) {
-  assertRuntimeCurrent(
-    transmission.runtimeFingerprint,
-    transmission.provider,
-  );
-  if (
-    controllerDigest() !== transmission.continuationPolicy.controllerSha256
-  ) {
+  assertRuntimeCurrent(transmission.runtimeFingerprint, transmission.provider);
+  if (controllerDigest() !== transmission.continuationPolicy.controllerSha256) {
     fail("session controller changed after preparation");
   }
 }

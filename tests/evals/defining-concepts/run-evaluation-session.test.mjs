@@ -48,6 +48,10 @@ const fakeAntigravity = path.join(
   "fixtures",
   "fake-antigravity-cli.mjs",
 );
+const currentCompatibility =
+  "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.";
+const candidateCompatibility =
+  "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.";
 
 function invoke(args) {
   return spawnSync(process.execPath, [runner, ...args], { encoding: "utf8" });
@@ -89,6 +93,74 @@ function bundleRecord({
   };
 }
 
+function skillSource(body, compatibility) {
+  return `---\nname: defining-concepts\ndescription: Fixture skill.\ncompatibility: ${compatibility}\n---\n\n${body}`;
+}
+
+function capabilityReconciliationRecord({
+  provider,
+  capabilities,
+  currentBundle,
+  candidateBundle,
+  caseIds = [1, 10],
+}) {
+  const receipt = {
+    schemaVersion: 1,
+    suite: "defining-concepts",
+    selectedCaseIds: caseIds,
+    arms: ["no-skill", "current-skill", "candidate-skill"],
+    compatibility: [
+      {
+        arm: "current-skill",
+        bundleSha256: currentBundle.aggregateSha256,
+        exactText: currentCompatibility,
+      },
+      {
+        arm: "candidate-skill",
+        bundleSha256: candidateBundle.aggregateSha256,
+        exactText: candidateCompatibility,
+      },
+    ],
+    armEnvelopes: ["no-skill", "current-skill", "candidate-skill"].map(
+      (arm) => ({
+        arm,
+        capabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+      }),
+    ),
+    providerResolution: { provider },
+    runtimeCapabilities: capabilities,
+  };
+  return {
+    schemaVersion: 1,
+    receipt,
+    receiptSha256: sha256Hex(canonicalJsonBytes(receipt)),
+  };
+}
+
+function writeCapabilityReconciliation(directory, options) {
+  const target = path.join(directory, "capability-reconciliation.json");
+  writeFileSync(
+    target,
+    canonicalJsonBytes(capabilityReconciliationRecord(options)),
+  );
+  return target;
+}
+
+function syntheticBundles() {
+  return {
+    currentBundle: bundleRecord({
+      content: skillSource("# Current fixture\n", currentCompatibility),
+      kind: "git",
+      sourceId: "c",
+    }),
+    candidateBundle: bundleRecord({
+      content: skillSource("# Candidate fixture\n", candidateCompatibility),
+      kind: "working-tree",
+      sourceId: "d",
+    }),
+  };
+}
+
 function writeCase(directory, evaluationCase) {
   const target = path.join(directory, "case.json");
   writeFileSync(target, `${JSON.stringify(evaluationCase)}\n`, "utf8");
@@ -109,13 +181,29 @@ function fixture() {
     id: 1,
     prompt: "Define the registry concept Dataset.",
   });
-  const bundleFile = writeBundle(
+  const currentBundle = bundleRecord({
+    content: skillSource(
+      "# Test skill\n\nFollow the workflow.\n",
+      currentCompatibility,
+    ),
+    kind: "git",
+    sourceId: "a",
+  });
+  const bundleFile = writeBundle(temporary, currentBundle);
+  const { candidateBundle } = syntheticBundles();
+  const capabilityReconciliationFile = writeCapabilityReconciliation(
     temporary,
-    bundleRecord({
-      content: "# Test skill\n\nFollow the workflow.\n",
-      kind: "git",
-      sourceId: "a",
-    }),
+    {
+      provider: "anthropic",
+      capabilities: {
+        network: true,
+        webSearch: true,
+        tools: ["WebSearch", "WebFetch"],
+        providerFacilities: [],
+      },
+      currentBundle,
+      candidateBundle,
+    },
   );
   const destination = path.join(temporary, "prepared");
   const working = path.join(temporary, "working");
@@ -140,6 +228,8 @@ function fixture() {
     "high",
     "--skill-bundle-file",
     bundleFile,
+    "--capability-reconciliation-file",
+    capabilityReconciliationFile,
     "--max-budget-usd",
     "1.25",
     "--claude-command",
@@ -155,6 +245,7 @@ function fixture() {
     destination,
     prepareArgs,
     bundleFile,
+    capabilityReconciliationFile,
     caseFile,
     record,
     temporary,
@@ -170,15 +261,34 @@ function googleFixture() {
     id: 1,
     prompt: "Define the registry concept Dataset.",
   });
-  const bundleFile = writeBundle(
+  const candidateBundle = bundleRecord({
+    content: skillSource(
+      "# Test skill\n\nFollow the workflow.\n\n",
+      candidateCompatibility,
+    ),
+  });
+  const bundleFile = writeBundle(temporary, candidateBundle);
+  const { currentBundle } = syntheticBundles();
+  const capabilityReconciliationFile = writeCapabilityReconciliation(
     temporary,
-    bundleRecord({ content: "# Test skill\n\nFollow the workflow.\n\n" }),
+    {
+      provider: "google",
+      capabilities: {
+        network: false,
+        webSearch: false,
+        tools: [],
+        providerFacilities: ["provider-default-context"],
+      },
+      currentBundle,
+      candidateBundle,
+    },
   );
   const destination = path.join(temporary, "prepared");
   const working = path.join(temporary, "working");
   const record = path.join(temporary, "provider.jsonl");
   return {
     bundleFile,
+    capabilityReconciliationFile,
     caseFile,
     destination,
     record,
@@ -204,6 +314,8 @@ function googleFixture() {
       "low",
       "--skill-bundle-file",
       bundleFile,
+      "--capability-reconciliation-file",
+      capabilityReconciliationFile,
       "--antigravity-command",
       process.execPath,
       "--antigravity-prefix-arg",
@@ -338,9 +450,27 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
       },
     ],
   });
-  const bundleFile = writeBundle(
+  const candidateBundle = bundleRecord({
+    content: skillSource(
+      "# Candidate skill\n\nResolve ambiguity.\n",
+      candidateCompatibility,
+    ),
+  });
+  const bundleFile = writeBundle(temporary, candidateBundle);
+  const { currentBundle } = syntheticBundles();
+  const capabilityReconciliationFile = writeCapabilityReconciliation(
     temporary,
-    bundleRecord({ content: "# Candidate skill\n\nResolve ambiguity.\n" }),
+    {
+      provider: "openai",
+      capabilities: {
+        network: false,
+        webSearch: true,
+        tools: [],
+        providerFacilities: [],
+      },
+      currentBundle,
+      candidateBundle,
+    },
   );
   const destination = path.join(temporary, "prepared");
   const working = path.join(temporary, "working");
@@ -366,6 +496,8 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     "low",
     "--skill-bundle-file",
     bundleFile,
+    "--capability-reconciliation-file",
+    capabilityReconciliationFile,
     "--codex-command",
     process.execPath,
     "--codex-prefix-arg",
@@ -373,7 +505,7 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     "--codex-prefix-arg",
     "--scenario",
     "--codex-prefix-arg",
-    "happy-turn",
+    "provider-capabilities-available",
     "--evaluation-homes-root",
     homes,
   ]);
@@ -450,6 +582,35 @@ test("canonical arms enforce bundle presence, source kind, and one repetition", 
   result = invoke(candidateWithCommittedBundle);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /working-tree skill bundle/iu);
+});
+
+test("prepare requires one exact capability reconciliation before packet creation", () => {
+  const missing = fixture();
+  const flagIndex = missing.prepareArgs.indexOf(
+    "--capability-reconciliation-file",
+  );
+  missing.prepareArgs.splice(flagIndex, 2);
+  let result = invoke(missing.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /capability-reconciliation-file/iu);
+  assert.equal(existsSync(missing.destination), false);
+
+  const mismatched = fixture();
+  const reconciliation = JSON.parse(
+    readFileSync(mismatched.capabilityReconciliationFile, "utf8"),
+  );
+  reconciliation.receipt.compatibility[0].bundleSha256 = "0".repeat(64);
+  reconciliation.receiptSha256 = sha256Hex(
+    canonicalJsonBytes(reconciliation.receipt),
+  );
+  writeFileSync(
+    mismatched.capabilityReconciliationFile,
+    canonicalJsonBytes(reconciliation),
+  );
+  result = invoke(mismatched.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /capability reconciliation.*bundle/iu);
+  assert.equal(existsSync(mismatched.destination), false);
 });
 
 test("run rejects absent authorization before a provider model turn", () => {
@@ -576,6 +737,21 @@ test("Codex preparation binds App Server transport and a managed execution home"
   const destination = path.join(temporary, "prepared");
   const working = path.join(temporary, "working");
   const homes = path.join(temporary, "homes-v1");
+  const { currentBundle, candidateBundle } = syntheticBundles();
+  const capabilityReconciliationFile = writeCapabilityReconciliation(
+    temporary,
+    {
+      provider: "openai",
+      capabilities: {
+        network: false,
+        webSearch: true,
+        tools: [],
+        providerFacilities: [],
+      },
+      currentBundle,
+      candidateBundle,
+    },
+  );
   await initializeEvaluationHomes({ root: homes });
   const result = invoke([
     "prepare",
@@ -595,6 +771,8 @@ test("Codex preparation binds App Server transport and a managed execution home"
     "gpt-5.6-luna",
     "--effort",
     "low",
+    "--capability-reconciliation-file",
+    capabilityReconciliationFile,
     "--codex-command",
     process.execPath,
     "--codex-prefix-arg",
@@ -621,8 +799,13 @@ test("Codex preparation binds App Server transport and a managed execution home"
     network: false,
     providerFacilities: [],
     tools: [],
-    webSearch: false,
+    webSearch: true,
   });
+  assert.equal(
+    packet.transmission.capabilityReconciliation.receiptSha256,
+    JSON.parse(readFileSync(capabilityReconciliationFile, "utf8"))
+      .receiptSha256,
+  );
   const settings = JSON.parse(
     packet.transmission.harnessControlledInputs.find(
       ({ id }) => id === "runner-settings",
@@ -636,6 +819,7 @@ test("Codex preparation binds App Server transport and a managed execution home"
       "evals/defining-concepts/session-controller.mjs",
       "scripts/evaluation/scripted-conversation.js",
       "scripts/evaluation/skill-bundle.js",
+      "scripts/evaluation/capability-reconciliation.js",
       "scripts/evaluation/runtime.js",
       "scripts/evaluation/evaluation-homes.js",
       "scripts/evaluation/windows-path-metadata.js",
@@ -656,6 +840,21 @@ test("Codex preflight accepts available but disabled provider facilities without
   const destination = path.join(temporary, "prepared");
   const working = path.join(temporary, "working");
   const homes = path.join(temporary, "homes-v1");
+  const { currentBundle, candidateBundle } = syntheticBundles();
+  const capabilityReconciliationFile = writeCapabilityReconciliation(
+    temporary,
+    {
+      provider: "openai",
+      capabilities: {
+        network: false,
+        webSearch: true,
+        tools: [],
+        providerFacilities: [],
+      },
+      currentBundle,
+      candidateBundle,
+    },
+  );
   await initializeEvaluationHomes({ root: homes });
   const prepared = invoke([
     "prepare",
@@ -675,6 +874,8 @@ test("Codex preflight accepts available but disabled provider facilities without
     "gpt-5.6-luna",
     "--effort",
     "low",
+    "--capability-reconciliation-file",
+    capabilityReconciliationFile,
     "--codex-command",
     process.execPath,
     "--codex-prefix-arg",
@@ -766,6 +967,7 @@ test("Antigravity preparation binds one explicit post-activation message without
       "evals/defining-concepts/session-controller.mjs",
       "scripts/evaluation/scripted-conversation.js",
       "scripts/evaluation/skill-bundle.js",
+      "scripts/evaluation/capability-reconciliation.js",
       "scripts/evaluation/runtime.js",
       "scripts/evaluation/antigravity-cli.js",
     ],

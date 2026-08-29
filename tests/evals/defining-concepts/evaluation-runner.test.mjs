@@ -27,6 +27,10 @@ import {
 } from "../../../scripts/evaluation/runtime.js";
 
 const arms = Object.freeze(["no-skill", "current-skill", "candidate-skill"]);
+const currentCompatibility =
+  "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.";
+const candidateCompatibility =
+  "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.";
 const cases = Object.freeze(
   Array.from({ length: 10 }, (_, index) =>
     Object.freeze({
@@ -44,12 +48,17 @@ const cases = Object.freeze(
       qualitative_dimensions: Object.freeze(["semantic-accuracy"]),
       research_strata: Object.freeze(["category-boundary"]),
       renderer: "definition-answer",
+      required_capabilities: Object.freeze(
+        [1, 3, 8].includes(index + 1) ? ["url-fetch", "web-search"] : [],
+      ),
     }),
   ),
 );
 
 function bundle(kind, marker) {
-  const content = `# ${marker}\n`;
+  const compatibility =
+    kind === "git" ? currentCompatibility : candidateCompatibility;
+  const content = `---\nname: defining-concepts\ndescription: Fixture.\ncompatibility: ${compatibility}\n---\n\n# ${marker}\n`;
   const bytes = Buffer.from(content);
   const payload = {
     schemaVersion: 1,
@@ -81,7 +90,67 @@ function bundle(kind, marker) {
   });
 }
 
+function capabilityContract() {
+  return {
+    schema_version: 1,
+    capability_ids: ["bundled-skill-files", "url-fetch", "web-search"],
+    arm_requirements: {
+      "no-skill": [],
+      "current-skill": ["bundled-skill-files"],
+      "candidate-skill": ["bundled-skill-files"],
+    },
+    compatibility_interpretations: [
+      {
+        arm: "current-skill",
+        exact_text: currentCompatibility,
+        always_required_capabilities: [],
+        conditional_case_capabilities: ["url-fetch", "web-search"],
+      },
+      {
+        arm: "candidate-skill",
+        exact_text: candidateCompatibility,
+        always_required_capabilities: ["bundled-skill-files"],
+        conditional_case_capabilities: ["url-fetch", "web-search"],
+      },
+    ],
+    campaign_policy: {
+      default: "deny",
+      allowed_capabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+      uniform_across_arms: true,
+    },
+  };
+}
+
+function providerResolution(provider = "openai") {
+  return {
+    provider,
+    supportedCapabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+    enabledCapabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+    bindings: [
+      {
+        capability: "bundled-skill-files",
+        mechanism: "harness-controlled-input",
+      },
+      { capability: "url-fetch", mechanism: "native-web-search" },
+      { capability: "web-search", mechanism: "native-web-search" },
+    ],
+    runtimeCapabilities: {
+      network: false,
+      webSearch: true,
+      tools: [],
+      providerFacilities: [],
+    },
+  };
+}
+
 function packetFor(cell, provider = "openai") {
+  const reconciliation = cell.capabilityReconciliation;
+  const capabilities = reconciliation?.receipt.runtimeCapabilities ?? {
+    network: false,
+    webSearch: false,
+    tools: [],
+    providerFacilities: [],
+  };
   const transmission = {
     suite: "defining-concepts",
     session: {
@@ -98,12 +167,7 @@ function packetFor(cell, provider = "openai") {
     transport: provider === "openai" ? "codex-app-server" : "fixture-cli",
     toolchain: { fixture: true },
     runtimeFingerprint: { fixture: true },
-    capabilities: {
-      network: false,
-      webSearch: false,
-      tools: [],
-      providerFacilities: [],
-    },
+    capabilities,
     isolation: { fixture: true },
     harnessControlledInputs: [],
     continuationPolicy: {
@@ -112,6 +176,9 @@ function packetFor(cell, provider = "openai") {
       allowedTransitions: [],
       templates: [],
     },
+    ...(reconciliation === undefined
+      ? {}
+      : { capabilityReconciliation: reconciliation }),
   };
   return Object.freeze({
     schemaVersion: 1,
@@ -134,6 +201,8 @@ function preparedFixture(provider = "openai") {
     repetitionCount: 1,
     currentBundle: bundle("git", "a"),
     candidateBundle: bundle("working-tree", "b"),
+    capabilityContract: capabilityContract(),
+    providerResolution: providerResolution(provider),
     provider,
     model: "gpt-test",
     effort: "low",
@@ -273,12 +342,49 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
   const context = preparedFixture();
   assert.equal(context.providerCalls.length, 30);
   assert.ok(context.providerCalls.every(({ kind }) => kind === "prepare"));
-  assert.equal(context.manifest.schemaVersion, 2);
+  assert.equal(context.manifest.schemaVersion, 3);
   assert.equal(context.manifest.state, "prepared");
   assert.equal(context.manifest.runIdentity, "2026-08-29T02:45:00.123Z");
   assert.deepEqual(context.manifest.protocol.arms, arms);
   assert.equal(context.manifest.protocol.repetitionCount, 1);
   assert.equal(context.manifest.sessions.length, 30);
+  assert.match(
+    context.manifest.capabilityReconciliation.receiptSha256,
+    /^[0-9a-f]{64}$/u,
+  );
+  assert.equal(
+    context.manifest.capabilityReconciliation.relativePath,
+    "capability-reconciliation.json",
+  );
+  const reconciliation = JSON.parse(
+    readFileSync(
+      path.join(context.destination, "capability-reconciliation.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    reconciliation.receiptSha256,
+    context.manifest.capabilityReconciliation.receiptSha256,
+  );
+  assert.deepEqual(reconciliation.receipt.requiredCapabilities, [
+    "bundled-skill-files",
+    "url-fetch",
+    "web-search",
+  ]);
+  assert.deepEqual(
+    new Set(
+      context.manifest.sessions.map(
+        ({ capabilityReconciliationSha256 }) => capabilityReconciliationSha256,
+      ),
+    ),
+    new Set([reconciliation.receiptSha256]),
+  );
+  for (const { cell } of context.providerCalls) {
+    assert.equal(
+      cell.capabilityReconciliation.receiptSha256,
+      reconciliation.receiptSha256,
+    );
+  }
   assert.equal(context.manifest.limitations.repeatedSampling, false);
   assert.equal(context.manifest.limitations.humanUsabilityEvaluated, false);
   assert.equal(
@@ -345,7 +451,13 @@ test("campaign preflight selects one deterministic session and records zero mode
     provider: selected.provider,
     model: selected.model,
     effort: selected.effort,
+    capabilityReconciliationSha256:
+      context.manifest.capabilityReconciliation.receiptSha256,
   });
+  assert.equal(
+    record.capabilityReconciliationSha256,
+    context.manifest.capabilityReconciliation.receiptSha256,
+  );
   assert.deepEqual(
     JSON.parse(
       readFileSync(path.join(context.destination, "preflight.json"), "utf8"),
@@ -355,6 +467,42 @@ test("campaign preflight selects one deterministic session and records zero mode
   assert.throws(
     () => writeSuccessfulPreflight(context),
     /already exists|cannot be overwritten/iu,
+  );
+});
+
+test("campaign preflight rejects a changed capability receipt before its callback", () => {
+  const context = preparedFixture();
+  const reconciliationPath = path.join(
+    context.destination,
+    "capability-reconciliation.json",
+  );
+  const reconciliation = JSON.parse(readFileSync(reconciliationPath, "utf8"));
+  writeFileSync(
+    reconciliationPath,
+    canonicalJsonBytes({
+      ...reconciliation,
+      receipt: {
+        ...reconciliation.receipt,
+        requiredCapabilities: ["bundled-skill-files"],
+      },
+    }),
+  );
+  let callbacks = 0;
+
+  assert.throws(
+    () =>
+      preflightPreparedCampaign({
+        campaignDirectory: context.destination,
+        preflightSession() {
+          callbacks += 1;
+        },
+      }),
+    /capability reconciliation|receipt digest|does not match/iu,
+  );
+  assert.equal(callbacks, 0);
+  assert.equal(
+    existsSync(path.join(context.destination, "preflight.json")),
+    false,
   );
 });
 
@@ -509,6 +657,10 @@ test("run validates every exact authorization before launching any session", () 
     /authorization/iu,
   );
   assert.equal(executions.length, 0);
+  assert.equal(
+    existsSync(path.join(context.destination, "execution-start.json")),
+    false,
+  );
 
   mkdirSync(authorizationDirectory);
   for (const session of context.manifest.sessions) {
@@ -547,6 +699,37 @@ test("run validates every exact authorization before launching any session", () 
   assert.equal(executions.length, 30);
   assert.equal(completed.state, "executed");
   assert.equal(completed.sessions.length, 30);
+  const executionStart = JSON.parse(
+    readFileSync(
+      path.join(context.destination, "execution-start.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(executionStart.state, "execution-started");
+  assert.equal(
+    executionStart.campaignManifestSha256,
+    sha256Hex(canonicalJsonBytes(context.manifest)),
+  );
+  assert.equal(
+    executionStart.capabilityReconciliationSha256,
+    context.manifest.capabilityReconciliation.receiptSha256,
+  );
+  assert.match(executionStart.authorizationSetSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    completed.executionStartSha256,
+    sha256Hex(canonicalJsonBytes(executionStart)),
+  );
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          throw new Error("must not resume");
+        },
+      }),
+    /execution.*already|cannot.*resume|start.*exists/iu,
+  );
 });
 
 test("prepared session results retain transcript, token, and timing evidence", () => {
@@ -593,37 +776,37 @@ test("prepared session results retain transcript, token, and timing evidence", (
   });
 });
 
-test("invalid provider results are retained and cannot enter grading", () => {
+test("a failed provider result closes the campaign without retry or resume", () => {
   const context = preparedFixture();
   writeSuccessfulPreflight(context);
   const authorizationDirectory = writeAuthorizations(context);
   const firstAlias = context.manifest.sessions[0].blindAlias;
-  const executed = runPreparedCampaign({
-    campaignDirectory: context.destination,
-    authorizationDirectory,
-    executeSession(session) {
-      if (session.blindAlias === firstAlias) {
-        return {
-          status: "failed",
-          failureClass: "provider-failed",
-          error: "fixture provider failure",
-          finalAnswer: null,
-          transcript: "",
-          tokens: null,
-          durationMs: 20,
-        };
-      }
-      return {
-        status: "completed",
-        finalAnswer: `answer ${session.blindAlias}`,
-        transcript: "retained transcript",
-        tokens: 10,
-        durationMs: 20,
-      };
-    },
-  });
+  let executions = 0;
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession(session) {
+          executions += 1;
+          if (session.blindAlias !== firstAlias) {
+            throw new Error("campaign continued after terminal failure");
+          }
+          return {
+            status: "failed",
+            failureClass: "provider-failed",
+            error: "fixture provider failure",
+            finalAnswer: null,
+            transcript: "",
+            tokens: null,
+            durationMs: 20,
+          };
+        },
+      }),
+    /provider-failed|campaign execution failed/iu,
+  );
 
-  assert.equal(executed.sessions[0].disposition, "invalid");
+  assert.equal(executions, 1);
   assert.equal(
     JSON.parse(
       readFileSync(
@@ -638,10 +821,84 @@ test("invalid provider results are retained and cannot enter grading", () => {
     ).failureClass,
     "provider-failed",
   );
+  const failed = JSON.parse(
+    readFileSync(
+      path.join(context.destination, "execution-failed.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(failed.state, "execution-failed");
+  assert.equal(failed.blindAlias, firstAlias);
+  assert.equal(failed.completedSessionCount, 0);
+  assert.equal(
+    existsSync(path.join(context.destination, "executed.json")),
+    false,
+  );
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /execution.*already|cannot.*resume|start.*exists/iu,
+  );
+  assert.equal(executions, 1);
   assert.throws(
     () => prepareCampaignGrading({ campaignDirectory: context.destination }),
-    /invalid session/iu,
+    /executed|campaign/iu,
   );
+});
+
+test("a thrown execution callback writes terminal failure evidence and cannot resume", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  let executions = 0;
+
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          executions += 1;
+          const error = new Error("fixture transport interruption");
+          error.code = "FIXTURE_INTERRUPTED";
+          throw error;
+        },
+      }),
+    /fixture transport interruption/u,
+  );
+  assert.equal(executions, 1);
+  const failed = JSON.parse(
+    readFileSync(
+      path.join(context.destination, "execution-failed.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(failed.state, "execution-failed");
+  assert.equal(failed.failureClass, "execution-threw");
+  assert.equal(failed.error.code, "FIXTURE_INTERRUPTED");
+  assert.equal(failed.completedSessionCount, 0);
+  assert.equal(
+    existsSync(path.join(context.destination, "executed.json")),
+    false,
+  );
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /execution.*already|cannot.*resume|start.*exists/iu,
+  );
+  assert.equal(executions, 1);
 });
 
 test("grading packets are blind and pairwise side assignment is sealed", () => {

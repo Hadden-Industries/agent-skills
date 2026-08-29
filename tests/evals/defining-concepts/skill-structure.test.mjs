@@ -95,6 +95,22 @@ test("router: source files preserve canonical ASCII and human-readable physical 
   );
 });
 
+test("router: compatibility is exact portable Agent Skills prose", () => {
+  const skill = read("SKILL.md");
+  const frontmatter = skill.split("---", 3)[1];
+  const compatibilityLines = frontmatter
+    .split("\n")
+    .filter((line) => line.startsWith("compatibility:"));
+
+  assert.deepEqual(compatibilityLines, [
+    "compatibility: Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.",
+  ]);
+  assert.doesNotMatch(
+    frontmatter,
+    /allowed-tools|mcp|codex|claude|antigravity|capabilities\s*:|requires\s*\[/iu,
+  );
+});
+
 test("router: trigger boundary and universal workflow are explicit", () => {
   const skill = read("SKILL.md");
   assertMatchesAll(skill, [

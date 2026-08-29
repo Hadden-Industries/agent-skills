@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import markdown from "prettier/plugins/markdown";
 
+import { assertEvaluationCapabilityDefinition } from "./evaluation/capability-reconciliation.js";
 import { selectCanonicalSkillNames } from "./skillSelector.js";
 
 const defaultRepositoryRoot = resolve(
@@ -177,6 +178,7 @@ function validateBehavioralEvaluations({
   displayPath,
   evaluationSuite,
   realEvaluationSuite,
+  skillSource,
   skillName,
   violations,
 }) {
@@ -194,6 +196,12 @@ function validateBehavioralEvaluations({
   if (!Array.isArray(definition.evals) || definition.evals.length === 0) {
     violations.push(`${displayPath} must contain a non-empty evals array`);
     return 0;
+  }
+
+  try {
+    assertEvaluationCapabilityDefinition({ definition, skillSource });
+  } catch (error) {
+    violations.push(`${displayPath} capability contract: ${error.message}`);
   }
 
   const evaluationIds = new Set();
@@ -470,6 +478,9 @@ export function validateRepositoryEvaluationLayout({
           displayPath: evaluationDisplayPath,
           evaluationSuite,
           realEvaluationSuite,
+          skillSource: existsSync(canonicalSkill)
+            ? readFileSync(canonicalSkill, "utf8")
+            : undefined,
           skillName,
           violations,
         });

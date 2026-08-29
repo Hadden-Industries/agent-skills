@@ -94,9 +94,17 @@ The arms answer different questions:
 - `current-skill` receives an immutable complete skill-directory bundle captured from the operator-selected baseline Git revision. It represents the deployed comparison point, not whatever happens to be at `HEAD` later.
 - `candidate-skill` receives an immutable complete bundle captured from the working tree at preparation time. It represents the exact proposed bytes under evaluation.
 
-Each bundle contains the full deployable skill inventory, per-file byte lengths and SHA-256 values, source identity, and an aggregate SHA-256. The treatment is the rendered bundle, not only `SKILL.md`; otherwise reference-heavy skills would be evaluated incompletely. The campaign manifest captures each case record, prompt and follow-up conversation digest, runtime fingerprint, provider, model, effort, blind alias, arm, repetition, bundle digest, and transmission SHA-256.
+Each bundle contains the full deployable skill inventory, per-file byte lengths and SHA-256 values, source identity, and an aggregate SHA-256. The treatment is the rendered bundle, not only `SKILL.md`; otherwise reference-heavy skills would be evaluated incompletely. The campaign manifest captures each case record, prompt and follow-up conversation digest, runtime fingerprint, provider, model, effort, blind alias, arm, repetition, bundle digest, capability-reconciliation receipt digest, and transmission SHA-256.
 
 The recorded seed deterministically orders cells and creates opaque aliases. The private arm mapping remains under `sealed/`; graders receive aliases and outputs without arm labels. `prepare` refuses an existing destination, a non-timestamp destination, a repeated campaign cell, identical current/candidate bundles, or a campaign other than the declared canonical matrix.
+
+## Compatibility and capability reconciliation
+
+The skill's standard `compatibility` field is portable human-readable prose, not a private machine grammar. The schema-v3 `capability_contract` therefore records reviewed exact-text interpretations for the frozen current and candidate skill arms. Preparation reads the field from each complete bundle and rejects any missing, duplicated, malformed, changed, or unreviewed text; it never infers permission from words such as "web", invokes another model to interpret the field, or treats a requirement as a grant.
+
+Every case declares `required_capabilities`. Cases 1, 3, and 8 require both `web-search` and `url-fetch`; the remaining cases declare an empty list. Skill-bearing arms require `bundled-skill-files`. Reconciliation unions those declarations, checks the suite's deny-by-default allowlist, requires exact provider support and bindings, and applies the same resolved envelope to all three arms. For the OpenAI campaign that envelope is `bundled-skill-files`, `web-search`, and `url-fetch`, implemented as harness-controlled bundle input plus Codex native web retrieval. Arbitrary process network, general tools, MCP and app calls, image generation, provider-default context, and automatic delegation remain denied.
+
+The resulting `capability-reconciliation.json` records the bundle and skill-file digests, exact compatibility interpretations, selected cases, arm and case requirements, policy, provider bindings, runtime capabilities, and matched arm envelopes. Its receipt digest is bound into `manifest.json`, every session record, and every transmission. Any mismatch fails before a model call.
 
 ## Provider capability preflight
 
@@ -106,13 +114,13 @@ For a prepared OpenAI campaign, `preflight` deterministically selects the manife
 
 Codex `modelProvider/capabilities/read` booleans describe facilities the provider can make available. They are not assertions that those facilities are active in the prepared thread. Likewise, `skills/list` and `app/installed` enumerate host or provider inventory rather than proving thread activation, so preflight neither queries nor retains those potentially unrelated inventories. A provider availability value of `true` is compatible with a packet policy that disables the facility. Hooks are different because an enabled hook may run without model tool selection: preflight accepts well-formed disabled hooks, rejects enabled hooks, and treats malformed hook state as a protocol failure.
 
-Preflight starts an ephemeral attestation thread with no runtime workspace roots, instruction sources, selected capability roots, dynamic tools, or environments, plus read-only sandboxing, no network, and explicit-request-only multi-agent mode. App Server's experimental protocol capability is enabled only so the reviewed runtime-workspace-root fields are accepted; it does not enable a model facility. The execution phase binds the exact packet model, effort, runtime workspace roots, workspace sandbox policy, and input at `turn/start`. Runtime event enforcement remains fail-closed if an unrequested tool, search, image-generation, MCP, delegation, command, or file-change event nevertheless appears. Thread preflight and turn execution are complementary attestations; fields that the live protocol reports only at turn start must not be invented in the preflight thread response contract.
+Preflight starts an ephemeral attestation thread with no runtime workspace roots, instruction sources, selected capability roots, dynamic tools, or environments, plus read-only sandboxing, no process network, and explicit-request-only multi-agent mode. App Server's experimental protocol capability is enabled only so the reviewed runtime-workspace-root fields are accepted; it does not enable a model facility. The adapter binds native web explicitly through the supported thread configuration: `config.web_search` is `"live"` when authorized and `"disabled"` otherwise. The execution phase binds the exact packet model, effort, runtime workspace roots, workspace sandbox policy, and input at `turn/start`. Runtime event enforcement remains fail-closed if an unrequested tool, search, image-generation, MCP, delegation, command, or file-change event nevertheless appears. Thread preflight and turn execution are complementary attestations; fields that the live protocol reports only at turn start must not be invented in the preflight thread response contract.
 
 The current adapter profiles are materially different:
 
 | Provider option | Transport | Declared network/web capability | Scripted follow-ups | Consequence |
 | --- | --- | --- | --- | --- |
-| `codex` | Codex App Server | No network, no web search, no tools | Supported | Source retrieval cannot be claimed; the model must use supplied evidence, qualify remembered knowledge, or defer. |
+| `codex` | Codex App Server | No arbitrary process network; native live web search and URL retrieval; no general tools | Supported | The matched campaign may retrieve current sources through the authorized native web facility while unrelated facilities remain denied. |
 | `claude` | Claude CLI | Network plus `WebSearch` and `WebFetch` | More than one turn rejected | The complete calibration cannot currently include case 10 through this adapter. |
 | `antigravity` | Antigravity CLI | No network or web search; no tool or subagent steps permitted | Supported by the shared bounded controller | Useful for isolated reasoning behavior, but not direct-source verification. |
 
@@ -145,7 +153,7 @@ Before disclosing transmission hashes or creating authorization artifacts, run t
 node evals/defining-concepts/evaluation-runner.mjs preflight --campaign-dir <absolute-campaign-directory>
 ```
 
-Review the resulting `preflight.json` and the selected session's `prepared/preflight/` evidence. Require `status: "completed"`, `modelTurns: 0`, an exact manifest and transmission binding, the frozen model and effort, well-formed disabled hooks, a read-only and networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed App Server closure. Confirm separately that the prepared packet binds its intended execution roots, workspace sandbox, disabled facilities, and effort for `turn/start`. If preflight fails, retain that directory as immutable diagnostic evidence, repair the harness or environment as appropriate, and prepare a fresh timestamped campaign. Never add authorization artifacts to make a failed preflight executable.
+Review the resulting `preflight.json` and the selected session's `prepared/preflight/` evidence. Require `status: "completed"`, `modelTurns: 0`, an exact manifest and transmission binding, the frozen model and effort, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, the exact reconciled `config.web_search` mode at `thread/start`, clean managed-home retirement, and confirmed App Server closure. Confirm separately that the prepared packet binds its intended execution roots, workspace sandbox, disabled facilities, and effort for `turn/start`. If preflight fails, retain that directory as immutable diagnostic evidence, repair the harness or environment as appropriate, and prepare a fresh timestamped campaign. Never add authorization artifacts to make a failed preflight executable.
 
 Before execution of either group, review and disclose:
 
@@ -162,7 +170,7 @@ Preparation, successful preflight, implementation approval, login, an earlier ca
 node evals/defining-concepts/evaluation-runner.mjs run --campaign-dir <absolute-campaign-directory> --authorization-dir <absolute-authorization-directory>
 ```
 
-Execute each authorized cell once. Preserve terminal failures and invalid attempts. Never rerun an unchanged case/arm cell and describe the replacement as part of the same one-repetition campaign. A provider or infrastructure failure is evidence about that attempt, not permission to select a more favorable output.
+Immediately before the first authorized provider launch, `run` atomically creates `execution-start.json`, bound to the manifest, capability receipt, and complete authorization set. Its existence consumes the campaign's one execution attempt. Execute each authorized cell once. Any thrown callback, malformed or unsupported result, provider failure, policy failure, or infrastructure failure writes terminal `execution-failed.json`, stops the campaign, and forbids retry or resume. Preserve that evidence and prepare a fresh timestamped campaign after a test-first repair. Never rerun an unchanged case/arm cell and describe the replacement as part of the same one-repetition campaign.
 
 ## Blind grading protocol
 

@@ -48,9 +48,13 @@ const allowedProfiles = new Set([
   "knowledge-organization-systems",
   "multilingual-terminology",
 ]);
+const currentCompatibility =
+  "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.";
+const candidateCompatibility =
+  "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.";
 
 test("behavioral manifest declares the approved 16-case three-arm protocol", () => {
-  assert.equal(definitions.schema_version, 2);
+  assert.equal(definitions.schema_version, 3);
   assert.equal(definitions.skill_name, "defining-concepts");
   assert.deepEqual(
     definitions.evals.map(({ id }) => id),
@@ -82,6 +86,49 @@ test("behavioral manifest declares the approved 16-case three-arm protocol", () 
           index < evaluationCase.expectations.length,
       ),
     );
+  }
+});
+
+test("capability contract uses exact interpretations and default-deny semantics", () => {
+  assert.deepEqual(definitions.capability_contract, {
+    schema_version: 1,
+    capability_ids: ["bundled-skill-files", "url-fetch", "web-search"],
+    arm_requirements: {
+      "no-skill": [],
+      "current-skill": ["bundled-skill-files"],
+      "candidate-skill": ["bundled-skill-files"],
+    },
+    compatibility_interpretations: [
+      {
+        arm: "current-skill",
+        exact_text: currentCompatibility,
+        always_required_capabilities: [],
+        conditional_case_capabilities: ["url-fetch", "web-search"],
+      },
+      {
+        arm: "candidate-skill",
+        exact_text: candidateCompatibility,
+        always_required_capabilities: ["bundled-skill-files"],
+        conditional_case_capabilities: ["url-fetch", "web-search"],
+      },
+    ],
+    campaign_policy: {
+      default: "deny",
+      allowed_capabilities: ["bundled-skill-files", "url-fetch", "web-search"],
+      uniform_across_arms: true,
+    },
+  });
+  const requirements = new Map(
+    definitions.evals.map(({ id, required_capabilities }) => [
+      id,
+      required_capabilities,
+    ]),
+  );
+  for (const id of [1, 3, 8]) {
+    assert.deepEqual(requirements.get(id), ["url-fetch", "web-search"]);
+  }
+  for (const id of [2, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16]) {
+    assert.deepEqual(requirements.get(id), []);
   }
 });
 
