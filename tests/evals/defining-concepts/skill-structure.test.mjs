@@ -125,6 +125,24 @@ test("router: trigger boundary and universal workflow are explicit", () => {
   ]);
 });
 
+test("router: non-negotiable output gates precede the long workflow", () => {
+  const skill = read("SKILL.md");
+  const gateStart = skill.indexOf("## Non-negotiable output gates");
+  const workflowStart = skill.indexOf("## Universal workflow");
+
+  assert.ok(gateStart > 0, "missing non-negotiable output gates");
+  assert.ok(
+    gateStart < workflowStart,
+    "critical gates must precede workflow detail",
+  );
+  assertMatchesAll(skill.slice(gateStart, workflowStart), [
+    /affirmative.*permission.*forbidden.*exact.*permission destination.*cited.*final answer.*directly retrieved.*current task/isu,
+    /never.*(?:construct|invent).*license.*URL/isu,
+    /concept package.*boundary.*positive instance.*negative instance.*near miss.*unresolved.*omit/isu,
+    /Adopt.*source wording.*unchanged.*permission.*verified.*Adapt.*Formulate.*Defer/isu,
+  ]);
+});
+
 test("router: decisions, strategies, renderers, and completion gates remain discoverable", () => {
   const skill = read("SKILL.md");
   assertMatchesAll(skill, [

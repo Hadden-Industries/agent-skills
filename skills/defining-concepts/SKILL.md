@@ -17,6 +17,12 @@ Use this skill to define, revise, audit, compare, map, formalize, assess multili
 
 Do not use it for a casual dictionary meaning, code or variable naming, product naming, copyediting that does not change or test meaning, or an implementation-only request. If the user asks for implementation and the concept is already settled, follow the implementation task instead.
 
+## Non-negotiable output gates
+
+- An affirmative wording-permission conclusion is forbidden unless the exact permission destination cited in the final answer was directly retrieved and inspected in the current task, and its applicability to the source wording and proposed action was established. Never construct, infer, or cite a likely license URL. When permission is requested, satisfy this gate before optional secondary lookups or repeated source opens; otherwise write `Wording permission: unresolved - do not reuse verbatim`.
+- For a concept package where boundary discrimination is material, the final answer must label one concrete positive instance, one concrete negative instance or exclusion, and one near miss. If any required test cannot be supplied responsibly, label it unresolved instead of omitting it.
+- Use `Adopt` only when the actual source wording will be used unchanged and its permission is verified; otherwise choose and justify `Adapt`, `Formulate`, or `Defer`. Keep this disposition separate from semantic relationship and wording permission.
+
 ## Universal workflow
 
 Follow `Route -> Frame -> Research -> Model -> Decide -> Define -> Validate -> Present`. Scale every step to the request; a routine definition may require only a compact internal record and a one- or two-paragraph answer.
