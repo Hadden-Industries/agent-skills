@@ -36,7 +36,7 @@ Follow `Route -> Frame -> Research -> Model -> Decide -> Define -> Validate -> P
 ### 3. Research
 
 - Plan evidence lanes from the ConceptBrief. Read [Evidence and provenance](references/evidence-and-provenance.md) when external research, reuse, mapping, audit, consequential use, authority-sensitive use, source conflict, licensing, or version choice is material.
-- Retrieve the exact destination that supports each retained claim and record its role, edition or version, status, scope, retrieval, authority basis, and wording permission. A search result, citation record, inaccessible page, model memory, or worker summary is discovery evidence only.
+- Retrieve the exact destination that supports each retained claim and record its role, edition or version, status, scope, retrieval, authority basis, and wording permission. A wording-permission conclusion requires its own retrieved license or permission destination; if that destination was not inspected, record permission as unresolved and do not claim verbatim reuse. A search result, citation record, inaccessible page, model memory, or worker summary is discovery evidence only.
 - Keep semantic equivalence separate from permission to reuse wording. Do not copy protected wording merely because it defines the same concept.
 
 #### Capability-aware parallel research
@@ -71,7 +71,7 @@ Use sequential fallback when any eligibility condition fails. Completion depends
 
 - Check identity, category, scope, granularity, strategy, superordinate fit, delimiting-characteristic necessity, sibling and boundary discrimination, critical competency questions, typed relations, mapping conservatism, evidence support, exact source and edition status, contradictions, wording permission, active-profile rules, governance authority, qualitative status, blockers, and definition-first presentation.
 - Treat a wrong identity or category, circular or non-discriminating definition, failed critical competency question or boundary case, unsupported or misattributed evidence, licensing problem, false exact mapping, invented identifier or tool result, inappropriate profile or out-of-scope compliance claim, or illegitimate authority claim as a critical failure. Repair it, make the result explicitly provisional, or Defer; prose quality cannot compensate.
-- Report each material tool-dependent check as `passed`, `failed`, `warning`, `not run`, or `not applicable`. Never invent an identifier, registry acceptance, source retrieval, parser result, schema result, SHACL result, reasoner result, conformance finding, review, approval, release, or version history.
+- Report each material tool-dependent check as `passed`, `failed`, `warning`, `not run`, or `not applicable`, and name the actor or method that actually performed it. An agent semantic check is not human review; use `human review` only when a human actually reviewed this result. Never invent an identifier, registry acceptance, source retrieval, parser result, schema result, SHACL result, reasoner result, conformance finding, review, approval, release, or version history.
 - Use qualitative status such as `established`, `adopted`, `adapted`, `proposed`, `provisional`, `contested`, `deprecated`, or `blocked pending clarification or evidence`. Keep lifecycle status, reuse disposition, source status, validation result, and review need independent; do not convert self-assessment into a number.
 
 ### 8. Present

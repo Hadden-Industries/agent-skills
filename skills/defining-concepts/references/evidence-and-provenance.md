@@ -56,6 +56,6 @@ Prefer the source legitimately authoritative for the material claim and context,
 
 ## Licensing and attribution gate
 
-Before verbatim reuse, verify the relevant license or permission and any attribution or modification conditions at an eligible destination. Keep semantic reuse, quotation, paraphrase, and redistribution decisions separate. When permission is unresolved, paraphrase only if lawful and supportable, or cite or link without reproducing protected wording; do not imply that citation cures a copying restriction.
+Before verbatim reuse, retrieve and inspect the exact license, terms, or permission destination that supports the wording action, including any attribution or modification conditions. A publisher identity, source-page footer, search result, general reputation, or remembered license is discovery evidence rather than permission evidence. Keep semantic reuse, quotation, paraphrase, and redistribution decisions separate. When the permission destination was not inspected or its application is unclear, record wording permission as unresolved; paraphrase only if lawful and supportable, or cite or link without reproducing protected wording, and do not imply that citation cures a copying restriction.
 
 Do not bundle proprietary standards text or expose machine-specific paths to authorized copies. Cite the exact edition reviewed and paraphrase no more broadly than its verified scope.

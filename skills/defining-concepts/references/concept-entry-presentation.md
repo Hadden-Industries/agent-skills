@@ -41,7 +41,7 @@ Project populated groups in this reader-facing order: definition; identity and d
 
 Use descriptive headings rather than a generic extension section. Separate a concept's label inventory from its identity, within-system relations from cross-system mappings, examples from members of an exhaustive extension, and evidential status from local lifecycle status.
 
-Keep citations adjacent to supported claims. A fuller evidence ledger may appear when source conflicts, consequential use, authority, mapping, or wording permission makes it useful; otherwise summarize the decisive source basis and link to exact destinations.
+Keep citations adjacent to supported claims. A fuller evidence ledger may appear when source conflicts, consequential use, authority, mapping, or wording permission makes it useful; otherwise summarize the decisive source basis and link to exact destinations. Present a validation result with the actor or method that actually performed it; label a check as human review only when a human reviewed this result, never when the assistant merely checked its own work.
 
 ## Blocker behavior
 
