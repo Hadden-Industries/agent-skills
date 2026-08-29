@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -13,10 +14,12 @@ import test from "node:test";
 import {
   aggregateCampaignGrades,
   buildCampaignMatrix,
+  parseEvaluationRunnerCli,
   preflightPreparedCampaign,
   prepareCampaign,
   prepareCampaignGrading,
   readPreparedSessionResult,
+  resolveTrialEvaluationHomesRoot,
   runPreparedCampaign,
   withNewCampaignWorkingRoot,
 } from "../../../evals/defining-concepts/evaluation-runner.mjs";
@@ -27,6 +30,10 @@ import {
 } from "../../../scripts/evaluation/runtime.js";
 
 const arms = Object.freeze(["no-skill", "current-skill", "candidate-skill"]);
+const runnerPath = path.resolve(
+  import.meta.dirname,
+  "../../../evals/defining-concepts/evaluation-runner.mjs",
+);
 const currentCompatibility =
   "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.";
 const candidateCompatibility =
@@ -300,6 +307,103 @@ function completePairwiseGrades() {
     reason: "candidate is semantically more precise",
   }));
 }
+
+test("trial command parsing uses the approved provider-neutral vocabulary", () => {
+  const parsed = parseEvaluationRunnerCli([
+    "trial",
+    "prepare",
+    "--output-dir",
+    "C:\\evals\\2026-08-29T123456.789Z",
+    "--case-id",
+    "1",
+    "--skill-arm",
+    "candidate-skill",
+    "--trial-index",
+    "1",
+    "--adapter",
+    "codex-app-server",
+    "--model",
+    "gpt-5.3-codex-spark",
+    "--reasoning-effort",
+    "low",
+    "--created-at",
+    "2026-08-29T12:34:56.789Z",
+    "--working-root",
+    "C:\\evaluation-working",
+    "--baseline-revision",
+    "HEAD",
+  ]);
+
+  assert.equal(parsed.command, "trial");
+  assert.equal(parsed.subcommand, "prepare");
+  assert.equal(parsed.values.get("--case-id"), "1");
+  assert.equal(parsed.values.get("--skill-arm"), "candidate-skill");
+  assert.equal(parsed.values.get("--reasoning-effort"), "low");
+  assert.throws(
+    () =>
+      parseEvaluationRunnerCli([
+        "trial",
+        "prepare",
+        "--destination",
+        "C:\\legacy",
+      ]),
+    /unsupported.*--destination|approved trial/iu,
+  );
+  assert.throws(
+    () =>
+      parseEvaluationRunnerCli([
+        "trial",
+        "run",
+        "--trial-dir",
+        "C:\\trial",
+        "--authorization",
+        "C:\\legacy.json",
+        "--allow-external-model-call",
+      ]),
+    /unsupported.*--authorization|approved trial/iu,
+  );
+
+  const run = parseEvaluationRunnerCli([
+    "trial",
+    "run",
+    "--trial-dir",
+    "C:\\trial",
+    "--authorization-file",
+    "C:\\authorization.json",
+    "--allow-external-model-call",
+  ]);
+  assert.equal(run.subcommand, "run");
+  assert.equal(run.values.get("--allow-external-model-call"), true);
+});
+
+test("trial preparation uses the established managed evaluation-home root", () => {
+  assert.equal(
+    resolveTrialEvaluationHomesRoot({
+      LOCALAPPDATA: "C:\\Users\\evaluator\\AppData\\Local",
+    }),
+    "C:\\Users\\evaluator\\AppData\\Local\\OpenAI\\Codex\\EvaluationHomes\\v1",
+  );
+  assert.throws(() => resolveTrialEvaluationHomesRoot({}), /LOCALAPPDATA/iu);
+});
+
+test("the existing runner dispatches every trial lifecycle subcommand", () => {
+  for (const [subcommand, expected] of [
+    ["prepare", /missing --output-dir/iu],
+    ["preflight", /missing --trial-dir/iu],
+    ["run", /missing --trial-dir/iu],
+    ["verify", /missing --trial-dir/iu],
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      [runnerPath, "trial", subcommand],
+      {
+        encoding: "utf8",
+      },
+    );
+    assert.notEqual(result.status, 0, subcommand);
+    assert.match(result.stderr, expected, subcommand);
+  }
+});
 
 test("calibration matrix contains exactly one run for every case and arm", () => {
   const matrix = buildCampaignMatrix({

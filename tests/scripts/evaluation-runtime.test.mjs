@@ -990,6 +990,143 @@ test("execution retains ordered evidence and writes a hash-complete terminal rec
   }
 });
 
+test("evaluation trial execution durably consumes authorization before launch and writes trial-native evidence", async (t) => {
+  const packet = createTransmissionPacket(transmissionFixture());
+  const { destination, prepared } = await prepareWithRuntime(t, { packet });
+  let evidenceObservedDuringAdapter = null;
+  const adapter = executingAdapter(async (context) => {
+    await consumeLaunch(context);
+    evidenceObservedDuringAdapter = {
+      authorizationConsumption: await pathExists(
+        join(destination, "authorization-consumption.json"),
+      ),
+      providerTranscript: await pathExists(
+        join(destination, "outputs", "provider-transcript.jsonl"),
+      ),
+      terminalResult: await pathExists(join(destination, "result.json")),
+    };
+    await context.evidence.appendTranscript(
+      Buffer.from('{"type":"provider-event"}\n', "utf8"),
+    );
+    await context.evidence.appendNormalizedEvent({ type: "normalized-event" });
+    await context.evidence.appendStderr(Buffer.from("diagnostic\n", "utf8"));
+    await context.evidence.writeFinal(Buffer.from("response\n", "utf8"));
+    return adapterResult();
+  });
+
+  const result = await executeAuthorizedModelSession({
+    preparedSession: prepared,
+    allowExternalModelCall: true,
+    authorization: authorizationFixture(packet),
+    assertCurrent: async () => {},
+    adapter,
+    request: Object.freeze({}),
+    evidenceLayout: "evaluation-trial-v1",
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(evidenceObservedDuringAdapter, {
+    authorizationConsumption: true,
+    providerTranscript: true,
+    terminalResult: false,
+  });
+  assert.equal(
+    await readFile(
+      join(destination, "outputs", "provider-transcript.jsonl"),
+      "utf8",
+    ),
+    '{"type":"provider-event"}\n',
+  );
+  assert.equal(
+    await readFile(join(destination, "outputs", "events.jsonl"), "utf8"),
+    '{"type":"normalized-event"}\n',
+  );
+  assert.equal(
+    await readFile(join(destination, "outputs", "stderr.log"), "utf8"),
+    "diagnostic\n",
+  );
+  assert.equal(
+    await readFile(join(destination, "outputs", "response.md"), "utf8"),
+    "response\n",
+  );
+
+  const consumption = JSON.parse(
+    await readFile(join(destination, "authorization-consumption.json"), "utf8"),
+  );
+  assert.equal(
+    consumption.artifactType,
+    "evaluation-trial-authorization-consumption",
+  );
+  assert.equal(consumption.schemaVersion, 1);
+  assert.equal(consumption.transmissionSha256, packet.transmissionSha256);
+
+  const terminal = JSON.parse(
+    await readFile(join(destination, "result.json"), "utf8"),
+  );
+  assert.equal(terminal.artifactType, "evaluation-trial-result");
+  assert.equal(terminal.schemaVersion, 1);
+  assert.equal(terminal.executionStatus, "completed");
+  assert.equal(terminal.gradeStatus, "not-graded");
+  assert.equal(terminal.providerOutcome, "completed");
+  assert.equal(terminal.retryPermitted, false);
+  assert.equal(terminal.transmissionSha256, packet.transmissionSha256);
+  assert.equal(terminal.failureClass, null);
+  assert.deepEqual(Object.keys(terminal.artifacts).sort(), [
+    "authorization-consumption.json",
+    "authorization.json",
+    "inputs/0001-prompt.txt",
+    "inputs/manifest.json",
+    "metrics.json",
+    "outputs/events.jsonl",
+    "outputs/provider-transcript.jsonl",
+    "outputs/response.md",
+    "outputs/stderr.log",
+    "packet.json",
+    "timing.json",
+  ]);
+
+  for (const legacyPath of [
+    "attempt.json",
+    "run.json",
+    "outputs/final.md",
+    "outputs/transcript.jsonl",
+  ]) {
+    assert.equal(
+      await pathExists(join(destination, ...legacyPath.split("/"))),
+      false,
+    );
+  }
+});
+
+test("a terminal evaluation trial forbids retry when the adapter never consumes launch authorization", async (t) => {
+  const packet = createTransmissionPacket(transmissionFixture());
+  const { destination, prepared } = await prepareWithRuntime(t, { packet });
+  const adapter = executingAdapter(async () => adapterResult());
+
+  const result = await executeAuthorizedModelSession({
+    preparedSession: prepared,
+    allowExternalModelCall: true,
+    authorization: authorizationFixture(packet),
+    assertCurrent: async () => {},
+    adapter,
+    request: Object.freeze({}),
+    evidenceLayout: "evaluation-trial-v1",
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "provider-failed");
+  const terminal = JSON.parse(
+    await readFile(join(destination, "result.json"), "utf8"),
+  );
+  assert.equal(terminal.executionStatus, "failed");
+  assert.equal(terminal.providerOutcome, "not-started");
+  assert.equal(terminal.retryPermitted, false);
+  assert.equal(
+    await pathExists(join(destination, "authorization-consumption.json")),
+    false,
+  );
+});
+
 test("execution refuses every pre-existing reserved target before provider launch", async (t) => {
   for (const relativePath of [
     "authorization.json",

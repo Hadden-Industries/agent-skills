@@ -6,7 +6,7 @@ The suite is not installed with the skill. The repository-wide [evaluation runti
 
 ## Status
 
-The 16-case schema, three-arm runner, scripted follow-up controller, immutable bundle capture, mandatory campaign-level zero-turn preflight, blinded grading-packet preparation, aggregation contract, and concept-engineering skill are implemented. Deterministic validation is separate from provider-backed behavioral evidence.
+The 16-case schema, bounded single-trial lifecycle, three-arm campaign runner, scripted follow-up controller, immutable bundle capture, mandatory zero-turn preflight, blinded grading-packet preparation, aggregation contract, and concept-engineering skill are implemented. Deterministic validation is separate from provider-backed behavioral evidence.
 
 The retained directories [`2026-08-24T092645.127Z`](./results/2026-08-24T092645.127Z/) and [`2026-08-24T141214.748Z`](./results/2026-08-24T141214.748Z/) are immutable legacy evidence from the earlier eight-case, two-arm protocol. Their `with_skill` and `without_skill` arm names, five-section output assumptions, runner behavior, and recorded limitations remain historical facts; they are not rewritten to resemble the current `no-skill`, `current-skill`, and `candidate-skill` protocol. The later legacy run diagnosed critical exact-URL trace failures and did not accept that candidate. Neither legacy run supports a general performance claim.
 
@@ -35,7 +35,8 @@ The suite does not certify ISO, W3C, OBO, CIDOC CRM, FAIR, CARE, TBX, OntoLex-Le
 | --- | --- |
 | [`evals.json`](./evals.json) | Sixteen behavioral cases, renderers, profiles, research strata, applicable qualitative dimensions, critical expectation indexes, and the calibration selection. |
 | [`trigger-evals.json`](./trigger-evals.json) | Positive and negative activation prompts for the skill description, separate from behavioral quality. |
-| [`evaluation-runner.mjs`](./evaluation-runner.mjs) | Three-arm campaign preparation, deterministic ordering and blinding, one-session zero-turn campaign preflight, all-session authorization precheck, one-shot execution, grading-packet preparation, and aggregation. |
+| [`evaluation-runner.mjs`](./evaluation-runner.mjs) | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, execution, grading-packet preparation, and aggregation. |
+| [`evaluation-trial.mjs`](./evaluation-trial.mjs) | Atomic one-trial preparation, immutable artifact validation, retained zero-turn preflight, exact authorization enforcement, durable execution-state interpretation, and read-only verification. |
 | [`run-evaluation-session.mjs`](./run-evaluation-session.mjs) | One packet-bound provider session with an immutable case, optional skill bundle, exact conversation, runtime fingerprint, evidence directory, and authorization boundary. |
 | [`session-controller.mjs`](./session-controller.mjs) | Suite wrapper around the shared scripted-conversation controller; it rejects approval requests and supplies only committed follow-up turns. |
 | [`results/`](./results/) | Immutable provider evidence and separate derived grading or aggregation artifacts, versioned by a filesystem-safe UTC start timestamp. |
@@ -84,6 +85,87 @@ This map deliberately covers category traps, temporal and edition status, source
 
 Case 10 declares one `follow_up_turns` item. The first turn must elicit only the focused threshold and jurisdiction clarification. The controller then sends the exact committed follow-up bytes; it neither improvises a response nor allows the model to choose a different branch. All other cases are single-turn conversations.
 
+## Bounded single-trial diagnostic
+
+Establish that the provider path is reproducibly operable one retained trial at a time before attempting a 30-session campaign. This lifecycle removes the campaign runner's former all-or-nothing retention risk: authorization consumption and provider stream files are written before and during the one external call, while `result.json` is written only after a known terminal outcome. No parent process buffers several valid model results before persisting them.
+
+The recommended first diagnostic is case 1, `candidate-skill`, `gpt-5.3-codex-spark`, and `low`. Case 1 directly exercises the skill's required live web-search and URL-retrieval facilities, while the Spark/low arm is the least expensive committed execution profile. The full capability reconciliation still evaluates the canonical `no-skill`, `current-skill`, and `candidate-skill` requirements before freezing the selected trial, so a convenient single-arm launch cannot weaken the uniform reviewed capability envelope.
+
+Use a new destination under `results/trials/` and a fresh non-repository working root. `--created-at` retains the punctuated RFC 3339 timestamp; the destination basename removes only the colons so it remains sortable, collision-resistant to milliseconds, and valid on Windows.
+
+```text
+node evals/defining-concepts/evaluation-runner.mjs trial prepare --output-dir <absolute-repository/evals/defining-concepts/results/trials/2026-08-29T123456.789Z> --case-id 1 --skill-arm candidate-skill --trial-index 1 --adapter codex-app-server --model gpt-5.3-codex-spark --reasoning-effort low --created-at 2026-08-29T12:34:56.789Z --working-root <absolute-fresh-non-repository-working-root> --baseline-revision <full-commit-oid>
+```
+
+Preparation is local, initializes the established managed evaluation-home boundary under `%LOCALAPPDATA%\OpenAI\Codex\EvaluationHomes\v1`, keeps the fresh non-repository working root separate as the packet's execution workspace, captures both comparison bundles for capability reconciliation, retains only the selected arm's bundle as `skill-bundle.json`, freezes the packet and ordered inputs, and uses zero model turns. It returns the exact transmission SHA-256, but that disclosure does not authorize a provider call. The managed home is stable so it can reuse the operator's authenticated Codex state; its per-trial lease prevents concurrent mutation, and preflight or execution may require permission to write that lease outside the repository sandbox.
+
+Run and inspect the mandatory zero-turn preflight, then verify the named directory locally:
+
+```text
+node evals/defining-concepts/evaluation-runner.mjs trial preflight --trial-dir <absolute-trial-directory>
+node evals/defining-concepts/evaluation-runner.mjs trial verify --trial-dir <absolute-trial-directory>
+```
+
+Preflight retains provider-native evidence under `preflight/` and seals its digests in root `preflight.json`. It must report `status: "completed"`, `modelTurns: 0`, the frozen provider, model, and effort, and the required web-search capability. Preparation and verification make no provider call; preflight performs no model turn and consumes no per-packet authorization.
+
+After reviewing the manifest, packet, complete selected skill bundle, exact prompt, capability receipt, provider, adapter, model, effort, maximum turns, and transmission SHA-256, obtain a new authorization for that exact packet. Earlier campaign, manifest, profile, or conversational authorizations do not apply. Store the exact canonical authorization object in a separate file. The input may have no terminator or one conventional terminal LF or CRLF; execution validates the semantic binding and otherwise-canonical bytes, then retains `authorization.json` as terminator-free canonical JSON evidence:
+
+```json
+{
+  "allowExternalModel": true,
+  "decision": "authorized",
+  "effort": "low",
+  "model": "gpt-5.3-codex-spark",
+  "provider": "openai",
+  "schemaVersion": 1,
+  "statement": "I authorize exactly one external model session for this provider, model, effort, and transmission SHA-256.",
+  "transmissionSha256": "<exact-64-character-lowercase-SHA-256>"
+}
+```
+
+The explicit call gate and exact authorization file are both required:
+
+```text
+node evals/defining-concepts/evaluation-runner.mjs trial run --trial-dir <absolute-trial-directory> --authorization-file <absolute-authorization-file> --allow-external-model-call
+node evals/defining-concepts/evaluation-runner.mjs trial verify --trial-dir <absolute-trial-directory>
+```
+
+The trial directory uses this evidence contract:
+
+```text
+manifest.json
+case.json
+skill-bundle.json                         # absent for no-skill
+capability-reconciliation.json
+packet.json
+preflight.json
+authorization.json
+authorization-consumption.json
+result.json
+metrics.json
+timing.json
+inputs/
+    manifest.json
+    <ordered packet inputs>
+outputs/
+    response.md
+    provider-transcript.jsonl
+    events.jsonl
+    stderr.log
+preflight/
+    <provider-native zero-turn evidence>
+```
+
+Interpret verification dimensions independently:
+
+- `artifactIntegrity` is `verified` when every applicable sealed digest matches, `incomplete` when an interrupted execution left unsealed stream evidence, and `failed` when retained evidence is missing, malformed, or changed.
+- `executionStatus` is `not-started`, `completed`, `failed`, or `indeterminate`. `completed` means the authorized provider session reached its transport-level completion contract; it is not a semantic pass.
+- `providerOutcome` is `not-started`, `completed`, `failed`, or `undetermined` and does not substitute for concept-quality grading.
+- `gradeStatus` remains `not-graded` until a separately defined and authorized grading workflow evaluates the answer.
+- `retryPermitted` is false after authorization consumption, after a terminal result, or whenever execution state is indeterminate. A consumed authorization without `result.json` is reported as `indeterminate`, never guessed to be `interrupted`, because the retained artifacts alone cannot prove that no provider child remains alive.
+
+The first trial is diagnostic and has `aggregateEligible: false`. After it returns retained, independently verified evidence, prepare a second new timestamped trial under the same case, skill arm, adapter, model, reasoning effort, capability envelope, and turn budget with `--trial-index 2`. Its new packet requires separate exact authorization. Two matched successful trials support a bounded repeatability observation; they do not establish reproducibility, provider-independent performance, semantic correctness, or campaign-level quality. Do not resume a 30-session campaign until both one-trial lifecycles retain verifiable outcomes and any discovered harness defect has been repaired test-first.
+
 ## Three-arm campaign
 
 The calibration declaration freezes case IDs `1, 3, 8, 9, 10, 11, 12, 13, 14, 15`, canonical arms `no-skill`, `current-skill`, and `candidate-skill`, and exactly one repetition. The arithmetic is therefore 10 cases x 3 arms x 1 repetition = **30 externally executed model sessions**.
@@ -112,7 +194,7 @@ Provider choice is part of the treatment and must be frozen before authorization
 
 For a prepared OpenAI campaign, `preflight` deterministically selects the manifest's unique sequence-1 session and performs one Codex App Server protocol check with zero model turns. It revalidates the frozen executable, runtime, policy, managed-home boundary, authentication, model availability, provider capability availability, disabled hook state, minimal ephemeral thread isolation, cleanup, and confirmed process closure. The campaign-level `preflight.json` binds the complete terminal result to the manifest digest and selected transmission. A missing, failed, nonzero-turn, overwritten, or stale record blocks all 30 executions; a failed campaign is not preflighted again or reused.
 
-Codex `modelProvider/capabilities/read` booleans describe facilities the provider can make available. They are not assertions that those facilities are active in the prepared thread. Likewise, `skills/list` and `app/installed` enumerate host or provider inventory rather than proving thread activation, so preflight neither queries nor retains those potentially unrelated inventories. A provider availability value of `true` is compatible with a packet policy that disables the facility. Hooks are different because an enabled hook may run without model tool selection: preflight accepts well-formed disabled hooks, rejects enabled hooks, and treats malformed hook state as a protocol failure.
+Codex `modelProvider/capabilities/read` booleans describe facilities the provider can make available. They are not assertions that those facilities are active in the prepared thread or that every listed model will successfully use them. Likewise, `skills/list` and `app/installed` enumerate host or provider inventory rather than proving thread activation, so preflight neither queries nor retains those potentially unrelated inventories. Because App Server binds the selected model and effort only at `turn/start`, a zero-turn preflight can establish exact model availability plus provider-web availability but cannot truthfully establish model-specific web use. Retain that limitation and let fail-closed execution evidence distinguish an unsupported provider/model path; do not invent a stronger attestation. A provider availability value of `true` is compatible with a packet policy that disables the facility. Hooks are different because an enabled hook may run without model tool selection: preflight accepts well-formed disabled hooks, rejects enabled hooks, and treats malformed hook state as a protocol failure.
 
 Preflight starts an ephemeral attestation thread with no runtime workspace roots, instruction sources, selected capability roots, dynamic tools, or environments, plus read-only sandboxing, no process network, and explicit-request-only multi-agent mode. App Server's experimental protocol capability is enabled only so the reviewed runtime-workspace-root fields are accepted; it does not enable a model facility. The adapter binds native web explicitly through the supported thread configuration: `config.web_search` is `"live"` when authorized and `"disabled"` otherwise. The execution phase binds the exact packet model, effort, runtime workspace roots, workspace sandbox policy, and input at `turn/start`. Runtime event enforcement remains fail-closed if an unrequested tool, search, image-generation, MCP, delegation, command, or file-change event nevertheless appears. Thread preflight and turn execution are complementary attestations; fields that the live protocol reports only at turn start must not be invented in the preflight thread response contract.
 
@@ -126,16 +208,19 @@ The current adapter profiles are materially different:
 
 Do not pool or compare provider profiles as though they offered the same evidence opportunities. An independent verifier can establish that a destination is reachable and semantically relevant, but it cannot retroactively prove that a no-web executor retrieved it. Conversely, a tool event does not by itself prove that the returned source supported the claim. Subagent and batched-tool availability are not quality requirements.
 
-### Matched model-effort groups
+### Model-execution profiles
 
-The 2026-08-29 calibration protocol uses two separately frozen OpenAI groups with identical cases, arms, bundles, and single-agent provider policy:
+The 2026-08-29 calibration protocol uses three separately frozen OpenAI profiles with identical cases, arms, bundles, and single-agent provider policy:
 
-- the representative group uses exact model `gpt-5.6-sol` at the installed model catalog's declared default effort, `low` when this iteration was designed; and
-- the capability-ceiling group uses exact model `gpt-5.6-sol` at `max`, the catalog's maximum reasoning-depth setting that preserves the same single-agent topology.
+- the representative profile uses exact model `gpt-5.6-sol` at the installed Codex catalog's declared default effort, `low` when this iteration was designed;
+- the capability-ceiling profile uses exact model `gpt-5.6-sol` at `max`, the catalog's maximum reasoning-depth setting that preserves the same single-agent topology; and
+- the portability-stress profile uses exact model `gpt-5.3-codex-spark` at deliberately constrained effort `low`, below that catalog's declared Spark default of `high`.
 
-The catalog also exposes `ultra`, described as maximum reasoning with automatic task delegation. That is a different capability treatment, not merely a higher value on the matched single-agent effort axis. Do not use it as the ceiling group, silently permit delegation in the existing no-tools policy, or pool a future `ultra` campaign with these results. An `ultra` evaluation requires its own preregistered capability declaration, adapter review, authorization, grading, and limitations.
+The two Sol profiles form the matched effort comparison. Spark-low is a different-model robustness condition, not another point on the Sol effort axis, a repetition, or a representative Spark default. OpenAI describes Spark as a smaller research-preview model optimized for real-time coding and a lightweight working style; use this profile to test whether the skill remains usable under a latency-first, constrained execution regime. Keep its results separate and do not attribute Spark-versus-Sol differences to effort alone. The labels are specific to the frozen installed Codex catalog rather than universal API defaults. See [OpenAI's GPT-5.3-Codex-Spark announcement](https://openai.com/index/introducing-gpt-5-3-codex-spark/) and [current GPT-5.6 Sol model documentation](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
 
-Prepare, authorize, execute, grade, and aggregate the representative and capability-ceiling groups as two campaign directories. Each group has 10 cases x 3 arms x 1 repetition = 30 sessions and at most 33 turns; together they have 60 sessions and at most 66 turns. One repetition is enforced per case/arm/model-effort cell. Effort groups are conditions, not repetitions, and their scores remain separate.
+The Sol catalog also exposes `ultra`, described as maximum reasoning with automatic task delegation. That is a different capability treatment, not merely a higher value on the matched single-agent effort axis. Do not use it as the ceiling profile, silently permit delegation in the existing no-tools policy, or pool a future `ultra` campaign with these results. An `ultra` evaluation requires its own preregistered capability declaration, adapter review, authorization, grading, and limitations.
+
+Prepare, authorize, execute, grade, and aggregate the representative, capability-ceiling, and portability-stress profiles as three campaign directories. Each profile has 10 cases x 3 arms x 1 repetition = 30 sessions and at most 33 turns; together they have 90 sessions and at most 99 turns. One repetition is enforced per case/arm/model-execution-profile cell. Profiles are conditions, not repetitions, and their scores remain separate.
 
 ## Prepare, preflight, review, authorize, and run
 
@@ -153,18 +238,18 @@ Before disclosing transmission hashes or creating authorization artifacts, run t
 node evals/defining-concepts/evaluation-runner.mjs preflight --campaign-dir <absolute-campaign-directory>
 ```
 
-Review the resulting `preflight.json` and the selected session's `prepared/preflight/` evidence. Require `status: "completed"`, `modelTurns: 0`, an exact manifest and transmission binding, the frozen model and effort, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, the exact reconciled `config.web_search` mode at `thread/start`, clean managed-home retirement, and confirmed App Server closure. Confirm separately that the prepared packet binds its intended execution roots, workspace sandbox, disabled facilities, and effort for `turn/start`. If preflight fails, retain that directory as immutable diagnostic evidence, repair the harness or environment as appropriate, and prepare a fresh timestamped campaign. Never add authorization artifacts to make a failed preflight executable.
+Review the resulting `preflight.json` and the selected session's `prepared/preflight/` evidence. Require `status: "completed"`, `modelTurns: 0`, an exact manifest and transmission binding, the frozen model and effort, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, the exact reconciled `config.web_search` mode at `thread/start`, clean managed-home retirement, and confirmed App Server closure. Confirm separately that the prepared packet binds its intended execution roots, workspace sandbox, disabled facilities, exact model, and effort for `turn/start`. If preflight fails, retain that directory as immutable diagnostic evidence, repair the harness or environment as appropriate, and prepare a fresh timestamped campaign. Never add authorization artifacts to make a failed preflight executable.
 
-Before execution of either group, review and disclose:
+Before execution of any profile, review and disclose:
 
 1. the campaign destination, `manifest.json`, successful `preflight.json`, and selected zero-turn preflight evidence;
 2. both bundle inventories, their source identities, every file digest, and both aggregate hashes;
 3. all ten exact initial prompts and the exact case-10 follow-up;
 4. provider, model, effort, toolchain, runtime fingerprint, isolation, and capability declaration;
-5. all 30 transmission SHA-256 values and the intended call and turn count for that group; and
+5. all 30 transmission SHA-256 values and the intended call and turn count for that profile; and
 6. the enforced one-repetition limitation.
 
-Preparation, successful preflight, implementation approval, login, an earlier campaign authorization, authorization of the other model-effort group, and authorization of one cell do not authorize any of the 30 transmissions in a group. Obtain an exact authorization artifact for **every** prepared session. `run` first requires the exact successful zero-turn preflight and then verifies all 30 artifacts before the first provider call, so a missing or mismatched prerequisite cannot create a partial campaign. A single conversational authorization may cover both groups only when it explicitly identifies both manifest digests, both exact efforts, the two disclosed hash lists, the 60-session and 66-turn ceilings, and whether any grading calls are included.
+Preparation, successful preflight, implementation approval, login, an earlier campaign authorization, authorization of another model-execution profile, and authorization of one cell do not authorize any of the 30 transmissions in a profile. Obtain an exact authorization artifact for **every** prepared session. `run` first requires the exact successful zero-turn preflight and then verifies all 30 artifacts before the first provider call, so a missing or mismatched prerequisite cannot create a partial campaign. A single conversational authorization may cover all three profiles only when it explicitly identifies all three manifest digests, every exact model and effort, the three disclosed hash lists, the 90-session and 99-turn ceilings, and whether any grading calls are included.
 
 ```text
 node evals/defining-concepts/evaluation-runner.mjs run --campaign-dir <absolute-campaign-directory> --authorization-dir <absolute-authorization-directory>
@@ -279,11 +364,11 @@ Place one complete grade record per blind session in `grading/grades/`, one pair
 node evals/defining-concepts/evaluation-runner.mjs aggregate --campaign-dir <absolute-campaign-directory>
 ```
 
-Each generated aggregate reports critical totals and whether the candidate has any critical failure; dimension-observation counts; coverage by case, skill profile, and research stratum; candidate/current/tie pairwise totals; disagreement records; retained token and elapsed-time totals; and the one-repetition, no-variance, no-human-usability, and no-calibrated-pass-probability limitations. Freeze both group aggregates before producing a bounded cross-profile synthesis. Never pool the scores, treat effort groups as repetitions, or let strong ceiling-group prose compensate for a representative-group critical failure. Raw packets, outputs, transcripts, provider evidence, and individual grades remain authoritative. Each aggregate is a derived index, not a substitute for reading failures.
+Each generated aggregate reports critical totals and whether the candidate has any critical failure; dimension-observation counts; coverage by case, skill profile, and research stratum; candidate/current/tie pairwise totals; disagreement records; retained token and elapsed-time totals; and the one-repetition, no-variance, no-human-usability, and no-calibrated-pass-probability limitations. Freeze all three profile aggregates before producing a bounded cross-profile synthesis. Never pool the scores, treat profiles as repetitions, attribute a Spark-versus-Sol difference to effort alone, or let strong output in one profile compensate for a candidate critical failure in another. Distinguish candidate defects from provider/model failures through retained evidence. Raw packets, outputs, transcripts, provider evidence, and individual grades remain authoritative. Each aggregate is a derived index, not a substitute for reading failures.
 
 Calibration is diagnostic. Separate candidate defects from case ambiguity, grader ambiguity, provider failure, and absent evidence. If a critical failure or material design defect requires any candidate skill byte to change, close that iteration: keep its campaign immutable, make the change through a new test-first cycle, capture a new bundle, prepare a new timestamped campaign, and obtain new authorization. Never overwrite or relabel the prior campaign.
 
-Confirmation uses independent scenarios selected only after calibration diagnosis. Freeze its cases, arms, one repetition, graders, critical gates, pairwise rule, provider, model, effort, runtime, and transmission hashes before execution, then obtain new execution and grading authorization. Do not reuse calibration prompts as confirmatory repetitions or borrow calibration authorization.
+Confirmation uses independent scenarios selected only after calibration diagnosis. Freeze its cases, arms, one repetition, graders, critical gates, pairwise rule, all three exact model-execution profiles, runtime, and transmission hashes before execution, then obtain new execution and grading authorization. Preserve the representative, capability-ceiling, and portability-stress distinctions unless a reviewed design change explicitly narrows the claim. Do not reuse calibration prompts as confirmatory repetitions or borrow calibration authorization.
 
 Promote a candidate only when deterministic gates pass, calibration and confirmation are complete, no unresolved candidate critical failure remains, preregistered primary comparisons improve over `current-skill`, no semantic capability stratum materially regresses, negative-trigger precision is preserved, and the evidence record is complete. Bound any final claim to the tested cases, exact model and provider profile, one repetition, and lack of participant evidence.
 
@@ -295,7 +380,7 @@ Record activation decisions and report precision, recall, false-positive rate, a
 
 ## Result layout and historical immutability
 
-New campaign directories use the filesystem-safe UTC timestamp at which preparation freezes the candidate, formatted `YYYY-MM-DDTHHmmss.SSSZ`. The full RFC 3339 value with punctuation remains in `manifest.json`. The timestamp alone is collision-resistant to milliseconds, portable on Windows, and semantically preferable to repeating mutable provider or purpose labels in the directory name.
+New trial and campaign directories use the filesystem-safe UTC timestamp at which preparation freezes the candidate, formatted `YYYY-MM-DDTHHmmss.SSSZ`. The full RFC 3339 value with punctuation remains in `manifest.json`. The timestamp alone is collision-resistant to milliseconds, portable on Windows, and semantically preferable to repeating mutable provider or purpose labels in the directory name. Bounded trials live under `results/trials/<UTC-timestamp>/`; campaign directories retain their historical `results/<UTC-timestamp>/` location.
 
 Current prepared campaigns use this high-level layout:
 
@@ -336,7 +421,7 @@ Historical result schemas are read by explicit version branches. Do not rename t
 Run the focused suite before repository-wide verification:
 
 ```text
-node --test tests/evals/defining-concepts/skill-structure.test.mjs tests/evals/defining-concepts/eval-definitions.test.mjs tests/evals/defining-concepts/evaluation-runner.test.mjs tests/evals/defining-concepts/run-evaluation-session.test.mjs tests/evals/defining-concepts/results.test.mjs tests/scripts/codex-app-server.test.mjs tests/scripts/evaluation-scripted-conversation.test.mjs tests/scripts/evaluation-skill-bundle.test.mjs tests/scripts/skill-repository-validation-contracts.test.mjs tests/scripts/evaluation-runtime.test.mjs
+node --test tests/evals/defining-concepts/skill-structure.test.mjs tests/evals/defining-concepts/eval-definitions.test.mjs tests/evals/defining-concepts/evaluation-trial.test.mjs tests/evals/defining-concepts/evaluation-runner.test.mjs tests/evals/defining-concepts/run-evaluation-session.test.mjs tests/evals/defining-concepts/results.test.mjs tests/scripts/codex-app-server.test.mjs tests/scripts/evaluation-scripted-conversation.test.mjs tests/scripts/evaluation-skill-bundle.test.mjs tests/scripts/skill-repository-validation-contracts.test.mjs tests/scripts/evaluation-runtime.test.mjs
 node scripts/verifySkill.js --skill defining-concepts
 npm run verify
 ```

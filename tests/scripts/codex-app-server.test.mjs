@@ -1,4 +1,5 @@
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -7,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import assert from "node:assert/strict";
@@ -425,6 +426,38 @@ test(
       }),
       /direct Windows executable.*--codex-command/iu,
     );
+  },
+);
+
+test(
+  "Windows bare-command resolution skips wrappers and selects a later native executable",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await temporaryRoot(t);
+    const wrapperDirectory = join(root, "wrapper");
+    const nativeDirectory = join(root, "native");
+    await mkdir(wrapperDirectory);
+    await mkdir(nativeDirectory);
+    await writeFile(
+      join(wrapperDirectory, "codex.cmd"),
+      "@echo off\r\nexit /b 0\r\n",
+      "utf8",
+    );
+    const nativeExecutable = join(nativeDirectory, "codex.exe");
+    await copyFile(process.execPath, nativeExecutable);
+
+    const toolchain = await inspectCodexAppServerToolchain({
+      command: "codex",
+      prefixArguments: [fakeAppServer, "--scenario", "happy"],
+      scratchRoot: join(root, "scratch"),
+      environment: {
+        PATH: `${wrapperDirectory}${delimiter}${nativeDirectory}`,
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+      },
+    });
+
+    assert.equal(toolchain.command.path, nativeExecutable);
+    assert.equal(toolchain.version, "codex-cli 9.9.9-test");
   },
 );
 

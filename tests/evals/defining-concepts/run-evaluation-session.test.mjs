@@ -718,6 +718,110 @@ test("run launches only after exact authorization and retains shared evidence", 
   );
 });
 
+test("run propagates the evaluation trial evidence layout", () => {
+  const context = fixture();
+  const prepared = invoke(context.prepareArgs);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const packet = JSON.parse(
+    readFileSync(path.join(context.destination, "packet.json"), "utf8"),
+  );
+  const authorization = path.join(context.temporary, "authorization.json");
+  writeFileSync(
+    authorization,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      decision: "authorized",
+      statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+      allowExternalModel: true,
+      provider: packet.transmission.provider,
+      model: packet.transmission.model,
+      effort: packet.transmission.effort,
+      transmissionSha256: packet.transmissionSha256,
+    })}\n`,
+    "utf8",
+  );
+
+  const result = invoke([
+    "run",
+    "--prepared-session",
+    context.destination,
+    "--authorization",
+    authorization,
+    "--allow-external-model-call",
+    "--evidence-layout",
+    "evaluation-trial-v1",
+    "--timeout-ms",
+    "5000",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const terminal = JSON.parse(
+    readFileSync(path.join(context.destination, "result.json"), "utf8"),
+  );
+  assert.equal(terminal.artifactType, "evaluation-trial-result");
+  assert.equal(terminal.executionStatus, "completed");
+  assert.equal(terminal.gradeStatus, "not-graded");
+  assert.equal(
+    readFileSync(
+      path.join(context.destination, "outputs", "response.md"),
+      "utf8",
+    ),
+    "Authoritative final answer",
+  );
+  assert.equal(
+    existsSync(
+      path.join(context.destination, "authorization-consumption.json"),
+    ),
+    true,
+  );
+  assert.equal(existsSync(path.join(context.destination, "run.json")), false);
+  assert.equal(
+    existsSync(path.join(context.destination, "outputs", "final.md")),
+    false,
+  );
+});
+
+test("run rejects an unknown evidence layout before a provider model turn", () => {
+  const context = fixture();
+  assert.equal(invoke(context.prepareArgs).status, 0);
+  const packet = JSON.parse(
+    readFileSync(path.join(context.destination, "packet.json"), "utf8"),
+  );
+  const authorization = path.join(context.temporary, "authorization.json");
+  writeFileSync(
+    authorization,
+    JSON.stringify({
+      schemaVersion: 1,
+      decision: "authorized",
+      statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+      allowExternalModel: true,
+      provider: packet.transmission.provider,
+      model: packet.transmission.model,
+      effort: packet.transmission.effort,
+      transmissionSha256: packet.transmissionSha256,
+    }),
+    "utf8",
+  );
+
+  const result = invoke([
+    "run",
+    "--prepared-session",
+    context.destination,
+    "--authorization",
+    authorization,
+    "--allow-external-model-call",
+    "--evidence-layout",
+    "unknown-layout",
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /evidence layout/iu);
+  assert.equal(
+    records(context.record).some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
 test("prepare rejects a nonempty destination", () => {
   const context = fixture();
   assert.equal(invoke(context.prepareArgs).status, 0);

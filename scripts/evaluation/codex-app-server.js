@@ -267,9 +267,7 @@ async function resolveExecutable(command, environment) {
   assertNonemptyString(pathValue, "environment.PATH");
   const extensions =
     process.platform === "win32" && extname(command) === ""
-      ? (environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
-          .split(";")
-          .filter(Boolean)
+      ? [".COM", ".EXE"]
       : [""];
 
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {

@@ -192,13 +192,33 @@ const UNSAFE_RELEASE_REASONS = new Set([
 ]);
 const TERMINATION_ACTIONS = new Set(["interrupt", "kill", "terminate"]);
 const SUITE_WRITE_KEYS = Object.freeze(["bytes", "mediaType", "relativePath"]);
-const RESERVED_EXECUTION_TARGETS = Object.freeze([
-  "attempt.json",
-  "authorization.json",
-  "metrics.json",
-  "run.json",
-  "timing.json",
-]);
+const EVIDENCE_LAYOUTS = Object.freeze({
+  "legacy-v1": Object.freeze({
+    authorization: "authorization.json",
+    authorizationConsumption: "attempt.json",
+    authorizationConsumptionArtifactType: null,
+    events: "outputs/events.jsonl",
+    final: "outputs/final.md",
+    metrics: "metrics.json",
+    result: "run.json",
+    stderr: "outputs/stderr.log",
+    timing: "timing.json",
+    transcript: "outputs/transcript.jsonl",
+  }),
+  "evaluation-trial-v1": Object.freeze({
+    authorization: "authorization.json",
+    authorizationConsumption: "authorization-consumption.json",
+    authorizationConsumptionArtifactType:
+      "evaluation-trial-authorization-consumption",
+    events: "outputs/events.jsonl",
+    final: "outputs/response.md",
+    metrics: "metrics.json",
+    result: "result.json",
+    stderr: "outputs/stderr.log",
+    timing: "timing.json",
+    transcript: "outputs/provider-transcript.jsonl",
+  }),
+});
 const SENSITIVE_MEMBER_NAMES = new Set([
   "accesstoken",
   "accountemail",
@@ -455,9 +475,11 @@ function assertSuiteArtifacts(value) {
       normalized === "packet.json" ||
       normalized === "authorization.json" ||
       normalized === "attempt.json" ||
+      normalized === "authorization-consumption.json" ||
       normalized === "metrics.json" ||
       normalized === "timing.json" ||
       normalized === "run.json" ||
+      normalized === "result.json" ||
       normalized.startsWith("inputs/") ||
       normalized.startsWith("outputs/")
     ) {
@@ -902,11 +924,24 @@ function failedExecution(failureClass, error) {
   };
 }
 
-async function openExecutionEvidence(directory) {
+function resolveEvidenceLayout(name = "legacy-v1") {
+  if (!Object.hasOwn(EVIDENCE_LAYOUTS, name)) {
+    fail(`unsupported evidence layout: ${name}`);
+  }
+  return EVIDENCE_LAYOUTS[name];
+}
+
+async function openExecutionEvidence(directory, layout) {
   const outputs = join(directory, "outputs");
   await mkdir(outputs, { mode: 0o700 });
 
-  for (const relativePath of RESERVED_EXECUTION_TARGETS) {
+  for (const relativePath of [
+    layout.authorization,
+    layout.authorizationConsumption,
+    layout.metrics,
+    layout.result,
+    layout.timing,
+  ]) {
     if (await exists(join(directory, relativePath))) {
       const error = new Error(
         `Reserved execution evidence already exists: ${relativePath}`,
@@ -917,16 +952,16 @@ async function openExecutionEvidence(directory) {
   }
 
   const paths = {
-    events: join(outputs, "events.jsonl"),
-    final: join(outputs, "final.md"),
-    stderr: join(outputs, "stderr.log"),
-    transcript: join(outputs, "transcript.jsonl"),
+    events: join(directory, layout.events),
+    final: join(directory, layout.final),
+    stderr: join(directory, layout.stderr),
+    transcript: join(directory, layout.transcript),
   };
   const relativePaths = {
-    events: "outputs/events.jsonl",
-    final: "outputs/final.md",
-    stderr: "outputs/stderr.log",
-    transcript: "outputs/transcript.jsonl",
+    events: layout.events,
+    final: layout.final,
+    stderr: layout.stderr,
+    transcript: layout.transcript,
   };
   const handles = {};
   const initialStats = {};
@@ -1078,11 +1113,16 @@ async function openExecutionEvidence(directory) {
   };
 }
 
-function createLaunchCapability(directory, packet) {
+function createLaunchCapability(directory, packet, layout) {
   const capability = Object.freeze(Object.create(null));
   launchCapabilities.set(capability, {
     state: "available",
-    attemptPath: join(directory, "attempt.json"),
+    authorizationConsumptionPath: join(
+      directory,
+      layout.authorizationConsumption,
+    ),
+    authorizationConsumptionArtifactType:
+      layout.authorizationConsumptionArtifactType,
     expectation: Object.freeze({
       provider: packet.transmission.provider,
       model: packet.transmission.model,
@@ -1448,10 +1488,19 @@ export async function consumeExternalModelLaunch(
         fail(`launch expectation ${name} does not match authorization`);
       }
     }
-    await writeCanonicalExclusive(entry.attemptPath, {
-      schemaVersion: 1,
-      ...entry.expectation,
-    });
+    await writeCanonicalExclusive(
+      entry.authorizationConsumptionPath,
+      entry.authorizationConsumptionArtifactType === null
+        ? {
+            schemaVersion: 1,
+            ...entry.expectation,
+          }
+        : {
+            artifactType: entry.authorizationConsumptionArtifactType,
+            schemaVersion: 1,
+            ...entry.expectation,
+          },
+    );
   } finally {
     entry.state = "consumed";
     launchCapabilities.delete(launchCapability);
@@ -1459,7 +1508,7 @@ export async function consumeExternalModelLaunch(
 }
 
 /**
- * @param {{preparedSession: string | PreparedEvidenceReference, allowExternalModelCall: boolean, authorization: object, assertCurrent: (transmission: object) => Promise<void>, adapter: ProviderAdapter, request: object, signal?: AbortSignal, clock?: object}} options
+ * @param {{preparedSession: string | PreparedEvidenceReference, allowExternalModelCall: boolean, authorization: object, assertCurrent: (transmission: object) => Promise<void>, adapter: ProviderAdapter, request: object, signal?: AbortSignal, clock?: object, evidenceLayout?: "legacy-v1" | "evaluation-trial-v1"}} options
  * @returns {Promise<AdapterResult>}
  */
 export async function executeAuthorizedModelSession({
@@ -1471,12 +1520,15 @@ export async function executeAuthorizedModelSession({
   request,
   signal,
   clock,
+  evidenceLayout,
 }) {
   const directory = preparedSessionPath(preparedSession);
+  const layoutName = evidenceLayout ?? "legacy-v1";
+  const layout = resolveEvidenceLayout(layoutName);
   const selectedClock = normalizedClock(clock);
   const startedAt = wallTimestamp(selectedClock, "start");
   const startedMonotonic = monotonicTimestamp(selectedClock, "start");
-  const transaction = await openExecutionEvidence(directory);
+  const transaction = await openExecutionEvidence(directory, layout);
   let phase = "authorization";
   let capability;
   let packet = null;
@@ -1512,7 +1564,7 @@ export async function executeAuthorizedModelSession({
       fail("adapter does not match the packet provider");
     }
 
-    capability = createLaunchCapability(directory, packet);
+    capability = createLaunchCapability(directory, packet, layout);
     result = await adapter.execute({
       launchCapability: capability,
       transmission: packet.transmission,
@@ -1558,36 +1610,61 @@ export async function executeAuthorizedModelSession({
     durationMs: finishedMonotonic - startedMonotonic,
   };
 
-  await writeCanonicalExclusive(join(directory, "metrics.json"), metrics);
-  await writeCanonicalExclusive(join(directory, "timing.json"), timing);
+  await writeCanonicalExclusive(join(directory, layout.metrics), metrics);
+  await writeCanonicalExclusive(join(directory, layout.timing), timing);
 
   const artifactPaths = [
     "packet.json",
     "inputs/manifest.json",
     ...outputPaths,
-    "metrics.json",
-    "timing.json",
+    layout.metrics,
+    layout.timing,
   ];
   if (packet !== null) {
     artifactPaths.push(...inputRelativePaths(packet));
   }
   if (authorizationWritten) {
-    artifactPaths.push("authorization.json");
+    artifactPaths.push(layout.authorization);
   }
-  if (await exists(join(directory, "attempt.json"))) {
-    artifactPaths.push("attempt.json");
+  const authorizationConsumed = await exists(
+    join(directory, layout.authorizationConsumption),
+  );
+  if (authorizationConsumed) {
+    artifactPaths.push(layout.authorizationConsumption);
   }
 
-  const run = {
-    schemaVersion: 1,
-    transmissionSha256: packet?.transmissionSha256 ?? null,
-    status: result.status,
-    failureClass: result.failureClass,
-    error: result.error,
-    closure: result.closure,
-    suiteResult: result.suiteResult,
-    artifacts: await finalizedArtifactMap(directory, artifactPaths),
-  };
-  await writeCanonicalExclusive(join(directory, "run.json"), run);
+  const artifacts = await finalizedArtifactMap(directory, artifactPaths);
+  const terminalResult =
+    layoutName === "evaluation-trial-v1"
+      ? {
+          artifactType: "evaluation-trial-result",
+          schemaVersion: 1,
+          transmissionSha256: packet?.transmissionSha256 ?? null,
+          executionStatus: result.status,
+          gradeStatus: "not-graded",
+          providerOutcome:
+            result.status === "completed"
+              ? "completed"
+              : authorizationConsumed
+                ? "failed"
+                : "not-started",
+          retryPermitted: false,
+          failureClass: result.failureClass,
+          error: result.error,
+          closure: result.closure,
+          suiteResult: result.suiteResult,
+          artifacts,
+        }
+      : {
+          schemaVersion: 1,
+          transmissionSha256: packet?.transmissionSha256 ?? null,
+          status: result.status,
+          failureClass: result.failureClass,
+          error: result.error,
+          closure: result.closure,
+          suiteResult: result.suiteResult,
+          artifacts,
+        };
+  await writeCanonicalExclusive(join(directory, layout.result), terminalResult);
   return result;
 }

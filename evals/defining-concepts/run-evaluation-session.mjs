@@ -927,6 +927,12 @@ async function run(options) {
   );
   if (values.get("--allow-external-model-call") !== true)
     fail("run requires --allow-external-model-call");
+  const evidenceLayout = values.get("--evidence-layout") ?? "legacy-v1";
+  if (!new Set(["legacy-v1", "evaluation-trial-v1"]).has(evidenceLayout)) {
+    fail(
+      "The evidence layout must be legacy-v1 or evaluation-trial-v1",
+    );
+  }
   const timeoutMs = values.has("--timeout-ms")
     ? positiveInteger(values.get("--timeout-ms"), "--timeout-ms")
     : 120_000;
@@ -1001,6 +1007,7 @@ async function run(options) {
     },
     adapter,
     request,
+    evidenceLayout,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (result.status !== "completed") process.exitCode = 1;

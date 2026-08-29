@@ -26,6 +26,16 @@ import {
   captureGitSkillBundle,
   captureWorkingTreeSkillBundle,
 } from "../../scripts/evaluation/skill-bundle.js";
+import {
+  evaluationHomesRootFromLocalAppData,
+  initializeEvaluationHomes,
+} from "../../scripts/evaluation/evaluation-homes.js";
+import {
+  preflightEvaluationTrial,
+  prepareEvaluationTrial,
+  runEvaluationTrial,
+  verifyEvaluationTrial,
+} from "./evaluation-trial.mjs";
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "../..");
 const SESSION_RUNNER = path.join(
@@ -1375,24 +1385,70 @@ export function aggregateCampaignGrades({
   return deepFreeze(canonicalRecord(aggregate));
 }
 
-function parseCli(arguments_) {
+const TRIAL_ARGUMENTS = Object.freeze({
+  prepare: new Set([
+    "--output-dir",
+    "--case-id",
+    "--skill-arm",
+    "--trial-index",
+    "--adapter",
+    "--model",
+    "--reasoning-effort",
+    "--created-at",
+    "--working-root",
+    "--baseline-revision",
+  ]),
+  preflight: new Set(["--trial-dir"]),
+  run: new Set([
+    "--trial-dir",
+    "--authorization-file",
+    "--allow-external-model-call",
+  ]),
+  verify: new Set(["--trial-dir"]),
+});
+
+export function parseEvaluationRunnerCli(arguments_) {
   const command = arguments_[0];
+  const subcommand = command === "trial" ? arguments_[1] : null;
+  if (
+    command === "trial" &&
+    !new Set(["prepare", "preflight", "run", "verify"]).has(subcommand)
+  ) {
+    fail("second argument must be trial prepare, preflight, run, or verify");
+  }
   const values = new Map();
   const repeated = new Map([
     ["--antigravity-prefix-arg", []],
     ["--claude-prefix-arg", []],
     ["--codex-prefix-arg", []],
   ]);
-  for (let index = 1; index < arguments_.length; index += 2) {
+  const switches = new Set(["--allow-external-model-call"]);
+  for (
+    let index = command === "trial" ? 2 : 1;
+    index < arguments_.length;
+    index += 1
+  ) {
     const name = arguments_[index];
+    if (!name?.startsWith("--")) {
+      fail("CLI arguments must use --name value pairs");
+    }
+    if (command === "trial" && !TRIAL_ARGUMENTS[subcommand].has(name)) {
+      fail(`unsupported approved trial argument ${name}`);
+    }
+    if (switches.has(name)) {
+      if (values.has(name)) fail(`duplicate CLI argument ${name}`);
+      values.set(name, true);
+      continue;
+    }
     const value = arguments_[index + 1];
     if (!name?.startsWith("--") || value === undefined)
       fail("CLI arguments must use --name value pairs");
+    index += 1;
     if (repeated.has(name)) repeated.get(name).push(value);
     else if (values.has(name)) fail(`duplicate CLI argument ${name}`);
     else values.set(name, value);
   }
-  return { command, values, repeated };
+  return { command, subcommand, values, repeated };
 }
 
 function requireCli(values, name) {
@@ -1462,6 +1518,220 @@ function campaignProviderResolution(provider) {
       providerFacilities: [],
     },
   };
+}
+
+function positiveCliInteger(values, name) {
+  const value = requireCli(values, name);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    fail(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+export function resolveTrialEvaluationHomesRoot(environment = process.env) {
+  return evaluationHomesRootFromLocalAppData(environment?.LOCALAPPDATA);
+}
+
+function parsedSpawnResult(spawned, label) {
+  if (spawned.error !== undefined) throw spawned.error;
+  let result;
+  try {
+    result = JSON.parse(spawned.stdout.trim());
+  } catch (error) {
+    fail(`${label} did not return one JSON result: ${error.message}`);
+  }
+  return result;
+}
+
+async function withNewTrialWorkingRoot(workingRoot, operation) {
+  if (
+    typeof workingRoot !== "string" ||
+    path.resolve(workingRoot) !== workingRoot
+  ) {
+    fail("--working-root must be an absolute new directory");
+  }
+  if (existsSync(workingRoot)) {
+    fail("--working-root must be a new directory");
+  }
+  mkdirSync(workingRoot, { recursive: false });
+  try {
+    return await operation();
+  } catch (error) {
+    rmSync(workingRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function prepareTrialFromCli(values) {
+  const destination = path.resolve(requireCli(values, "--output-dir"));
+  const caseId = positiveCliInteger(values, "--case-id");
+  const skillArm = requireCli(values, "--skill-arm");
+  const trialIndex = positiveCliInteger(values, "--trial-index");
+  const adapter = requireCli(values, "--adapter");
+  const model = requireCli(values, "--model");
+  const reasoningEffort = requireCli(values, "--reasoning-effort");
+  const now = new Date(requireCli(values, "--created-at"));
+  const workingRoot = path.resolve(requireCli(values, "--working-root"));
+  const baselineRevision = requireCli(values, "--baseline-revision");
+  const definitions = readJson(
+    path.join(import.meta.dirname, "evals.json"),
+    "evaluation definitions",
+  );
+  const evaluationCase = definitions.evals.find(({ id }) => id === caseId);
+  if (evaluationCase === undefined) {
+    fail(`evaluation definitions do not declare case ${caseId}`);
+  }
+  const currentBundle = captureGitSkillBundle({
+    repositoryRoot: REPOSITORY_ROOT,
+    revision: baselineRevision,
+    skillName: "defining-concepts",
+  });
+  const candidateBundle = captureWorkingTreeSkillBundle({
+    repositoryRoot: REPOSITORY_ROOT,
+    skillName: "defining-concepts",
+  });
+
+  return withNewTrialWorkingRoot(workingRoot, async () => {
+    const evaluationHomesRoot = resolveTrialEvaluationHomesRoot();
+    await initializeEvaluationHomes({ root: evaluationHomesRoot });
+    const workingDirectory = path.join(workingRoot, "workspace");
+    return prepareEvaluationTrial({
+      destination,
+      now,
+      evaluationCase,
+      skillArm,
+      trialIndex,
+      currentBundle,
+      candidateBundle,
+      capabilityContract: definitions.capability_contract,
+      providerResolution: campaignProviderResolution("openai"),
+      provider: "openai",
+      adapter,
+      model,
+      reasoningEffort,
+      baselineRevision,
+      workingDirectory,
+      async prepareSession({
+        caseFile,
+        skillBundleFile,
+        capabilityReconciliationFile,
+        preparedSession,
+      }) {
+        const arguments_ = [
+          SESSION_RUNNER,
+          "prepare",
+          "--case-file",
+          caseFile,
+          "--destination",
+          preparedSession,
+          "--working-dir",
+          workingDirectory,
+          "--arm",
+          skillArm,
+          "--repetition",
+          "1",
+          "--provider",
+          "codex",
+          "--model",
+          model,
+          "--effort",
+          reasoningEffort,
+          "--capability-reconciliation-file",
+          capabilityReconciliationFile,
+          "--codex-command",
+          "codex",
+          "--evaluation-homes-root",
+          evaluationHomesRoot,
+        ];
+        if (skillBundleFile !== null) {
+          arguments_.push("--skill-bundle-file", skillBundleFile);
+        }
+        const spawned = spawnSync(process.execPath, arguments_, {
+          encoding: "utf8",
+        });
+        if (spawned.error !== undefined) throw spawned.error;
+        if (spawned.status !== 0) {
+          fail(`trial session preparation failed: ${spawned.stderr}`);
+        }
+        return {
+          modelTurns: 0,
+          packet: readJson(
+            path.join(preparedSession, "packet.json"),
+            "prepared trial packet",
+          ),
+        };
+      },
+    });
+  });
+}
+
+async function preflightTrialFromCli(values) {
+  const trialDirectory = path.resolve(requireCli(values, "--trial-dir"));
+  const result = await preflightEvaluationTrial({
+    trialDirectory,
+    preflightSession({ preparedSession }) {
+      const spawned = spawnSync(
+        process.execPath,
+        [
+          SESSION_RUNNER,
+          "preflight",
+          "--prepared-session",
+          preparedSession,
+          "--allow-zero-turn-preflight",
+        ],
+        { encoding: "utf8" },
+      );
+      const preflight = parsedSpawnResult(spawned, "trial preflight");
+      if (spawned.status !== 0 && preflight.status === "completed") {
+        fail("trial preflight process failed after reporting completion");
+      }
+      return preflight;
+    },
+  });
+  if (result.status !== "completed") process.exitCode = 1;
+  return result;
+}
+
+async function runTrialFromCli(values) {
+  const trialDirectory = path.resolve(requireCli(values, "--trial-dir"));
+  const authorizationFile = path.resolve(
+    requireCli(values, "--authorization-file"),
+  );
+  return runEvaluationTrial({
+    trialDirectory,
+    authorizationFile,
+    allowExternalModelCall:
+      values.get("--allow-external-model-call") === true,
+    executeSession({ preparedSession, evidenceLayout }) {
+      const spawned = spawnSync(
+        process.execPath,
+        [
+          SESSION_RUNNER,
+          "run",
+          "--prepared-session",
+          preparedSession,
+          "--authorization",
+          authorizationFile,
+          "--allow-external-model-call",
+          "--evidence-layout",
+          evidenceLayout,
+        ],
+        { encoding: "utf8" },
+      );
+      const execution = parsedSpawnResult(spawned, "trial execution");
+      if (spawned.status !== 0 && execution.status === "completed") {
+        fail("trial execution process failed after reporting completion");
+      }
+      return execution;
+    },
+  });
+}
+
+function verifyTrialFromCli(values) {
+  return verifyEvaluationTrial({
+    trialDirectory: path.resolve(requireCli(values, "--trial-dir")),
+  });
 }
 
 function prepareFromCli(values, repeated) {
@@ -1701,9 +1971,16 @@ function aggregateFromCli(values) {
 }
 
 async function cli() {
-  const { command, values, repeated } = parseCli(process.argv.slice(2));
+  const { command, subcommand, values, repeated } =
+    parseEvaluationRunnerCli(process.argv.slice(2));
   let result;
-  if (command === "prepare") result = prepareFromCli(values, repeated);
+  if (command === "trial") {
+    if (subcommand === "prepare") result = await prepareTrialFromCli(values);
+    else if (subcommand === "preflight") {
+      result = await preflightTrialFromCli(values);
+    } else if (subcommand === "run") result = await runTrialFromCli(values);
+    else result = await verifyTrialFromCli(values);
+  } else if (command === "prepare") result = prepareFromCli(values, repeated);
   else if (command === "preflight") result = preflightFromCli(values);
   else if (command === "run") result = runFromCli(values);
   else if (command === "prepare-grading") {
@@ -1713,7 +1990,7 @@ async function cli() {
   } else if (command === "aggregate") result = aggregateFromCli(values);
   else
     fail(
-      "first argument must be prepare, preflight, run, prepare-grading, or aggregate",
+      "first argument must be trial, prepare, preflight, run, prepare-grading, or aggregate",
     );
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
