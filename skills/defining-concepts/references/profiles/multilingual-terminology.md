@@ -14,6 +14,8 @@ Activate when two or more languages, language varieties, scripts, jurisdictions,
 - Do grammatical behavior, register, connotation, legal status, cultural framing, or extension change the mapping?
 - Is the requested machine representation terminology exchange, KOS labels, or lexical grounding for an ontology, and which profile or dialect applies?
 
+Treat missing language variety, jurisdiction, or designation authority as an unresolved scope dimension rather than an automatic blocker. When a responsible comparison or package can preserve alternatives under explicit language and jurisdiction assumptions, proceed with provisional concept formulations; ask a focused clarification first only when every plausible scoped formulation would materially mislead.
+
 ## Semantic distinctions
 
 Preserve concept orientation before translation: establish the source concept's identity and boundary, then determine whether a target-language community lexicalizes the same concept. Shared spelling, cognates, dictionary glosses, corpus co-occurrence, and machine translation are not sufficient evidence of concept equivalence.
@@ -51,6 +53,8 @@ When native-speaker, domain-specialist, or community review is needed but unavai
 ## Completion additions
 
 When material, add concept identity shared across languages; designation records with language, variety, script, jurisdiction, source, and status; equivalence type and direction; decisive mismatches; candidate recommendations by use context; required review; and requested representation plus validation state.
+
+For consequential use, include an explicit `Required review:` item naming each applicable reviewer type - native-language, domain-specialist, legal, or affected-community - and the question that reviewer must settle. Mark unavailable review as `not performed`; do not leave the review need implicit in general cautionary prose.
 
 For a compact answer, keep the definition first, then state the recommended designation and the one material equivalence limitation. Do not display exchange-format fields unless the user requests them.
 

@@ -1,6 +1,6 @@
 # Concept-Entry Presentation
 
-Choose one human renderer after validation and project only useful fields from the shared concept-entry record. The first substantive block is the definition or revised definition whenever responsible formulation is possible; an optional concept-name heading is not substantive.
+Choose one human renderer after validation and project only useful fields from the shared concept-entry record. The first substantive block is the definition or revised definition whenever responsible formulation is possible; apply the skill's definition-first output gate before renderer-specific fields.
 
 A warning or clarification may appear before the definition only when omission would materially mislead, and a blocker may appear first when no responsible definition can yet be supplied. Omit empty sections, internal research diaries, generic numbering, compliance theater, and evidence that does not help the reader decide or act.
 

@@ -19,6 +19,7 @@ Do not use it for a casual dictionary meaning, code or variable naming, product 
 
 ## Non-negotiable output gates
 
+- Definition first: when responsible formulation is possible, make the definition the first substantive human-readable block. A concept-name heading may precede it; disposition, status, source notes, and analysis follow it. Lead with the exact blocker only when no responsible definition can be supplied, or with an indispensable warning when omission would materially mislead.
 - Every final source claim and every cited destination presented as evidence must be supported by the exact destination directly retrieved and inspected in the current task. Treat an unvisited destination, including a URL discovered on a retrieved page, as discovery-only: do not cite it as a verified source, use it to support a retained claim, or report its status as checked. Either retrieve it, omit it, or label it `not checked` without relying on it.
 - An affirmative wording-permission conclusion is forbidden unless the exact permission destination cited in the final answer was directly retrieved and inspected in the current task, and its applicability to the source wording and proposed action was established. Never construct, infer, or cite a likely license URL. When permission is requested, satisfy this gate before optional secondary lookups or repeated source opens; otherwise write `Wording permission: unresolved - do not reuse verbatim`.
 - For a concept package where boundary discrimination is material, the final answer must label one concrete positive instance, one concrete negative instance or exclusion, and one near miss. If any required test cannot be supplied responsibly, label it unresolved instead of omitting it.
@@ -68,6 +69,7 @@ Use sequential fallback when any eligibility condition fails. Completion depends
 - Choose one disposition: `Adopt` an authoritative same-concept definition without semantic change when wording use is permitted; `Adapt` the same concept for wording, granularity, context, or formulation; `Formulate` a new definition when no sufficiently matching reusable definition is verified; or `Defer` when identity, authority, evidence, permission, or a user decision is insufficient.
 - Choose the definition strategy that fits the concept: intensional, extensional, partitive, mixed, operational, formal rule or axiom, or perspectival or provisional. Intensional immediate-superordinate plus delimiting-characteristics formulation is the default, not a universal requirement.
 - For an extensional strategy, ensure the extension is finite and label completeness; for a partitive strategy, do not confuse part with kind; for a mixed strategy, label each list's role; for an operational strategy, separate the concept from a method- or jurisdiction-specific threshold; for a formal strategy, keep textual meaning separate from machine commitments; for a perspectival strategy, name the standpoint and preserve legitimate alternatives.
+- For an operational threshold, record the governing authority or jurisdiction, measure, aggregation window, unit, comparator, and threshold value. When strictness or inclusivity decides membership, label the exact threshold value as the near miss and use a clearly non-member value or condition as the negative instance.
 
 ### 6. Define
 
@@ -86,7 +88,7 @@ Use sequential fallback when any eligibility condition fails. Completion depends
 
 ### 8. Present
 
-- Present the definition first when responsible formulation is possible. A warning, focused clarification, or evidence blocker may precede it only when omission would materially mislead or no responsible definition can yet be supplied.
+- Apply the definition-first output gate before all renderer-specific fields.
 - Read [Concept-entry presentation](references/concept-entry-presentation.md) when selecting or projecting the `definition-answer`, `revision-audit`, or `concept-package` renderer. Omit empty sections and internal research narration.
 - Read [Concept-entry serialization](references/concept-entry-serialization.md) only when the user explicitly requests machine-readable output; default an unspecified machine form to versioned plain JSON and preserve the same semantic record.
 
