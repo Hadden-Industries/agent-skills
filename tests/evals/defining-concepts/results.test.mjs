@@ -4,6 +4,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { verifyEvaluationTrial } from "../../../evals/defining-concepts/evaluation-trial.mjs";
+
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 const resultsRoot = path.join(
   repositoryRoot,
@@ -28,6 +30,19 @@ function resultDirectories() {
         existsSync(path.join(resultsRoot, entry.name, "manifest.json")),
     )
     .map((entry) => path.join(resultsRoot, entry.name))
+    .sort();
+}
+
+function trialDirectories() {
+  const trialsRoot = path.join(resultsRoot, "trials");
+  if (!existsSync(trialsRoot)) return [];
+  return readdirSync(trialsRoot, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(path.join(trialsRoot, entry.name, "manifest.json")),
+    )
+    .map((entry) => path.join(trialsRoot, entry.name))
     .sort();
 }
 
@@ -858,4 +873,143 @@ test("an undeclared result schema is rejected instead of inferred from missing f
     () => validateResultArtifactSet({ manifest: { arms: ["no-skill"] } }),
     /explicitly supported result schema/iu,
   );
+});
+
+test("retained bounded trials preserve immutable identity and report an explicit evidence state", async () => {
+  const directories = trialDirectories();
+  assert.ok(directories.length > 0, "expected at least one retained trial");
+
+  for (const trialDirectory of directories) {
+    const manifest = readJson(trialDirectory, "manifest.json");
+    assert.equal(manifest.artifactType, "evaluation-trial-manifest");
+    assert.equal(manifest.schemaVersion, 1);
+    assert.equal(manifest.suite, "defining-concepts");
+    assert.equal(manifest.directoryName, path.basename(trialDirectory));
+    assert.match(manifest.directoryName, /^\d{4}-\d{2}-\d{2}T\d{6}\.\d{3}Z$/u);
+    assert.match(manifest.trialId, /^trial-[0-9a-f]{16}$/u);
+    assert.match(
+      manifest.artifacts.packet.transmissionSha256,
+      /^[0-9a-f]{64}$/u,
+    );
+    assert.equal(
+      manifest.trialId,
+      `trial-${manifest.artifacts.packet.transmissionSha256.slice(0, 16)}`,
+    );
+    assert.equal(
+      manifest.execution.evidenceUse,
+      manifest.identity.trialIndex === 1 ? "diagnostic" : "repeatability",
+    );
+    assert.equal(manifest.execution.aggregateEligible, false);
+    assert.equal(manifest.execution.maximumTurns, 1);
+
+    const verification = await verifyEvaluationTrial({ trialDirectory });
+    assert.equal(
+      verification.transmissionSha256,
+      manifest.artifacts.packet.transmissionSha256,
+    );
+    assert.ok(
+      ["verified", "incomplete", "failed"].includes(
+        verification.artifactIntegrity,
+      ),
+    );
+    assert.ok(
+      ["not-started", "completed", "failed", "indeterminate"].includes(
+        verification.executionStatus,
+      ),
+    );
+    assert.equal(verification.gradeStatus, "not-graded");
+
+    if (verification.artifactIntegrity !== "verified") {
+      assert.equal(verification.executionStatus, "indeterminate");
+      assert.equal(verification.providerOutcome, "undetermined");
+      assert.equal(verification.retryPermitted, false);
+    } else if (verification.preflightStatus === "failed") {
+      assert.equal(verification.executionStatus, "not-started");
+      assert.equal(verification.providerOutcome, "not-started");
+      assert.equal(verification.retryPermitted, false);
+    }
+  }
+});
+
+test("retained completed trial pair establishes bounded lifecycle repeatability under matched inputs", async () => {
+  const retained = [];
+  for (const trialDirectory of trialDirectories()) {
+    const manifest = readJson(trialDirectory, "manifest.json");
+    const verification = await verifyEvaluationTrial({ trialDirectory });
+    if (
+      verification.artifactIntegrity === "verified" &&
+      verification.executionStatus === "completed" &&
+      verification.providerOutcome === "completed"
+    ) {
+      retained.push({ manifest, trialDirectory, verification });
+    }
+  }
+
+  const repeatability = retained.find(
+    ({ manifest }) => manifest.identity.trialIndex === 2,
+  );
+  assert.ok(repeatability, "expected one completed repeatability trial");
+  const diagnostic = retained.find(
+    ({ manifest }) =>
+      manifest.identity.trialIndex === 1 &&
+      manifest.identity.caseId === repeatability.manifest.identity.caseId &&
+      manifest.identity.skillArm === repeatability.manifest.identity.skillArm &&
+      manifest.execution.provider ===
+        repeatability.manifest.execution.provider &&
+      manifest.execution.adapter === repeatability.manifest.execution.adapter &&
+      manifest.execution.model === repeatability.manifest.execution.model &&
+      manifest.execution.reasoningEffort ===
+        repeatability.manifest.execution.reasoningEffort,
+  );
+  assert.ok(diagnostic, "expected one matched completed diagnostic trial");
+
+  function matchedContract(manifest) {
+    return {
+      suite: manifest.suite,
+      baselineRevision: manifest.baselineRevision,
+      identity: {
+        caseId: manifest.identity.caseId,
+        skillArm: manifest.identity.skillArm,
+      },
+      execution: {
+        provider: manifest.execution.provider,
+        adapter: manifest.execution.adapter,
+        transport: manifest.execution.transport,
+        model: manifest.execution.model,
+        reasoningEffort: manifest.execution.reasoningEffort,
+        maximumTurns: manifest.execution.maximumTurns,
+        aggregateEligible: manifest.execution.aggregateEligible,
+      },
+      capabilityReceiptSha256:
+        manifest.artifacts.capabilityReconciliation.receiptSha256,
+      caseSha256: manifest.artifacts.case.caseSha256,
+      skillBundleAggregateSha256:
+        manifest.artifacts.skillBundle?.aggregateSha256 ?? null,
+      inputManifestSha256: manifest.artifacts.inputManifest.sha256,
+      inputs: manifest.artifacts.inputs.map(({ id, mediaType, sha256 }) => ({
+        id,
+        mediaType,
+        sha256,
+      })),
+    };
+  }
+
+  assert.deepEqual(
+    matchedContract(repeatability.manifest),
+    matchedContract(diagnostic.manifest),
+  );
+  assert.equal(diagnostic.manifest.execution.evidenceUse, "diagnostic");
+  assert.equal(repeatability.manifest.execution.evidenceUse, "repeatability");
+  assert.notEqual(
+    diagnostic.manifest.artifacts.packet.transmissionSha256,
+    repeatability.manifest.artifacts.packet.transmissionSha256,
+  );
+  for (const record of [diagnostic, repeatability]) {
+    const result = readJson(record.trialDirectory, "result.json");
+    assert.equal(result.executionStatus, "completed");
+    assert.equal(result.providerOutcome, "completed");
+    assert.equal(result.gradeStatus, "not-graded");
+    assert.equal(result.retryPermitted, false);
+    assert.equal(record.verification.authorizationStatus, "consumed");
+  }
 });

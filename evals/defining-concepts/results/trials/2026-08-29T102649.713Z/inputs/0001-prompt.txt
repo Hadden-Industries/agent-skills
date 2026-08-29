@@ -1,0 +1,1 @@
+Our public-sector catalog needs a concept package for Dataset in the W3C Data Catalog Vocabulary context. Treat the dataset as the conceptual collection, not a downloadable file, serialization, API response, or distribution. Research the exact current W3C destination and state separately whether its wording may be reused verbatim.

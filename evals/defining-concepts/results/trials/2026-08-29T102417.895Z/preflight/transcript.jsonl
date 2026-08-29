@@ -1,0 +1,6 @@
+{"id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true,"requestAttestation":false},"clientInfo":{"name":"unified-skill-evaluation-runtime","title":"Unified Skill Evaluation Runtime","version":"1.0.0"}}}
+{"id":1,"result":{"userAgent":"unified-skill-evaluation-runtime/0.150.0-alpha.12.2 (Windows 10.0.26200; x86_64) unknown (unified-skill-evaluation-runtime; 1.0.0)","codexHome":"C:\\Users\\maksy\\AppData\\Local\\Temp\\defining-concepts-trial-2026-08-29T102417.895Z\\evaluation-homes-v1\\preflight","platformFamily":"windows","platformOs":"windows"}}
+{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"Max","installationId":"0786d766-0668-425f-abc1-6ed2fa0c46a1","environmentId":null},"emittedAtMs":1787999084298}
+{"method":"initialized","params":{}}
+{"id":2,"method":"account/read","params":{"refreshToken":false}}
+{"evaluationRedaction":{"method":"account/read","redacted":true,"schemaVersion":1},"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}
