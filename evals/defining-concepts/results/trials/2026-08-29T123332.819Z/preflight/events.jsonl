@@ -1,0 +1,3 @@
+{"eventIndex":0,"method":"remoteControl/status/changed","nativeEventIndex":1,"params":null}
+{"eventIndex":1,"method":"thread/started","nativeEventIndex":7,"params":null}
+{"eventIndex":2,"method":"mcpServer/startupStatus/updated","nativeEventIndex":8,"params":null}
