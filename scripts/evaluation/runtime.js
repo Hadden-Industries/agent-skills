@@ -199,6 +199,7 @@ const EVIDENCE_LAYOUTS = Object.freeze({
     authorizationConsumptionArtifactType: null,
     events: "outputs/events.jsonl",
     final: "outputs/final.md",
+    finalProjection: "verbatim",
     metrics: "metrics.json",
     result: "run.json",
     stderr: "outputs/stderr.log",
@@ -212,6 +213,7 @@ const EVIDENCE_LAYOUTS = Object.freeze({
       "evaluation-trial-authorization-consumption",
     events: "outputs/events.jsonl",
     final: "outputs/response.md",
+    finalProjection: "repository-markdown",
     metrics: "metrics.json",
     result: "result.json",
     stderr: "outputs/stderr.log",
@@ -931,6 +933,39 @@ function resolveEvidenceLayout(name = "legacy-v1") {
   return EVIDENCE_LAYOUTS[name];
 }
 
+function projectFinalEvidence(bytes, projection) {
+  if (projection === "verbatim") {
+    return bytes;
+  }
+  if (projection !== "repository-markdown") {
+    fail(`unsupported final evidence projection: ${projection}`);
+  }
+
+  let text;
+  try {
+    text = utf8Decoder.decode(bytes);
+  } catch {
+    fail("repository Markdown final evidence must be valid UTF-8");
+  }
+
+  const projected = text
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => {
+      const trailingWhitespace = line.match(/[ \t]+$/u)?.[0] ?? "";
+      if (trailingWhitespace.length === 0) {
+        return line;
+      }
+
+      const content = line.slice(0, -trailingWhitespace.length);
+      return content.length > 0 && /^ {2,}$/u.test(trailingWhitespace)
+        ? `${content}<br>`
+        : content;
+    })
+    .join("\n");
+  return Buffer.from(projected, "utf8");
+}
+
 async function openExecutionEvidence(directory, layout) {
   const outputs = join(directory, "outputs");
   await mkdir(outputs, { mode: 0o700 });
@@ -1025,8 +1060,12 @@ async function openExecutionEvidence(directory, layout) {
       if (finalWritten) {
         fail("final evidence can be written only once");
       }
+      const projectedBytes = projectFinalEvidence(
+        bytes,
+        layout.finalProjection,
+      );
       finalWritten = true;
-      await append("final", bytes);
+      await append("final", projectedBytes);
     },
     async writeSuiteArtifact(artifact) {
       assertExactKeys(artifact, SUITE_WRITE_KEYS, "suite artifact");

@@ -993,6 +993,7 @@ test("execution retains ordered evidence and writes a hash-complete terminal rec
 test("evaluation trial execution durably consumes authorization before launch and writes trial-native evidence", async (t) => {
   const packet = createTransmissionPacket(transmissionFixture());
   const { destination, prepared } = await prepareWithRuntime(t, { packet });
+  const rawFinal = "first line  \r\nsecond line \t\r\nthird line\t\r\n";
   let evidenceObservedDuringAdapter = null;
   const adapter = executingAdapter(async (context) => {
     await consumeLaunch(context);
@@ -1006,11 +1007,11 @@ test("evaluation trial execution durably consumes authorization before launch an
       terminalResult: await pathExists(join(destination, "result.json")),
     };
     await context.evidence.appendTranscript(
-      Buffer.from('{"type":"provider-event"}\n', "utf8"),
+      Buffer.from(`${JSON.stringify({ response: rawFinal })}\n`, "utf8"),
     );
     await context.evidence.appendNormalizedEvent({ type: "normalized-event" });
     await context.evidence.appendStderr(Buffer.from("diagnostic\n", "utf8"));
-    await context.evidence.writeFinal(Buffer.from("response\n", "utf8"));
+    await context.evidence.writeFinal(Buffer.from(rawFinal, "utf8"));
     return adapterResult();
   });
 
@@ -1035,7 +1036,7 @@ test("evaluation trial execution durably consumes authorization before launch an
       join(destination, "outputs", "provider-transcript.jsonl"),
       "utf8",
     ),
-    '{"type":"provider-event"}\n',
+    `${JSON.stringify({ response: rawFinal })}\n`,
   );
   assert.equal(
     await readFile(join(destination, "outputs", "events.jsonl"), "utf8"),
@@ -1047,7 +1048,7 @@ test("evaluation trial execution durably consumes authorization before launch an
   );
   assert.equal(
     await readFile(join(destination, "outputs", "response.md"), "utf8"),
-    "response\n",
+    "first line<br>\nsecond line\nthird line\n",
   );
 
   const consumption = JSON.parse(

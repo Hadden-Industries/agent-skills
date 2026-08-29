@@ -156,6 +156,8 @@ preflight/
     <provider-native zero-turn evidence>
 ```
 
+`outputs/provider-transcript.jsonl` is the byte-faithful provider record and remains the source for exact-output provenance. `outputs/response.md` is a derived repository-safe projection for convenient review: it uses LF line endings, converts Markdown hard breaks expressed as two or more trailing spaces to `<br>`, and removes other trailing horizontal whitespace. Never use the projection to claim byte identity with the provider stream.
+
 Interpret verification dimensions independently:
 
 - `artifactIntegrity` is `verified` when every applicable sealed digest matches, `incomplete` when an interrupted execution left unsealed stream evidence, and `failed` when retained evidence is missing, malformed, or changed.
