@@ -1,146 +1,103 @@
 ---
 name: defining-concepts
-description: Formulates and audits source-grounded definitions for data, metadata, data elements, metadata items, and related data constructs against ISO/IEC 11179-4:2004. Use when asked to define a data or metadata concept, standardize a definition, audit terminology, or create a semantic artifact. Do NOT use for software code definitions, simple dictionary lookups, or casual term explanations.
+description: Engineers source-grounded concepts and definitions, including definition, revision, audit, comparison, mapping, formalization, multilingual equivalence, and epistemic-governance work. Use for deliberate semantic work on a concept's identity, boundary, designation, reuse, relation, or representation. Do NOT use for casual dictionary lookup, code-symbol naming, product or brand naming, copyediting without semantic work, or implementation-only requests.
 license: MPL-2.0
-compatibility: Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.
+compatibility: Works with file-reading agents; source retrieval, web research, machine validation, and subagent research are capability-dependent and must be reported truthfully when unavailable or not run.
 metadata:
   category: research
 ---
 
 # Defining Concepts
 
-Produce a source-grounded concept definition from a designation, optional starter definition, and contextual notes. Work as a terminology specialist, metadata architect, and ISO/IEC 11179-4:2004 compliance auditor. Keep the workflow internal and return only the final five-section artifact.
+Engineer the intended concept before polishing its words. Produce the smallest useful, source-grounded result while preserving concept identity, boundary, evidence, status, and unresolved decisions.
 
-## Normative basis
+## Trigger boundary
 
-Use ISO/IEC 11179-4:2004, Information technology - Metadata registries (MDR) - Part 4: Formulation of data definitions, as the normative authority for this workflow. Clause 1 covers the semantic content of definitions for data, metadata, data elements, and other data constructs; it does not specify definition formatting. Clause 2 permits independent use outside a metadata registry and permits a compliance claim when the requirements and recommendations have been followed.
+Use this skill to define, revise, audit, compare, map, formalize, assess multilingual equivalence for, or govern a concept. This includes terminology entries, metadata concepts, controlled-vocabulary mappings, ontology formalization, contested meanings, and community-governed concepts.
 
-Apply Clause 3.6 as the definition criterion: represent a concept with a descriptive statement that differentiates it from related concepts. Clause 5.1 makes the appropriate specificity context dependent and calls for definitions understandable to users and recipients of shared data.
+Do not use it for a casual dictionary meaning, code or variable naming, product naming, copyediting that does not change or test meaning, or an implementation-only request. If the user asks for implementation and the concept is already settled, follow the implementation task instead.
 
-Use genus-differentia formulation and an additional ontological category check as operational safeguards. They support the standard's definition criterion but are not separately enumerated ISO/IEC 11179-4:2004 requirements or recommendations.
+## Universal workflow
 
-Claim ISO/IEC 11179-4:2004 compliance only for a definition within Clause 1's data-and-metadata scope and only after every requirement and recommendation below passes. For another kind of concept, state that its formulation was audited against these provisions; do not claim compliance with the standard.
+Follow `Route -> Frame -> Research -> Model -> Decide -> Define -> Validate -> Present`. Scale every step to the request; a routine definition may require only a compact internal record and a one- or two-paragraph answer.
 
-## Workflow
+### 1. Route
 
-### 1. Establish the concept boundary
+- Identify the requested task, target concept or candidate designation, intended human renderer, any explicitly requested machine representation, applicable specialist profiles, and any ambiguity that blocks responsible work.
+- Ask one focused clarification only when plausible interpretations would yield materially different concepts or a required authority, jurisdiction, threshold, or use decision cannot be inferred safely. Otherwise state a bounded assumption and use provisional status when needed.
+- Use `definition-answer` for a direct definition, `revision-audit` for a supplied definition or semantic defect review, and `concept-package` for a reusable, governed, mapped, or formally modeled entry.
 
-- Identify the intended sense, use context, intended audience, applicable metadata-item or data-construct type, and immediate superordinate concept.
-- Separate the concept from neighboring processes, artifacts, carriers, data fields, codes, units, permissible-value sets, and representations.
-- Treat supplied values as boundary evidence, not as an extensional definition.
-- Discuss wording, morphology, or etymology only when it resolves ambiguity or supports a more precise designation.
+### 2. Frame
 
-### 2. Research with a bounded loop
+- Build a proportional ConceptBrief containing only material facts: target and task; purpose and intended use or non-use; subject field; included and excluded scope; desired granularity; audience; jurisdiction, scheme, language, and time or version context; stakeholders, responsible authority, and affected communities; active profiles and requested representations; assumptions; unresolved ambiguities; and competency questions.
+- Classify risk as `routine`, `consequential`, or `authority-sensitive`. Routine work is familiar and reversible; consequential work can affect interoperability, policy, legal, safety, scientific, or operational outcomes; authority-sensitive work is contested, normative, situated, or community-governed and may not be legitimate for the agent to settle.
+- Use only enough competency questions to expose the intended boundary. Mark a question critical when failure would invalidate the concept or intended use.
 
-1. Search the exact designation in the most relevant authoritative vocabulary or registry.
-2. Inspect promising term-bearing destinations directly.
-3. If no exact concept match exists, search authoritative sources for the genus, differentia, and neighboring concepts needed to establish the boundary.
-4. Stop when the reuse path and defining characteristics have adequate authoritative support and at least one eligible source supports the concept or its constituent semantics. Do not collect ornamental sources.
+### 3. Research
 
-A search-result excerpt discovers a candidate; it does not verify the final destination. Name a repository in `Repositories Queried` only when a visible pre-answer search or retrieval action targeted that repository.
+- Plan evidence lanes from the ConceptBrief. Read [Evidence and provenance](references/evidence-and-provenance.md) when external research, reuse, mapping, audit, consequential use, authority-sensitive use, source conflict, licensing, or version choice is material.
+- Retrieve the exact destination that supports each retained claim and record its role, edition or version, status, scope, retrieval, authority basis, and wording permission. A search result, citation record, inaccessible page, model memory, or worker summary is discovery evidence only.
+- Keep semantic equivalence separate from permission to reuse wording. Do not copy protected wording merely because it defines the same concept.
 
-### 3. Maintain a source-evidence ledger
+#### Capability-aware parallel research
 
-For every candidate source, track internally:
+Parallel dispatch is optional and allowed only when the environment permits spawning, at least two bounded non-overlapping multi-step lanes can be fixed before dispatch, neither lane depends on the other, and likely time savings exceed coordination overhead. Prefer batched tool calls for shallow independent lookups; use subagents only for multi-step standards or registry, domain, mapping, licensing or version, or governance research.
 
-- the repository or publisher actually queried;
-- the exact destination URL retrieved;
-- whether the retrieval completed without a tool error;
-- the source role; and
-- the specific semantic statement supported by the destination content.
+Give every worker the same ConceptBrief and require the exact destination, source role, edition or version, retrieval status, supported claim, boundary evidence, licensing information when material, conflicts, and uncertainty. The coordinator owns concept identity, clarification, routing, source eligibility, disposition, mapping, synthesis, conflict resolution, definition drafting, final validation, and the final answer; the coordinator must reverify uncertain or material evidence at its destination.
 
-Use one of these source roles:
+Use sequential fallback when any eligibility condition fails. Completion depends on result quality and evidence integrity, not on whether a subagent was available or used.
 
-- **Exact definition**: defines the same concept with matching extension and intension.
-- **Adapted definition**: defines the same concept but its wording requires an identified ISO/IEC 11179-4 correction.
-- **Constituent semantics**: supports the genus, differentia, or a neighboring concept without defining the compound designation.
-- **Methodological support**: supports the definition method rather than the concept's domain meaning.
-- **Rejected attribution**: directly establishes that a supplied source does not define the concept attributed to it.
+### 4. Model
 
-A source is eligible for `Verified Sources` only when an exact-URL retrieval completed during this task and the inspected destination supports the role and claim assigned to it. A topical search, search-result excerpt, generic homepage, user assertion, or inferred URL does not satisfy this gate. If a retrieval fails or its content does not support the claim, remove the source and dependent claim or replace it with an eligible source. If no source meets the gate, report that limitation instead of inventing provenance.
+- Separate concept from designation, object from concept, class from individual, property from value, process from result, information content from carrier, and the semantic construct from its code, field, datatype, unit, syntax, value domain, record, file, serialization, or interface.
+- Treat polysemous or homonymous designations as separate candidate concepts until disambiguated. Build a term inventory only when useful, distinguishing preferred, alternative or admitted, hidden, deprecated, forbidden, and candidate designations.
+- Build only enough typed neighborhood to test identity and boundary: immediate superordinate or broader context, plausible siblings or coordinate concepts, narrower concepts, part-whole relations, and material associative or profile-specific relations. Never turn a generic broader relation into subclass or partitive semantics.
+- Test the proposed extension with positive examples, negative examples or exclusions, counterexamples, and near misses as appropriate. For an audit, reusable package, mapping, or other substantive entry, read the format-neutral [Concept-entry model](references/concept-entry-model.md).
 
-### 4. Select the reuse path
+### 5. Decide
 
-- **Path A - Reuse**: an eligible authoritative source defines the same concept and its definition meets the Clause 3.6 criterion and passes the applicable requirements and recommendations. Reuse that definition without semantic or wording changes.
-- **Path B - Adapt**: an eligible authoritative source defines the same concept, but its wording requires one or more corrections under the Clause 3.6 criterion, requirements, or recommendations. Identify both the retained semantics and every correction.
-- **Path C - Create**: no eligible source defines the same concept. Formulate a new definition from eligible constituent semantics and explain that those sources do not define the compound designation.
+- Compare each candidate independently on semantic relationship (`same`, `broader`, `narrower`, `overlapping`, `related`, `constituent-only`, `conflicting`, or `unresolved`), scope and granularity fit, authority fit, edition or version status, and wording or license permission.
+- Choose one disposition: `Adopt` an authoritative same-concept definition without semantic change when wording use is permitted; `Adapt` the same concept for wording, granularity, context, or formulation; `Formulate` a new definition when no sufficiently matching reusable definition is verified; or `Defer` when identity, authority, evidence, permission, or a user decision is insufficient.
+- Choose the definition strategy that fits the concept: intensional, extensional, partitive, mixed, operational, formal rule or axiom, or perspectival or provisional. Intensional immediate-superordinate plus delimiting-characteristics formulation is the default, not a universal requirement.
+- For an extensional strategy, ensure the extension is finite and label completeness; for a partitive strategy, do not confuse part with kind; for a mixed strategy, label each list's role; for an operational strategy, separate the concept from a method- or jurisdiction-specific threshold; for a formal strategy, keep textual meaning separate from machine commitments; for a perspectival strategy, name the standpoint and preserve legitimate alternatives.
 
-Designation similarity, shared words, or a source suggested in the prompt does not establish semantic identity.
+### 6. Define
 
-### 5. Formulate the definition
+- Draft against the chosen strategy, scope, and concept system. Include only essential or delimiting characteristics needed to establish the intended extension and distinguish relevant neighbors.
+- Put examples, permissible values, implementation details, rationale, procedures, formulas, units, governance rules, and storage or transport details outside the definition unless one is constitutive of the concept.
+- Avoid circularity, hidden secondary definitions, unnecessary negation, unexplained abbreviations, category shifts, accidental implementation dependence, and wording that merely rearranges the designation.
 
-- Use the immediate superordinate concept as the genus.
-- Add the primary, essential characteristics that distinguish sibling concepts.
-- Match the level of specificity to the context, intended audience, system user, and environment.
-- Make the definition appropriate for the type of metadata item or data construct being defined.
-- Keep examples, permissible values, implementation details, rationale, procedures, symbols, units, and measurement instructions outside the definition unless one is itself an essential defining characteristic.
+### 7. Validate
 
-### 6. Audit the definition against ISO/IEC 11179-4:2004
+- Check identity, category, scope, granularity, strategy, superordinate fit, delimiting-characteristic necessity, sibling and boundary discrimination, critical competency questions, typed relations, mapping conservatism, evidence support, exact source and edition status, contradictions, wording permission, active-profile rules, governance authority, qualitative status, blockers, and definition-first presentation.
+- Treat a wrong identity or category, circular or non-discriminating definition, failed critical competency question or boundary case, unsupported or misattributed evidence, licensing problem, false exact mapping, invented identifier or tool result, inappropriate profile or out-of-scope compliance claim, or illegitimate authority claim as a critical failure. Repair it, make the result explicitly provisional, or Defer; prose quality cannot compensate.
+- Report each material tool-dependent check as `passed`, `failed`, `warning`, `not run`, or `not applicable`. Never invent an identifier, registry acceptance, source retrieval, parser result, schema result, SHACL result, reasoner result, conformance finding, review, approval, release, or version history.
+- Use qualitative status such as `established`, `adopted`, `adapted`, `proposed`, `provisional`, `contested`, `deprecated`, or `blocked pending clarification or evidence`. Keep lifecycle status, reuse disposition, source status, validation result, and review need independent; do not convert self-assessment into a number.
 
-First apply the Clause 3.6 definition criterion: the descriptive statement must represent one concept and differentiate it from related concepts.
+### 8. Present
 
-Rewrite until the definition satisfies every Clause 4.1 requirement, using the explanations in Clause 5.2:
+- Present the definition first when responsible formulation is possible. A warning, focused clarification, or evidence blocker may precede it only when omission would materially mislead or no responsible definition can yet be supplied.
+- Read [Concept-entry presentation](references/concept-entry-presentation.md) when selecting or projecting the `definition-answer`, `revision-audit`, or `concept-package` renderer. Omit empty sections and internal research narration.
+- Read [Concept-entry serialization](references/concept-entry-serialization.md) only when the user explicitly requests machine-readable output; default an unspecified machine form to versioned plain JSON and preserve the same semantic record.
 
-1. **Singularity**: state the concept in the singular unless the concept itself is plural.
-2. **Positive declaration**: state what the concept is, not only what it is not.
-3. **Descriptive form**: use a descriptive phrase or one or more sentences; synonyms or a reordered designation are insufficient, and text longer than a phrase must use complete, grammatically correct sentences.
-4. **Commonly understood abbreviations only**: use full words by default, retain only commonly understood abbreviations or terms adopted in their abbreviated form, and expand every acronym on first occurrence.
-5. **No embedded definitions**: do not embed definitions of other data or underlying concepts; move them to a glossary, note, separate entry, or relational cross-reference.
+## Profile routing
 
-Then apply every Clause 4.2 recommendation, using the explanations in Clause 5.3:
+The terminology core is always active: keep concept, designation, extension, object, and record distinct; resolve polysemy; type relations; test boundaries; and preserve evidence and status. An otherwise unqualified deliberate request to "define this concept" uses the terminology core plus the data-definitions fallback unless user context or one focused clarification selects a more appropriate profile.
 
-1. **Essential meaning**: include every primary characteristic needed at the context-appropriate level of specificity and omit non-essential characteristics.
-2. **Precision and unambiguity**: make the exact meaning apparent and allow only one interpretation.
-3. **Conciseness**: be brief and comprehensive, without extraneous qualifiers or registry boilerplate.
-4. **Standalone meaning**: make the concept understandable without another explanation or reference.
-5. **No extraneous information**: exclude rationale, functional usage, domain information, and procedural information from the definition proper; place useful examples after the definition.
-6. **No circular reasoning**: do not define concepts in terms of each other or substitute another concept's definition for the concept being defined.
-7. **Related-definition consistency**: use the same terminology and a consistent logical structure for similar or associated definitions.
-8. **Metadata-item appropriateness**: reflect the distinct role of the metadata-item or data-construct type being defined, such as a data element concept, data element, conceptual domain, or value domain.
+Multiple profiles may compose. Apply each profile only to its semantic responsibilities and reconcile their checks in the shared concept entry; do not duplicate output or let one profile silently change another profile's semantic type.
 
-Finally perform an additional ontological category check. This is a skill safeguard, not another ISO/IEC 11179-4:2004 provision. Rewrite any wording that assigns a characteristic to the wrong category or conflates the concept with its process, representation, carrier, field, code, unit, or value domain.
+| Profile | Activate and read when |
+|---|---|
+| [Data definitions](references/profiles/data-definitions.md) | The request concerns data elements, metadata registries, fields, codes, value domains, data constructs, naming under ISO/IEC 11179, or the unqualified data-definitions fallback. |
+| [Knowledge organization systems](references/profiles/knowledge-organization-systems.md) | The request concerns a thesaurus, taxonomy, classification, controlled vocabulary, concept scheme, semantic relation, or cross-scheme mapping. |
+| [Formal ontology](references/profiles/formal-ontology.md) | The request concerns a class, individual, property, role, axiom, restriction, competency question, ontology mapping, constraint, or machine reasoning. |
+| [Multilingual terminology](references/profiles/multilingual-terminology.md) | More than one language, language variety, script, translation-oriented term record, or cross-language equivalence is material. |
+| [Epistemic governance](references/profiles/epistemic-governance.md) | Meaning is contested, situated, normative, culturally sensitive, community-governed, jurisdiction-dependent, or authority-dependent. |
 
-### 7. Apply the final evidence gate
+The data-definitions fallback supplies disciplined formulation questions only. For an ordinary concept outside data and metadata scope, it must not force data-specific fields, turn the concept into a registry item, claim ISO/IEC 11179 compliance, or imply registry acceptance.
 
-Before answering, reconcile every repository, provenance statement, and final URL with the source-evidence ledger. Keep only claims supported at their stated role. Report a completed exact-URL retrieval as such; claim that a destination was active, reachable, or verified only when the tool result established that fact. Do not use one blanket verification statement for several URLs.
+## Completion contract
 
-## Output format
+Return the smallest renderer that answers the task and exposes every material limitation or next decision. Definition text, concept identity, disposition, qualitative status, evidence relationship, active profiles, and unresolved blockers must remain consistent across human and machine projections.
 
-Use exactly these five numbered top-level sections, in order, with no preamble, progress narration, or closing conversation.
-
-### 1. Semantic Analysis
-
-- **Designation Evaluated:**
-- **Concept Boundary:**
-- **Superordinate Concept (Genus):**
-- **Delimiting Characteristics (Differentia):**
-- **Designation Precision:** Include only when wording or linguistic analysis materially changes the result.
-
-### 2. Standardization & Reuse Check
-
-- **Repositories Queried:** Name only repositories evidenced by actual actions.
-- **Candidate Evidence:** Distinguish exact, adapted, constituent, methodological, and rejected-attribution roles.
-- **Action Taken:** State Path A, B, or C and justify it from eligible evidence.
-- **Source Provenance:** Attribute no stronger role than the destination content supports.
-- **Verification Limitations:** Include only when a material candidate could not pass the final evidence gate.
-
-### 3. The Formulated Definition
-
-State only the final definition.
-
-### 4. ISO/IEC 11179-4 Compliance Audit
-
-- **Definition Criterion (Clause 3.6):** Confirm that the descriptive statement represents one concept and differentiates it from related concepts.
-- **Mandatory Requirements (Clauses 4.1 and 5.2):** Evaluate singularity, positive declaration, descriptive form, abbreviations, and embedded definitions separately.
-- **Recommendations (Clauses 4.2 and 5.3):** Evaluate essential meaning, precision, conciseness, standalone meaning, extraneous information, circularity, related-definition consistency, and metadata-item appropriateness separately.
-- **Additional Ontological Category Check:** Label this as an additional safeguard and confirm the relevant category boundaries.
-- **Conformance Statement:** Claim compliance only when the definition is within Clause 1's scope and every requirement and recommendation passes; otherwise state the narrower audit result.
-- **Refinement Notes:** Explain only material corrections to the starter or preliminary definition.
-
-### 5. Verified Sources
-
-For each eligible source, use:
-
-`- [Source title](exact URL) - Role: <source role>. Support: <specific semantic support>. Verification: <what the exact-URL retrieval established>.`
-
-List a user-supplied but irrelevant destination only as `Rejected attribution` and only after direct retrieval establishes the mismatch. If no source is eligible, state that no source passed the verification gate; do not supply an unverified URL.
+Do not claim completion while a critical failure remains hidden. Defer when the missing clarification, evidence, reuse permission, legitimate authority, or affected-community decision cannot be supplied responsibly.
