@@ -552,8 +552,8 @@ export function prepareCampaign({
   }
 }
 
-function assertAuthorization(authorization, manifest, session) {
-  const expected = {
+function expectedAuthorization(manifest, session) {
+  return {
     schemaVersion: 1,
     decision: "authorized",
     statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
@@ -563,24 +563,15 @@ function assertAuthorization(authorization, manifest, session) {
     effort: manifest.protocol.effort,
     transmissionSha256: session.transmissionSha256,
   };
+}
+
+function assertAuthorization(authorization, manifest, session) {
+  const expected = expectedAuthorization(manifest, session);
   if (!canonicalJsonBytes(authorization).equals(canonicalJsonBytes(expected))) {
     fail(
       `authorization for ${session.blindAlias} does not match its exact transmission`,
     );
   }
-}
-
-function retainInvalidAttempt(campaignDirectory, attemptNumber, record) {
-  const invalidDirectory = path.join(
-    campaignDirectory,
-    "invalid-attempts",
-    `attempt-${String(attemptNumber).padStart(2, "0")}`,
-  );
-  writeCanonicalExclusive(path.join(invalidDirectory, "attempt.json"), {
-    schemaVersion: 1,
-    disposition: "invalid",
-    ...record,
-  });
 }
 
 function campaignManifestSha256(manifest) {
@@ -801,6 +792,661 @@ function assertSuccessfulCampaignPreflight(campaignDirectory, manifest) {
   return record;
 }
 
+function readCanonicalJson(target, label) {
+  let bytes;
+  let value;
+  try {
+    bytes = readFileSync(target);
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    fail(`Unable to read ${label}: ${error.message}`);
+  }
+  if (!bytes.equals(canonicalJsonBytes(value))) {
+    fail(`${label} must use canonical JSON bytes`);
+  }
+  return value;
+}
+
+function campaignAuthorizationSet({ authorizationDirectory, manifest }) {
+  const authorizations = new Map();
+  for (const session of manifest.sessions) {
+    const authorization = readJson(
+      path.join(authorizationDirectory, `${session.blindAlias}.json`),
+      `authorization for ${session.blindAlias}`,
+    );
+    assertAuthorization(authorization, manifest, session);
+    authorizations.set(session.blindAlias, canonicalRecord(authorization));
+  }
+  const authorizationSet = {
+    schemaVersion: 1,
+    sessions: manifest.sessions.map((session) => ({
+      blindAlias: session.blindAlias,
+      transmissionSha256: session.transmissionSha256,
+      authorizationSha256: sha256Hex(
+        canonicalJsonBytes(authorizations.get(session.blindAlias)),
+      ),
+    })),
+  };
+  return {
+    authorizations,
+    authorizationSet,
+    authorizationSetSha256: sha256Hex(canonicalJsonBytes(authorizationSet)),
+  };
+}
+
+function assertExecutionStartBinding(executionStart, manifest) {
+  const authorizationSessions = executionStart.authorizationSet?.sessions;
+  if (
+    executionStart.schemaVersion !== 2 ||
+    executionStart.state !== "execution-started" ||
+    typeof executionStart.startedAt !== "string" ||
+    Number.isNaN(Date.parse(executionStart.startedAt)) ||
+    executionStart.campaignManifestSha256 !==
+      campaignManifestSha256(manifest) ||
+    executionStart.capabilityReconciliationSha256 !==
+      manifest.capabilityReconciliation.receiptSha256 ||
+    executionStart.authorizationSet?.schemaVersion !== 1 ||
+    !Array.isArray(authorizationSessions) ||
+    authorizationSessions.length !== manifest.sessions.length ||
+    executionStart.authorizationSetSha256 !==
+      sha256Hex(canonicalJsonBytes(executionStart.authorizationSet))
+  ) {
+    fail("campaign execution start does not match its manifest");
+  }
+  for (const [index, session] of manifest.sessions.entries()) {
+    const retained = authorizationSessions[index];
+    if (
+      retained?.blindAlias !== session.blindAlias ||
+      retained?.transmissionSha256 !== session.transmissionSha256 ||
+      !SHA256_PATTERN.test(retained?.authorizationSha256 ?? "")
+    ) {
+      fail("campaign execution authorization set does not match its sessions");
+    }
+  }
+  return executionStart;
+}
+
+function openCampaignExecution({
+  campaignDirectory,
+  manifest,
+  authorizationSet,
+  authorizationSetSha256,
+  now,
+}) {
+  const target = path.join(campaignDirectory, "execution-start.json");
+  const identity = {
+    schemaVersion: 2,
+    state: "execution-started",
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    authorizationSet,
+    authorizationSetSha256,
+  };
+  if (!existsSync(target)) {
+    const executionStart = { ...identity, startedAt: now.toISOString() };
+    writeCanonicalExclusive(target, executionStart);
+    return executionStart;
+  }
+  const executionStart = readCanonicalJson(target, "campaign execution start");
+  if (executionStart.schemaVersion !== 2) {
+    fail("historical campaign execution state cannot be continued in place");
+  }
+  assertExecutionStartBinding(executionStart, manifest);
+  const retainedIdentity = { ...executionStart };
+  delete retainedIdentity.startedAt;
+  if (
+    typeof executionStart.startedAt !== "string" ||
+    Number.isNaN(Date.parse(executionStart.startedAt)) ||
+    !canonicalJsonBytes(retainedIdentity).equals(canonicalJsonBytes(identity))
+  ) {
+    fail("campaign execution start does not match the exact authorization set");
+  }
+  return executionStart;
+}
+
+function campaignSessionDirectory(campaignDirectory, session) {
+  return path.join(
+    campaignDirectory,
+    ...session.relativeSessionPath.split("/"),
+    "prepared",
+  );
+}
+
+function sessionOutcomeTarget(campaignDirectory, session) {
+  return path.join(
+    campaignDirectory,
+    "execution",
+    "session-outcomes",
+    `${session.blindAlias}.json`,
+  );
+}
+
+function expectedAuthorizationConsumption(manifest, session) {
+  return {
+    schemaVersion: 1,
+    provider: manifest.protocol.provider,
+    model: manifest.protocol.model,
+    effort: manifest.protocol.effort,
+    transmissionSha256: session.transmissionSha256,
+  };
+}
+
+function inspectPreparedSessionEvidence({
+  campaignDirectory,
+  manifest,
+  session,
+  authorization,
+}) {
+  const preparedSession = campaignSessionDirectory(campaignDirectory, session);
+  if (!existsSync(preparedSession)) return { state: "pending" };
+  const authorizationPath = path.join(preparedSession, "authorization.json");
+  const consumptionPath = path.join(preparedSession, "attempt.json");
+  const resultPath = path.join(preparedSession, "run.json");
+  const metricsPath = path.join(preparedSession, "metrics.json");
+  const timingPath = path.join(preparedSession, "timing.json");
+
+  if (existsSync(authorizationPath)) {
+    const retainedAuthorization = readJson(
+      authorizationPath,
+      `retained authorization for ${session.blindAlias}`,
+    );
+    assertAuthorization(retainedAuthorization, manifest, session);
+    if (
+      !canonicalJsonBytes(retainedAuthorization).equals(
+        canonicalJsonBytes(authorization),
+      )
+    ) {
+      fail(`retained authorization for ${session.blindAlias} changed`);
+    }
+  }
+
+  let authorizationConsumptionSha256 = null;
+  if (existsSync(consumptionPath)) {
+    const consumptionBytes = readFileSync(consumptionPath);
+    const consumption = readJson(
+      consumptionPath,
+      `authorization consumption for ${session.blindAlias}`,
+    );
+    if (
+      !canonicalJsonBytes(consumption).equals(
+        canonicalJsonBytes(expectedAuthorizationConsumption(manifest, session)),
+      )
+    ) {
+      fail(`authorization consumption for ${session.blindAlias} is invalid`);
+    }
+    authorizationConsumptionSha256 = sha256Hex(consumptionBytes);
+  }
+
+  if (existsSync(resultPath)) {
+    const resultBytes = readFileSync(resultPath);
+    const retainedRun = readJson(
+      resultPath,
+      `session result for ${session.blindAlias}`,
+    );
+    if (retainedRun.transmissionSha256 !== session.transmissionSha256) {
+      fail(`session result for ${session.blindAlias} changed transmission`);
+    }
+    return {
+      state: "terminal",
+      result: readPreparedSessionResult(preparedSession),
+      evidence: {
+        source: "prepared-session-result",
+        terminalResultSha256: sha256Hex(resultBytes),
+        authorizationConsumptionSha256,
+      },
+    };
+  }
+
+  if (authorizationConsumptionSha256 !== null) {
+    return {
+      state: "consumed-without-terminal-result",
+      evidence: {
+        source: "authorization-consumption",
+        terminalResultSha256: null,
+        authorizationConsumptionSha256,
+      },
+    };
+  }
+  if (existsSync(metricsPath) || existsSync(timingPath)) {
+    fail(
+      `unconsumed session ${session.blindAlias} has incomplete terminal evidence`,
+    );
+  }
+  return { state: "pending" };
+}
+
+function normalizeSessionResult(result, session) {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    fail(`execution for ${session.blindAlias} returned a malformed result`);
+  }
+  if (!new Set(["completed", "failed"]).has(result.status)) {
+    fail(`execution for ${session.blindAlias} returned an unsupported status`);
+  }
+  const finalAnswer = result.finalAnswer ?? null;
+  if (
+    result.status === "completed" &&
+    (typeof finalAnswer !== "string" || finalAnswer.trim().length === 0)
+  ) {
+    fail(`completed execution for ${session.blindAlias} lacks a final answer`);
+  }
+  return {
+    status: result.status,
+    disposition: result.status === "completed" ? "valid" : "invalid",
+    failureClass:
+      result.status === "completed"
+        ? null
+        : (result.failureClass ?? "execution-failed"),
+    error: result.status === "completed" ? null : (result.error ?? null),
+    finalAnswer,
+    transcript: result.transcript ?? null,
+    tokens: optionalNonnegativeNumber(
+      result.tokens ?? null,
+      `tokens for ${session.blindAlias}`,
+    ),
+    durationMs: optionalNonnegativeNumber(
+      result.durationMs ?? null,
+      `duration for ${session.blindAlias}`,
+    ),
+  };
+}
+
+function buildSessionOutcome({
+  manifest,
+  session,
+  executionStartSha256,
+  authorizationSetSha256,
+  result,
+  evidence,
+}) {
+  const normalized = normalizeSessionResult(result, session);
+  return {
+    schemaVersion: 2,
+    state: "session-outcome",
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    executionStartSha256,
+    authorizationSetSha256,
+    blindAlias: session.blindAlias,
+    sequence: session.sequence,
+    caseId: session.caseId,
+    transmissionSha256: session.transmissionSha256,
+    ...normalized,
+    evidence,
+  };
+}
+
+function buildIndeterminateOutcome({
+  manifest,
+  session,
+  executionStartSha256,
+  authorizationSetSha256,
+  evidence,
+}) {
+  return {
+    schemaVersion: 2,
+    state: "session-outcome",
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    executionStartSha256,
+    authorizationSetSha256,
+    blindAlias: session.blindAlias,
+    sequence: session.sequence,
+    caseId: session.caseId,
+    transmissionSha256: session.transmissionSha256,
+    status: "indeterminate",
+    disposition: "indeterminate",
+    failureClass: "terminal-result-missing",
+    error: {
+      name: "Error",
+      code: "AUTHORIZATION_CONSUMED_WITHOUT_TERMINAL_RESULT",
+      message:
+        "authorization was consumed but terminal session evidence is absent",
+    },
+    finalAnswer: null,
+    transcript: null,
+    tokens: null,
+    durationMs: null,
+    evidence,
+  };
+}
+
+function assertSessionOutcome({
+  outcome,
+  manifest,
+  session,
+  executionStartSha256,
+  authorizationSetSha256,
+}) {
+  if (
+    outcome.schemaVersion !== 2 ||
+    outcome.state !== "session-outcome" ||
+    outcome.campaignManifestSha256 !== campaignManifestSha256(manifest) ||
+    outcome.capabilityReconciliationSha256 !==
+      manifest.capabilityReconciliation.receiptSha256 ||
+    outcome.executionStartSha256 !== executionStartSha256 ||
+    outcome.authorizationSetSha256 !== authorizationSetSha256 ||
+    outcome.blindAlias !== session.blindAlias ||
+    outcome.sequence !== session.sequence ||
+    outcome.caseId !== session.caseId ||
+    outcome.transmissionSha256 !== session.transmissionSha256
+  ) {
+    fail(
+      `session outcome for ${session.blindAlias} does not match its campaign`,
+    );
+  }
+  if (!new Set(["completed", "failed", "indeterminate"]).has(outcome.status)) {
+    fail(`session outcome for ${session.blindAlias} has an invalid status`);
+  }
+  const expectedDisposition =
+    outcome.status === "completed"
+      ? "valid"
+      : outcome.status === "failed"
+        ? "invalid"
+        : "indeterminate";
+  if (outcome.disposition !== expectedDisposition) {
+    fail(
+      `session outcome for ${session.blindAlias} has an invalid disposition`,
+    );
+  }
+  if (
+    outcome.status === "completed" &&
+    (typeof outcome.finalAnswer !== "string" ||
+      outcome.finalAnswer.trim().length === 0)
+  ) {
+    fail(`completed session outcome for ${session.blindAlias} lacks an answer`);
+  }
+  optionalNonnegativeNumber(
+    outcome.tokens,
+    `outcome tokens for ${session.blindAlias}`,
+  );
+  optionalNonnegativeNumber(
+    outcome.durationMs,
+    `outcome duration for ${session.blindAlias}`,
+  );
+  if (
+    outcome.evidence === null ||
+    typeof outcome.evidence !== "object" ||
+    Array.isArray(outcome.evidence) ||
+    !new Set([
+      "executor-result",
+      "prepared-session-result",
+      "authorization-consumption",
+    ]).has(outcome.evidence.source) ||
+    !["terminalResultSha256", "authorizationConsumptionSha256"].every(
+      (name) =>
+        outcome.evidence[name] === null ||
+        SHA256_PATTERN.test(outcome.evidence[name]),
+    )
+  ) {
+    fail(`session outcome for ${session.blindAlias} has invalid evidence`);
+  }
+  return outcome;
+}
+
+function readSessionOutcome({
+  campaignDirectory,
+  manifest,
+  session,
+  executionStartSha256,
+  authorizationSetSha256,
+}) {
+  const target = sessionOutcomeTarget(campaignDirectory, session);
+  if (!existsSync(target)) return null;
+  const outcome = assertSessionOutcome({
+    outcome: readCanonicalJson(target, `session outcome ${session.blindAlias}`),
+    manifest,
+    session,
+    executionStartSha256,
+    authorizationSetSha256,
+  });
+  if (outcome.evidence.source === "executor-result") return outcome;
+  const retained = inspectPreparedSessionEvidence({
+    campaignDirectory,
+    manifest,
+    session,
+    authorization: expectedAuthorization(manifest, session),
+  });
+  if (outcome.evidence.source === "prepared-session-result") {
+    if (
+      retained.state !== "terminal" ||
+      !canonicalJsonBytes(retained.evidence).equals(
+        canonicalJsonBytes(outcome.evidence),
+      )
+    ) {
+      fail(`retained evidence for ${session.blindAlias} changed after outcome`);
+    }
+    const expectedResult = normalizeSessionResult(retained.result, session);
+    const outcomeResult = {
+      status: outcome.status,
+      disposition: outcome.disposition,
+      failureClass: outcome.failureClass,
+      error: outcome.error,
+      finalAnswer: outcome.finalAnswer,
+      transcript: outcome.transcript,
+      tokens: outcome.tokens,
+      durationMs: outcome.durationMs,
+    };
+    if (
+      !canonicalJsonBytes(expectedResult).equals(
+        canonicalJsonBytes(outcomeResult),
+      )
+    ) {
+      fail(`session outcome for ${session.blindAlias} changed retained result`);
+    }
+  } else if (
+    retained.state !== "consumed-without-terminal-result" ||
+    !canonicalJsonBytes(retained.evidence).equals(
+      canonicalJsonBytes(outcome.evidence),
+    )
+  ) {
+    fail(`retained consumption evidence for ${session.blindAlias} changed`);
+  }
+  return outcome;
+}
+
+function writeSessionOutcome(campaignDirectory, session, outcome) {
+  writeCanonicalExclusive(
+    sessionOutcomeTarget(campaignDirectory, session),
+    outcome,
+  );
+  return outcome;
+}
+
+function finalizedCampaignExecution({
+  campaignDirectory,
+  manifest,
+  outcomes,
+  executionStartSha256,
+  authorizationSetSha256,
+}) {
+  if (outcomes.size !== manifest.sessions.length) return null;
+  const record = {
+    schemaVersion: 2,
+    state: "executed",
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    capabilityReconciliationSha256:
+      manifest.capabilityReconciliation.receiptSha256,
+    executionStartSha256,
+    authorizationSetSha256,
+    sessions: manifest.sessions.map((session) =>
+      outcomes.get(session.blindAlias),
+    ),
+  };
+  const target = path.join(campaignDirectory, "executed.json");
+  if (existsSync(target)) {
+    const retained = readCanonicalJson(target, "executed campaign");
+    if (!canonicalJsonBytes(retained).equals(canonicalJsonBytes(record))) {
+      fail("executed campaign does not match its durable session outcomes");
+    }
+    return retained;
+  }
+  writeCanonicalExclusive(target, record);
+  return record;
+}
+
+export function inspectCampaignExecution({ campaignDirectory }) {
+  const manifest = readJson(
+    path.join(campaignDirectory, "manifest.json"),
+    "campaign manifest",
+  );
+  if (manifest.schemaVersion !== 3 || manifest.state !== "prepared") {
+    fail("campaign is not in the prepared state");
+  }
+  assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
+  const counts = {
+    total: manifest.sessions.length,
+    pending: 0,
+    completed: 0,
+    failed: 0,
+    indeterminate: 0,
+  };
+  const integrityBlockers = [];
+  const startPath = path.join(campaignDirectory, "execution-start.json");
+  const failedPath = path.join(campaignDirectory, "execution-failed.json");
+  const executedPath = path.join(campaignDirectory, "executed.json");
+  if (!existsSync(startPath)) {
+    counts.pending = counts.total;
+    if (existsSync(failedPath) || existsSync(executedPath)) {
+      integrityBlockers.push(
+        "campaign has terminal execution state without execution-start.json",
+      );
+    }
+    const preflightPath = path.join(campaignDirectory, "preflight.json");
+    const preflight = existsSync(preflightPath)
+      ? readJson(preflightPath, "campaign preflight")
+      : null;
+    return deepFreeze({
+      schemaVersion: 1,
+      state:
+        preflight?.status === "completed"
+          ? "preflighted"
+          : preflight?.status === "failed"
+            ? "preflight-failed"
+            : "prepared",
+      campaignManifestSha256: campaignManifestSha256(manifest),
+      executionStartSha256: null,
+      counts,
+      reconciliationRequired: 0,
+      finalizationRequired: false,
+      continuationPermitted: false,
+      providerLaunchesRemaining: counts.pending,
+      integrityBlockers,
+    });
+  }
+
+  let executionStart;
+  try {
+    executionStart = readCanonicalJson(startPath, "campaign execution start");
+    if (executionStart.schemaVersion !== 2) {
+      fail("historical campaign execution state is non-resumable");
+    }
+    assertExecutionStartBinding(executionStart, manifest);
+  } catch (error) {
+    counts.pending = counts.total;
+    integrityBlockers.push(error.message);
+    return deepFreeze({
+      schemaVersion: 1,
+      state: "execution-blocked",
+      campaignManifestSha256: campaignManifestSha256(manifest),
+      executionStartSha256: null,
+      counts,
+      reconciliationRequired: 0,
+      finalizationRequired: false,
+      continuationPermitted: false,
+      providerLaunchesRemaining: 0,
+      integrityBlockers,
+    });
+  }
+  const executionStartSha256 = sha256Hex(canonicalJsonBytes(executionStart));
+  const authorizationSetSha256 = executionStart.authorizationSetSha256;
+  const outcomes = new Map();
+  let reconciliationRequired = 0;
+  for (const session of manifest.sessions) {
+    try {
+      const outcome = readSessionOutcome({
+        campaignDirectory,
+        manifest,
+        session,
+        executionStartSha256,
+        authorizationSetSha256,
+      });
+      if (outcome !== null) {
+        outcomes.set(session.blindAlias, outcome);
+        counts[outcome.status] += 1;
+        continue;
+      }
+      const evidence = inspectPreparedSessionEvidence({
+        campaignDirectory,
+        manifest,
+        session,
+        authorization: expectedAuthorization(manifest, session),
+      });
+      if (evidence.state === "terminal") {
+        counts[evidence.result.status] += 1;
+        reconciliationRequired += 1;
+      } else if (evidence.state === "consumed-without-terminal-result") {
+        counts.indeterminate += 1;
+        reconciliationRequired += 1;
+      } else {
+        counts.pending += 1;
+      }
+    } catch (error) {
+      counts.pending += 1;
+      integrityBlockers.push(`${session.blindAlias}: ${error.message}`);
+    }
+  }
+
+  let state = "execution-in-progress";
+  if (existsSync(failedPath)) {
+    integrityBlockers.push(
+      "schema-version-1 execution-failed.json is historical and non-resumable",
+    );
+  }
+  if (existsSync(executedPath)) {
+    try {
+      const retained = readCanonicalJson(executedPath, "executed campaign");
+      const expected = finalizedCampaignExecution({
+        campaignDirectory,
+        manifest,
+        outcomes,
+        executionStartSha256,
+        authorizationSetSha256,
+      });
+      if (
+        expected === null ||
+        !canonicalJsonBytes(retained).equals(canonicalJsonBytes(expected))
+      ) {
+        fail("executed campaign is not derived from all durable outcomes");
+      }
+      state = "executed";
+    } catch (error) {
+      integrityBlockers.push(error.message);
+    }
+  }
+  if (integrityBlockers.length > 0) state = "execution-blocked";
+  const finalizationRequired =
+    !existsSync(executedPath) && outcomes.size === manifest.sessions.length;
+  const continuationPermitted =
+    integrityBlockers.length === 0 &&
+    state !== "executed" &&
+    (counts.pending > 0 || reconciliationRequired > 0 || finalizationRequired);
+  return deepFreeze({
+    schemaVersion: 1,
+    state,
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    executionStartSha256,
+    counts,
+    reconciliationRequired,
+    finalizationRequired,
+    continuationPermitted,
+    providerLaunchesRemaining: counts.pending,
+    integrityBlockers,
+  });
+}
+
 export function runPreparedCampaign({
   campaignDirectory,
   authorizationDirectory,
@@ -815,185 +1461,236 @@ export function runPreparedCampaign({
     fail("campaign is not in the prepared state");
   }
   assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
-  if (
-    existsSync(path.join(campaignDirectory, "executed.json")) ||
-    existsSync(path.join(campaignDirectory, "execution-start.json")) ||
-    existsSync(path.join(campaignDirectory, "execution-failed.json"))
-  ) {
-    fail("campaign execution already started and cannot resume or retry");
+  if (existsSync(path.join(campaignDirectory, "execution-failed.json"))) {
+    fail("historical failed campaign execution cannot be continued in place");
   }
-  if (typeof executeSession !== "function")
+  if (
+    existsSync(path.join(campaignDirectory, "executed.json")) &&
+    !existsSync(path.join(campaignDirectory, "execution-start.json"))
+  ) {
+    fail("terminal campaign execution lacks its execution-start identity");
+  }
+  if (typeof executeSession !== "function") {
     fail("executeSession must be a function");
+  }
   if (!(now instanceof Date) || Number.isNaN(now.valueOf())) {
     fail("execution start time must be a valid Date");
   }
   if (manifest.protocol.provider === "openai") {
     assertSuccessfulCampaignPreflight(campaignDirectory, manifest);
   }
-  const authorizations = new Map();
-  for (const session of manifest.sessions) {
-    const target = path.join(
-      authorizationDirectory,
-      `${session.blindAlias}.json`,
-    );
-    const authorization = readJson(
-      target,
-      `authorization for ${session.blindAlias}`,
-    );
-    assertAuthorization(authorization, manifest, session);
-    authorizations.set(session.blindAlias, authorization);
-  }
-
-  const authorizationSet = {
-    schemaVersion: 1,
-    sessions: manifest.sessions.map((session) => ({
-      blindAlias: session.blindAlias,
-      transmissionSha256: session.transmissionSha256,
-      authorizationSha256: sha256Hex(
-        canonicalJsonBytes(authorizations.get(session.blindAlias)),
-      ),
-    })),
-  };
-  const authorizationSetSha256 = sha256Hex(
-    canonicalJsonBytes(authorizationSet),
-  );
-  const executionStart = {
-    schemaVersion: 1,
-    state: "execution-started",
-    startedAt: now.toISOString(),
-    campaignManifestSha256: campaignManifestSha256(manifest),
-    capabilityReconciliationSha256:
-      manifest.capabilityReconciliation.receiptSha256,
+  const { authorizations, authorizationSet, authorizationSetSha256 } =
+    campaignAuthorizationSet({ authorizationDirectory, manifest });
+  const executionStart = openCampaignExecution({
+    campaignDirectory,
+    manifest,
     authorizationSet,
     authorizationSetSha256,
-  };
-  writeCanonicalExclusive(
-    path.join(campaignDirectory, "execution-start.json"),
-    executionStart,
-  );
+    now,
+  });
   const executionStartSha256 = sha256Hex(canonicalJsonBytes(executionStart));
+  const outcomes = new Map();
 
-  function closeFailedExecution(session, record) {
-    writeCanonicalExclusive(
-      path.join(campaignDirectory, "execution-failed.json"),
-      {
-        schemaVersion: 1,
-        state: "execution-failed",
-        campaignManifestSha256: campaignManifestSha256(manifest),
-        capabilityReconciliationSha256:
-          manifest.capabilityReconciliation.receiptSha256,
+  if (existsSync(path.join(campaignDirectory, "executed.json"))) {
+    for (const session of manifest.sessions) {
+      const outcome = readSessionOutcome({
+        campaignDirectory,
+        manifest,
+        session,
         executionStartSha256,
         authorizationSetSha256,
-        blindAlias: session.blindAlias,
-        caseId: session.caseId,
-        completedSessionCount: results.length,
-        ...record,
-      },
-    );
+      });
+      if (outcome === null) {
+        fail(
+          `executed campaign is missing session outcome ${session.blindAlias}`,
+        );
+      }
+      outcomes.set(session.blindAlias, outcome);
+    }
+    const completed = finalizedCampaignExecution({
+      campaignDirectory,
+      manifest,
+      outcomes,
+      executionStartSha256,
+      authorizationSetSha256,
+    });
+    return deepFreeze(canonicalRecord(completed));
   }
 
-  const results = [];
+  function retainOutcome(session, outcome) {
+    assertSessionOutcome({
+      outcome,
+      manifest,
+      session,
+      executionStartSha256,
+      authorizationSetSha256,
+    });
+    writeSessionOutcome(campaignDirectory, session, outcome);
+    outcomes.set(session.blindAlias, outcome);
+    finalizedCampaignExecution({
+      campaignDirectory,
+      manifest,
+      outcomes,
+      executionStartSha256,
+      authorizationSetSha256,
+    });
+    return outcome;
+  }
+
   for (const session of manifest.sessions) {
-    let result;
+    const existing = readSessionOutcome({
+      campaignDirectory,
+      manifest,
+      session,
+      executionStartSha256,
+      authorizationSetSha256,
+    });
+    if (existing !== null) {
+      outcomes.set(session.blindAlias, existing);
+      continue;
+    }
+
+    const authorization = authorizations.get(session.blindAlias);
+    const before = inspectPreparedSessionEvidence({
+      campaignDirectory,
+      manifest,
+      session,
+      authorization,
+    });
+    if (before.state === "terminal") {
+      const outcome = retainOutcome(
+        session,
+        buildSessionOutcome({
+          manifest,
+          session,
+          executionStartSha256,
+          authorizationSetSha256,
+          result: before.result,
+          evidence: before.evidence,
+        }),
+      );
+      if (outcome.status !== "completed") {
+        fail(
+          `campaign session ${session.blindAlias} retained a failed terminal result`,
+        );
+      }
+      continue;
+    }
+    if (before.state === "consumed-without-terminal-result") {
+      retainOutcome(
+        session,
+        buildIndeterminateOutcome({
+          manifest,
+          session,
+          executionStartSha256,
+          authorizationSetSha256,
+          evidence: before.evidence,
+        }),
+      );
+      fail(
+        `campaign session ${session.blindAlias} is indeterminate because authorization consumption has no terminal evidence`,
+      );
+    }
+
+    let callbackResult;
     try {
-      result = executeSession(
+      callbackResult = executeSession(
         deepFreeze(canonicalRecord(session)),
-        authorizations.get(session.blindAlias),
+        authorization,
       );
     } catch (error) {
-      retainInvalidAttempt(campaignDirectory, results.length + 1, {
-        blindAlias: session.blindAlias,
-        reason: error.message,
+      const afterError = inspectPreparedSessionEvidence({
+        campaignDirectory,
+        manifest,
+        session,
+        authorization,
       });
-      closeFailedExecution(session, {
-        failureClass: "execution-threw",
-        error: {
-          name: error?.name ?? "Error",
-          code: error?.code ?? null,
-          message: error?.message ?? String(error),
-        },
-      });
+      if (afterError.state === "terminal") {
+        retainOutcome(
+          session,
+          buildSessionOutcome({
+            manifest,
+            session,
+            executionStartSha256,
+            authorizationSetSha256,
+            result: afterError.result,
+            evidence: afterError.evidence,
+          }),
+        );
+      } else if (afterError.state === "consumed-without-terminal-result") {
+        retainOutcome(
+          session,
+          buildIndeterminateOutcome({
+            manifest,
+            session,
+            executionStartSha256,
+            authorizationSetSha256,
+            evidence: afterError.evidence,
+          }),
+        );
+      }
       throw error;
     }
-    if (
-      result === null ||
-      typeof result !== "object" ||
-      Array.isArray(result)
-    ) {
-      retainInvalidAttempt(campaignDirectory, results.length + 1, {
-        blindAlias: session.blindAlias,
-        reason: "execution returned a malformed result",
-      });
-      closeFailedExecution(session, {
-        failureClass: "malformed-result",
-        error: {
-          name: "Error",
-          code: "MALFORMED_EXECUTION_RESULT",
-          message: "execution returned a malformed result",
-        },
-      });
-      fail(`execution for ${session.blindAlias} returned a malformed result`);
-    }
-    if (!new Set(["completed", "failed"]).has(result.status)) {
-      retainInvalidAttempt(campaignDirectory, results.length + 1, {
-        blindAlias: session.blindAlias,
-        reason: "execution returned an unsupported status",
-      });
-      closeFailedExecution(session, {
-        failureClass: "malformed-result",
-        error: {
-          name: "Error",
-          code: "UNSUPPORTED_EXECUTION_STATUS",
-          message: "execution returned an unsupported status",
-        },
-      });
-      fail(
-        `execution for ${session.blindAlias} returned an unsupported status`,
-      );
-    }
-    if (result.status !== "completed") {
-      retainInvalidAttempt(campaignDirectory, results.length + 1, {
-        blindAlias: session.blindAlias,
-        status: result.status,
-        failureClass: result.failureClass ?? null,
-        error: result.error ?? null,
-      });
-      closeFailedExecution(session, {
-        failureClass: result.failureClass ?? "execution-failed",
-        error: result.error ?? null,
-      });
-      fail(
-        `campaign execution failed for ${session.blindAlias}: ${result.failureClass ?? "execution-failed"}`,
-      );
-    }
-    results.push({
-      blindAlias: session.blindAlias,
-      caseId: session.caseId,
-      status: result.status,
-      disposition: result.status === "completed" ? "valid" : "invalid",
-      failureClass: result.failureClass ?? null,
-      error: result.error ?? null,
-      finalAnswer: result.finalAnswer ?? null,
-      transcript: result.transcript ?? null,
-      tokens: result.tokens ?? null,
-      durationMs: result.durationMs ?? null,
+
+    const after = inspectPreparedSessionEvidence({
+      campaignDirectory,
+      manifest,
+      session,
+      authorization,
     });
+    let result = callbackResult;
+    let evidence = {
+      source: "executor-result",
+      terminalResultSha256: null,
+      authorizationConsumptionSha256: null,
+    };
+    if (after.state === "terminal") {
+      result = after.result;
+      evidence = after.evidence;
+    } else if (after.state === "consumed-without-terminal-result") {
+      retainOutcome(
+        session,
+        buildIndeterminateOutcome({
+          manifest,
+          session,
+          executionStartSha256,
+          authorizationSetSha256,
+          evidence: after.evidence,
+        }),
+      );
+      fail(
+        `campaign session ${session.blindAlias} consumed authorization without terminal evidence`,
+      );
+    }
+    const outcome = retainOutcome(
+      session,
+      buildSessionOutcome({
+        manifest,
+        session,
+        executionStartSha256,
+        authorizationSetSha256,
+        result,
+        evidence,
+      }),
+    );
+    if (outcome.status !== "completed") {
+      fail(
+        `campaign execution failed for ${session.blindAlias}: ${outcome.failureClass}`,
+      );
+    }
   }
-  const record = {
-    schemaVersion: 1,
-    state: "executed",
-    campaignManifestSha256: campaignManifestSha256(manifest),
-    capabilityReconciliationSha256:
-      manifest.capabilityReconciliation.receiptSha256,
+
+  const completed = finalizedCampaignExecution({
+    campaignDirectory,
+    manifest,
+    outcomes,
     executionStartSha256,
     authorizationSetSha256,
-    sessions: results,
-  };
-  writeCanonicalExclusive(
-    path.join(campaignDirectory, "executed.json"),
-    record,
-  );
-  return deepFreeze(canonicalRecord(record));
+  });
+  if (completed === null) {
+    fail("campaign execution is incomplete");
+  }
+  return deepFreeze(canonicalRecord(completed));
 }
 
 function blindedOutput(result) {
@@ -1701,8 +2398,7 @@ async function runTrialFromCli(values) {
   return runEvaluationTrial({
     trialDirectory,
     authorizationFile,
-    allowExternalModelCall:
-      values.get("--allow-external-model-call") === true,
+    allowExternalModelCall: values.get("--allow-external-model-call") === true,
     executeSession({ preparedSession, evidenceLayout }) {
       const spawned = spawnSync(
         process.execPath,
@@ -1887,6 +2583,12 @@ function runFromCli(values) {
   });
 }
 
+function statusFromCli(values) {
+  return inspectCampaignExecution({
+    campaignDirectory: path.resolve(requireCli(values, "--campaign-dir")),
+  });
+}
+
 function preflightFromCli(values) {
   const campaignDirectory = path.resolve(requireCli(values, "--campaign-dir"));
   const timeoutMs = values.get("--timeout-ms");
@@ -1971,8 +2673,9 @@ function aggregateFromCli(values) {
 }
 
 async function cli() {
-  const { command, subcommand, values, repeated } =
-    parseEvaluationRunnerCli(process.argv.slice(2));
+  const { command, subcommand, values, repeated } = parseEvaluationRunnerCli(
+    process.argv.slice(2),
+  );
   let result;
   if (command === "trial") {
     if (subcommand === "prepare") result = await prepareTrialFromCli(values);
@@ -1983,6 +2686,7 @@ async function cli() {
   } else if (command === "prepare") result = prepareFromCli(values, repeated);
   else if (command === "preflight") result = preflightFromCli(values);
   else if (command === "run") result = runFromCli(values);
+  else if (command === "status") result = statusFromCli(values);
   else if (command === "prepare-grading") {
     result = prepareCampaignGrading({
       campaignDirectory: path.resolve(requireCli(values, "--campaign-dir")),
@@ -1990,7 +2694,7 @@ async function cli() {
   } else if (command === "aggregate") result = aggregateFromCli(values);
   else
     fail(
-      "first argument must be trial, prepare, preflight, run, prepare-grading, or aggregate",
+      "first argument must be trial, prepare, preflight, run, status, prepare-grading, or aggregate",
     );
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

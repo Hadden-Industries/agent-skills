@@ -192,7 +192,7 @@ agent-skills/
 │   ├── defining-concepts/
 │   │   ├── README.md                     # Concept-engineering campaign and grading protocol
 │   │   ├── evals.json                    # Sixteen stratified semantic cases
-│   │   ├── evaluation-runner.mjs         # Three-arm preparation, blinding, and aggregation
+│   │   ├── evaluation-runner.mjs         # Three-arm preparation, durable execution, status, blinding, and aggregation
 │   │   ├── run-evaluation-session.mjs    # Packet-bound provider session
 │   │   ├── session-controller.mjs        # Exact scripted-turn controller
 │   │   ├── trigger-evals.json            # Should/should-not-trigger prompts

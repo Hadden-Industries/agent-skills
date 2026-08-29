@@ -6,7 +6,7 @@ The suite is not installed with the skill. The repository-wide [evaluation runti
 
 ## Status
 
-The 16-case schema, bounded single-trial lifecycle, three-arm campaign runner, scripted follow-up controller, immutable bundle capture, mandatory zero-turn preflight, blinded grading-packet preparation, aggregation contract, and concept-engineering skill are implemented. Deterministic validation is separate from provider-backed behavioral evidence.
+The 16-case schema, bounded single-trial lifecycle, durable three-arm campaign runner, scripted follow-up controller, immutable bundle capture, mandatory zero-turn preflight, blinded grading-packet preparation, aggregation contract, and concept-engineering skill are implemented. Five bounded Spark-low trial sessions established retained provider-path operability. The one-trial progression path is now retired in favor of fixed 30-session campaigns with immediate per-session outcome retention. Deterministic validation is separate from provider-backed behavioral evidence.
 
 The retained directories [`2026-08-24T092645.127Z`](./results/2026-08-24T092645.127Z/) and [`2026-08-24T141214.748Z`](./results/2026-08-24T141214.748Z/) are immutable legacy evidence from the earlier eight-case, two-arm protocol. Their `with_skill` and `without_skill` arm names, five-section output assumptions, runner behavior, and recorded limitations remain historical facts; they are not rewritten to resemble the current `no-skill`, `current-skill`, and `candidate-skill` protocol. The later legacy run diagnosed critical exact-URL trace failures and did not accept that candidate. Neither legacy run supports a general performance claim.
 
@@ -35,7 +35,7 @@ The suite does not certify ISO, W3C, OBO, CIDOC CRM, FAIR, CARE, TBX, OntoLex-Le
 | --- | --- |
 | [`evals.json`](./evals.json) | Sixteen behavioral cases, renderers, profiles, research strata, applicable qualitative dimensions, critical expectation indexes, and the calibration selection. |
 | [`trigger-evals.json`](./trigger-evals.json) | Positive and negative activation prompts for the skill description, separate from behavioral quality. |
-| [`evaluation-runner.mjs`](./evaluation-runner.mjs) | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, execution, grading-packet preparation, and aggregation. |
+| [`evaluation-runner.mjs`](./evaluation-runner.mjs) | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, preflight, durable execution, read-only status inspection, grading-packet preparation, and aggregation. |
 | [`evaluation-trial.mjs`](./evaluation-trial.mjs) | Atomic one-trial preparation, immutable artifact validation, retained zero-turn preflight, exact authorization enforcement, durable execution-state interpretation, and read-only verification. |
 | [`run-evaluation-session.mjs`](./run-evaluation-session.mjs) | One packet-bound provider session with an immutable case, optional skill bundle, exact conversation, runtime fingerprint, evidence directory, and authorization boundary. |
 | [`session-controller.mjs`](./session-controller.mjs) | Suite wrapper around the shared scripted-conversation controller; it rejects approval requests and supplies only committed follow-up turns. |
@@ -85,9 +85,11 @@ This map deliberately covers category traps, temporal and edition status, source
 
 Case 10 declares one `follow_up_turns` item. The first turn must elicit only the focused threshold and jurisdiction clarification. The controller then sends the exact committed follow-up bytes; it neither improvises a response nor allows the model to choose a different branch. All other cases are single-turn conversations.
 
-## Bounded single-trial diagnostic
+## Retained bounded single-trial diagnostics
 
-Establish that the provider path is reproducibly operable one retained trial at a time before attempting a 30-session campaign. This lifecycle removes the campaign runner's former all-or-nothing retention risk: authorization consumption and provider stream files are written before and during the one external call, while `result.json` is written only after a known terminal outcome. No parent process buffers several valid model results before persisting them.
+This path was used to establish provider operability one retained trial at a time while the campaign runner still had an all-or-nothing parent-retention defect. Five authorized Spark-low model sessions now retain independently verifiable terminal evidence. The prepared sixth trial under `results/trials/2026-08-29T124830.684Z/` was never authorized or executed and remains unchanged as diagnostic history. Do not request another one-packet approval merely to advance the campaign; use the durable campaign protocol below.
+
+The trial lifecycle remains available for bounded harness diagnosis. Authorization consumption and provider stream files are written before and during its one external call, while `result.json` is written only after a known terminal outcome. It is not the normal mechanism for building the 90-session calibration and its outcomes are not aggregate-eligible.
 
 The recommended first diagnostic is case 1, `candidate-skill`, `gpt-5.3-codex-spark`, and `low`. Case 1 directly exercises the skill's required live web-search and URL-retrieval facilities, while the Spark/low arm is the least expensive committed execution profile. The full capability reconciliation still evaluates the canonical `no-skill`, `current-skill`, and `candidate-skill` requirements before freezing the selected trial, so a convenient single-arm launch cannot weaken the uniform reviewed capability envelope.
 
@@ -166,7 +168,7 @@ Interpret verification dimensions independently:
 - `gradeStatus` remains `not-graded` until a separately defined and authorized grading workflow evaluates the answer.
 - `retryPermitted` is false after authorization consumption, after a terminal result, or whenever execution state is indeterminate. A consumed authorization without `result.json` is reported as `indeterminate`, never guessed to be `interrupted`, because the retained artifacts alone cannot prove that no provider child remains alive.
 
-The first trial is diagnostic and has `aggregateEligible: false`. After it returns retained, independently verified evidence, prepare a second new timestamped trial under the same case, skill arm, adapter, model, reasoning effort, capability envelope, and turn budget with `--trial-index 2`. Its new packet requires separate exact authorization. Two matched successful trials support a bounded repeatability observation; they do not establish reproducibility, provider-independent performance, semantic correctness, or campaign-level quality. Do not resume a 30-session campaign until both one-trial lifecycles retain verifiable outcomes and any discovered harness defect has been repaired test-first.
+Every trial has `aggregateEligible: false`. The retained matched trial pair supports only a bounded lifecycle-repeatability observation; the additional retained trials diagnosed and checked harness or skill changes. They do not establish provider-independent reproducibility, semantic correctness, or campaign-level quality. Further campaign evidence must use the fixed, durable campaign lifecycle rather than extending the diagnostic series one authorization at a time.
 
 ## Three-arm campaign
 
@@ -251,13 +253,32 @@ Before execution of any profile, review and disclose:
 5. all 30 transmission SHA-256 values and the intended call and turn count for that profile; and
 6. the enforced one-repetition limitation.
 
-Preparation, successful preflight, implementation approval, login, an earlier campaign authorization, authorization of another model-execution profile, and authorization of one cell do not authorize any of the 30 transmissions in a profile. Obtain an exact authorization artifact for **every** prepared session. `run` first requires the exact successful zero-turn preflight and then verifies all 30 artifacts before the first provider call, so a missing or mismatched prerequisite cannot create a partial campaign. A single conversational authorization may cover all three profiles only when it explicitly identifies all three manifest digests, every exact model and effort, the three disclosed hash lists, the 90-session and 99-turn ceilings, and whether any grading calls are included.
+Preparation, successful preflight, implementation approval, login, an earlier campaign authorization, authorization of another model-execution profile, and authorization of one cell do not authorize any of the 30 transmissions in a profile. Retain one exact authorization artifact for **every** prepared session. The user need not approve 90 packets in 90 conversational turns: one consolidated statement may authorize all three profiles when it explicitly identifies all three manifest digests, every exact model and effort, the three disclosed transmission-hash lists, the 90-session and 99-turn ceilings, permitted provider-native web search and URL retrieval, denied facilities, and whether any grading calls are included. Materialize that one approval into the 90 canonical per-packet authorization artifacts. `run` validates the complete 30-artifact set for its profile before every invocation can launch a provider session, so a missing or mismatched prerequisite cannot create a partially authorized campaign.
 
 ```text
 node evals/defining-concepts/evaluation-runner.mjs run --campaign-dir <absolute-campaign-directory> --authorization-dir <absolute-authorization-directory>
 ```
 
-Immediately before the first authorized provider launch, `run` atomically creates `execution-start.json`, bound to the manifest, capability receipt, and complete authorization set. Its existence consumes the campaign's one execution attempt. Execute each authorized cell once. Any thrown callback, malformed or unsupported result, provider failure, policy failure, or infrastructure failure writes terminal `execution-failed.json`, stops the campaign, and forbids retry or resume. Preserve that evidence and prepare a fresh timestamped campaign after a test-first repair. Never rerun an unchanged case/arm cell and describe the replacement as part of the same one-repetition campaign.
+Immediately before the first authorized provider launch, `run` atomically creates schema-version-2 `execution-start.json`, bound to the manifest, capability receipt, complete authorization set, and their canonical digests. That record freezes the only valid execution identity for the campaign; it does not claim that all 30 packet authorizations have already been consumed. Each returned or reconciled terminal session is written immediately to `execution/session-outcomes/<blind-alias>.json` before the controller considers the next session.
+
+If the controller stops, inspect the directory without launching a model:
+
+```text
+node evals/defining-concepts/evaluation-runner.mjs status --campaign-dir <absolute-campaign-directory>
+```
+
+`status` reports total, pending, completed, failed, and indeterminate sessions; how many low-level outcomes need parent reconciliation; whether aggregate finalization remains; how many provider launches remain; exact-identity continuation eligibility; and integrity blockers. It is read-only and requires neither an authorization directory nor provider access.
+
+Invoke the same `run` command again to continue only when `status` reports continuation is permitted. The runner revalidates the complete authorization set and existing execution identity, then applies this order for each session:
+
+1. validate and skip an immutable parent outcome;
+2. promote valid low-level `run.json`, metrics, timing, and transcript evidence into a parent outcome without a provider call;
+3. classify `attempt.json` without terminal evidence as `indeterminate`, retain that outcome, and never launch the transmission again; or
+4. launch once only when neither authorization-consumption nor terminal evidence exists.
+
+A newly observed failed or indeterminate session stops that invocation after its outcome is durable. A later exact invocation skips it and may process other pending sessions. A callback interruption before authorization consumption leaves the packet pending; after consumption, no interruption, process restart, or missing parent aggregate can make it launch-eligible again. This is continuation of one frozen campaign, not a model retry or another repetition. `executed.json` is derived from all 30 immutable outcomes after every session is terminal. Grading preparation rejects an aggregate containing any failed or indeterminate session.
+
+Schema-version-1 `execution-start.json` and `execution-failed.json` remain historical, non-resumable evidence. Never rewrite or continue those directories under the durable protocol. A material candidate, packet, capability, model, effort, or authorization change still requires a new timestamped campaign and new authorization.
 
 ## Blind grading protocol
 
@@ -404,7 +425,11 @@ results/<UTC-timestamp>/
         blind-mapping.json
         pairwise-mapping.json       # after grading preparation
     preflight.json                  # mandatory zero-turn campaign gate
-    executed.json                   # after campaign execution
+    execution-start.json            # immutable schema-v2 execution identity
+    execution/
+        session-outcomes/
+            sample-<blind-id>.json  # immutable immediately after a terminal outcome
+    executed.json                   # derived after every session has an outcome
     grading/
         critical/
         pairwise/
@@ -413,10 +438,9 @@ results/<UTC-timestamp>/
         disagreements.json
     grading-prepared.json
     aggregate.generated.json
-    invalid-attempts/
 ```
 
-Historical result schemas are read by explicit version branches. Do not rename their arms, retrofit new packet guarantees, rewrite raw outputs, recompute old hashes in place, or treat an absent current field as proof that the old run satisfied it. The legacy `2026-08-24T092645.127Z` generated aggregate contains known repetition and token-accounting defects; its retained raw run and timing artifacts remain the authority. Corrections to any campaign create a new derived record naming what it supersedes.
+Historical schema-version-1 campaign executions may additionally contain `execution-failed.json` and `invalid-attempts/`; those paths are not produced by durable schema-version-2 execution. Historical result schemas are read by explicit version branches. Do not rename their arms, retrofit new packet guarantees, rewrite raw outputs, recompute old hashes in place, or treat an absent current field as proof that the old run satisfied it. The legacy `2026-08-24T092645.127Z` generated aggregate contains known repetition and token-accounting defects; its retained raw run and timing artifacts remain the authority. Corrections to any campaign create a new derived record naming what it supersedes.
 
 ## Deterministic verification
 

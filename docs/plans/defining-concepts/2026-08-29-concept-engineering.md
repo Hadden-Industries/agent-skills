@@ -34,7 +34,7 @@
 - Before creating any packet or hash, read the exact `compatibility` value from every frozen skill-bearing arm and require a reviewed exact-text interpretation in `evals.json`; never infer requirements with regexes, keywords, or another model call. Requirements do not grant permission. Reconcile their union with case requirements, the explicit campaign policy, and provider availability, bind the successful receipt into every transmission and the manifest, and fail closed on missing, denied, unavailable, extra, changed, or unreviewed capability state.
 - For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest, capability-reconciliation receipt, and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, the minimal preflight thread attests zero-turn isolation, exact execution settings are bound at `turn/start`, and runtime events establish whether an unrequested facility was used. Do not query skill or installed-app inventories as activation evidence; accept only well-formed disabled hooks. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
 - Permit provider-native web search and URL fetching for the complete matched campaign because selected cases 1, 3, and 8 require live research. For Codex, resolve both semantic capabilities to `webSearch: true` while retaining `network: false` for arbitrary process or sandbox egress. Deny general tools, MCP or app calls, provider-default context, image generation, and automatic delegation. Preserve authorized web queries, destinations, and returned evidence in the sealed transcript.
-- Immediately before the first model launch, create one exclusive execution-start record bound to the manifest and authorization set. Its existence consumes the campaign's only execution attempt. A policy, infrastructure, provider, protocol, or runtime failure terminates the campaign without retry or resume; retain it and prepare a fresh timestamped campaign after repair.
+- Immediately before the first model launch, create one exclusive execution-start record bound to the manifest, capability receipt, and complete authorization set. Its existence freezes the only valid campaign execution identity. Permit a later controller invocation only with that exact identity, skip retained terminal outcomes, and launch only transmissions proven unconsumed. Never retry a consumed transmission or treat continuation as another repetition.
 - A materially changed candidate is a new iteration. Never reuse a prior candidate's authorization, campaign identity, or result directory.
 - Do not claim human usability, general expert superiority, calibrated probability, within-prompt repeatability, or stochastic variance from this campaign.
 - Commits require explicit authorization through `committing-to-git`; pushes require a separate explicit authorization.
@@ -89,8 +89,8 @@
 
 - Modify: `README.md`
 - Modify: `evals/README.md`
-- Preserve: `docs/designs/defining-concepts/2026-08-29-concept-engineering.md`
-- Preserve: `docs/plans/defining-concepts/2026-08-29-concept-engineering.md`
+- Modify: `docs/designs/defining-concepts/2026-08-29-concept-engineering.md`
+- Modify: `docs/plans/defining-concepts/2026-08-29-concept-engineering.md`
 
 ## Semantic implementation contract
 
@@ -520,9 +520,9 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
   Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the reconciled request; requested native web availability is required even though no web event can occur in a zero-turn preflight; host skill and app inventories are not treated as activation or retained; disabled hooks are accepted while enabled or malformed hooks fail closed; the preflight thread is ephemeral, read-only, process-networkless, and has no instruction sources or workspace roots; the reconciled `config.web_search` mode is bound at `thread/start`; exact effort, execution roots, sandbox policy, and input are bound at `turn/start`; and the record binds the exact manifest, capability receipt, and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
 
-- [ ] **Step 5: Write execution authorization tests**
+- [ ] **Step 5: Write execution authorization and durable-continuation tests**
 
-  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29. Assert that `run` exclusively creates an execution-start record bound to the manifest, capability-reconciliation receipt, and complete authorization-set digest immediately before the first launch; any existing start record prevents execution; any subsequent policy, infrastructure, provider, protocol, or runtime failure writes one immutable terminal execution-failed record and closes the campaign without retry or resume.
+  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29. Assert that `run` exclusively creates an execution-start record bound to the manifest, capability-reconciliation receipt, and complete authorization-set digest immediately before the first launch. Assert that each terminal session outcome is written before the next callback; an exact continuation skips durable outcomes; low-level terminal evidence is reconciled without relaunch; authorization consumption without terminal evidence becomes indeterminate and cannot relaunch; authorization without consumption remains safely continuable only when the retained authorization and provisional evidence are exact and nonconflicting; and a mismatched start or authorization set blocks every callback.
 
 - [ ] **Step 6: Write grading-packet tests**
 
@@ -540,9 +540,9 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
   node --test tests/evals/defining-concepts/evaluation-runner.test.mjs
   ```
 
-- [ ] **Step 9: Implement the smallest campaign state machine**
+- [ ] **Step 9: Implement the smallest durable campaign state machine**
 
-  Use explicit states such as `prepared`, `preflighted`, `execution-started`, `execution-failed`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Creation of the exclusive execution-start record consumes the campaign's one execution attempt; an interrupted or failed campaign is terminal and cannot be resumed. Failed or invalid execution attempts live under a bounded `invalid-attempts/` branch and never count as valid evidence.
+  Use explicit states such as `prepared`, `preflighted`, `execution-started`, per-session `completed`, `failed`, or `indeterminate`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Creation of the exclusive execution-start record freezes the campaign identity. Retain immutable parent outcomes under `execution/session-outcomes/`, reconstruct missing parent outcomes from valid low-level terminal evidence, and derive `executed.json` only after every manifest session has an outcome. Preserve schema-version-1 non-resumable failures as historical evidence. Failed or indeterminate sessions never count as valid grading evidence and never become launch-eligible again.
 
 - [ ] **Step 10: Run campaign and session tests and confirm GREEN**
 
@@ -960,7 +960,7 @@ Where a single case cannot make a research stratum observable without becoming c
   - standard free-prose skill compatibility versus suite-owned exact-text capability interpretation;
   - campaign-wide requirement union, default-deny policy, equal capability envelopes across arms, and the sealed reconciliation receipt;
   - provider capability availability versus actual thread activation and runtime event enforcement, including native web access with arbitrary process network still denied;
-  - the exclusive execution-start record, one-attempt campaign rule, immutable failure evidence, and prohibition on retry or resume;
+  - the exclusive execution-start identity, immutable per-session outcomes, exact continuation, low-level evidence reconciliation, and prohibition on retry after authorization consumption;
   - separate authorization for every external model and grader transmission;
   - blind critical grading, qualitative dimensions, and pairwise comparison;
   - the non-compensable critical-failure register and why aggregate prose quality cannot override it;
@@ -1079,7 +1079,7 @@ Where a single case cannot make a research stratum observable without becoming c
   - portable free-prose compatibility plus deterministic suite-owned capability reconciliation;
   - the same resolved capability envelope for every matched arm;
   - authorized native-web event retention with arbitrary process network and unrelated facilities denied;
-  - an exclusive, non-resumable single campaign execution attempt.
+  - an exclusive campaign execution identity with durable, exact-identity continuation of only provably unconsumed transmissions.
 
 - [ ] **Step 7: Review the research recommendation disposition**
 
@@ -1087,7 +1087,62 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 8: Review compatibility and capability invariants**
 
-  Confirm the canonical `compatibility` field remains valid portable Agent Skills prose; exact interpretations live only in approved suite configuration; no heuristic parser or private frontmatter grammar was introduced; cases 1, 3, and 8 drive the live-web requirement; all three arms receive one reconciled envelope; each packet and manifest binds the receipt; Codex requests native web while denying process network and unrelated facilities; and a campaign cannot start twice, retry, or resume after any execution attempt.
+  Confirm the canonical `compatibility` field remains valid portable Agent Skills prose; exact interpretations live only in approved suite configuration; no heuristic parser or private frontmatter grammar was introduced; cases 1, 3, and 8 drive the live-web requirement; all three arms receive one reconciled envelope; each packet and manifest binds the receipt; Codex requests native web while denying process network and unrelated facilities; a campaign has one immutable execution identity; and no consumed transmission can be launched twice even when the controller continues after interruption.
+
+## Task 14A: Make campaign execution durable without introducing model retries
+
+**Files:**
+
+- Modify: `evals/defining-concepts/evaluation-runner.mjs`
+- Modify if required for safe unconsumed continuation: `scripts/evaluation/runtime.js`
+- Modify: `evals/defining-concepts/README.md`
+- Modify: `tests/evals/defining-concepts/evaluation-runner.test.mjs`
+- Modify if shared runtime behavior changes: `tests/scripts/evaluation-runtime.test.mjs`
+- Modify: `tests/evals/defining-concepts/results.test.mjs`
+- Modify: `docs/designs/defining-concepts/2026-08-29-concept-engineering.md`
+- Modify: `docs/plans/defining-concepts/2026-08-29-concept-engineering.md`
+
+**Contract:** The unit of external-call authority is one prepared transmission, not one uninterrupted 30-session parent process. Starting the campaign freezes an exact execution identity. Continuing that same identity may process only packets for which no authorization-consumption or terminal outcome exists. A retained outcome, a low-level terminal result, or authorization-consumption evidence permanently removes that transmission from the launch set.
+
+- [ ] **Step 1: Replace the obsolete all-or-nothing tests with observable durability tests**
+
+  Write focused tests before production changes. Make the second execution callback observe that the first session's immutable parent outcome already exists. Interrupt after a literal number of completions, invoke `run` again with the exact authorization set, and assert that completed aliases are skipped while only pending aliases reach the callback. Verify that the final `executed.json` is derived from all retained outcome files rather than from results held by one invocation.
+
+- [ ] **Step 2: Test evidence reconciliation and one-launch safety**
+
+  Create controlled prepared-session fixtures for: a valid low-level terminal result with no parent outcome; authorization-consumption evidence without a terminal result; exact retained authorization without consumption; and conflicting or malformed retained evidence. Assert that terminal evidence is promoted to a parent outcome without a callback, consumed-but-unterminated evidence becomes an immutable `indeterminate` outcome without a callback, exact unconsumed state can continue once, and conflicting state fails before provider launch. Derive expectations from literal fixtures rather than helpers shared with production validation.
+
+- [ ] **Step 3: Confirm RED**
+
+  Run `node --test tests/evals/defining-concepts/evaluation-runner.test.mjs` and, when runtime behavior is covered, `node --test tests/scripts/evaluation-runtime.test.mjs`. Confirm failures specifically show missing immediate outcome persistence, rejected exact continuation, or unsafe relaunch handling. Do not weaken assertions to match the old implementation.
+
+- [ ] **Step 4: Implement immutable session outcomes**
+
+  Retain one canonical record at `execution/session-outcomes/<blind-alias>.json` immediately after every known terminal result. Bind it to the manifest, execution-start, authorization-set, capability-reconciliation, session sequence, case, alias, and transmission. Validate every existing record before skipping its session. Never overwrite or synthesize a successful answer for failed or incomplete evidence.
+
+- [ ] **Step 5: Implement exact-identity continuation and reconciliation**
+
+  On the first invocation, exclusively create schema-version-2 `execution-start.json`. On later invocations, recompute and validate the complete authorization set and accept only the exact existing start identity. For each session, inspect parent and low-level evidence before calling the executor. Reconcile terminal evidence, classify consumed-without-terminal evidence as indeterminate, and call the executor only for a provably unconsumed transmission. If the shared runtime retained the exact authorization but not consumption, reopen only the exact provisional evidence path needed to finish that unconsumed launch; retain existing bytes, reject conflicts, and keep the launch-capability consumption write exclusive.
+
+- [ ] **Step 6: Make interruption and failure progress durable**
+
+  After a returned completed or failed result, write its parent outcome before advancing. If the executor throws, inspect low-level evidence before returning the error: retain a terminal or indeterminate outcome when justified; otherwise leave the session pending because no model launch was consumed. Stop the current invocation on a newly observed failure or indeterminate state. A later exact invocation skips that outcome and may continue with remaining pending sessions. Never call the same consumed session again.
+
+- [ ] **Step 7: Derive completion and expose read-only status**
+
+  When all expected outcomes exist, exclusively write `executed.json` from the validated outcome set. Preserve failed and indeterminate dispositions truthfully. Refuse grading preparation unless all sessions are `completed` and `valid`. Add `status --campaign-dir <absolute-campaign-directory>` as a read-only command that reports total, pending, completed, failed, and indeterminate counts, whether exact continuation is possible, and integrity blockers without creating state or invoking an external model. Keep `run` idempotent at campaign scope: it starts or continues the same identity; do not add a separate `resume` command that could imply a second authorization or repetition.
+
+- [ ] **Step 8: Preserve historical schemas explicitly**
+
+  Keep schema-version-1 `execution-start.json`, `execution-failed.json`, and `executed.json` artifacts readable by retained-result validation and non-resumable in place. Do not rewrite historical campaigns. New schema-version-2 execution artifacts must be rejected if their digests, aliases, outcome count, or low-level evidence bindings do not match the prepared manifest.
+
+- [ ] **Step 9: Document the consolidated authorization workflow**
+
+  Retire per-trial progression after the five retained diagnostic executions. Keep the prepared, unexecuted sixth trial unchanged and do not request its individual authorization. Document preparation and zero-turn preflight of three separately frozen 30-session campaigns followed by one conversational authorization covering all three manifest digests and disclosed transmission lists. Materialize that one approval into exact per-packet authorization artifacts; do not require 90 conversational approvals. State that each session is retained immediately, a later controller failure cannot erase earlier outcomes, and continuation launches only packets proven unconsumed.
+
+- [ ] **Step 10: Verify GREEN and inspect mutations**
+
+  Run focused campaign and runtime tests, the scoped defining-concepts verification command, and `npm run verify`. Review mutations for a missing outcome write, wrong digest binding, skipped authorization validation, relaunch after consumption, overwritten outcome, or aggregate derived from partial memory; at least one test must fail for each. Review the complete diff and repository status, preserving `skills-lock.json`, historical result directories, and the unexecuted sixth trial.
 
 ## Task 15: Prepare and authorize the three-profile 90-session calibration
 
@@ -1124,7 +1179,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 5: Execute each session once**
 
-  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Preserve failures and invalid attempts without silently replacing them. Any failure closes the campaign: write the terminal execution-failed record, launch no further session, and never resume or retry that directory. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative, ceiling, and portability-stress evidence in their respective campaign directories. A Spark provider/model failure is diagnostic evidence, not permission to continue the remaining sessions or substitute a different model under the same manifest.
+  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Persist each session outcome before advancing. If an invocation stops, inspect `status`, retain all evidence, and continue only with the same manifest and authorization-set identity; the controller must skip every durable or consumed transmission and launch only packets proven unconsumed. A failed or indeterminate session is never retried, but a later invocation may process other pending sessions. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative, ceiling, and portability-stress evidence in their respective campaign directories. A Spark provider/model failure is diagnostic evidence, not permission to substitute a different model under the same manifest.
 
 - [ ] **Step 6: Prepare blind grading packets**
 
@@ -1156,7 +1211,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 4: Preflight, obtain exact authorization, and execute**
 
-  Follow the same prepare-preflight-review-authorize-run-grade sequence as calibration. A confirmatory run never borrows calibration preflight evidence or authorization.
+  Follow the same prepare-preflight-review-authorize-run-grade sequence and durable exact-identity continuation contract as calibration. A confirmatory run never borrows calibration preflight evidence or authorization, and continuation never makes a consumed transmission launch-eligible again.
 
 - [ ] **Step 5: Apply the promotion gate**
 
@@ -1171,7 +1226,7 @@ Where a single case cannot make a research stratum observable without becoming c
 These are planning units, not commit authorization. If the user later requests commits, load `committing-to-git`, inspect the exact staged snapshot, propose a detailed message, and obtain explicit authorization for each commit.
 
 1. Shared declarative conversation and bundle-capture infrastructure with tests.
-2. Defining-concepts evaluation runner, manifest migration, and protocol tests.
+2. Defining-concepts evaluation runner, manifest migration, durable per-session campaign execution, and protocol tests.
 3. Canonical skill router, concept-entry references, and five profiles.
 4. Repository and evaluation documentation plus final deterministic verification evidence.
 5. Retained provider-backed campaign evidence, only after exact external-model authorization and successful campaign completion.

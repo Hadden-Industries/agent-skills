@@ -1128,7 +1128,48 @@ test("a terminal evaluation trial forbids retry when the adapter never consumes 
   );
 });
 
-test("execution refuses every pre-existing reserved target before provider launch", async (t) => {
+test("exact retained authorization can continue when launch consumption never occurred", async (t) => {
+  const { destination, packet, prepared } = await prepareWithRuntime(t);
+  const authorization = authorizationFixture(packet);
+  const authorizationBytes = canonicalJsonBytes(authorization);
+  await mkdir(join(destination, "outputs"), { recursive: true });
+  for (const relativePath of [
+    "outputs/transcript.jsonl",
+    "outputs/events.jsonl",
+    "outputs/stderr.log",
+    "outputs/final.md",
+  ]) {
+    await writeFile(join(destination, relativePath), Buffer.alloc(0), {
+      flag: "wx",
+    });
+  }
+  await writeFile(join(destination, "authorization.json"), authorizationBytes, {
+    flag: "wx",
+  });
+  let launches = 0;
+
+  const result = await executeAuthorizedModelSession({
+    preparedSession: prepared,
+    allowExternalModelCall: true,
+    authorization,
+    assertCurrent: async () => {},
+    adapter: completedAdapter(() => {
+      launches += 1;
+    }),
+    request: Object.freeze({}),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(launches, 1);
+  assert.deepEqual(
+    await readFile(join(destination, "authorization.json")),
+    authorizationBytes,
+  );
+  assert.equal(await pathExists(join(destination, "attempt.json")), true);
+  assert.equal(await pathExists(join(destination, "run.json")), true);
+});
+
+test("execution refuses every conflicting pre-existing reserved target before provider launch", async (t) => {
   for (const relativePath of [
     "authorization.json",
     "attempt.json",

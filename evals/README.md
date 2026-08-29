@@ -102,7 +102,7 @@ Hosted execution requires both literal `allowExternalModelCall: true` and this e
 }
 ```
 
-The provider, model, effort, and digest values must equal the prepared packet. Earlier implementation approval, toolchain login, preflight approval, or authorization of another packet does not authorize a model call. `authorization.json` is written only after exact validation. `attempt.json` is written only when the adapter consumes the packet-bound, single-use launch capability; a retry requires a new prepared session and new exact authorization.
+The provider, model, effort, and digest values must equal the prepared packet. Earlier implementation approval, toolchain login, preflight approval, or authorization of another packet does not authorize a model call. `authorization.json` is written only after exact validation. `attempt.json` is written only when the adapter consumes the packet-bound, single-use launch capability. If an interruption retains the exact authorization and provisional stream files but no `attempt.json` or terminal result, the same prepared session may reopen those files and continue to its first launch without overwriting retained bytes. Once `attempt.json` exists, the packet can never launch again; another model attempt requires a new prepared session and new exact authorization.
 
 ## Evidence
 

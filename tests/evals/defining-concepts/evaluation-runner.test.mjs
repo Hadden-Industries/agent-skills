@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import test from "node:test";
 import {
   aggregateCampaignGrades,
   buildCampaignMatrix,
+  inspectCampaignExecution,
   parseEvaluationRunnerCli,
   preflightPreparedCampaign,
   prepareCampaign,
@@ -229,20 +231,89 @@ function writeAuthorizations(context) {
   for (const session of context.manifest.sessions) {
     writeFileSync(
       path.join(authorizationDirectory, `${session.blindAlias}.json`),
-      `${JSON.stringify({
-        schemaVersion: 1,
-        decision: "authorized",
-        statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
-        allowExternalModel: true,
-        provider: context.manifest.protocol.provider,
-        model: context.manifest.protocol.model,
-        effort: context.manifest.protocol.effort,
-        transmissionSha256: session.transmissionSha256,
-      })}\n`,
+      `${JSON.stringify(authorizationFor(context, session))}\n`,
       { encoding: "utf8", flag: "wx" },
     );
   }
   return authorizationDirectory;
+}
+
+function authorizationFor(context, session) {
+  return {
+    schemaVersion: 1,
+    decision: "authorized",
+    statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+    allowExternalModel: true,
+    provider: context.manifest.protocol.provider,
+    model: context.manifest.protocol.model,
+    effort: context.manifest.protocol.effort,
+    transmissionSha256: session.transmissionSha256,
+  };
+}
+
+function sessionOutcomePath(context, session) {
+  return path.join(
+    context.destination,
+    "execution",
+    "session-outcomes",
+    `${session.blindAlias}.json`,
+  );
+}
+
+function preparedSessionPath(context, session) {
+  return path.join(
+    context.destination,
+    ...session.relativeSessionPath.split("/"),
+    "prepared",
+  );
+}
+
+function writeLowLevelSessionResult(
+  context,
+  session,
+  { status = "completed", failureClass = null } = {},
+) {
+  const preparedSession = preparedSessionPath(context, session);
+  mkdirSync(path.join(preparedSession, "outputs"), { recursive: true });
+  const finalAnswer =
+    status === "completed" ? `retained ${session.blindAlias}` : null;
+  writeFileSync(
+    path.join(preparedSession, "run.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      transmissionSha256: session.transmissionSha256,
+      status,
+      failureClass,
+      error:
+        status === "completed"
+          ? null
+          : { name: "Error", code: "FIXTURE_FAILED", message: "failed" },
+      suiteResult: finalAnswer === null ? null : { finalAnswer },
+    })}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  writeFileSync(
+    path.join(preparedSession, "metrics.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      nativeUsage: null,
+      normalizedUsage: { totalTokens: status === "completed" ? 42 : null },
+    })}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  writeFileSync(
+    path.join(preparedSession, "timing.json"),
+    `${JSON.stringify({ schemaVersion: 1, durationMs: 123 })}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  writeFileSync(
+    path.join(preparedSession, "outputs", "transcript.jsonl"),
+    finalAnswer === null
+      ? ""
+      : `${JSON.stringify({ type: "assistant", text: finalAnswer })}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  return preparedSession;
 }
 
 function writeSuccessfulPreflight(context, calls = []) {
@@ -403,6 +474,40 @@ test("the existing runner dispatches every trial lifecycle subcommand", () => {
     assert.notEqual(result.status, 0, subcommand);
     assert.match(result.stderr, expected, subcommand);
   }
+});
+
+test("the campaign status command is read-only and reports preflighted state", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const before = readFileSync(
+    path.join(context.destination, "manifest.json"),
+    "utf8",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [runnerPath, "status", "--campaign-dir", context.destination],
+    { encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.state, "preflighted");
+  assert.deepEqual(status.counts, {
+    total: 30,
+    pending: 30,
+    completed: 0,
+    failed: 0,
+    indeterminate: 0,
+  });
+  assert.equal(status.continuationPermitted, false);
+  assert.equal(
+    existsSync(path.join(context.destination, "execution-start.json")),
+    false,
+  );
+  assert.equal(
+    readFileSync(path.join(context.destination, "manifest.json"), "utf8"),
+    before,
+  );
 });
 
 test("calibration matrix contains exactly one run for every case and arm", () => {
@@ -744,7 +849,7 @@ test("campaign preflight is mandatory only for providers with the reviewed zero-
   );
 });
 
-test("run validates every exact authorization before launching any session", () => {
+test("run validates every authorization and persists each outcome before advancing", () => {
   const context = preparedFixture();
   writeSuccessfulPreflight(context);
   const authorizationDirectory = path.join(context.temporary, "authorizations");
@@ -791,6 +896,14 @@ test("run validates every exact authorization before launching any session", () 
     campaignDirectory: context.destination,
     authorizationDirectory,
     executeSession(session) {
+      if (executions.length > 0) {
+        const previous = context.manifest.sessions[executions.length - 1];
+        assert.equal(
+          existsSync(sessionOutcomePath(context, previous)),
+          true,
+          "the previous session outcome must be durable before the next callback",
+        );
+      }
       executions.push(session.blindAlias);
       return {
         status: "completed",
@@ -802,13 +915,26 @@ test("run validates every exact authorization before launching any session", () 
   });
   assert.equal(executions.length, 30);
   assert.equal(completed.state, "executed");
+  assert.equal(completed.schemaVersion, 2);
   assert.equal(completed.sessions.length, 30);
+  for (const session of context.manifest.sessions) {
+    const outcome = JSON.parse(
+      readFileSync(sessionOutcomePath(context, session), "utf8"),
+    );
+    assert.equal(outcome.schemaVersion, 2);
+    assert.equal(outcome.state, "session-outcome");
+    assert.equal(outcome.blindAlias, session.blindAlias);
+    assert.equal(outcome.transmissionSha256, session.transmissionSha256);
+    assert.equal(outcome.status, "completed");
+    assert.equal(outcome.disposition, "valid");
+  }
   const executionStart = JSON.parse(
     readFileSync(
       path.join(context.destination, "execution-start.json"),
       "utf8",
     ),
   );
+  assert.equal(executionStart.schemaVersion, 2);
   assert.equal(executionStart.state, "execution-started");
   assert.equal(
     executionStart.campaignManifestSha256,
@@ -823,17 +949,169 @@ test("run validates every exact authorization before launching any session", () 
     completed.executionStartSha256,
     sha256Hex(canonicalJsonBytes(executionStart)),
   );
+  const replay = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession() {
+      throw new Error("completed sessions must never relaunch");
+    },
+  });
+  assert.deepEqual(replay, completed);
+});
+
+test("an interrupted controller continues only sessions without durable outcomes", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  const firstInvocation = [];
+  const interruption = new Error("fixture controller interruption");
+  interruption.code = "FIXTURE_INTERRUPTED";
+
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        now: new Date("2026-08-29T03:00:00.000Z"),
+        executeSession(session) {
+          firstInvocation.push(session.blindAlias);
+          if (firstInvocation.length === 3) throw interruption;
+          return {
+            status: "completed",
+            finalAnswer: `first invocation ${session.blindAlias}`,
+            transcript: "retained",
+            tokens: 10,
+            durationMs: 20,
+          };
+        },
+      }),
+    /fixture controller interruption/u,
+  );
+
+  assert.deepEqual(
+    firstInvocation,
+    context.manifest.sessions.slice(0, 3).map(({ blindAlias }) => blindAlias),
+  );
+  assert.equal(
+    existsSync(sessionOutcomePath(context, context.manifest.sessions[0])),
+    true,
+  );
+  assert.equal(
+    existsSync(sessionOutcomePath(context, context.manifest.sessions[1])),
+    true,
+  );
+  assert.equal(
+    existsSync(sessionOutcomePath(context, context.manifest.sessions[2])),
+    false,
+  );
+  assert.equal(
+    existsSync(path.join(context.destination, "executed.json")),
+    false,
+  );
+  const interruptedStatus = inspectCampaignExecution({
+    campaignDirectory: context.destination,
+  });
+  assert.deepEqual(interruptedStatus.counts, {
+    total: 30,
+    pending: 28,
+    completed: 2,
+    failed: 0,
+    indeterminate: 0,
+  });
+  assert.equal(interruptedStatus.continuationPermitted, true);
+  assert.equal(interruptedStatus.providerLaunchesRemaining, 28);
+  assert.deepEqual(interruptedStatus.integrityBlockers, []);
+
+  const continued = [];
+  const completed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    now: new Date("2026-08-29T03:05:00.000Z"),
+    executeSession(session) {
+      continued.push(session.blindAlias);
+      return {
+        status: "completed",
+        finalAnswer: `continued ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 11,
+        durationMs: 21,
+      };
+    },
+  });
+
+  assert.deepEqual(
+    continued,
+    context.manifest.sessions.slice(2).map(({ blindAlias }) => blindAlias),
+  );
+  assert.equal(completed.state, "executed");
+  assert.equal(completed.sessions.length, 30);
+  assert.equal(
+    completed.sessions[0].finalAnswer,
+    `first invocation ${context.manifest.sessions[0].blindAlias}`,
+  );
+  assert.equal(
+    completed.sessions[2].finalAnswer,
+    `continued ${context.manifest.sessions[2].blindAlias}`,
+  );
+  const completedStatus = inspectCampaignExecution({
+    campaignDirectory: context.destination,
+  });
+  assert.deepEqual(completedStatus.counts, {
+    total: 30,
+    pending: 0,
+    completed: 30,
+    failed: 0,
+    indeterminate: 0,
+  });
+  assert.equal(completedStatus.continuationPermitted, false);
+  assert.equal(completedStatus.providerLaunchesRemaining, 0);
+});
+
+test("continuation rejects a changed execution-start identity before any callback", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession(session) {
+          if (session.sequence === 1) {
+            return {
+              status: "completed",
+              finalAnswer: "retained first answer",
+              transcript: "retained",
+              tokens: 10,
+              durationMs: 20,
+            };
+          }
+          throw new Error("fixture stop");
+        },
+      }),
+    /fixture stop/u,
+  );
+  const executionStartPath = path.join(
+    context.destination,
+    "execution-start.json",
+  );
+  const executionStart = JSON.parse(readFileSync(executionStartPath, "utf8"));
+  executionStart.authorizationSetSha256 = "f".repeat(64);
+  writeFileSync(executionStartPath, canonicalJsonBytes(executionStart));
+  let callbacks = 0;
+
   assert.throws(
     () =>
       runPreparedCampaign({
         campaignDirectory: context.destination,
         authorizationDirectory,
         executeSession() {
-          throw new Error("must not resume");
+          callbacks += 1;
         },
       }),
-    /execution.*already|cannot.*resume|start.*exists/iu,
+    /execution start|authorization set|manifest/iu,
   );
+  assert.equal(callbacks, 0);
 });
 
 test("prepared session results retain transcript, token, and timing evidence", () => {
@@ -880,7 +1158,204 @@ test("prepared session results retain transcript, token, and timing evidence", (
   });
 });
 
-test("a failed provider result closes the campaign without retry or resume", () => {
+test("run reconciles low-level terminal evidence without relaunching its transmission", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  const retainedSession = context.manifest.sessions[0];
+  writeLowLevelSessionResult(context, retainedSession);
+  const callbacks = [];
+
+  const completed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      callbacks.push(session.blindAlias);
+      return {
+        status: "completed",
+        finalAnswer: `executed ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+
+  assert.deepEqual(
+    callbacks,
+    context.manifest.sessions.slice(1).map(({ blindAlias }) => blindAlias),
+  );
+  const outcome = JSON.parse(
+    readFileSync(sessionOutcomePath(context, retainedSession), "utf8"),
+  );
+  assert.equal(outcome.status, "completed");
+  assert.equal(outcome.disposition, "valid");
+  assert.equal(outcome.evidence.source, "prepared-session-result");
+  assert.match(outcome.evidence.terminalResultSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    completed.sessions[0].finalAnswer,
+    `retained ${retainedSession.blindAlias}`,
+  );
+});
+
+test("a changed low-level result invalidates its parent outcome before continuation", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  const retainedSession = context.manifest.sessions[0];
+  const preparedSession = writeLowLevelSessionResult(context, retainedSession);
+  runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      return {
+        status: "completed",
+        finalAnswer: `executed ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+  const resultPath = path.join(preparedSession, "run.json");
+  const changed = JSON.parse(readFileSync(resultPath, "utf8"));
+  changed.suiteResult.finalAnswer = "changed after parent retention";
+  writeFileSync(resultPath, canonicalJsonBytes(changed));
+  let callbacks = 0;
+
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          callbacks += 1;
+        },
+      }),
+    /evidence|digest|changed|outcome/iu,
+  );
+  assert.equal(callbacks, 0);
+  const status = inspectCampaignExecution({
+    campaignDirectory: context.destination,
+  });
+  assert.equal(status.state, "execution-blocked");
+  assert.equal(status.continuationPermitted, false);
+  assert.ok(status.integrityBlockers.length >= 1);
+});
+
+test("a terminal aggregate with a missing outcome blocks every relaunch", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      return {
+        status: "completed",
+        finalAnswer: `executed ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+  rmSync(sessionOutcomePath(context, context.manifest.sessions[0]));
+  let callbacks = 0;
+
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          callbacks += 1;
+          return {
+            status: "completed",
+            finalAnswer: "must not replace missing terminal evidence",
+            transcript: "retained",
+            tokens: 10,
+            durationMs: 20,
+          };
+        },
+      }),
+    /executed|outcome|terminal/iu,
+  );
+  assert.equal(callbacks, 0);
+});
+
+test("authorization consumption without terminal evidence is never relaunched", () => {
+  const context = preparedFixture();
+  writeSuccessfulPreflight(context);
+  const authorizationDirectory = writeAuthorizations(context);
+  const consumedSession = context.manifest.sessions[0];
+  const preparedSession = preparedSessionPath(context, consumedSession);
+  mkdirSync(preparedSession, { recursive: true });
+  writeFileSync(
+    path.join(preparedSession, "authorization.json"),
+    `${JSON.stringify(authorizationFor(context, consumedSession))}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  writeFileSync(
+    path.join(preparedSession, "attempt.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      provider: context.manifest.protocol.provider,
+      model: context.manifest.protocol.model,
+      effort: context.manifest.protocol.effort,
+      transmissionSha256: consumedSession.transmissionSha256,
+    })}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
+  let callbacks = 0;
+
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: context.destination,
+        authorizationDirectory,
+        executeSession() {
+          callbacks += 1;
+        },
+      }),
+    /indeterminate|terminal evidence/iu,
+  );
+  assert.equal(callbacks, 0);
+  const outcome = JSON.parse(
+    readFileSync(sessionOutcomePath(context, consumedSession), "utf8"),
+  );
+  assert.equal(outcome.status, "indeterminate");
+  assert.equal(outcome.disposition, "indeterminate");
+  assert.equal(outcome.evidence.source, "authorization-consumption");
+  assert.match(
+    outcome.evidence.authorizationConsumptionSha256,
+    /^[0-9a-f]{64}$/u,
+  );
+
+  const continued = [];
+  const completed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      continued.push(session.blindAlias);
+      return {
+        status: "completed",
+        finalAnswer: `continued ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+  assert.deepEqual(
+    continued,
+    context.manifest.sessions.slice(1).map(({ blindAlias }) => blindAlias),
+  );
+  assert.equal(completed.sessions[0].status, "indeterminate");
+  assert.equal(completed.sessions[0].disposition, "indeterminate");
+});
+
+test("a failed provider result is durable and later continuation skips it", () => {
   const context = preparedFixture();
   writeSuccessfulPreflight(context);
   const authorizationDirectory = writeAuthorizations(context);
@@ -911,52 +1386,51 @@ test("a failed provider result closes the campaign without retry or resume", () 
   );
 
   assert.equal(executions, 1);
-  assert.equal(
-    JSON.parse(
-      readFileSync(
-        path.join(
-          context.destination,
-          "invalid-attempts",
-          "attempt-01",
-          "attempt.json",
-        ),
-        "utf8",
-      ),
-    ).failureClass,
-    "provider-failed",
-  );
   const failed = JSON.parse(
     readFileSync(
-      path.join(context.destination, "execution-failed.json"),
+      sessionOutcomePath(context, context.manifest.sessions[0]),
       "utf8",
     ),
   );
-  assert.equal(failed.state, "execution-failed");
+  assert.equal(failed.state, "session-outcome");
   assert.equal(failed.blindAlias, firstAlias);
-  assert.equal(failed.completedSessionCount, 0);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.disposition, "invalid");
   assert.equal(
     existsSync(path.join(context.destination, "executed.json")),
     false,
   );
-  assert.throws(
-    () =>
-      runPreparedCampaign({
-        campaignDirectory: context.destination,
-        authorizationDirectory,
-        executeSession() {
-          executions += 1;
-        },
-      }),
-    /execution.*already|cannot.*resume|start.*exists/iu,
-  );
+
+  const continued = [];
+  const completed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      continued.push(session.blindAlias);
+      return {
+        status: "completed",
+        finalAnswer: `continued ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
   assert.equal(executions, 1);
+  assert.deepEqual(
+    continued,
+    context.manifest.sessions.slice(1).map(({ blindAlias }) => blindAlias),
+  );
+  assert.equal(completed.state, "executed");
+  assert.equal(completed.sessions[0].status, "failed");
+  assert.equal(completed.sessions[0].disposition, "invalid");
   assert.throws(
     () => prepareCampaignGrading({ campaignDirectory: context.destination }),
-    /executed|campaign/iu,
+    /invalid|completed|campaign/iu,
   );
 });
 
-test("a thrown execution callback writes terminal failure evidence and cannot resume", () => {
+test("a callback interruption before consumption leaves its session pending", () => {
   const context = preparedFixture();
   writeSuccessfulPreflight(context);
   const authorizationDirectory = writeAuthorizations(context);
@@ -977,32 +1451,36 @@ test("a thrown execution callback writes terminal failure evidence and cannot re
     /fixture transport interruption/u,
   );
   assert.equal(executions, 1);
-  const failed = JSON.parse(
-    readFileSync(
-      path.join(context.destination, "execution-failed.json"),
-      "utf8",
-    ),
+  assert.equal(
+    existsSync(sessionOutcomePath(context, context.manifest.sessions[0])),
+    false,
   );
-  assert.equal(failed.state, "execution-failed");
-  assert.equal(failed.failureClass, "execution-threw");
-  assert.equal(failed.error.code, "FIXTURE_INTERRUPTED");
-  assert.equal(failed.completedSessionCount, 0);
   assert.equal(
     existsSync(path.join(context.destination, "executed.json")),
     false,
   );
-  assert.throws(
-    () =>
-      runPreparedCampaign({
-        campaignDirectory: context.destination,
-        authorizationDirectory,
-        executeSession() {
-          executions += 1;
-        },
-      }),
-    /execution.*already|cannot.*resume|start.*exists/iu,
-  );
+
+  const continued = [];
+  const completed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      continued.push(session.blindAlias);
+      return {
+        status: "completed",
+        finalAnswer: `continued ${session.blindAlias}`,
+        transcript: "retained",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
   assert.equal(executions, 1);
+  assert.deepEqual(
+    continued,
+    context.manifest.sessions.map(({ blindAlias }) => blindAlias),
+  );
+  assert.equal(completed.sessions.length, 30);
 });
 
 test("grading packets are blind and pairwise side assignment is sealed", () => {

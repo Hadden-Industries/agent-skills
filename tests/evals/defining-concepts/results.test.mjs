@@ -293,7 +293,10 @@ function validateResultArtifactSet({
   }
   assert.deepEqual(sessionArms, new Set(manifest.protocol.arms));
 
-  assert.equal(execution.schemaVersion, 1);
+  assert.ok(
+    execution.schemaVersion === 1 || execution.schemaVersion === 2,
+    "execution evidence must declare historical schema 1 or durable schema 2",
+  );
   if (manifest.schemaVersion === 3) {
     assert.equal(
       execution.capabilityReconciliationSha256,
@@ -303,7 +306,10 @@ function validateResultArtifactSet({
   const dispositions = new Set();
   for (const session of execution.sessions) {
     assert.ok(
-      session.disposition === "valid" || session.disposition === "invalid",
+      session.disposition === "valid" ||
+        session.disposition === "invalid" ||
+        (execution.schemaVersion === 2 &&
+          session.disposition === "indeterminate"),
     );
     dispositions.add(session.disposition);
   }
@@ -312,7 +318,11 @@ function validateResultArtifactSet({
     assert.equal(attempt.disposition, "invalid");
     dispositions.add(attempt.disposition);
   }
-  assert.deepEqual(dispositions, new Set(["valid", "invalid"]));
+  assert.equal(dispositions.has("valid"), true);
+  assert.equal(dispositions.has("invalid"), true);
+  if (execution.schemaVersion === 1) {
+    assert.equal(dispositions.has("indeterminate"), false);
+  }
 
   assert.deepEqual(manifest.limitations, {
     repeatedSampling: false,
@@ -574,7 +584,10 @@ function validateCurrentResultDirectory(resultDirectory) {
   if (preflight !== null) assert.equal(preflight.status, "completed");
 
   const executed = readJson(executedPath);
-  assert.equal(executed.schemaVersion, 1);
+  assert.ok(
+    executed.schemaVersion === 1 || executed.schemaVersion === 2,
+    "executed campaign must use historical schema 1 or durable schema 2",
+  );
   assert.equal(executed.state, "executed");
   assert.equal(executed.campaignManifestSha256, sha256(manifestBytes));
   if (capabilityAware) {
@@ -597,6 +610,46 @@ function validateCurrentResultDirectory(resultDirectory) {
       executed.authorizationSetSha256,
       executionStart.authorizationSetSha256,
     );
+    if (executed.schemaVersion === 2) {
+      assert.equal(executionStart.schemaVersion, 2);
+      const outcomeDirectory = path.join(
+        resultDirectory,
+        "execution",
+        "session-outcomes",
+      );
+      assert.equal(existsSync(outcomeDirectory), true);
+      const outcomeFiles = readdirSync(outcomeDirectory, {
+        withFileTypes: true,
+      }).filter((entry) => entry.isFile() && entry.name.endsWith(".json"));
+      assert.equal(outcomeFiles.length, manifest.sessions.length);
+      const outcomes = new Map(
+        outcomeFiles.map((entry) => {
+          const outcomeBytes = readFileSync(
+            path.join(outcomeDirectory, entry.name),
+          );
+          const outcome = JSON.parse(outcomeBytes.toString("utf8"));
+          assert.deepEqual(
+            outcomeBytes,
+            Buffer.from(JSON.stringify(outcome), "utf8"),
+          );
+          assert.equal(outcome.schemaVersion, 2);
+          assert.equal(outcome.state, "session-outcome");
+          assert.equal(
+            outcome.executionStartSha256,
+            executed.executionStartSha256,
+          );
+          assert.equal(
+            outcome.authorizationSetSha256,
+            executed.authorizationSetSha256,
+          );
+          return [outcome.blindAlias, outcome];
+        }),
+      );
+      assert.deepEqual(
+        executed.sessions,
+        manifest.sessions.map(({ blindAlias }) => outcomes.get(blindAlias)),
+      );
+    }
   }
   assert.equal(executed.sessions.length, manifest.sessions.length);
   assert.deepEqual(
@@ -604,15 +657,23 @@ function validateCurrentResultDirectory(resultDirectory) {
     aliases,
   );
   for (const session of executed.sessions) {
-    assert.ok(session.status === "completed" || session.status === "failed");
+    assert.ok(
+      session.status === "completed" ||
+        session.status === "failed" ||
+        (executed.schemaVersion === 2 && session.status === "indeterminate"),
+    );
     assert.equal(
       session.disposition,
-      session.status === "completed" ? "valid" : "invalid",
+      session.status === "completed"
+        ? "valid"
+        : session.status === "failed"
+          ? "invalid"
+          : "indeterminate",
     );
   }
 
-  const invalidSessions = executed.sessions.filter(
-    ({ disposition }) => disposition === "invalid",
+  const nongradableSessions = executed.sessions.filter(
+    ({ disposition }) => disposition !== "valid",
   );
   const invalidAttemptsDirectory = path.join(
     resultDirectory,
@@ -623,8 +684,12 @@ function validateCurrentResultDirectory(resultDirectory) {
         (entry) => entry.isDirectory(),
       )
     : [];
-  assert.equal(invalidAttempts.length, invalidSessions.length);
-  if (invalidSessions.length > 0) {
+  if (executed.schemaVersion === 1) {
+    assert.equal(invalidAttempts.length, nongradableSessions.length);
+  } else {
+    assert.equal(invalidAttempts.length, 0);
+  }
+  if (nongradableSessions.length > 0) {
     assert.equal(existsSync(gradingPreparedPath), false);
     assert.equal(existsSync(aggregatePath), false);
     return "executed-invalid";
@@ -866,6 +931,20 @@ test("current three-arm result directories validate according to retained campai
 
 test("current three-arm fixture binds bundles, bytes, runtime, transmissions, dispositions, and limits", () => {
   assert.equal(validateResultArtifactSet(currentSchemaFixture()), "current");
+});
+
+test("durable schema-v2 execution fixtures preserve invalid and indeterminate dispositions", () => {
+  const fixture = currentSchemaFixture();
+  fixture.execution = {
+    ...fixture.execution,
+    schemaVersion: 2,
+    sessions: [
+      { blindAlias: "blind-01", disposition: "valid" },
+      { blindAlias: "blind-02", disposition: "invalid" },
+      { blindAlias: "blind-03", disposition: "indeterminate" },
+    ],
+  };
+  assert.equal(validateResultArtifactSet(fixture), "current");
 });
 
 test("an undeclared result schema is rejected instead of inferred from missing fields", () => {

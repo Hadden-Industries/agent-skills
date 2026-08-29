@@ -966,12 +966,11 @@ function projectFinalEvidence(bytes, projection) {
   return Buffer.from(projected, "utf8");
 }
 
-async function openExecutionEvidence(directory, layout) {
+async function openExecutionEvidence(directory, layout, authorization) {
   const outputs = join(directory, "outputs");
-  await mkdir(outputs, { mode: 0o700 });
+  await mkdir(outputs, { recursive: true, mode: 0o700 });
 
   for (const relativePath of [
-    layout.authorization,
     layout.authorizationConsumption,
     layout.metrics,
     layout.result,
@@ -984,6 +983,36 @@ async function openExecutionEvidence(directory, layout) {
       error.code = "EEXIST";
       throw error;
     }
+  }
+
+  const authorizationPath = join(directory, layout.authorization);
+  let authorizationRetained = false;
+  if (await exists(authorizationPath)) {
+    let retainedBytes;
+    let retainedAuthorization;
+    try {
+      retainedBytes = await readFile(authorizationPath);
+      retainedAuthorization = JSON.parse(retainedBytes.toString("utf8"));
+    } catch {
+      const error = new Error(
+        `Reserved execution evidence already exists: ${layout.authorization}`,
+      );
+      error.code = "EEXIST";
+      throw error;
+    }
+    if (
+      !retainedBytes.equals(canonicalJsonBytes(retainedAuthorization)) ||
+      !canonicalJsonBytes(retainedAuthorization).equals(
+        canonicalJsonBytes(authorization),
+      )
+    ) {
+      const error = new Error(
+        `Reserved execution evidence already exists: ${layout.authorization}`,
+      );
+      error.code = "EEXIST";
+      throw error;
+    }
+    authorizationRetained = true;
   }
 
   const paths = {
@@ -1003,8 +1032,16 @@ async function openExecutionEvidence(directory, layout) {
 
   try {
     for (const name of ["transcript", "events", "stderr", "final"]) {
-      handles[name] = await open(paths[name], "wx+", 0o600);
+      const retained = await exists(paths[name]);
+      handles[name] = await open(paths[name], retained ? "a+" : "wx+", 0o600);
       initialStats[name] = await handles[name].stat({ bigint: true });
+      if (name === "final" && initialStats[name].size > 0n) {
+        const error = new Error(
+          `Unconsumed execution has nonempty final evidence: ${relativePaths.final}`,
+        );
+        error.code = "EEXIST";
+        throw error;
+      }
     }
   } catch (error) {
     await Promise.allSettled(
@@ -1102,6 +1139,7 @@ async function openExecutionEvidence(directory, layout) {
   });
 
   return {
+    authorizationRetained,
     evidence,
     bindPacket(packet) {
       if (suiteDeclarations !== null) {
@@ -1567,7 +1605,11 @@ export async function executeAuthorizedModelSession({
   const selectedClock = normalizedClock(clock);
   const startedAt = wallTimestamp(selectedClock, "start");
   const startedMonotonic = monotonicTimestamp(selectedClock, "start");
-  const transaction = await openExecutionEvidence(directory, layout);
+  const transaction = await openExecutionEvidence(
+    directory,
+    layout,
+    authorization,
+  );
   let phase = "authorization";
   let capability;
   let packet = null;
@@ -1582,10 +1624,12 @@ export async function executeAuthorizedModelSession({
       fail("allowExternalModelCall must be literally true");
     }
     assertAuthorization(authorization, packet);
-    await writeCanonicalExclusive(
-      join(directory, "authorization.json"),
-      authorization,
-    );
+    if (!transaction.authorizationRetained) {
+      await writeCanonicalExclusive(
+        join(directory, layout.authorization),
+        authorization,
+      );
+    }
     authorizationWritten = true;
 
     phase = "current-state";
