@@ -27,6 +27,7 @@ const runner = path.join(
   "defining-concepts",
   "run-evaluation-session.mjs",
 );
+const executionTimeoutMs = 5_000;
 const fakeClaude = path.join(
   root,
   "tests",
@@ -226,6 +227,8 @@ function fixture() {
     "claude-opus-4-1",
     "--effort",
     "high",
+    "--execution-timeout-ms",
+    String(executionTimeoutMs),
     "--skill-bundle-file",
     bundleFile,
     "--capability-reconciliation-file",
@@ -312,6 +315,8 @@ function googleFixture() {
       "gemini-3.5-flash-low",
       "--effort",
       "low",
+      "--execution-timeout-ms",
+      String(executionTimeoutMs),
       "--skill-bundle-file",
       bundleFile,
       "--capability-reconciliation-file",
@@ -420,6 +425,13 @@ test("prepare freezes packet inputs and performs no provider model turn", () => 
     /^[0-9a-f]{40}$/u,
   );
   assert.match(packet.transmissionSha256, /^[0-9a-f]{64}$/u);
+  const settings = JSON.parse(
+    packet.transmission.harnessControlledInputs.find(
+      ({ id }) => id === "runner-settings",
+    ).content,
+  );
+  assert.equal(settings.schemaVersion, 2);
+  assert.equal(settings.executionTimeoutMs, executionTimeoutMs);
   writeFileSync(
     context.caseFile,
     `${JSON.stringify({ id: 1, prompt: "mutated source prompt" })}\n`,
@@ -434,6 +446,25 @@ test("prepare freezes packet inputs and performs no provider model turn", () => 
     packet.transmission.harnessControlledInputs[0].content,
   );
   assert.notEqual(retained, "mutated source prompt");
+});
+
+test("prepare requires a positive packet-bound execution timeout", () => {
+  const missing = fixture();
+  const flagIndex = missing.prepareArgs.indexOf("--execution-timeout-ms");
+  missing.prepareArgs.splice(flagIndex, 2);
+  let result = invoke(missing.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /execution-timeout-ms/iu);
+  assert.equal(existsSync(missing.destination), false);
+
+  const invalid = fixture();
+  invalid.prepareArgs[
+    invalid.prepareArgs.indexOf("--execution-timeout-ms") + 1
+  ] = "0";
+  result = invoke(invalid.prepareArgs);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /execution-timeout-ms.*positive integer/iu);
+  assert.equal(existsSync(invalid.destination), false);
 });
 
 test("prepare binds an exact clarification turn and Codex completes both turns", async () => {
@@ -494,6 +525,8 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     "gpt-5.6-luna",
     "--effort",
     "low",
+    "--execution-timeout-ms",
+    String(executionTimeoutMs),
     "--skill-bundle-file",
     bundleFile,
     "--capability-reconciliation-file",
@@ -544,8 +577,6 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     "--authorization",
     authorization,
     "--allow-external-model-call",
-    "--timeout-ms",
-    "5000",
   ]);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.equal(
@@ -697,8 +728,6 @@ test("run launches only after exact authorization and retains shared evidence", 
     "--authorization",
     authorization,
     "--allow-external-model-call",
-    "--timeout-ms",
-    "5000",
   ]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
@@ -715,6 +744,48 @@ test("run launches only after exact authorization and retains shared evidence", 
   assert.equal(
     readFileSync(path.join(context.destination, "outputs", "final.md"), "utf8"),
     "Authoritative final answer",
+  );
+});
+
+test("run rejects a runtime timeout override before a provider model turn", () => {
+  const context = fixture();
+  const prepared = invoke(context.prepareArgs);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const packet = JSON.parse(
+    readFileSync(path.join(context.destination, "packet.json"), "utf8"),
+  );
+  const authorization = path.join(context.temporary, "authorization.json");
+  writeFileSync(
+    authorization,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      decision: "authorized",
+      statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+      allowExternalModel: true,
+      provider: packet.transmission.provider,
+      model: packet.transmission.model,
+      effort: packet.transmission.effort,
+      transmissionSha256: packet.transmissionSha256,
+    })}\n`,
+    "utf8",
+  );
+
+  const result = invoke([
+    "run",
+    "--prepared-session",
+    context.destination,
+    "--authorization",
+    authorization,
+    "--allow-external-model-call",
+    "--timeout-ms",
+    "4999",
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /execution timeout.*packet-bound/iu);
+  assert.equal(
+    records(context.record).some(({ mode }) => mode === "model"),
+    false,
   );
 });
 
@@ -750,8 +821,6 @@ test("run propagates the evaluation trial evidence layout", () => {
     "--allow-external-model-call",
     "--evidence-layout",
     "evaluation-trial-v1",
-    "--timeout-ms",
-    "5000",
   ]);
 
   assert.equal(result.status, 0, result.stderr);
@@ -875,6 +944,8 @@ test("Codex preparation binds App Server transport and a managed execution home"
     "gpt-5.6-luna",
     "--effort",
     "low",
+    "--execution-timeout-ms",
+    String(executionTimeoutMs),
     "--capability-reconciliation-file",
     capabilityReconciliationFile,
     "--codex-command",
@@ -916,6 +987,7 @@ test("Codex preparation binds App Server transport and a managed execution home"
     ).content,
   );
   assert.equal(settings.evaluationHomesRoot, homes);
+  assert.equal(settings.executionTimeoutMs, executionTimeoutMs);
   assert.deepEqual(
     packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
     [
@@ -978,6 +1050,8 @@ test("Codex preflight accepts available but disabled provider facilities without
     "gpt-5.6-luna",
     "--effort",
     "low",
+    "--execution-timeout-ms",
+    String(executionTimeoutMs),
     "--capability-reconciliation-file",
     capabilityReconciliationFile,
     "--codex-command",
@@ -1107,8 +1181,6 @@ test("Antigravity run launches only after exact authorization and retains shared
     "--authorization",
     authorization,
     "--allow-external-model-call",
-    "--timeout-ms",
-    "5000",
   ]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(

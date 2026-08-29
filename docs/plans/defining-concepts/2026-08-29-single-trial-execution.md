@@ -19,6 +19,7 @@
 - If `authorization-consumption.json` exists but no terminal `result.json` exists, verification reports `executionStatus: "indeterminate"`, `providerOutcome: "undetermined"`, and `retryPermitted: false`. The verifier must not report `interrupted` unless the runner directly observed and durably recorded that interruption.
 - `trial verify` is local and read-only: no provider connection, network access, model turn, artifact repair, or implicit retry.
 - The live diagnostic remains a separate authorization step after preparation discloses the exact transmission SHA-256.
+- Every new trial requires a reviewed positive `--execution-timeout-ms`; the manifest and packet bind it before transmission disclosure, and `trial run` cannot override it.
 
 ## Canonical command surface
 
@@ -29,7 +30,7 @@ node evals/defining-concepts/evaluation-runner.mjs trial run --trial-dir <path> 
 node evals/defining-concepts/evaluation-runner.mjs trial verify --trial-dir <path>
 ```
 
-`trial prepare` accepts `--output-dir`, `--case-id`, `--skill-arm`, `--trial-index`, `--adapter codex-app-server`, `--model`, `--reasoning-effort`, `--created-at`, `--working-root`, and `--baseline-revision`. The manifest records provider `openai`, transport `codex-app-server`, diagnostic evidence use, and aggregate ineligibility.
+`trial prepare` accepts `--output-dir`, `--case-id`, `--skill-arm`, `--trial-index`, `--adapter codex-app-server`, `--model`, `--reasoning-effort`, `--execution-timeout-ms`, `--created-at`, `--working-root`, and `--baseline-revision`. The schema-version-2 trial manifest records provider `openai`, transport `codex-app-server`, the positive whole-session execution timeout, diagnostic evidence use, and aggregate ineligibility. Schema-version-2 `runner-settings` retain the same timeout inside the transmission, so changing it changes the transmission SHA-256 and requires a new authorization. Read-only verification continues to recognize historical schema-version-1 trial manifests and runner settings; they cannot be executed under changed runtime bytes.
 
 The default destination convention is:
 
@@ -91,10 +92,10 @@ preflight/<adapter-evidence>
 - Modify: `tests/evals/defining-concepts/run-evaluation-session.test.mjs`
 - Modify: `evals/defining-concepts/run-evaluation-session.mjs`
 
-1. Add a CLI test showing `run --evidence-layout evaluation-trial-v1` reaches the runtime and produces the modern durable artifacts.
+1. Add CLI tests showing `run --evidence-layout evaluation-trial-v1` reaches the runtime and produces the modern durable artifacts, preparation requires a positive `--execution-timeout-ms`, schema-version-2 runner settings bind it into the transmission, and `run --timeout-ms` is rejected before a provider call.
 2. Run the focused test and observe failure for the unrecognized or ignored flag.
-3. Parse and validate `--evidence-layout`; accept only the legacy default and `evaluation-trial-v1`.
-4. Pass the selected layout to `executeAuthorizedModelSession` without changing existing callers.
+3. Parse and validate `--evidence-layout`; accept only the legacy default and `evaluation-trial-v1`. Parse the preparation-only execution timeout as a positive integer and remove the hidden execution fallback.
+4. Pass the selected layout to `executeAuthorizedModelSession` without changing existing callers. During execution, read the timeout only from retained runner settings and reject a run-time override.
 5. Re-run the focused test and the whole session-runner test file.
 
 ## Task 3: Implement the isolated trial lifecycle module
@@ -104,7 +105,7 @@ preflight/<adapter-evidence>
 - Create: `tests/evals/defining-concepts/evaluation-trial.test.mjs`
 - Create: `evals/defining-concepts/evaluation-trial.mjs`
 
-1. Add prepare tests covering one selected case and arm, Windows-safe timestamp naming, packet and input creation, manifest digest bindings, selected skill-bundle handling, full capability reconciliation, diagnostic evidence classification, aggregate exclusion, collision refusal, and staging cleanup behavior.
+1. Add prepare tests covering one selected case and arm, Windows-safe timestamp naming, packet and input creation, manifest digest bindings, selected skill-bundle handling, full capability reconciliation, packet-bound execution timeout, diagnostic evidence classification, aggregate exclusion, collision refusal, and staging cleanup behavior.
 2. Run the prepare tests and confirm failure because the module does not exist.
 3. Implement `prepareEvaluationTrial` using the existing evaluation definitions, skill-bundle capture, capability reconciliation, and low-level packet preparation. Build in a staging directory and atomically rename only after every immutable artifact validates.
 4. Add preflight tests covering successful zero-turn retained evidence, packet-integrity rejection, duplicate-preflight refusal, and refusal once authorization consumption or a result already exists.
@@ -125,7 +126,7 @@ preflight/<adapter-evidence>
 - Modify: `tests/evals/defining-concepts/evaluation-runner.test.mjs`
 - Modify: `evals/defining-concepts/evaluation-runner.mjs`
 
-1. Add parser and dispatch tests for `trial prepare`, `trial preflight`, `trial run`, and `trial verify`, including the exact approved flag vocabulary and rejection of legacy or ambiguous aliases.
+1. Add parser and dispatch tests for `trial prepare`, `trial preflight`, `trial run`, and `trial verify`, including `--execution-timeout-ms` in the exact approved preparation vocabulary and rejection of legacy or ambiguous aliases.
 2. Run the focused tests and confirm failure because `trial` is not yet a command group.
 3. Add nested-command parsing without changing the current campaign commands.
 4. Delegate lifecycle behavior to `evaluation-trial.mjs` and print machine-readable JSON summaries suitable for retained logs and automation.
@@ -139,7 +140,7 @@ preflight/<adapter-evidence>
 - Modify: `evals/defining-concepts/README.md`
 
 1. Document why single-trial execution precedes campaign execution.
-2. Document the four lifecycle commands, flags, timestamp naming, evidence tree, and status semantics.
+2. Document the four lifecycle commands, flags, packet-bound execution deadline, timestamp naming, evidence tree, and status semantics.
 3. State that the first recommended diagnostic is case 1, `candidate-skill`, `gpt-5.3-codex-spark`, and `low`, because the case exercises the skill's required live web-search and URL-retrieval capabilities at the lowest-cost arm.
 4. State that preparation and verification make no model calls, preflight must remain zero-turn, and run requires exact packet authorization.
 5. State that a completed execution is not a semantic pass and that diagnostic/repeatability trials are excluded from aggregate campaign conclusions.

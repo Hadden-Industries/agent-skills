@@ -96,10 +96,10 @@ The recommended first diagnostic is case 1, `candidate-skill`, `gpt-5.3-codex-sp
 Use a new destination under `results/trials/` and a fresh non-repository working root. `--created-at` retains the punctuated RFC 3339 timestamp; the destination basename removes only the colons so it remains sortable, collision-resistant to milliseconds, and valid on Windows.
 
 ```text
-node evals/defining-concepts/evaluation-runner.mjs trial prepare --output-dir <absolute-repository/evals/defining-concepts/results/trials/2026-08-29T123456.789Z> --case-id 1 --skill-arm candidate-skill --trial-index 1 --adapter codex-app-server --model gpt-5.3-codex-spark --reasoning-effort low --created-at 2026-08-29T12:34:56.789Z --working-root <absolute-fresh-non-repository-working-root> --baseline-revision <full-commit-oid>
+node evals/defining-concepts/evaluation-runner.mjs trial prepare --output-dir <absolute-repository/evals/defining-concepts/results/trials/2026-08-29T123456.789Z> --case-id 1 --skill-arm candidate-skill --trial-index 1 --adapter codex-app-server --model gpt-5.3-codex-spark --reasoning-effort low --execution-timeout-ms <reviewed-positive-integer> --created-at 2026-08-29T12:34:56.789Z --working-root <absolute-fresh-non-repository-working-root> --baseline-revision <full-commit-oid>
 ```
 
-Preparation is local, initializes the established managed evaluation-home boundary under `%LOCALAPPDATA%\OpenAI\Codex\EvaluationHomes\v1`, keeps the fresh non-repository working root separate as the packet's execution workspace, captures both comparison bundles for capability reconciliation, retains only the selected arm's bundle as `skill-bundle.json`, freezes the packet and ordered inputs, and uses zero model turns. It returns the exact transmission SHA-256, but that disclosure does not authorize a provider call. The managed home is stable so it can reuse the operator's authenticated Codex state; its per-trial lease prevents concurrent mutation, and preflight or execution may require permission to write that lease outside the repository sandbox.
+Preparation is local, initializes the established managed evaluation-home boundary under `%LOCALAPPDATA%\OpenAI\Codex\EvaluationHomes\v1`, keeps the fresh non-repository working root separate as the packet's execution workspace, captures both comparison bundles for capability reconciliation, retains only the selected arm's bundle as `skill-bundle.json`, freezes the packet and ordered inputs, and uses zero model turns. `--execution-timeout-ms` is mandatory: it is a positive whole-session execution deadline, is recorded in the schema-version-2 trial manifest, and is retained in schema-version-2 `runner-settings` inside the transmission. Changing it changes the transmission SHA-256 and therefore requires a newly prepared packet and exact authorization. It is separate from the zero-turn preflight timeout. It returns the exact transmission SHA-256, but that disclosure does not authorize a provider call. The managed home is stable so it can reuse the operator's authenticated Codex state; its per-trial lease prevents concurrent mutation, and preflight or execution may require permission to write that lease outside the repository sandbox.
 
 Run and inspect the mandatory zero-turn preflight, then verify the named directory locally:
 
@@ -110,7 +110,7 @@ node evals/defining-concepts/evaluation-runner.mjs trial verify --trial-dir <abs
 
 Preflight retains provider-native evidence under `preflight/` and seals its digests in root `preflight.json`. It must report `status: "completed"`, `modelTurns: 0`, the frozen provider, model, and effort, and the required web-search capability. Preparation and verification make no provider call; preflight performs no model turn and consumes no per-packet authorization.
 
-After reviewing the manifest, packet, complete selected skill bundle, exact prompt, capability receipt, provider, adapter, model, effort, maximum turns, and transmission SHA-256, obtain a new authorization for that exact packet. Earlier campaign, manifest, profile, or conversational authorizations do not apply. Store the exact canonical authorization object in a separate file. The input may have no terminator or one conventional terminal LF or CRLF; execution validates the semantic binding and otherwise-canonical bytes, then retains `authorization.json` as terminator-free canonical JSON evidence:
+After reviewing the manifest, packet, complete selected skill bundle, exact prompt, capability receipt, provider, adapter, model, effort, execution timeout, maximum turns, and transmission SHA-256, obtain a new authorization for that exact packet. Earlier campaign, manifest, profile, or conversational authorizations do not apply. Store the exact canonical authorization object in a separate file. The input may have no terminator or one conventional terminal LF or CRLF; execution validates the semantic binding and otherwise-canonical bytes, then retains `authorization.json` as terminator-free canonical JSON evidence:
 
 ```json
 {
@@ -180,7 +180,7 @@ The arms answer different questions:
 - `current-skill` receives an immutable complete skill-directory bundle captured from the operator-selected baseline Git revision. It represents the deployed comparison point, not whatever happens to be at `HEAD` later.
 - `candidate-skill` receives an immutable complete bundle captured from the working tree at preparation time. It represents the exact proposed bytes under evaluation.
 
-Each bundle contains the full deployable skill inventory, per-file byte lengths and SHA-256 values, source identity, and an aggregate SHA-256. The treatment is the rendered bundle, not only `SKILL.md`; otherwise reference-heavy skills would be evaluated incompletely. The campaign manifest captures each case record, prompt and follow-up conversation digest, runtime fingerprint, provider, model, effort, blind alias, arm, repetition, bundle digest, capability-reconciliation receipt digest, and transmission SHA-256.
+Each bundle contains the full deployable skill inventory, per-file byte lengths and SHA-256 values, source identity, and an aggregate SHA-256. The treatment is the rendered bundle, not only `SKILL.md`; otherwise reference-heavy skills would be evaluated incompletely. The campaign manifest captures each case record, prompt and follow-up conversation digest, runtime fingerprint, provider, model, effort, packet-bound execution timeout, blind alias, arm, repetition, bundle digest, capability-reconciliation receipt digest, and transmission SHA-256.
 
 The recorded seed deterministically orders cells and creates opaque aliases. The private arm mapping remains under `sealed/`; graders receive aliases and outputs without arm labels. `prepare` refuses an existing destination, a non-timestamp destination, a repeated campaign cell, identical current/candidate bundles, or a campaign other than the declared canonical matrix.
 
@@ -231,10 +231,12 @@ Prepare, authorize, execute, grade, and aggregate the representative, capability
 Preparation is local-only and launches zero model turns. Use a new filesystem-safe UTC directory name derived from the same `--started-at` value, for example `2026-08-29T123456.789Z`; the colons are omitted only from the directory name. Use a fresh non-repository `--working-root`. For Codex, bind the reviewed executable and name the initialized managed evaluation-homes root.
 
 ```text
-node evals/defining-concepts/evaluation-runner.mjs prepare --campaign calibration --destination <absolute-results/UTC-timestamp-directory> --baseline-revision <full-commit-oid> --provider codex --model <exact-model-id> --effort <exact-effort> --seed <reviewed-stable-seed> --started-at <RFC-3339-UTC-timestamp> --working-root <absolute-fresh-working-root> --codex-command <absolute-reviewed-codex-executable> --evaluation-homes-root <absolute-managed-evaluation-homes-root>
+node evals/defining-concepts/evaluation-runner.mjs prepare --campaign calibration --destination <absolute-results/UTC-timestamp-directory> --baseline-revision <full-commit-oid> --provider codex --model <exact-model-id> --effort <exact-effort> --execution-timeout-ms <reviewed-positive-integer> --seed <reviewed-stable-seed> --started-at <RFC-3339-UTC-timestamp> --working-root <absolute-fresh-working-root> --codex-command <absolute-reviewed-codex-executable> --evaluation-homes-root <absolute-managed-evaluation-homes-root>
 ```
 
 Provider-specific preparation may additionally use the repeatable prefix arguments accepted by the runner. On Windows, `--codex-command` must resolve directly to a native `.exe` or `.com`; command wrappers and scripts are rejected because closing a wrapper does not prove that its App Server descendant has closed. Do not substitute a mutable label such as `latest` for an exact model identifier when the provider offers a stable exact ID.
+
+There is no implicit campaign execution timeout. Select a reviewed positive millisecond value before preparation. The value applies to the packet's complete scripted model interaction, including every allowed follow-up turn; provider cleanup remains separately bounded. Preparation copies the exact value into `manifest.json` protocol metadata and every packet's schema-version-2 `runner-settings`, then verifies equality before retaining the campaign. `run` consumes only that frozen value and rejects `--timeout-ms`, so an operator cannot lengthen or shorten the authorized session after hashing. Use one value across all arms in a campaign. For cross-profile comparisons, prefer one non-binding value across profiles; if a profile needs a different deadline, preregister it and report the resulting comparability limitation rather than describing effort as the only changed condition.
 
 Before disclosing transmission hashes or creating authorization artifacts, run the mandatory campaign preflight. It starts no model turn and consumes no per-packet model authorization:
 
@@ -249,7 +251,7 @@ Before execution of any profile, review and disclose:
 1. the campaign destination, `manifest.json`, successful `preflight.json`, and selected zero-turn preflight evidence;
 2. both bundle inventories, their source identities, every file digest, and both aggregate hashes;
 3. all ten exact initial prompts and the exact case-10 follow-up;
-4. provider, model, effort, toolchain, runtime fingerprint, isolation, and capability declaration;
+4. provider, model, effort, execution timeout, toolchain, runtime fingerprint, isolation, and capability declaration;
 5. all 30 transmission SHA-256 values and the intended call and turn count for that profile; and
 6. the enforced one-repetition limitation.
 
@@ -278,7 +280,9 @@ Invoke the same `run` command again to continue only when `status` reports conti
 
 A newly observed failed or indeterminate session stops that invocation after its outcome is durable. A later exact invocation skips it and may process other pending sessions. A callback interruption before authorization consumption leaves the packet pending; after consumption, no interruption, process restart, or missing parent aggregate can make it launch-eligible again. This is continuation of one frozen campaign, not a model retry or another repetition. `executed.json` is derived from all 30 immutable outcomes after every session is terminal. Grading preparation rejects an aggregate containing any failed or indeterminate session.
 
-Schema-version-1 `execution-start.json` and `execution-failed.json` remain historical, non-resumable evidence. Never rewrite or continue those directories under the durable protocol. A material candidate, packet, capability, model, effort, or authorization change still requires a new timestamped campaign and new authorization.
+The retained 2026-08-29 Sol-max diagnostic campaign demonstrates why the deadline is now packet-bound. Its first two authorized sessions each continued producing reasoning and native-web events until the former unstated 120,000 ms runner default interrupted the active turn; both terminal failures were retained, no packet was retried, and the other 28 authorizations remained unconsumed. Preserve that directory unchanged. Any replacement must use a fresh timestamp, an explicitly reviewed execution timeout, new transmission hashes, a successful zero-turn preflight, and new exact authorization.
+
+Schema-version-1 `execution-start.json` and `execution-failed.json` remain historical, non-resumable evidence. Campaigns or trials prepared with schema-version-1 runner settings also remain immutable historical evidence; they have no packet-bound execution deadline and must not be continued with the current runtime. Never rewrite or continue those directories under the durable protocol. A material candidate, packet, capability, model, effort, execution timeout, or authorization change still requires a new timestamped campaign and new authorization.
 
 ## Blind grading protocol
 

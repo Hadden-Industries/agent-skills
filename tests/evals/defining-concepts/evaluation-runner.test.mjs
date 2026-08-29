@@ -32,6 +32,7 @@ import {
 } from "../../../scripts/evaluation/runtime.js";
 
 const arms = Object.freeze(["no-skill", "current-skill", "candidate-skill"]);
+const executionTimeoutMs = 600_000;
 const runnerPath = path.resolve(
   import.meta.dirname,
   "../../../evals/defining-concepts/evaluation-runner.mjs",
@@ -178,7 +179,17 @@ function packetFor(cell, provider = "openai") {
     runtimeFingerprint: { fixture: true },
     capabilities,
     isolation: { fixture: true },
-    harnessControlledInputs: [],
+    harnessControlledInputs: [
+      {
+        id: "runner-settings",
+        role: "configuration",
+        mediaType: "application/json",
+        content: JSON.stringify({
+          schemaVersion: 2,
+          executionTimeoutMs: cell.executionTimeoutMs,
+        }),
+      },
+    ],
     continuationPolicy: {
       controllerSha256: "a".repeat(64),
       maxTurns: 1,
@@ -198,7 +209,7 @@ function packetFor(cell, provider = "openai") {
   });
 }
 
-function preparedFixture(provider = "openai") {
+function preparedFixture(provider = "openai", timeoutMs = executionTimeoutMs) {
   const temporary = mkdtempSync(path.join(tmpdir(), "defining-campaign-"));
   const destination = path.join(temporary, "2026-08-29T024500.123Z");
   const providerCalls = [];
@@ -215,6 +226,7 @@ function preparedFixture(provider = "openai") {
     provider,
     model: "gpt-test",
     effort: "low",
+    executionTimeoutMs: timeoutMs,
     seed: "frozen-seed",
     now: new Date("2026-08-29T02:45:00.123Z"),
     prepareSession(cell) {
@@ -397,6 +409,8 @@ test("trial command parsing uses the approved provider-neutral vocabulary", () =
     "gpt-5.3-codex-spark",
     "--reasoning-effort",
     "low",
+    "--execution-timeout-ms",
+    String(executionTimeoutMs),
     "--created-at",
     "2026-08-29T12:34:56.789Z",
     "--working-root",
@@ -410,6 +424,10 @@ test("trial command parsing uses the approved provider-neutral vocabulary", () =
   assert.equal(parsed.values.get("--case-id"), "1");
   assert.equal(parsed.values.get("--skill-arm"), "candidate-skill");
   assert.equal(parsed.values.get("--reasoning-effort"), "low");
+  assert.equal(
+    parsed.values.get("--execution-timeout-ms"),
+    String(executionTimeoutMs),
+  );
   assert.throws(
     () =>
       parseEvaluationRunnerCli([
@@ -556,6 +574,10 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
   assert.equal(context.manifest.runIdentity, "2026-08-29T02:45:00.123Z");
   assert.deepEqual(context.manifest.protocol.arms, arms);
   assert.equal(context.manifest.protocol.repetitionCount, 1);
+  assert.equal(
+    context.manifest.protocol.executionTimeoutMs,
+    executionTimeoutMs,
+  );
   assert.equal(context.manifest.sessions.length, 30);
   assert.match(
     context.manifest.capabilityReconciliation.receiptSha256,
@@ -593,6 +615,24 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
       cell.capabilityReconciliation.receiptSha256,
       reconciliation.receiptSha256,
     );
+    assert.equal(cell.executionTimeoutMs, executionTimeoutMs);
+    const packet = JSON.parse(
+      readFileSync(
+        path.join(
+          context.destination,
+          "sessions",
+          cell.blindAlias,
+          "packet.json",
+        ),
+        "utf8",
+      ),
+    );
+    const settings = JSON.parse(
+      packet.transmission.harnessControlledInputs.find(
+        ({ id }) => id === "runner-settings",
+      ).content,
+    );
+    assert.equal(settings.executionTimeoutMs, executionTimeoutMs);
   }
   assert.equal(context.manifest.limitations.repeatedSampling, false);
   assert.equal(context.manifest.limitations.humanUsabilityEvaluated, false);
@@ -607,6 +647,26 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
       preparedFixture().manifest &&
       prepareCampaign({ destination: context.destination }),
     /new directory/iu,
+  );
+});
+
+test("campaign preparation binds the execution timeout into every transmission digest", () => {
+  const first = preparedFixture("openai", executionTimeoutMs);
+  const second = preparedFixture("openai", executionTimeoutMs + 1);
+  assert.deepEqual(
+    first.manifest.sessions.map(({ blindAlias }) => blindAlias),
+    second.manifest.sessions.map(({ blindAlias }) => blindAlias),
+  );
+  assert.ok(
+    first.manifest.sessions.every(
+      (session, index) =>
+        session.transmissionSha256 !==
+        second.manifest.sessions[index].transmissionSha256,
+    ),
+  );
+  assert.throws(
+    () => preparedFixture("openai", 0),
+    /executionTimeoutMs.*positive integer/iu,
   );
 });
 

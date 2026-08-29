@@ -379,7 +379,7 @@ Each bundle contains:
 - `current-skill` consumes one previously captured committed bundle.
 - `candidate-skill` consumes one previously captured candidate bundle.
 - A case may remain one-turn or carry ordered `follow_up_turns`.
-- Every prepared session binds initial prompt, every follow-up, complete skill bundle or absence, provider, model, effort, runtime fingerprint, arm, case ID, and repetition 1.
+- Every prepared session binds initial prompt, every follow-up, complete skill bundle or absence, provider, model, effort, explicit whole-session execution timeout, runtime fingerprint, arm, case ID, and repetition 1.
 
 - [ ] **Step 1: Replace the suite-local one-turn tests with shared-controller parity tests**
 
@@ -493,24 +493,26 @@ Each bundle contains:
 **Interfaces:**
 
 ```text
-evaluation-runner.mjs prepare --campaign calibration --destination <new-dir> --baseline-revision <oid> ...
+evaluation-runner.mjs prepare --campaign calibration --destination <new-dir> --baseline-revision <oid> --execution-timeout-ms <positive-integer> ...
 evaluation-runner.mjs preflight --campaign-dir <prepared-dir> ...
 evaluation-runner.mjs run --campaign-dir <prepared-dir> --authorization-dir <dir> ...
 evaluation-runner.mjs prepare-grading --campaign-dir <completed-dir> ...
 evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 ```
 
-`prepare` is read-only with respect to the repository and makes no provider calls. It snapshots approved cases, captures the current and candidate skill bundles once, creates all three arm transmissions, assigns blind aliases from a recorded seed, and writes an immutable campaign manifest.
+`prepare` is read-only with respect to the repository and makes no provider calls. It snapshots approved cases, captures the current and candidate skill bundles once, requires a reviewed positive whole-session execution timeout, creates all three arm transmissions, assigns blind aliases from a recorded seed, and writes an immutable campaign manifest. The timeout is retained in `manifest.protocol.executionTimeoutMs` and schema-version-2 packet `runner-settings`; changing it changes every transmission hash.
 
-`preflight` deterministically selects the manifest's sequence-1 session, performs one zero-turn OpenAI provider-protocol check, and exclusively records its result against the manifest, capability receipt, and transmission. `run` requires that exact successful record, validates every session's exact authorization, atomically consumes the campaign's sole execution attempt, and only then executes the first session. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
+`preflight` deterministically selects the manifest's sequence-1 session, performs one zero-turn OpenAI provider-protocol check, and exclusively records its result against the manifest, capability receipt, and transmission. Its operational timeout is separate from the packet-bound model-session timeout. `run` requires that exact successful record, validates every session's exact authorization, atomically consumes the campaign's sole execution attempt, rejects run-time timeout overrides, and only then executes the first session using the frozen deadline. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
+
+**Failure-driven amendment:** The first Sol-max execution campaign retained two terminal `timed-out` outcomes after both active turns reached the former hidden 120,000 ms absolute operation deadline while still emitting reasoning and native-web events. Do not retry those consumed packets or continue that campaign under changed runtime bytes. Preserve its remaining 28 authorizations as unconsumed evidence. The repair must be test-first, must make the deadline reviewable before transmission disclosure, and must require a fresh campaign and authorization for any replacement.
 
 - [ ] **Step 1: Write a 30-session calibration-matrix test**
 
   Given ten approved IDs, three arms, and one repetition, assert exactly 30 unique sessions with no duplicate case/arm cell and no `repetition-02` path.
 
-- [ ] **Step 2: Write preparation purity tests**
+- [ ] **Step 2: Write preparation purity and timeout-binding tests**
 
-  Use fake providers and assert `prepare` launches zero model turns, creates a new timestamp-compatible destination, records full ISO-style UTC run identity, and leaves the repository tree and index unchanged.
+  Use fake providers and assert `prepare` launches zero model turns, creates a new timestamp-compatible destination, records full ISO-style UTC run identity, and leaves the repository tree and index unchanged. Require a positive `executionTimeoutMs`, retain it in campaign protocol metadata and every packet's schema-version-2 `runner-settings`, and prove that changing only the timeout changes every transmission SHA-256.
 
 - [ ] **Step 3: Write freeze and randomization tests**
 
@@ -520,9 +522,9 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
   Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the reconciled request; requested native web availability is required even though no web event can occur in a zero-turn preflight; host skill and app inventories are not treated as activation or retained; disabled hooks are accepted while enabled or malformed hooks fail closed; the preflight thread is ephemeral, read-only, process-networkless, and has no instruction sources or workspace roots; the reconciled `config.web_search` mode is bound at `thread/start`; exact effort, execution roots, sandbox policy, and input are bound at `turn/start`; and the record binds the exact manifest, capability receipt, and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
 
-- [ ] **Step 5: Write execution authorization and durable-continuation tests**
+- [ ] **Step 5: Write execution authorization, packet-bound timeout, and durable-continuation tests**
 
-  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29. Assert that `run` exclusively creates an execution-start record bound to the manifest, capability-reconciliation receipt, and complete authorization-set digest immediately before the first launch. Assert that each terminal session outcome is written before the next callback; an exact continuation skips durable outcomes; low-level terminal evidence is reconciled without relaunch; authorization consumption without terminal evidence becomes indeterminate and cannot relaunch; authorization without consumption remains safely continuable only when the retained authorization and provisional evidence are exact and nonconflicting; and a mismatched start or authorization set blocks every callback.
+  Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29. Assert that the low-level runner consumes only the packet-bound `executionTimeoutMs`, rejects the former run-time `--timeout-ms` override before a provider turn, and has no implicit 120-second execution fallback. Assert that `run` exclusively creates an execution-start record bound to the manifest, capability-reconciliation receipt, and complete authorization-set digest immediately before the first launch. Assert that each terminal session outcome is written before the next callback; an exact continuation skips durable outcomes; low-level terminal evidence is reconciled without relaunch; authorization consumption without terminal evidence becomes indeterminate and cannot relaunch; authorization without consumption remains safely continuable only when the retained authorization and provisional evidence are exact and nonconflicting; and a mismatched start or authorization set blocks every callback.
 
 - [ ] **Step 6: Write grading-packet tests**
 
@@ -540,9 +542,9 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
   node --test tests/evals/defining-concepts/evaluation-runner.test.mjs
   ```
 
-- [ ] **Step 9: Implement the smallest durable campaign state machine**
+- [ ] **Step 9: Implement the smallest durable campaign state machine and explicit execution deadline**
 
-  Use explicit states such as `prepared`, `preflighted`, `execution-started`, per-session `completed`, `failed`, or `indeterminate`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Creation of the exclusive execution-start record freezes the campaign identity. Retain immutable parent outcomes under `execution/session-outcomes/`, reconstruct missing parent outcomes from valid low-level terminal evidence, and derive `executed.json` only after every manifest session has an outcome. Preserve schema-version-1 non-resumable failures as historical evidence. Failed or indeterminate sessions never count as valid grading evidence and never become launch-eligible again.
+  Use explicit states such as `prepared`, `preflighted`, `execution-started`, per-session `completed`, `failed`, or `indeterminate`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Creation of the exclusive execution-start record freezes the campaign identity. Require `--execution-timeout-ms` during both trial and campaign preparation, record it in their manifests, bind it into schema-version-2 runner settings, validate equality at each preparation boundary, and use only that value during provider execution. Retain immutable parent outcomes under `execution/session-outcomes/`, reconstruct missing parent outcomes from valid low-level terminal evidence, and derive `executed.json` only after every manifest session has an outcome. Preserve schema-version-1 non-resumable failures and schema-version-1 runner settings as historical evidence. Failed or indeterminate sessions never count as valid grading evidence and never become launch-eligible again.
 
 - [ ] **Step 10: Run campaign and session tests and confirm GREEN**
 
@@ -1134,7 +1136,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 8: Preserve historical schemas explicitly**
 
-  Keep schema-version-1 `execution-start.json`, `execution-failed.json`, and `executed.json` artifacts readable by retained-result validation and non-resumable in place. Do not rewrite historical campaigns. New schema-version-2 execution artifacts must be rejected if their digests, aliases, outcome count, or low-level evidence bindings do not match the prepared manifest.
+  Keep schema-version-1 `execution-start.json`, `execution-failed.json`, `executed.json`, trial manifests, and runner settings readable by retained-result validation and non-resumable in place. Do not rewrite historical campaigns or trials. New schema-version-2 execution artifacts, trial manifests, and runner settings must be rejected if their digests, aliases, timeout binding, outcome count, or low-level evidence bindings do not match the prepared manifest.
 
 - [ ] **Step 9: Document the consolidated authorization workflow**
 
@@ -1144,13 +1146,58 @@ Where a single case cannot make a research stratum observable without becoming c
 
   Run focused campaign and runtime tests, the scoped defining-concepts verification command, and `npm run verify`. Review mutations for a missing outcome write, wrong digest binding, skipped authorization validation, relaunch after consumption, overwritten outcome, or aggregate derived from partial memory; at least one test must fail for each. Review the complete diff and repository status, preserving `skills-lock.json`, historical result directories, and the unexecuted sixth trial.
 
+## Task 14B: Bind whole-session execution deadlines before authorization
+
+**Files:**
+
+- Modify: `evals/defining-concepts/run-evaluation-session.mjs`
+- Modify: `evals/defining-concepts/evaluation-trial.mjs`
+- Modify: `evals/defining-concepts/evaluation-runner.mjs`
+- Modify: `evals/defining-concepts/README.md`
+- Modify: `tests/evals/defining-concepts/run-evaluation-session.test.mjs`
+- Modify: `tests/evals/defining-concepts/evaluation-trial.test.mjs`
+- Modify: `tests/evals/defining-concepts/evaluation-runner.test.mjs`
+- Modify: `docs/designs/defining-concepts/2026-08-29-concept-engineering.md`
+- Modify: `docs/plans/defining-concepts/2026-08-29-concept-engineering.md`
+- Modify: `docs/plans/defining-concepts/2026-08-29-single-trial-execution.md`
+
+**Contract:** A model-session deadline is an authorized packet input, not an unstated caller default or a run-time tuning flag. Preparation must freeze one positive whole-session deadline before transmission disclosure. The packet digest, manifest, preflight review, and exact authorization therefore identify the same bound. The zero-turn preflight timeout remains operationally separate.
+
+- [ ] **Step 1: Preserve and diagnose the first Sol-max campaign**
+
+  Keep the two retained `timed-out` outcomes immutable and do not retry either consumed transmission. Confirm from `events.jsonl`, `run.json`, and `timing.json` that the turns were still emitting reasoning or native-web events until the old 120,000 ms operation deadline interrupted them, and confirm the other 28 authorizations remain unconsumed. Do not continue the old campaign after runtime bytes change.
+
+- [ ] **Step 2: Write failing packet-binding tests**
+
+  Require `--execution-timeout-ms` during low-level, trial, and campaign preparation; reject zero, missing, or mismatched values; retain schema-version-2 `runner-settings`; record the value in the trial and campaign manifests; prove changing only the value changes each transmission SHA-256; and reject `run --timeout-ms` before a provider turn. Run the three focused defining-concepts lifecycle suites and confirm these assertions fail against the hidden-default implementation.
+
+- [ ] **Step 3: Implement the smallest explicit-deadline boundary**
+
+  Parse a positive preparation-only value, copy it through each orchestrator layer, validate it against the retained packet, and use only `settings.executionTimeoutMs` in every adapter request. Remove the 120,000 ms execution fallback. Keep the separate preflight timeout and existing bounded cleanup behavior. New trials use manifest schema version 2; read-only validation continues to understand historical schema-version-1 trial manifests and runner settings, while execution refuses to continue them under changed runtime bytes.
+
+- [ ] **Step 4: Document deadline selection and comparison limits**
+
+  Explain that one value applies to all arms in a campaign and all turns in a packet. Prefer the same demonstrably non-binding value across matched profiles. If a profile needs a different deadline, preregister and disclose it, verify whether earlier bounds actually truncated any completed profile, and report the comparison limitation. For the immediate replacement Sol-max campaign, use `600000` ms: five times the failed bound and comfortably above the observed completed Sol-low maximum of approximately 107,123 ms. Treat this as a safety ceiling, not a promised duration or a reason to consume every pending packet after repeated terminal failures.
+
+- [ ] **Step 5: Verify locally and commit the repair**
+
+  Run the three focused lifecycle suites, `npm run verify:skill -- --skill defining-concepts`, and `npm run verify`. Inspect the complete diff and status, preserving `skills-lock.json`, every historical result directory, the completed Spark-low and Sol-low campaigns, the failed Sol-max diagnostic campaign, and the unexecuted sixth trial. Commit only the deadline repair, its tests, and documentation with a detailed signed message; do not push.
+
+- [ ] **Step 6: Prepare one replacement Sol-max campaign without model turns**
+
+  Create a fresh timestamped `gpt-5.6-sol`/`max` campaign using `--execution-timeout-ms 600000`, the same approved cases, arms, bundles, seed policy, capability envelope, and single-agent restrictions. Run the zero-turn preflight, verify the manifest protocol and all packet runner settings contain `600000`, and disclose the fresh manifest SHA-256 and all 30 transmission SHA-256 values. Do not reuse the old 28 unconsumed authorizations because the timeout and runtime fingerprint changed every transmission.
+
+- [ ] **Step 7: Obtain exact replacement authorization before execution**
+
+  Stop before any replacement model turn. Require one consolidated authorization naming the fresh manifest, exact `gpt-5.6-sol`/`max` profile, all disclosed transmissions, at most 30 sessions and 33 turns, the packet-bound 600,000 ms deadline, allowed native web search and URL retrieval, denied facilities, no retries, and no external grading calls. Materialize exact per-packet artifacts only from that authorization.
+
 ## Task 15: Prepare and authorize the three-profile 90-session calibration
 
 **Blocking prerequisite:** Tasks 1-14 pass, candidate bytes are frozen, and the user wants provider-backed evaluation to proceed.
 
-- [ ] **Step 1: Prepare without executing**
+- [ ] **Step 1: Prepare each required profile without executing**
 
-  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare three timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its installed Codex default effort `low`, a capability-ceiling `gpt-5.6-sol` campaign at `max`, and a portability-stress `gpt-5.3-codex-spark` campaign at deliberately constrained effort `low`. If the Sol campaigns have already been successfully prepared and preflighted, preserve those directories byte-for-byte and add only the Spark campaign; do not regenerate frozen evidence to make the timestamps adjacent. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, one exact capability-reconciliation receipt, and 30 exact transmission hashes. Record that the inspected catalog declares Spark's default effort as `high`, making Spark-low a stress condition rather than a default-user proxy. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for any single-agent profile.
+  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, the representative `gpt-5.6-sol`/`low` and portability-stress `gpt-5.3-codex-spark`/`low` campaigns have completed all 30 sessions and must remain byte-for-byte unchanged. Their former 120,000 ms default did not truncate a retained completion; the longest observed Sol-low outcome was approximately 107,123 ms. The first capability-ceiling `gpt-5.6-sol`/`max` campaign is diagnostic only after two terminal deadline failures and must also remain unchanged. Prepare only its replacement, following Task 14B with an explicit 600,000 ms deadline. For every newly prepared directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, one exact capability-reconciliation receipt, the packet-bound timeout, and 30 exact transmission hashes. Record that the inspected catalog declares Spark's default effort as `high`, making Spark-low a stress condition rather than a default-user proxy. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for any single-agent profile.
 
 - [ ] **Step 2: Pass the mandatory zero-turn campaign gate**
 
@@ -1165,6 +1212,7 @@ Where a single case cannot make a research stratum observable without becoming c
   - the model-catalog evidence supporting the representative, ceiling, and portability-stress labels, including Spark's catalog default of `high` and the deliberate `low` override;
   - each successful zero-turn preflight record, its selected session, actual thread isolation, cleanup, and exact manifest binding;
   - provider, exact model, and exact effort for each group;
+  - the explicit execution timeout for each newly prepared group and whether a historical bound was demonstrably non-binding for completed evidence;
   - all three sets of 30 transmission hashes;
   - the exact compatibility interpretations, capability requirements, campaign policy, provider resolution, reconciliation receipt, and receipt digest bound to each group;
   - 90 expected external sessions and at most 99 total model turns across the three profiles;
@@ -1175,11 +1223,11 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 4: Obtain exact authorization**
 
-  Stop until the user explicitly authorizes the exact frozen transmissions for each model-execution profile. Authorization may cover all three fully disclosed manifests in one statement, but it must identify all three manifest digests, each exact model and effort, all 90 packet digests by reference to the disclosed lists, the 99-turn ceiling, and the absence or presence of grading calls. An authorization for either Sol campaign does not authorize Spark, and approval of this plan or campaign preparation authorizes no external model turn. Do not reuse the earlier four-prompt/eight-run authorization or any authorization for a superseded manifest, model, or effort.
+  Stop until the user explicitly authorizes the exact frozen transmissions for each model-execution profile. Authorization may cover multiple fully disclosed manifests in one statement, but it must identify every manifest digest, each exact model and effort, the corresponding transmission lists, execution timeouts, aggregate session and turn ceilings, and the absence or presence of grading calls. The already consumed Spark-low and Sol-low authorizations do not authorize the replacement Max transmissions; the old Sol-max authorization does not survive changed timeout or runtime bytes. Approval of this plan or campaign preparation authorizes no external model turn. Do not reuse the earlier four-prompt/eight-run authorization or any authorization for a superseded manifest, model, effort, timeout, or transmission.
 
 - [ ] **Step 5: Execute each session once**
 
-  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Persist each session outcome before advancing. If an invocation stops, inspect `status`, retain all evidence, and continue only with the same manifest and authorization-set identity; the controller must skip every durable or consumed transmission and launch only packets proven unconsumed. A failed or indeterminate session is never retried, but a later invocation may process other pending sessions. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative, ceiling, and portability-stress evidence in their respective campaign directories. A Spark provider/model failure is diagnostic evidence, not permission to substitute a different model under the same manifest.
+  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. After validating the complete authorization set but immediately before the first launch, exclusively create an execution-start record bound to the manifest, capability receipt, and authorization-set digests. Use only the packet-bound execution timeout; no launch command may override it. Persist each session outcome before advancing. If an invocation stops, inspect `status`, retain all evidence, and continue only with the same manifest and authorization-set identity; the controller must skip every durable or consumed transmission and launch only packets proven unconsumed. A failed or indeterminate session is never retried, but a later invocation may process other pending sessions. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative, ceiling, and portability-stress evidence in their respective campaign directories. A provider/model failure is diagnostic evidence, not permission to substitute a different model or change a deadline under the same manifest.
 
 - [ ] **Step 6: Prepare blind grading packets**
 
@@ -1207,7 +1255,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 3: Freeze the confirmatory protocol**
 
-  Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, portability-stress model and effort, runtime, and transmission hashes before execution. Preserve the three-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
+  Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, portability-stress model and effort, packet-bound execution timeout, runtime, and transmission hashes before execution. Preserve the three-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
 
 - [ ] **Step 4: Preflight, obtain exact authorization, and execute**
 

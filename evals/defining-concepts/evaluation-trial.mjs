@@ -163,6 +163,7 @@ function assertPreparationOptions(options) {
     adapter,
     model,
     reasoningEffort,
+    executionTimeoutMs,
     baselineRevision,
     prepareSession,
   } = options;
@@ -179,6 +180,9 @@ function assertPreparationOptions(options) {
   }
   if (!Number.isSafeInteger(trialIndex) || trialIndex < 1) {
     fail("trialIndex must be a positive integer");
+  }
+  if (!Number.isSafeInteger(executionTimeoutMs) || executionTimeoutMs < 1) {
+    fail("executionTimeoutMs must be a positive integer");
   }
   if (provider !== "openai") {
     fail("single-trial execution currently supports provider openai");
@@ -210,6 +214,7 @@ function assertPacketBinding({
   adapter,
   model,
   reasoningEffort,
+  executionTimeoutMs,
 }) {
   assertTransmissionPacket(packet);
   const transmission = packet.transmission;
@@ -258,6 +263,28 @@ function assertPacketBinding({
         )))
   ) {
     fail("prepared packet is not bound to the selected skill bundle");
+  }
+  const settingsInput = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "runner-settings",
+  );
+  let settings;
+  try {
+    settings = JSON.parse(settingsInput?.content);
+  } catch (error) {
+    fail(`prepared packet runner settings are invalid: ${error.message}`);
+  }
+  if (executionTimeoutMs === null) {
+    if (
+      settings?.schemaVersion !== 1 ||
+      Object.hasOwn(settings, "executionTimeoutMs")
+    ) {
+      fail("historical trial runner settings are invalid");
+    }
+  } else if (
+    settings?.schemaVersion !== 2 ||
+    settings.executionTimeoutMs !== executionTimeoutMs
+  ) {
+    fail("prepared packet execution timeout is not bound to the trial");
   }
 }
 
@@ -334,7 +361,7 @@ async function assertArtifactDescriptor(
 function assertManifestShape(manifest, trialDirectory) {
   if (
     manifest?.artifactType !== "evaluation-trial-manifest" ||
-    manifest?.schemaVersion !== 1 ||
+    !new Set([1, 2]).has(manifest?.schemaVersion) ||
     manifest?.suite !== "defining-concepts"
   ) {
     fail("trial manifest schema is invalid");
@@ -363,6 +390,11 @@ function assertManifestShape(manifest, trialDirectory) {
     manifest.execution?.adapter !== "codex-app-server" ||
     typeof manifest.execution?.model !== "string" ||
     typeof manifest.execution?.reasoningEffort !== "string" ||
+    (manifest.schemaVersion === 2 &&
+      (!Number.isSafeInteger(manifest.execution?.executionTimeoutMs) ||
+        manifest.execution.executionTimeoutMs < 1)) ||
+    (manifest.schemaVersion === 1 &&
+      Object.hasOwn(manifest.execution, "executionTimeoutMs")) ||
     !Number.isSafeInteger(manifest.execution?.maximumTurns) ||
     manifest.execution.maximumTurns < 1 ||
     !new Set(["diagnostic", "repeatability"]).has(
@@ -489,6 +521,10 @@ async function loadPreparedTrial(trialDirectory) {
     adapter: manifest.execution.adapter,
     model: manifest.execution.model,
     reasoningEffort: manifest.execution.reasoningEffort,
+    executionTimeoutMs:
+      manifest.schemaVersion === 2
+        ? manifest.execution.executionTimeoutMs
+        : null,
   });
   if (
     packet.transmission.continuationPolicy.maxTurns !==
@@ -734,6 +770,7 @@ export async function prepareEvaluationTrial(options) {
     adapter,
     model,
     reasoningEffort,
+    executionTimeoutMs,
     baselineRevision,
     prepareSession,
     workingDirectory = null,
@@ -798,6 +835,7 @@ export async function prepareEvaluationTrial(options) {
       capabilityReconciliationFile,
       preparedSession,
       workingDirectory,
+      executionTimeoutMs,
     });
     if (prepared?.modelTurns !== 0 || prepared?.packet === undefined) {
       fail("trial preparation must return zero model turns and one packet");
@@ -823,6 +861,7 @@ export async function prepareEvaluationTrial(options) {
       adapter,
       model,
       reasoningEffort,
+      executionTimeoutMs,
     });
 
     await rename(
@@ -888,7 +927,7 @@ export async function prepareEvaluationTrial(options) {
 
     const manifest = canonicalRecord({
       artifactType: "evaluation-trial-manifest",
-      schemaVersion: 1,
+      schemaVersion: 2,
       suite: "defining-concepts",
       trialId: `trial-${packet.transmissionSha256.slice(0, 16)}`,
       createdAt: now.toISOString(),
@@ -904,6 +943,7 @@ export async function prepareEvaluationTrial(options) {
         adapter,
         model,
         reasoningEffort,
+        executionTimeoutMs,
         maximumTurns: packet.transmission.continuationPolicy.maxTurns,
         evidenceUse: trialIndex === 1 ? "diagnostic" : "repeatability",
         aggregateEligible: false,

@@ -488,6 +488,10 @@ async function prepare(options) {
   const providerOption = requireValue(values, "--provider");
   const model = requireValue(values, "--model");
   const effort = requireValue(values, "--effort");
+  const executionTimeoutMs = positiveInteger(
+    requireValue(values, "--execution-timeout-ms"),
+    "--execution-timeout-ms",
+  );
   const repetition = positiveInteger(
     requireValue(values, "--repetition"),
     "--repetition",
@@ -592,9 +596,10 @@ async function prepare(options) {
   }
 
   const settings = JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     authentication,
     evaluationHomesRoot,
+    executionTimeoutMs,
     maxBudgetUsd: values.get("--max-budget-usd") ?? "2",
   });
   if (!/^\d+(?:\.\d+)?$/u.test(JSON.parse(settings).maxBudgetUsd)) {
@@ -846,7 +851,20 @@ function runnerSettingsFromTransmission(transmission) {
     ({ id }) => id === "runner-settings",
   );
   if (settingsInput === undefined) fail("prepared runner settings are missing");
-  return JSON.parse(settingsInput.content);
+  let settings;
+  try {
+    settings = JSON.parse(settingsInput.content);
+  } catch (error) {
+    fail(`prepared runner settings are invalid: ${error.message}`);
+  }
+  if (settings?.schemaVersion !== 2) {
+    fail("prepared runner settings must use schema version 2");
+  }
+  positiveInteger(
+    settings.executionTimeoutMs,
+    "prepared executionTimeoutMs",
+  );
+  return settings;
 }
 
 function codexPolicyFromTransmission(transmission) {
@@ -927,15 +945,17 @@ async function run(options) {
   );
   if (values.get("--allow-external-model-call") !== true)
     fail("run requires --allow-external-model-call");
+  if (values.has("--timeout-ms")) {
+    fail(
+      "run execution timeout is packet-bound; --timeout-ms is not permitted",
+    );
+  }
   const evidenceLayout = values.get("--evidence-layout") ?? "legacy-v1";
   if (!new Set(["legacy-v1", "evaluation-trial-v1"]).has(evidenceLayout)) {
     fail(
       "The evidence layout must be legacy-v1 or evaluation-trial-v1",
     );
   }
-  const timeoutMs = values.has("--timeout-ms")
-    ? positiveInteger(values.get("--timeout-ms"), "--timeout-ms")
-    : 120_000;
   let authorization;
   try {
     authorization = JSON.parse(readFileSync(authorizationPath, "utf8"));
@@ -948,6 +968,10 @@ async function run(options) {
   const transmission = packet.transmission;
   const paths = inputPathMap(preparedSession);
   const settings = runnerSettingsFromTransmission(transmission);
+  const timeoutMs = positiveInteger(
+    settings.executionTimeoutMs,
+    "prepared executionTimeoutMs",
+  );
   const conversation = conversationFromTransmission(transmission);
   const controller = createDefiningConceptController({ conversation });
   let adapter;

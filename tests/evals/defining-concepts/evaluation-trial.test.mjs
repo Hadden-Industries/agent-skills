@@ -34,6 +34,7 @@ const definitions = JSON.parse(
     "utf8",
   ),
 );
+const fixtureExecutionTimeoutMs = 600_000;
 async function pathExists(target) {
   try {
     await access(target);
@@ -141,6 +142,7 @@ function preparedPacket({
   skillArm,
   bundle,
   capabilityReconciliation,
+  executionTimeoutMs,
 }) {
   const inputs = [
     inputRecord("prompt", "user", "text/plain", evaluationCase.prompt),
@@ -160,6 +162,15 @@ function preparedPacket({
             canonicalJsonBytes(bundle).toString("utf8"),
           ),
         ]),
+    inputRecord(
+      "runner-settings",
+      "configuration",
+      "application/json",
+      canonicalJsonBytes({
+        schemaVersion: 2,
+        executionTimeoutMs,
+      }).toString("utf8"),
+    ),
   ];
   return createTransmissionPacket({
     suite: "defining-concepts",
@@ -223,12 +234,14 @@ async function prepareSessionFixture({
   bundle,
   capabilityReconciliation,
   preparedSession,
+  executionTimeoutMs = fixtureExecutionTimeoutMs,
 }) {
   const packet = preparedPacket({
     evaluationCase,
     skillArm,
     bundle,
     capabilityReconciliation,
+    executionTimeoutMs,
   });
   const inputs = packet.transmission.harnessControlledInputs.map(
     ({ id, mediaType, content }) => ({
@@ -271,6 +284,7 @@ async function fixture(t, overrides = {}) {
     adapter: "codex-app-server",
     model: "gpt-5.3-codex-spark",
     reasoningEffort: "low",
+    executionTimeoutMs: fixtureExecutionTimeoutMs,
     baselineRevision: "6".repeat(40),
     prepareSession: prepareSessionFixture,
     ...overrides,
@@ -367,7 +381,7 @@ test("prepare creates one immutable diagnostic trial with packet-bound evidence"
   const manifest = await prepareEvaluationTrial(context.options);
 
   assert.equal(manifest.artifactType, "evaluation-trial-manifest");
-  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.suite, "defining-concepts");
   assert.equal(manifest.createdAt, "2026-08-29T12:34:56.789Z");
   assert.equal(manifest.directoryName, "2026-08-29T123456.789Z");
@@ -380,6 +394,7 @@ test("prepare creates one immutable diagnostic trial with packet-bound evidence"
     adapter: "codex-app-server",
     aggregateEligible: false,
     evidenceUse: "diagnostic",
+    executionTimeoutMs: fixtureExecutionTimeoutMs,
     maximumTurns: 1,
     model: "gpt-5.3-codex-spark",
     provider: "openai",
@@ -409,6 +424,12 @@ test("prepare creates one immutable diagnostic trial with packet-bound evidence"
   assert.equal(packet.transmission.session.arm, "candidate-skill");
   assert.equal(packet.transmission.session.repetition, 1);
   assert.equal(packet.transmission.capabilities.webSearch, true);
+  const settings = JSON.parse(
+    packet.transmission.harnessControlledInputs.find(
+      ({ id }) => id === "runner-settings",
+    ).content,
+  );
+  assert.equal(settings.executionTimeoutMs, fixtureExecutionTimeoutMs);
   assert.equal(
     manifest.artifacts.capabilityReconciliation.receiptSha256,
     packet.transmission.capabilityReconciliation.receiptSha256,
@@ -455,6 +476,27 @@ test("prepare creates one immutable diagnostic trial with packet-bound evidence"
   assert.deepEqual(
     await readFile(path.join(context.destination, "manifest.json")),
     canonicalJsonBytes(manifest),
+  );
+});
+
+test("prepare rejects an invalid or packet-mismatched execution timeout", async (t) => {
+  const invalid = await fixture(t, { executionTimeoutMs: 0 });
+  await assert.rejects(
+    prepareEvaluationTrial(invalid.options),
+    /executionTimeoutMs.*positive integer/iu,
+  );
+
+  const mismatched = await fixture(t, {
+    prepareSession(options) {
+      return prepareSessionFixture({
+        ...options,
+        executionTimeoutMs: fixtureExecutionTimeoutMs - 1,
+      });
+    },
+  });
+  await assert.rejects(
+    prepareEvaluationTrial(mismatched.options),
+    /execution timeout|executionTimeoutMs|packet.*bound/iu,
   );
 });
 

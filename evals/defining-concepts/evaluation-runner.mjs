@@ -87,6 +87,13 @@ function optionalNonnegativeNumber(value, label) {
   return value;
 }
 
+function positiveInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    fail(`${label} must be a positive integer`);
+  }
+  return value;
+}
+
 export function readPreparedSessionResult(preparedSession) {
   if (
     typeof preparedSession !== "string" ||
@@ -268,7 +275,34 @@ function caseSnapshot(evaluationCase) {
   };
 }
 
-function validatePreparedPacket(result, cell, capabilityReconciliation) {
+function preparedExecutionTimeoutMs(packet) {
+  const settingsInput = packet?.transmission?.harnessControlledInputs?.find(
+    ({ id }) => id === "runner-settings",
+  );
+  if (settingsInput === undefined) {
+    fail("prepared packet is missing packet-bound runner settings");
+  }
+  let settings;
+  try {
+    settings = JSON.parse(settingsInput.content);
+  } catch (error) {
+    fail(`prepared packet runner settings are invalid: ${error.message}`);
+  }
+  if (settings?.schemaVersion !== 2) {
+    fail("prepared packet runner settings must use schema version 2");
+  }
+  return positiveInteger(
+    settings.executionTimeoutMs,
+    "prepared packet executionTimeoutMs",
+  );
+}
+
+function validatePreparedPacket(
+  result,
+  cell,
+  capabilityReconciliation,
+  executionTimeoutMs,
+) {
   if (result?.modelTurns !== 0 || result?.packet === undefined) {
     fail(
       `preparation for ${cell.internalId} must return zero model turns and one packet`,
@@ -288,7 +322,8 @@ function validatePreparedPacket(result, cell, capabilityReconciliation) {
     ) ||
     !canonicalJsonBytes(packet.transmission?.capabilities).equals(
       canonicalJsonBytes(capabilityReconciliation.receipt.runtimeCapabilities),
-    )
+    ) ||
+    preparedExecutionTimeoutMs(packet) !== executionTimeoutMs
   ) {
     fail(
       `prepared packet for ${cell.internalId} is not bound to its campaign cell`,
@@ -310,6 +345,7 @@ export function prepareCampaign({
   provider,
   model,
   effort,
+  executionTimeoutMs,
   seed,
   now = new Date(),
   prepareSession,
@@ -355,6 +391,7 @@ export function prepareCampaign({
     if (typeof value !== "string" || value.length === 0)
       fail(`${name} must be nonempty`);
   }
+  positiveInteger(executionTimeoutMs, "executionTimeoutMs");
   if (typeof prepareSession !== "function")
     fail("prepareSession must be a function");
 
@@ -423,6 +460,7 @@ export function prepareCampaign({
       const prepared = validatePreparedPacket(
         prepareSession({
           ...cell,
+          executionTimeoutMs,
           caseRecord: snapshot.record,
           bundle,
           capabilityReconciliation,
@@ -430,6 +468,7 @@ export function prepareCampaign({
         }),
         cell,
         capabilityReconciliation,
+        executionTimeoutMs,
       );
       const packetPath = path.join(sessionDirectory, "packet.json");
       if (!existsSync(packetPath))
@@ -488,6 +527,7 @@ export function prepareCampaign({
         provider,
         model,
         effort,
+        executionTimeoutMs,
       },
       capabilityReconciliation: {
         relativePath: "capability-reconciliation.json",
@@ -713,6 +753,10 @@ export function preflightPreparedCampaign({
   if (manifest.schemaVersion !== 3 || manifest.state !== "prepared") {
     fail("campaign is not in the prepared state");
   }
+  positiveInteger(
+    manifest.protocol?.executionTimeoutMs,
+    "campaign protocol executionTimeoutMs",
+  );
   assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
   if (manifest.protocol.provider !== "openai") {
     fail("campaign zero-turn preflight supports only OpenAI");
@@ -1460,6 +1504,10 @@ export function runPreparedCampaign({
   if (manifest.schemaVersion !== 3 || manifest.state !== "prepared") {
     fail("campaign is not in the prepared state");
   }
+  positiveInteger(
+    manifest.protocol?.executionTimeoutMs,
+    "campaign protocol executionTimeoutMs",
+  );
   assertCampaignCapabilityReconciliation(campaignDirectory, manifest);
   if (existsSync(path.join(campaignDirectory, "execution-failed.json"))) {
     fail("historical failed campaign execution cannot be continued in place");
@@ -2091,6 +2139,7 @@ const TRIAL_ARGUMENTS = Object.freeze({
     "--adapter",
     "--model",
     "--reasoning-effort",
+    "--execution-timeout-ms",
     "--created-at",
     "--working-root",
     "--baseline-revision",
@@ -2268,6 +2317,10 @@ async function prepareTrialFromCli(values) {
   const adapter = requireCli(values, "--adapter");
   const model = requireCli(values, "--model");
   const reasoningEffort = requireCli(values, "--reasoning-effort");
+  const executionTimeoutMs = positiveCliInteger(
+    values,
+    "--execution-timeout-ms",
+  );
   const now = new Date(requireCli(values, "--created-at"));
   const workingRoot = path.resolve(requireCli(values, "--working-root"));
   const baselineRevision = requireCli(values, "--baseline-revision");
@@ -2307,6 +2360,7 @@ async function prepareTrialFromCli(values) {
       adapter,
       model,
       reasoningEffort,
+      executionTimeoutMs,
       baselineRevision,
       workingDirectory,
       async prepareSession({
@@ -2334,6 +2388,8 @@ async function prepareTrialFromCli(values) {
           model,
           "--effort",
           reasoningEffort,
+          "--execution-timeout-ms",
+          String(executionTimeoutMs),
           "--capability-reconciliation-file",
           capabilityReconciliationFile,
           "--codex-command",
@@ -2443,6 +2499,10 @@ function prepareFromCli(values, repeated) {
         : "google";
   const model = requireCli(values, "--model");
   const effort = requireCli(values, "--effort");
+  const executionTimeoutMs = positiveCliInteger(
+    values,
+    "--execution-timeout-ms",
+  );
   const seed = requireCli(values, "--seed");
   const now = new Date(requireCli(values, "--started-at"));
   const workingRoot = path.resolve(requireCli(values, "--working-root"));
@@ -2480,6 +2540,7 @@ function prepareFromCli(values, repeated) {
       provider,
       model,
       effort,
+      executionTimeoutMs,
       seed,
       now,
       prepareSession(cell) {
@@ -2512,6 +2573,8 @@ function prepareFromCli(values, repeated) {
           model,
           "--effort",
           effort,
+          "--execution-timeout-ms",
+          String(executionTimeoutMs),
           "--capability-reconciliation-file",
           capabilityReconciliationFile,
         ];
