@@ -127,6 +127,28 @@ export function readPreparedSessionResult(preparedSession) {
   });
 }
 
+export function withNewCampaignWorkingRoot(workingRoot, operation) {
+  if (
+    typeof workingRoot !== "string" ||
+    path.resolve(workingRoot) !== workingRoot
+  ) {
+    fail("workingRoot must be an absolute path");
+  }
+  if (typeof operation !== "function") {
+    fail("working-root operation must be a function");
+  }
+  if (existsSync(workingRoot)) {
+    fail("workingRoot must be a new directory");
+  }
+  mkdirSync(workingRoot, { recursive: false });
+  try {
+    return operation();
+  } catch (error) {
+    rmSync(workingRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 function safeTimestamp(date) {
   return date.toISOString().replaceAll(":", "");
 }
@@ -1100,65 +1122,67 @@ function prepareFromCli(values, repeated) {
     skillName: "defining-concepts",
   });
   const providerArguments = providerPrepareArguments(values, repeated);
-  return prepareCampaign({
-    campaign,
-    destination,
-    cases: selected,
-    arms: campaignDefinition.arms,
-    repetitionCount: campaignDefinition.repetitions,
-    currentBundle,
-    candidateBundle,
-    provider,
-    model,
-    effort,
-    seed,
-    now,
-    prepareSession(cell) {
-      const caseFile = path.join(cell.sessionDirectory, "case.json");
-      writeCanonicalExclusive(caseFile, cell.caseRecord);
-      const arguments_ = [
-        SESSION_RUNNER,
-        "prepare",
-        "--case-file",
-        caseFile,
-        "--destination",
-        path.join(cell.sessionDirectory, "prepared"),
-        "--working-dir",
-        path.join(workingRoot, cell.blindAlias),
-        "--arm",
-        cell.arm,
-        "--repetition",
-        "1",
-        "--provider",
-        providerOption,
-        "--model",
-        model,
-        "--effort",
-        effort,
-      ];
-      if (cell.bundle !== null) {
-        const bundleFile = path.join(
-          cell.sessionDirectory,
-          "skill-bundle.json",
-        );
-        writeCanonicalExclusive(bundleFile, cell.bundle);
-        arguments_.push("--skill-bundle-file", bundleFile);
-      }
-      arguments_.push(...providerArguments);
-      const result = spawnSync(process.execPath, arguments_, {
-        encoding: "utf8",
-      });
-      if (result.status !== 0)
-        fail(`session preparation failed: ${result.stderr}`);
-      return {
-        modelTurns: 0,
-        packet: readJson(
-          path.join(cell.sessionDirectory, "prepared", "packet.json"),
-          "prepared session packet",
-        ),
-      };
-    },
-  });
+  return withNewCampaignWorkingRoot(workingRoot, () =>
+    prepareCampaign({
+      campaign,
+      destination,
+      cases: selected,
+      arms: campaignDefinition.arms,
+      repetitionCount: campaignDefinition.repetitions,
+      currentBundle,
+      candidateBundle,
+      provider,
+      model,
+      effort,
+      seed,
+      now,
+      prepareSession(cell) {
+        const caseFile = path.join(cell.sessionDirectory, "case.json");
+        writeCanonicalExclusive(caseFile, cell.caseRecord);
+        const arguments_ = [
+          SESSION_RUNNER,
+          "prepare",
+          "--case-file",
+          caseFile,
+          "--destination",
+          path.join(cell.sessionDirectory, "prepared"),
+          "--working-dir",
+          path.join(workingRoot, cell.blindAlias),
+          "--arm",
+          cell.arm,
+          "--repetition",
+          "1",
+          "--provider",
+          providerOption,
+          "--model",
+          model,
+          "--effort",
+          effort,
+        ];
+        if (cell.bundle !== null) {
+          const bundleFile = path.join(
+            cell.sessionDirectory,
+            "skill-bundle.json",
+          );
+          writeCanonicalExclusive(bundleFile, cell.bundle);
+          arguments_.push("--skill-bundle-file", bundleFile);
+        }
+        arguments_.push(...providerArguments);
+        const result = spawnSync(process.execPath, arguments_, {
+          encoding: "utf8",
+        });
+        if (result.status !== 0)
+          fail(`session preparation failed: ${result.stderr}`);
+        return {
+          modelTurns: 0,
+          packet: readJson(
+            path.join(cell.sessionDirectory, "prepared", "packet.json"),
+            "prepared session packet",
+          ),
+        };
+      },
+    }),
+  );
 }
 
 function runFromCli(values) {

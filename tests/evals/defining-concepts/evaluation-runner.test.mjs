@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +17,7 @@ import {
   prepareCampaignGrading,
   readPreparedSessionResult,
   runPreparedCampaign,
+  withNewCampaignWorkingRoot,
 } from "../../../evals/defining-concepts/evaluation-runner.mjs";
 import {
   canonicalJsonBytes,
@@ -255,6 +262,31 @@ test("prepare freezes a new timestamped campaign without model turns", () => {
       prepareCampaign({ destination: context.destination }),
     /new directory/iu,
   );
+});
+
+test("campaign preparation owns one new working root and cleans failed preparation", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "defining-working-root-"));
+  const successfulRoot = path.join(parent, "successful");
+  const result = withNewCampaignWorkingRoot(successfulRoot, () => {
+    assert.equal(existsSync(successfulRoot), true);
+    return "prepared";
+  });
+  assert.equal(result, "prepared");
+  assert.equal(existsSync(successfulRoot), true);
+  assert.throws(
+    () => withNewCampaignWorkingRoot(successfulRoot, () => undefined),
+    /new directory/iu,
+  );
+
+  const failedRoot = path.join(parent, "failed");
+  assert.throws(
+    () =>
+      withNewCampaignWorkingRoot(failedRoot, () => {
+        throw new Error("fixture preparation failure");
+      }),
+    /fixture preparation failure/iu,
+  );
+  assert.equal(existsSync(failedRoot), false);
 });
 
 test("run validates every exact authorization before launching any session", () => {
