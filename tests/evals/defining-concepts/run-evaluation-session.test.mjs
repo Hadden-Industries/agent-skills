@@ -645,6 +645,77 @@ test("Codex preparation binds App Server transport and a managed execution home"
   );
 });
 
+test("Codex preflight accepts available but disabled provider facilities without a model turn", async () => {
+  const temporary = mkdtempSync(
+    path.join(tmpdir(), "defining-concepts-codex-preflight-"),
+  );
+  const caseFile = writeCase(temporary, {
+    id: 1,
+    prompt: "Define Dataset.",
+  });
+  const destination = path.join(temporary, "prepared");
+  const working = path.join(temporary, "working");
+  const homes = path.join(temporary, "homes-v1");
+  await initializeEvaluationHomes({ root: homes });
+  const prepared = invoke([
+    "prepare",
+    "--case-file",
+    caseFile,
+    "--destination",
+    destination,
+    "--working-dir",
+    working,
+    "--arm",
+    "no-skill",
+    "--repetition",
+    "1",
+    "--provider",
+    "codex",
+    "--model",
+    "gpt-5.6-luna",
+    "--effort",
+    "low",
+    "--codex-command",
+    process.execPath,
+    "--codex-prefix-arg",
+    fakeCodex,
+    "--codex-prefix-arg",
+    "--scenario",
+    "--codex-prefix-arg",
+    "provider-capabilities-available",
+    "--evaluation-homes-root",
+    homes,
+  ]);
+  assert.equal(prepared.status, 0, prepared.stderr);
+
+  const result = invoke([
+    "preflight",
+    "--prepared-session",
+    destination,
+    "--allow-zero-turn-preflight",
+    "--timeout-ms",
+    "5000",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const preflight = JSON.parse(result.stdout);
+  assert.equal(preflight.status, "completed");
+  assert.equal(preflight.modelTurns, 0);
+  assert.deepEqual(preflight.capabilities, {
+    effort: "low",
+    imageGeneration: true,
+    model: "gpt-5.6-luna",
+    namespaceTools: true,
+    provider: "openai",
+    webSearch: true,
+  });
+  assert.equal(
+    existsSync(path.join(destination, "preflight", "preflight.json")),
+    true,
+  );
+  assert.equal(existsSync(path.join(destination, "attempt.json")), false);
+});
+
 test("Antigravity preparation binds one explicit post-activation message without a model turn", () => {
   const context = googleFixture();
   const result = invoke(context.prepareArgs);

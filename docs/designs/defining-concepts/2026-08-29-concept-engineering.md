@@ -494,9 +494,15 @@ Subagent or batched-research use is process evidence, not a quality gate. A run 
 
 ## Campaign protocol
 
+### Zero-turn campaign gate
+
+Every new OpenAI campaign must pass one deterministic campaign-level preflight after all transmissions are prepared and before their hashes are authorized. Select the manifest's unique sequence-1 session, revalidate the frozen executable, runtime, model, effort, managed-home boundary, authentication, provider capability availability, actual thread configuration, cleanup, and confirmed process closure, and start no model turn. Persist one exclusive `preflight.json` containing the complete terminal result, `modelTurns: 0`, the manifest SHA-256, and the selected transmission identity. Execution requires that exact successful record before it reads any of the 30 authorization artifacts.
+
+Provider capability availability is not session activation. In particular, Codex provider booleans may truthfully report that tools, web search, or image generation are available while the packet and thread disable all of them. Reject a packet-requested facility only when the provider reports it unavailable; verify actual non-activation from the thread state and fail-closed runtime event checks. A missing, failed, malformed, nonzero-turn, or stale preflight closes the campaign to execution. Retain it as diagnostic evidence, repair the harness or environment through a new test-first iteration, and prepare a fresh timestamped campaign rather than retrying or overwriting the record.
+
 ### Calibration
 
-Calibration uses two matched model-effort groups so the evidence answers both an ordinary-user question and a capability-ceiling question without conflating them. The representative group uses the exact current frontier model at that model's declared default reasoning effort when the group is frozen; for the 2026-08-29 iteration, the inspected Codex catalog identifies `gpt-5.6-sol` with default effort `low`. The capability-ceiling group uses the same exact model at `max`, the catalog's maximum single-agent reasoning-depth setting. Each group keeps prompts, arms, bundles, provider policy, and all other non-effort inputs matched and is prepared, authorized, executed, graded, and aggregated as a separate campaign.
+Calibration uses two matched model-effort groups so the evidence answers both an ordinary-user question and a capability-ceiling question without conflating them. The representative group uses the exact current frontier model at that model's declared default reasoning effort when the group is frozen; for the 2026-08-29 iteration, the inspected Codex catalog identifies `gpt-5.6-sol` with default effort `low`. The capability-ceiling group uses the same exact model at `max`, the catalog's maximum single-agent reasoning-depth setting. Each group keeps prompts, arms, bundles, provider policy, and all other non-effort inputs matched and is prepared, preflighted, authorized, executed, graded, and aggregated as a separate campaign.
 
 `ultra` is not the ceiling-group setting even though it appears after `max` in the model catalog: its declared behavior adds automatic task delegation, which changes agent topology and provider capabilities rather than only reasoning depth. Testing `ultra` requires a separately preregistered capability-enabled protocol and must not be pooled with the single-agent `low` and `max` groups. If the inspected model catalog changes before execution, close the affected prepared group and freeze a new exact model/effort identity rather than silently retaining a stale "default" or "highest" label.
 
@@ -512,7 +518,7 @@ Each model-effort group contains 30 sessions and at most 33 model turns because 
 
 ### Confirmation
 
-After calibration, repair rubric-observability problems before freezing a confirmatory protocol. Add independent preregistered scenarios rather than additional repetitions. Preserve the representative and capability-ceiling distinction unless a reviewed design change explicitly narrows the confirmation claim. Freeze candidate bytes, cases, graders, promotion rules, provider, exact model, each effort profile, and transmissions before obtaining exact authorization and collecting confirmatory results.
+After calibration, repair rubric-observability problems before freezing a confirmatory protocol. Add independent preregistered scenarios rather than additional repetitions. Preserve the representative and capability-ceiling distinction unless a reviewed design change explicitly narrows the confirmation claim. Freeze candidate bytes, cases, graders, promotion rules, provider, exact model, each effort profile, and transmissions, pass the same zero-turn campaign gate, and only then obtain exact authorization and collect confirmatory results.
 
 ### Promotion
 

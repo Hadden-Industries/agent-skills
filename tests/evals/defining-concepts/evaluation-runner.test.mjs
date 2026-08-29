@@ -13,6 +13,7 @@ import test from "node:test";
 import {
   aggregateCampaignGrades,
   buildCampaignMatrix,
+  preflightPreparedCampaign,
   prepareCampaign,
   prepareCampaignGrading,
   readPreparedSessionResult,
@@ -80,7 +81,7 @@ function bundle(kind, marker) {
   });
 }
 
-function packetFor(cell) {
+function packetFor(cell, provider = "openai") {
   const transmission = {
     suite: "defining-concepts",
     session: {
@@ -91,10 +92,10 @@ function packetFor(cell) {
       sequence: cell.sequence,
       suiteArtifacts: [],
     },
-    provider: "openai",
+    provider,
     model: "gpt-test",
     effort: "low",
-    transport: "codex-app-server",
+    transport: provider === "openai" ? "codex-app-server" : "fixture-cli",
     toolchain: { fixture: true },
     runtimeFingerprint: { fixture: true },
     capabilities: {
@@ -121,7 +122,7 @@ function packetFor(cell) {
   });
 }
 
-function preparedFixture() {
+function preparedFixture(provider = "openai") {
   const temporary = mkdtempSync(path.join(tmpdir(), "defining-campaign-"));
   const destination = path.join(temporary, "2026-08-29T024500.123Z");
   const providerCalls = [];
@@ -133,14 +134,14 @@ function preparedFixture() {
     repetitionCount: 1,
     currentBundle: bundle("git", "a"),
     candidateBundle: bundle("working-tree", "b"),
-    provider: "openai",
+    provider,
     model: "gpt-test",
     effort: "low",
     seed: "frozen-seed",
     now: new Date("2026-08-29T02:45:00.123Z"),
     prepareSession(cell) {
       providerCalls.push({ kind: "prepare", cell });
-      return { modelTurns: 0, packet: packetFor(cell) };
+      return { modelTurns: 0, packet: packetFor(cell, provider) };
     },
   });
   return { destination, manifest, providerCalls, temporary };
@@ -166,6 +167,36 @@ function writeAuthorizations(context) {
     );
   }
   return authorizationDirectory;
+}
+
+function writeSuccessfulPreflight(context, calls = []) {
+  return preflightPreparedCampaign({
+    campaignDirectory: context.destination,
+    preflightSession(session) {
+      calls.push(session);
+      return {
+        schemaVersion: 1,
+        status: "completed",
+        failureClass: null,
+        error: null,
+        modelTurns: 0,
+        authentication: { status: "authenticated" },
+        capabilities: {
+          namespaceTools: true,
+          imageGeneration: true,
+          webSearch: true,
+        },
+        isolation: {
+          tools: [],
+          webSearch: false,
+          network: false,
+          multiAgentMode: false,
+        },
+        cleanup: { status: "clean" },
+        closure: { status: "closed" },
+      };
+    },
+  });
 }
 
 function completeGradeRecords(manifest) {
@@ -289,8 +320,181 @@ test("campaign preparation owns one new working root and cleans failed preparati
   assert.equal(existsSync(failedRoot), false);
 });
 
+test("campaign preflight selects one deterministic session and records zero model turns", () => {
+  const context = preparedFixture();
+  const calls = [];
+  const record = writeSuccessfulPreflight(context, calls);
+  const selected = context.manifest.sessions.find(
+    ({ sequence }) => sequence === 1,
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], selected);
+  assert.equal(record.schemaVersion, 1);
+  assert.equal(record.state, "preflighted");
+  assert.equal(record.status, "completed");
+  assert.equal(record.modelTurns, 0);
+  assert.equal(
+    record.campaignManifestSha256,
+    sha256Hex(canonicalJsonBytes(context.manifest)),
+  );
+  assert.deepEqual(record.session, {
+    blindAlias: selected.blindAlias,
+    sequence: 1,
+    transmissionSha256: selected.transmissionSha256,
+    provider: selected.provider,
+    model: selected.model,
+    effort: selected.effort,
+  });
+  assert.deepEqual(
+    JSON.parse(
+      readFileSync(path.join(context.destination, "preflight.json"), "utf8"),
+    ),
+    record,
+  );
+  assert.throws(
+    () => writeSuccessfulPreflight(context),
+    /already exists|cannot be overwritten/iu,
+  );
+});
+
+test("run refuses absent, failed, and stale campaign preflight records", () => {
+  const absent = preparedFixture();
+  const absentAuthorizations = writeAuthorizations(absent);
+  let executions = 0;
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: absent.destination,
+        authorizationDirectory: absentAuthorizations,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /preflight/iu,
+  );
+
+  const failed = preparedFixture();
+  const failedAuthorizations = writeAuthorizations(failed);
+  const failedRecord = preflightPreparedCampaign({
+    campaignDirectory: failed.destination,
+    preflightSession() {
+      return {
+        schemaVersion: 1,
+        status: "failed",
+        failureClass: "capability-rejected",
+        error: {
+          code: "PROVIDER_CAPABILITY_UNAVAILABLE",
+          message: "required capability is unavailable",
+        },
+        modelTurns: 0,
+      };
+    },
+  });
+  assert.equal(failedRecord.status, "failed");
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: failed.destination,
+        authorizationDirectory: failedAuthorizations,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /successful.*preflight/iu,
+  );
+
+  const nonzero = preparedFixture();
+  const nonzeroAuthorizations = writeAuthorizations(nonzero);
+  const nonzeroRecord = preflightPreparedCampaign({
+    campaignDirectory: nonzero.destination,
+    preflightSession() {
+      return {
+        schemaVersion: 1,
+        status: "completed",
+        failureClass: null,
+        error: null,
+        modelTurns: 1,
+      };
+    },
+  });
+  assert.equal(nonzeroRecord.status, "failed");
+  assert.equal(nonzeroRecord.modelTurns, 1);
+  assert.equal(nonzeroRecord.error.code, "CAMPAIGN_PREFLIGHT_PROTOCOL_ERROR");
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: nonzero.destination,
+        authorizationDirectory: nonzeroAuthorizations,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /successful.*preflight/iu,
+  );
+
+  const stale = preparedFixture();
+  const staleAuthorizations = writeAuthorizations(stale);
+  const preflightPath = path.join(stale.destination, "preflight.json");
+  const staleRecord = writeSuccessfulPreflight(stale);
+  writeFileSync(
+    preflightPath,
+    canonicalJsonBytes({
+      ...staleRecord,
+      campaignManifestSha256: "f".repeat(64),
+    }),
+  );
+  assert.throws(
+    () =>
+      runPreparedCampaign({
+        campaignDirectory: stale.destination,
+        authorizationDirectory: staleAuthorizations,
+        executeSession() {
+          executions += 1;
+        },
+      }),
+    /does not match|stale/iu,
+  );
+  assert.equal(executions, 0);
+});
+
+test("campaign preflight is mandatory only for providers with the reviewed zero-turn protocol", () => {
+  const context = preparedFixture("google");
+  const authorizationDirectory = writeAuthorizations(context);
+  let executions = 0;
+
+  const executed = runPreparedCampaign({
+    campaignDirectory: context.destination,
+    authorizationDirectory,
+    executeSession(session) {
+      executions += 1;
+      return {
+        status: "completed",
+        finalAnswer: `answer ${session.blindAlias}`,
+        transcript: "retained transcript",
+        tokens: 10,
+        durationMs: 20,
+      };
+    },
+  });
+
+  assert.equal(executions, 30);
+  assert.equal(executed.state, "executed");
+  assert.throws(
+    () =>
+      preflightPreparedCampaign({
+        campaignDirectory: context.destination,
+        preflightSession() {
+          throw new Error("must not be called");
+        },
+      }),
+    /executed|OpenAI/iu,
+  );
+});
+
 test("run validates every exact authorization before launching any session", () => {
   const context = preparedFixture();
+  writeSuccessfulPreflight(context);
   const authorizationDirectory = path.join(context.temporary, "authorizations");
   const executions = [];
   assert.throws(
@@ -391,6 +595,7 @@ test("prepared session results retain transcript, token, and timing evidence", (
 
 test("invalid provider results are retained and cannot enter grading", () => {
   const context = preparedFixture();
+  writeSuccessfulPreflight(context);
   const authorizationDirectory = writeAuthorizations(context);
   const firstAlias = context.manifest.sessions[0].blindAlias;
   const executed = runPreparedCampaign({
@@ -441,6 +646,7 @@ test("invalid provider results are retained and cannot enter grading", () => {
 
 test("grading packets are blind and pairwise side assignment is sealed", () => {
   const context = preparedFixture();
+  writeSuccessfulPreflight(context);
   const authorizationDirectory = path.join(context.temporary, "authorizations");
   mkdirSync(authorizationDirectory);
   for (const session of context.manifest.sessions) {

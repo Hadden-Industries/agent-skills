@@ -387,6 +387,34 @@ function validateCurrentResultDirectory(resultDirectory) {
     humanUsabilityEvaluated: false,
   });
 
+  const preflightPath = path.join(resultDirectory, "preflight.json");
+  const preflight = existsSync(preflightPath) ? readJson(preflightPath) : null;
+  if (preflight !== null) {
+    const selected = manifest.sessions.filter(({ sequence }) => sequence === 1);
+    assert.equal(selected.length, 1);
+    assert.equal(preflight.schemaVersion, 1);
+    assert.equal(preflight.state, "preflighted");
+    assert.equal(preflight.campaignManifestSha256, sha256(manifestBytes));
+    assert.deepEqual(preflight.session, {
+      blindAlias: selected[0].blindAlias,
+      sequence: 1,
+      transmissionSha256: selected[0].transmissionSha256,
+      provider: selected[0].provider,
+      model: selected[0].model,
+      effort: selected[0].effort,
+    });
+    assert.ok(
+      preflight.status === "completed" || preflight.status === "failed",
+    );
+    assert.equal(preflight.status, preflight.result.status);
+    assert.equal(preflight.modelTurns, preflight.result.modelTurns);
+    if (preflight.status === "completed") {
+      assert.equal(preflight.modelTurns, 0);
+      assert.equal(preflight.failureClass, null);
+      assert.equal(preflight.error, null);
+    }
+  }
+
   const executedPath = path.join(resultDirectory, "executed.json");
   const gradingPreparedPath = path.join(
     resultDirectory,
@@ -396,8 +424,14 @@ function validateCurrentResultDirectory(resultDirectory) {
   if (!existsSync(executedPath)) {
     assert.equal(existsSync(gradingPreparedPath), false);
     assert.equal(existsSync(aggregatePath), false);
-    return "prepared";
+    return preflight === null
+      ? "prepared"
+      : preflight.status === "completed"
+        ? "preflighted"
+        : "preflight-failed";
   }
+
+  if (preflight !== null) assert.equal(preflight.status, "completed");
 
   const executed = readJson(executedPath);
   assert.equal(executed.schemaVersion, 1);

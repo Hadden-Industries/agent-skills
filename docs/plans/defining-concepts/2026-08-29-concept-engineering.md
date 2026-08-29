@@ -31,6 +31,7 @@
 - Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. Do not edit either file until the user explicitly approves the exact proposed fields, case inventory, prompts, expectations, trigger queries, and campaign selection.
 - Do not modify `package.json`, lockfiles, build configuration, lint configuration, formatting configuration, CI, environment configuration, or repository policy as part of this work.
 - Do not call an external model until the exact skill bundle, every prompt and follow-up turn, provider, model, effort, runtime fingerprint, and transmission SHA-256 have been prepared and explicitly authorized.
+- For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, while thread state and runtime events establish actual activation. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
 - A materially changed candidate is a new iteration. Never reuse a prior candidate's authorization, campaign identity, or result directory.
 - Do not claim human usability, general expert superiority, calibrated probability, within-prompt repeatability, or stochastic variance from this campaign.
 - Commits require explicit authorization through `committing-to-git`; pushes require a separate explicit authorization.
@@ -426,6 +427,7 @@ Each bundle contains:
 
 ```text
 evaluation-runner.mjs prepare --campaign calibration --destination <new-dir> --baseline-revision <oid> ...
+evaluation-runner.mjs preflight --campaign-dir <prepared-dir> ...
 evaluation-runner.mjs run --campaign-dir <prepared-dir> --authorization-dir <dir> ...
 evaluation-runner.mjs prepare-grading --campaign-dir <completed-dir> ...
 evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
@@ -433,7 +435,7 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
 `prepare` is read-only with respect to the repository and makes no provider calls. It snapshots approved cases, captures the current and candidate skill bundles once, creates all three arm transmissions, assigns blind aliases from a recorded seed, and writes an immutable campaign manifest.
 
-`run` validates every session's exact authorization before executing it. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
+`preflight` deterministically selects the manifest's sequence-1 session, performs one zero-turn OpenAI provider-protocol check, and exclusively records its result against the manifest and transmission. `run` requires that exact successful record, then validates every session's exact authorization before executing any session. `prepare-grading` creates blind grading packets but does not call a grader. `aggregate` refuses incomplete or structurally invalid grades.
 
 - [ ] **Step 1: Write a 30-session calibration-matrix test**
 
@@ -447,19 +449,23 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
   Assert that one recorded seed deterministically produces the same blind aliases and ordering, while graders cannot infer `current-skill` or `candidate-skill` from packet names. Preserve an internal sealed mapping for aggregation.
 
-- [ ] **Step 4: Write execution authorization tests**
+- [ ] **Step 4: Write campaign preflight tests**
+
+  Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the disabled packet policy; actual thread state still matches the packet; and the record binds the exact manifest and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
+
+- [ ] **Step 5: Write execution authorization tests**
 
   Assert that `run` stops before the first provider call when any session authorization is absent, malformed, or mismatched. Do not interpret one authorized session as authorization for the remaining 29.
 
-- [ ] **Step 5: Write grading-packet tests**
+- [ ] **Step 6: Write grading-packet tests**
 
   Grading packets contain frozen case expectations, critical markers, qualitative dimensions, relevant transcript and final output, but no arm identity. Pairwise packets randomize current/candidate side assignment and retain the sealed mapping.
 
-- [ ] **Step 6: Write aggregate-integrity tests**
+- [ ] **Step 7: Write aggregate-integrity tests**
 
   Assert exact expectation totals, critical-gate totals, per-case and per-profile summaries, pairwise outcomes, disagreement records, token/time summaries, and one-repetition limitations. Reject claims or fields for within-cell variance, standard deviation across repetitions, or per-prompt pass probability.
 
-- [ ] **Step 7: Run tests and confirm RED**
+- [ ] **Step 8: Run tests and confirm RED**
 
   Run:
 
@@ -467,11 +473,11 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
   node --test tests/evals/defining-concepts/evaluation-runner.test.mjs
   ```
 
-- [ ] **Step 8: Implement the smallest campaign state machine**
+- [ ] **Step 9: Implement the smallest campaign state machine**
 
-  Use explicit states such as `prepared`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. Failed or invalid attempts live under a bounded `invalid-attempts/` branch and never count as valid evidence.
+  Use explicit states such as `prepared`, `preflighted`, `executed`, `grading-prepared`, and `graded`. Never overwrite a completed state artifact. A failed preflight is terminal for its campaign and cannot be retried or bypassed. Failed or invalid execution attempts live under a bounded `invalid-attempts/` branch and never count as valid evidence.
 
-- [ ] **Step 9: Run campaign and session tests and confirm GREEN**
+- [ ] **Step 10: Run campaign and session tests and confirm GREEN**
 
   Run:
 
@@ -844,6 +850,7 @@ Where a single case cannot make a research stratum observable without becoming c
   - provider/model/effort/runtime identity;
   - blind mapping seal;
   - per-session transmission hashes;
+  - an optional retained campaign preflight branch for current historical artifacts and exact validation of any present manifest/session binding, terminal status, and zero-turn completion;
   - valid/invalid attempt disposition;
   - explicit limitation flags for absent repeated sampling and human usability.
 
@@ -880,7 +887,8 @@ Where a single case cannot make a research stratum observable without becoming c
   - declarative follow-up-turn semantics;
   - three arms and immutable bundle capture;
   - calibration IDs and the 30-session arithmetic;
-  - preparation before authorization;
+  - preparation and a mandatory sequence-1 zero-turn campaign preflight before authorization;
+  - provider capability availability versus actual thread activation and runtime event enforcement;
   - separate authorization for every external model and grader transmission;
   - blind critical grading, qualitative dimensions, and pairwise comparison;
   - the non-compensable critical-failure register and why aggregate prose quality cannot override it;
@@ -1009,13 +1017,18 @@ Where a single case cannot make a research stratum observable without becoming c
 
   Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare two new timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its declared default effort `low`, and a capability-ceiling `gpt-5.6-sol` campaign at `max`. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, and 30 exact transmission hashes. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for the matched single-agent ceiling campaign.
 
-- [ ] **Step 2: Review the frozen campaign**
+- [ ] **Step 2: Pass the mandatory zero-turn campaign gate**
+
+  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, the intended disabled thread facilities, clean managed-home retirement, and confirmed provider-process closure. Treat provider capability booleans as availability rather than activation: broader provider availability is acceptable when the packet and actual thread disable the facility, while a packet-requested but unavailable facility fails closed. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
+
+- [ ] **Step 3: Review the frozen campaign**
 
   Present the user with:
 
   - exact current and candidate bundle inventories and aggregate hashes;
   - exact ten initial prompts and every follow-up turn;
   - the model-catalog evidence supporting the representative and ceiling labels;
+  - each successful zero-turn preflight record, its selected session, actual thread isolation, cleanup, and exact manifest binding;
   - provider, exact model, and exact effort for each group;
   - both sets of 30 transmission hashes;
   - 60 expected external sessions and at most 66 total model turns across the two groups;
@@ -1024,23 +1037,23 @@ Where a single case cannot make a research stratum observable without becoming c
   - confirmation that one repetition is enforced per case/arm/profile cell; and
   - confirmation that `ultra` and automatic task delegation are outside the matched protocol.
 
-- [ ] **Step 3: Obtain exact authorization**
+- [ ] **Step 4: Obtain exact authorization**
 
   Stop until the user explicitly authorizes the exact frozen transmissions for each model-effort group. Authorization may cover both fully disclosed manifests in one statement, but it must identify both manifest digests, both exact efforts, all 60 packet digests by reference to the disclosed lists, the 66-turn ceiling, and the absence or presence of grading calls. Do not reuse the earlier four-prompt/eight-run authorization, an authorization for a superseded effort, or approval of this plan.
 
-- [ ] **Step 4: Execute each session once**
+- [ ] **Step 5: Execute each session once**
 
-  Run only authorized sessions. Preserve failures and invalid attempts without silently replacing them. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
+  Run only sessions from an exact successfully preflighted campaign with exact per-packet authorization. Preserve failures and invalid attempts without silently replacing them. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
 
-- [ ] **Step 5: Prepare blind grading packets**
+- [ ] **Step 6: Prepare blind grading packets**
 
   Freeze critical expectations, applicable qualitative dimensions, relationship-specific mapping criteria, and pairwise packets before any grader call. Each critical decision requires a transcript/output excerpt and a concise reason. Do not score a non-applicable profile or infer source verification from fluent wording. Obtain separate exact authorization for external graders if used.
 
-- [ ] **Step 6: Grade and aggregate**
+- [ ] **Step 7: Grade and aggregate**
 
   Produce expectation evidence, critical-gate outcomes, applicable-dimension judgments, per-skill-profile and per-research-stratum summaries, pairwise outcomes, disagreement records, token/time summaries, and limitations separately for the representative and capability-ceiling campaigns. Only after both aggregates are frozen, compare profile-conditioned outcomes without pooling their scores or treating effort as a repetition. Report exact/close/broad/narrow/related mapping results separately where labeled cases permit it. Treat any candidate critical failure as non-compensable under the preregistered rule. Do not calculate within-cell variance, standard deviation across repetitions, calibrated confidence, or a general pass probability.
 
-- [ ] **Step 7: Apply the iteration rule**
+- [ ] **Step 8: Apply the iteration rule**
 
   If a critical failure or material design problem in either model-effort group requires a skill change, close this candidate iteration. Modify the skill through a new test-first cycle, freeze new bytes, create new timestamped representative and ceiling campaigns, and obtain new authorization. Do not overwrite either prior campaign.
 
@@ -1060,9 +1073,9 @@ Where a single case cannot make a research stratum observable without becoming c
 
   Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, runtime, and transmission hashes before execution. Preserve the two-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
 
-- [ ] **Step 4: Obtain exact authorization and execute**
+- [ ] **Step 4: Preflight, obtain exact authorization, and execute**
 
-  Follow the same prepare-review-authorize-run-grade sequence as calibration. A confirmatory run never borrows calibration authorization.
+  Follow the same prepare-preflight-review-authorize-run-grade sequence as calibration. A confirmatory run never borrows calibration preflight evidence or authorization.
 
 - [ ] **Step 5: Apply the promotion gate**
 

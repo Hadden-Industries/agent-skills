@@ -206,9 +206,12 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
         writeMessage({
           id: message.id,
           result: {
-            imageGeneration: scenario === "provider-image-capability-mismatch",
-            namespaceTools: false,
-            webSearch: scenario === "provider-capability-mismatch",
+            imageGeneration: scenario === "provider-capabilities-available",
+            namespaceTools: scenario === "provider-capabilities-available",
+            webSearch:
+              scenario === "provider-capabilities-malformed"
+                ? "available"
+                : scenario === "provider-capabilities-available",
           },
         });
         if (state.pendingModelRequest !== null) {

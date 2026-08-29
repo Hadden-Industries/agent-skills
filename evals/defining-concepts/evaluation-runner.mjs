@@ -536,6 +536,158 @@ function retainInvalidAttempt(campaignDirectory, attemptNumber, record) {
   });
 }
 
+function campaignManifestSha256(manifest) {
+  return sha256Hex(canonicalJsonBytes(manifest));
+}
+
+function selectedPreflightSession(manifest) {
+  if (!Array.isArray(manifest.sessions)) {
+    fail("campaign manifest sessions must be an array");
+  }
+  const candidates = manifest.sessions.filter(({ sequence }) => sequence === 1);
+  if (candidates.length !== 1) {
+    fail("campaign must contain exactly one sequence-1 preflight session");
+  }
+  const session = candidates[0];
+  if (
+    session.provider !== manifest.protocol.provider ||
+    session.model !== manifest.protocol.model ||
+    session.effort !== manifest.protocol.effort ||
+    !SHA256_PATTERN.test(session.transmissionSha256 ?? "")
+  ) {
+    fail("campaign preflight session does not match the campaign protocol");
+  }
+  return session;
+}
+
+function preflightSessionBinding(session) {
+  return {
+    blindAlias: session.blindAlias,
+    sequence: session.sequence,
+    transmissionSha256: session.transmissionSha256,
+    provider: session.provider,
+    model: session.model,
+    effort: session.effort,
+  };
+}
+
+function failedCampaignPreflight(error, modelTurns = null) {
+  return {
+    schemaVersion: 1,
+    status: "failed",
+    failureClass: "protocol-failed",
+    error: {
+      code: "CAMPAIGN_PREFLIGHT_PROTOCOL_ERROR",
+      message: error instanceof Error ? error.message : String(error),
+    },
+    modelTurns,
+  };
+}
+
+function normalizeCampaignPreflightResult(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail("campaign preflight returned a malformed result");
+  }
+  if (value.schemaVersion !== 1) {
+    fail("campaign preflight result must use schema version 1");
+  }
+  if (!new Set(["completed", "failed"]).has(value.status)) {
+    fail("campaign preflight result status must be completed or failed");
+  }
+  if (value.modelTurns !== 0) {
+    fail("campaign preflight must report exactly zero model turns");
+  }
+  if (
+    value.status === "completed" &&
+    (value.failureClass !== null || value.error !== null)
+  ) {
+    fail("completed campaign preflight cannot report an error");
+  }
+  return canonicalRecord(value);
+}
+
+export function preflightPreparedCampaign({
+  campaignDirectory,
+  preflightSession,
+}) {
+  const manifest = readJson(
+    path.join(campaignDirectory, "manifest.json"),
+    "campaign manifest",
+  );
+  if (manifest.schemaVersion !== 2 || manifest.state !== "prepared") {
+    fail("campaign is not in the prepared state");
+  }
+  if (manifest.protocol.provider !== "openai") {
+    fail("campaign zero-turn preflight supports only OpenAI");
+  }
+  if (existsSync(path.join(campaignDirectory, "executed.json"))) {
+    fail("executed campaigns cannot be preflighted");
+  }
+  const target = path.join(campaignDirectory, "preflight.json");
+  if (existsSync(target)) {
+    fail("campaign preflight already exists and cannot be overwritten");
+  }
+  if (typeof preflightSession !== "function") {
+    fail("preflightSession must be a function");
+  }
+  const session = selectedPreflightSession(manifest);
+  let candidate;
+  let result;
+  try {
+    candidate = preflightSession(deepFreeze(canonicalRecord(session)));
+    result = normalizeCampaignPreflightResult(candidate);
+  } catch (error) {
+    result = failedCampaignPreflight(
+      error,
+      Number.isSafeInteger(candidate?.modelTurns) && candidate.modelTurns >= 0
+        ? candidate.modelTurns
+        : null,
+    );
+  }
+  const record = {
+    schemaVersion: 1,
+    state: "preflighted",
+    campaignManifestSha256: campaignManifestSha256(manifest),
+    session: preflightSessionBinding(session),
+    status: result.status,
+    modelTurns: result.modelTurns,
+    failureClass: result.failureClass ?? null,
+    error: result.error ?? null,
+    result,
+  };
+  writeCanonicalExclusive(target, record);
+  return deepFreeze(canonicalRecord(record));
+}
+
+function assertSuccessfulCampaignPreflight(campaignDirectory, manifest) {
+  const record = readJson(
+    path.join(campaignDirectory, "preflight.json"),
+    "campaign preflight",
+  );
+  const session = selectedPreflightSession(manifest);
+  if (
+    record.schemaVersion !== 1 ||
+    record.state !== "preflighted" ||
+    record.campaignManifestSha256 !== campaignManifestSha256(manifest) ||
+    !canonicalJsonBytes(record.session).equals(
+      canonicalJsonBytes(preflightSessionBinding(session)),
+    )
+  ) {
+    fail("campaign preflight does not match the prepared manifest");
+  }
+  if (
+    record.status !== "completed" ||
+    record.modelTurns !== 0 ||
+    record.failureClass !== null ||
+    record.error !== null ||
+    record.result?.status !== "completed" ||
+    record.result?.modelTurns !== 0
+  ) {
+    fail("campaign does not have a successful zero-turn preflight");
+  }
+  return record;
+}
+
 export function runPreparedCampaign({
   campaignDirectory,
   authorizationDirectory,
@@ -553,6 +705,9 @@ export function runPreparedCampaign({
   }
   if (typeof executeSession !== "function")
     fail("executeSession must be a function");
+  if (manifest.protocol.provider === "openai") {
+    assertSuccessfulCampaignPreflight(campaignDirectory, manifest);
+  }
   const authorizations = new Map();
   for (const session of manifest.sessions) {
     const target = path.join(
@@ -626,7 +781,7 @@ export function runPreparedCampaign({
   const record = {
     schemaVersion: 1,
     state: "executed",
-    campaignManifestSha256: sha256Hex(canonicalJsonBytes(manifest)),
+    campaignManifestSha256: campaignManifestSha256(manifest),
     sessions: results,
   };
   writeCanonicalExclusive(
@@ -1227,6 +1382,51 @@ function runFromCli(values) {
   });
 }
 
+function preflightFromCli(values) {
+  const campaignDirectory = path.resolve(requireCli(values, "--campaign-dir"));
+  const timeoutMs = values.get("--timeout-ms");
+  const record = preflightPreparedCampaign({
+    campaignDirectory,
+    preflightSession(session) {
+      const preparedSession = path.join(
+        campaignDirectory,
+        session.relativeSessionPath,
+        "prepared",
+      );
+      const arguments_ = [
+        SESSION_RUNNER,
+        "preflight",
+        "--prepared-session",
+        preparedSession,
+        "--allow-zero-turn-preflight",
+      ];
+      if (timeoutMs !== undefined) {
+        arguments_.push("--timeout-ms", timeoutMs);
+      }
+      const spawned = spawnSync(process.execPath, arguments_, {
+        encoding: "utf8",
+      });
+      if (spawned.error !== undefined) throw spawned.error;
+      let result;
+      try {
+        result = JSON.parse(spawned.stdout.trim());
+      } catch (error) {
+        fail(
+          `session preflight did not return one JSON result: ${error.message}`,
+        );
+      }
+      if (spawned.status !== 0 && result.status === "completed") {
+        fail(
+          `session preflight exited with status ${spawned.status} after reporting completion`,
+        );
+      }
+      return result;
+    },
+  });
+  if (record.status !== "completed") process.exitCode = 1;
+  return record;
+}
+
 function aggregateFromCli(values) {
   const campaignDirectory = path.resolve(requireCli(values, "--campaign-dir"));
   const manifest = readJson(
@@ -1269,6 +1469,7 @@ async function cli() {
   const { command, values, repeated } = parseCli(process.argv.slice(2));
   let result;
   if (command === "prepare") result = prepareFromCli(values, repeated);
+  else if (command === "preflight") result = preflightFromCli(values);
   else if (command === "run") result = runFromCli(values);
   else if (command === "prepare-grading") {
     result = prepareCampaignGrading({
@@ -1276,7 +1477,9 @@ async function cli() {
     });
   } else if (command === "aggregate") result = aggregateFromCli(values);
   else
-    fail("first argument must be prepare, run, prepare-grading, or aggregate");
+    fail(
+      "first argument must be prepare, preflight, run, prepare-grading, or aggregate",
+    );
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 

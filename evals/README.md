@@ -4,15 +4,16 @@ This tree contains repository-maintainer evaluation suites and evidence. It is s
 
 ## Lifecycle
 
-Every new provider session crosses an explicit prepare/authorize/run boundary:
+Every new provider session crosses an explicit prepare/authorize/run boundary; a suite may insert a separately recorded zero-turn provider preflight before authorization:
 
 1. Inspect the selected provider toolchain and build the suite-controlled inputs.
 2. Call `createTransmissionPacket(transmission)` and `prepareEvidenceSession({ destination, packet, inputs })` in a new destination. Preparation is local-only and starts no model turn.
-3. Review `packet.json`, including its provider, model, effort, capabilities, isolation, toolchain, runtime fingerprint, exact inputs, and `transmissionSha256`.
-4. Create an exact authorization artifact for that packet.
-5. Call `executeAuthorizedModelSession(...)`. The common gate acquires evidence first, validates authorization, validates current state, gives one opaque launch capability to the selected adapter, and finalizes terminal evidence.
+3. If the suite requires it, run one explicitly guarded zero-turn preflight, bind its terminal result to the prepared packet or campaign, and refuse authorization or execution after a failed, stale, or nonzero-turn result.
+4. Review `packet.json`, including its provider, model, effort, capabilities, isolation, toolchain, runtime fingerprint, exact inputs, and `transmissionSha256`.
+5. Create an exact authorization artifact for that packet.
+6. Call `executeAuthorizedModelSession(...)`. The common gate acquires evidence first, validates authorization, validates current state, gives one opaque launch capability to the selected adapter, and finalizes terminal evidence.
 
-The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, and `antigravityCliAdapter`. Suites supply a controller and provider request; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes. `preflightCodexAppServer(...)` is a separate zero-turn local protocol check and requires an explicit suite/operator guard. Antigravity exposes no reviewed zero-turn authentication/status command, so its cached authentication is tested only by a separately authorized model launch.
+The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, and `antigravityCliAdapter`. Suites supply a controller and provider request; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes. `preflightCodexAppServer(...)` is a separate zero-turn provider-protocol check and requires an explicit suite/operator guard. It may start the reviewed provider process and inspect authenticated metadata, but it never calls `turn/start`. Antigravity exposes no reviewed zero-turn authentication/status command, so its cached authentication is tested only by a separately authorized model launch.
 
 `evals.json` and `trigger-evals.json` remain the shared manifest surfaces. `npm run build:check` verifies matching skill/suite names, behavioral and trigger shapes, unique normalized cases, contained fixture paths, and the deployable/evaluation boundary. Mechanical validation is not model or semantic evidence.
 
@@ -57,6 +58,8 @@ The prompt, provider conditions, and all non-treatment inputs remain matched acr
 ## Provider Capability Preflight
 
 Before preparing a campaign, compare every declared conversation and case requirement with the selected adapter's reviewed capability profile. Freeze provider, exact model, effort, toolchain, network, web search, tools, provider facilities, isolation, and runtime fingerprint in each transmission. Reject unsupported multi-turn conversations, tools, permissions, network requirements, or provider facilities before execution. Do not claim that a tool is unavailable merely because it was unused, or that a capability is available because a provider normally advertises it; the packet records the reviewed session policy.
+
+Provider-level capability discovery and session-level activation are distinct. For Codex, `modelProvider/capabilities/read` reports facilities the provider can make available. A `true` availability value does not mean that the packet requested or the thread activated that facility, so it must not be compared for equality with a disabled packet policy. A facility requested by the packet must be available; actual activation is verified separately from the thread start/read state, and emitted tool, web-search, image-generation, MCP, delegation, command, and file-change events remain subject to fail-closed runtime enforcement.
 
 Capability differences are methodologically material. Keep matched arms on the same profile, label cross-provider evidence separately, and never infer source retrieval, validation, subagent use, or another unavailable action from fluent output. Preparation and zero-turn preflight are not model calls and do not establish that a later authenticated provider launch will succeed.
 
@@ -117,7 +120,7 @@ Codex zero-turn preflight evidence lives beneath the suite-selected preflight de
 
 ## Provider Adapters
 
-OpenAI sessions use the Codex App Server adapter. It re-inspects the exact executable/schema, launches App Server with a process-local file-credential-store override, verifies the positive-name environment and stable `CODEX_HOME`, checks authentication, models, skills, hooks, apps, and thread isolation, normalizes approval requests through the suite controller, retains JSONL bytes, enforces capability events, and owns thread interruption/deletion and child closure.
+OpenAI sessions use the Codex App Server adapter. It re-inspects the exact executable/schema, launches App Server with a process-local file-credential-store override, verifies the positive-name environment and stable `CODEX_HOME`, checks authentication, models, provider capability availability, skills, hooks, apps, and actual thread isolation, normalizes approval requests through the suite controller, retains JSONL bytes, enforces capability events, and owns thread interruption/deletion and child closure.
 
 Anthropic sessions use the Claude CLI adapter. It pins one reviewed CLI version/capability profile, uses current documented safe-mode and output flags, preserves normal OAuth/keychain authentication, retains the provider-owned default system prompt outside the harness digest, captures provider output once, and normalizes the same result and closure interface. Unsupported versions or required capabilities fail before execution.
 

@@ -1176,16 +1176,31 @@ function inspectCapabilities(models, providerCapabilities, policy) {
   if (
     providerCapabilities === null ||
     typeof providerCapabilities !== "object" ||
-    providerCapabilities.webSearch !== policy.capabilities.webSearch ||
-    providerCapabilities.imageGeneration !==
-      policy.capabilities.providerFacilities.includes("image-generation") ||
-    providerCapabilities.namespaceTools !==
-      policy.capabilities.tools.some((tool) => tool.includes("namespace"))
+    Array.isArray(providerCapabilities) ||
+    typeof providerCapabilities.webSearch !== "boolean" ||
+    typeof providerCapabilities.imageGeneration !== "boolean" ||
+    typeof providerCapabilities.namespaceTools !== "boolean"
+  ) {
+    throw sessionError(
+      "protocol-failed",
+      "INVALID_PROVIDER_CAPABILITIES",
+      "Codex App Server returned invalid provider capability availability",
+    );
+  }
+  const requestsImageGeneration =
+    policy.capabilities.providerFacilities.includes("image-generation");
+  const requestsNamespaceTools = policy.capabilities.tools.some((tool) =>
+    tool.includes("namespace"),
+  );
+  if (
+    (policy.capabilities.webSearch && !providerCapabilities.webSearch) ||
+    (requestsImageGeneration && !providerCapabilities.imageGeneration) ||
+    (requestsNamespaceTools && !providerCapabilities.namespaceTools)
   ) {
     throw sessionError(
       "capability-rejected",
-      "PROVIDER_CAPABILITY_MISMATCH",
-      "Codex provider capabilities do not match policy",
+      "PROVIDER_CAPABILITY_UNAVAILABLE",
+      "Codex provider does not offer a requested capability",
     );
   }
   return {

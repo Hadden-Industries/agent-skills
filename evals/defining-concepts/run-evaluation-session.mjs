@@ -24,6 +24,7 @@ import {
 import {
   codexAppServerAdapter,
   inspectCodexAppServerToolchain,
+  preflightCodexAppServer,
 } from "../../scripts/evaluation/codex-app-server.js";
 import {
   evaluationHomesRootFromLocalAppData,
@@ -31,6 +32,7 @@ import {
   withEvaluationHome,
 } from "../../scripts/evaluation/evaluation-homes.js";
 import {
+  assertTransmissionPacket,
   canonicalJsonBytes,
   createTransmissionPacket,
   executeAuthorizedModelSession,
@@ -99,8 +101,8 @@ function fail(message) {
 
 function parseArguments(argv) {
   const command = argv[0];
-  if (!new Set(["prepare", "run"]).has(command)) {
-    fail("First argument must be prepare or run");
+  if (!new Set(["prepare", "preflight", "run"]).has(command)) {
+    fail("First argument must be prepare, preflight, or run");
   }
   const values = new Map();
   const repeated = new Map([
@@ -108,7 +110,10 @@ function parseArguments(argv) {
     ["--codex-prefix-arg", []],
     ["--claude-prefix-arg", []],
   ]);
-  const switches = new Set(["--allow-external-model-call"]);
+  const switches = new Set([
+    "--allow-external-model-call",
+    "--allow-zero-turn-preflight",
+  ]);
   for (let index = 1; index < argv.length; index += 1) {
     const name = argv[index];
     if (switches.has(name)) {
@@ -741,6 +746,87 @@ function conversationFromTransmission(transmission) {
   ]);
 }
 
+function runnerSettingsFromTransmission(transmission) {
+  const settingsInput = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "runner-settings",
+  );
+  if (settingsInput === undefined) fail("prepared runner settings are missing");
+  return JSON.parse(settingsInput.content);
+}
+
+function codexPolicyFromTransmission(transmission) {
+  const base = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "base-instructions",
+  )?.content;
+  const developer = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "instructions",
+  )?.content;
+  if (typeof base !== "string" || typeof developer !== "string") {
+    fail("prepared Codex instructions are missing");
+  }
+  return {
+    schemaVersion: 1,
+    provider: "openai",
+    model: transmission.model,
+    effort: transmission.effort,
+    instructions: { base, developer },
+    capabilities: transmission.capabilities,
+    isolation: transmission.isolation,
+  };
+}
+
+function assertPreparedRuntimeCurrent(transmission) {
+  assertRuntimeCurrent(
+    transmission.runtimeFingerprint,
+    transmission.provider,
+  );
+  if (
+    controllerDigest() !== transmission.continuationPolicy.controllerSha256
+  ) {
+    fail("session controller changed after preparation");
+  }
+}
+
+async function preflight(options) {
+  const { values } = options;
+  const preparedSession = path.resolve(
+    requireValue(values, "--prepared-session"),
+  );
+  if (values.get("--allow-zero-turn-preflight") !== true) {
+    fail("preflight requires --allow-zero-turn-preflight");
+  }
+  const timeoutMs = values.has("--timeout-ms")
+    ? positiveInteger(values.get("--timeout-ms"), "--timeout-ms")
+    : 30_000;
+  const packet = JSON.parse(
+    readFileSync(path.join(preparedSession, "packet.json"), "utf8"),
+  );
+  assertTransmissionPacket(packet);
+  const transmission = packet.transmission;
+  if (transmission.provider !== "openai") {
+    fail("zero-turn preflight supports only prepared OpenAI sessions");
+  }
+  assertPreparedRuntimeCurrent(transmission);
+  const settings = runnerSettingsFromTransmission(transmission);
+  const result = await preflightCodexAppServer({
+    toolchain: transmission.toolchain,
+    policy: codexPolicyFromTransmission(transmission),
+    withHome: (operation) =>
+      withEvaluationHome(
+        {
+          root: settings.evaluationHomesRoot,
+          role: "preflight",
+          operationId: transmission.session.preparedSessionId,
+        },
+        operation,
+      ),
+    evidenceDestination: path.join(preparedSession, "preflight"),
+    timeoutMs,
+  });
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (result.status !== "completed") process.exitCode = 1;
+}
+
 async function run(options) {
   const { values } = options;
   const preparedSession = path.resolve(
@@ -765,35 +851,16 @@ async function run(options) {
   );
   const transmission = packet.transmission;
   const paths = inputPathMap(preparedSession);
-  const settingsInput = transmission.harnessControlledInputs.find(
-    ({ id }) => id === "runner-settings",
-  );
-  if (settingsInput === undefined) fail("prepared runner settings are missing");
-  const settings = JSON.parse(settingsInput.content);
+  const settings = runnerSettingsFromTransmission(transmission);
   const conversation = conversationFromTransmission(transmission);
   const controller = createDefiningConceptController({ conversation });
   let adapter;
   let request;
   if (transmission.provider === "openai") {
-    const base = transmission.harnessControlledInputs.find(
-      ({ id }) => id === "base-instructions",
-    ).content;
-    const developer = transmission.harnessControlledInputs.find(
-      ({ id }) => id === "instructions",
-    ).content;
-    const policy = {
-      schemaVersion: 1,
-      provider: "openai",
-      model: transmission.model,
-      effort: transmission.effort,
-      instructions: { base, developer },
-      capabilities: transmission.capabilities,
-      isolation: transmission.isolation,
-    };
     adapter = codexAppServerAdapter;
     request = Object.freeze({
       toolchain: transmission.toolchain,
-      policy,
+      policy: codexPolicyFromTransmission(transmission),
       controller,
       timeoutMs,
       withHome: (operation) =>
@@ -840,13 +907,7 @@ async function run(options) {
     allowExternalModelCall: true,
     authorization,
     assertCurrent: async (current) => {
-      assertRuntimeCurrent(current.runtimeFingerprint, current.provider);
-      if (
-        controllerDigest() !==
-        current.continuationPolicy.controllerSha256
-      ) {
-        fail("session controller changed after preparation");
-      }
+      assertPreparedRuntimeCurrent(current);
     },
     adapter,
     request,
@@ -856,9 +917,13 @@ async function run(options) {
 }
 
 const parsed = parseArguments(process.argv.slice(2));
-(parsed.command === "prepare" ? prepare(parsed) : run(parsed)).catch(
-  (error) => {
-    process.stderr.write(`${error.stack ?? error.message}\n`);
-    process.exitCode = 1;
-  },
-);
+const operation =
+  parsed.command === "prepare"
+    ? prepare(parsed)
+    : parsed.command === "preflight"
+      ? preflight(parsed)
+      : run(parsed);
+operation.catch((error) => {
+  process.stderr.write(`${error.stack ?? error.message}\n`);
+  process.exitCode = 1;
+});

@@ -562,6 +562,98 @@ test("preflight accepts the official initialize response and writes terminal evi
   );
 });
 
+test("provider capability availability does not enable facilities in a tool-free session", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(
+    t,
+    root,
+    "provider-capabilities-available",
+  );
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy: policyFixture(fixtureRoot),
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.failureClass, null);
+  assert.equal(result.modelTurns, 0);
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "turn/start"),
+    false,
+  );
+});
+
+test("provider capability unavailability rejects a requested facility before thread creation", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(t, root);
+  const policy = policyFixture(fixtureRoot);
+  policy.capabilities.webSearch = true;
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy,
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "capability-rejected");
+  assert.equal(result.error.code, "PROVIDER_CAPABILITY_UNAVAILABLE");
+  assert.equal(result.modelTurns, 0);
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "thread/start"),
+    false,
+  );
+});
+
+test("malformed provider capability availability fails as a protocol error", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(
+    t,
+    root,
+    "provider-capabilities-malformed",
+  );
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy: policyFixture(fixtureRoot),
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "protocol-failed");
+  assert.equal(result.error.code, "INVALID_PROVIDER_CAPABILITIES");
+  assert.equal(result.modelTurns, 0);
+});
+
 test("non-authentication server JSONL bytes and delimiters are retained exactly", async (t) => {
   const root = await temporaryRoot(t);
   const fixtureRoot = join(root, "fixture");
@@ -816,21 +908,11 @@ for (const [domain, mutate] of [
 for (const [scenario, failureClass, errorCode] of [
   ["model-unavailable", "preflight-rejected", "MODEL_UNAVAILABLE"],
   ["effort-unavailable", "preflight-rejected", "EFFORT_UNAVAILABLE"],
-  [
-    "provider-capability-mismatch",
-    "capability-rejected",
-    "PROVIDER_CAPABILITY_MISMATCH",
-  ],
   ["enabled-skill", "capability-rejected", "SKILL_SOURCE_PRESENT"],
   ["disabled-skill", "capability-rejected", "SKILL_SOURCE_PRESENT"],
   ["enabled-hook", "capability-rejected", "HOOK_SOURCE_PRESENT"],
   ["disabled-hook", "capability-rejected", "HOOK_SOURCE_PRESENT"],
   ["callable-app", "capability-rejected", "CALLABLE_APP_PRESENT"],
-  [
-    "provider-image-capability-mismatch",
-    "capability-rejected",
-    "PROVIDER_CAPABILITY_MISMATCH",
-  ],
   ["wrong-codex-home", "capability-rejected", "CODEX_HOME_MISMATCH"],
   ["leaked-instructions", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
   ["sandbox-mismatch", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
