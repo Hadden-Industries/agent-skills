@@ -1,0 +1,733 @@
+# Isolated behavioral evaluation
+
+Do not inspect local files, repository metadata, memories, plugins, commands,
+or discoverable skills. Use only the user's prompt, live web search, and the
+task-specific skill text below when one is present.
+If unrelated task-specific skill material becomes visible, output
+BASELINE_CONTAMINATION and stop. Do not mention this harness in an otherwise
+valid final answer.
+
+# Task-specific skill
+
+# Task-specific skill bundle: defining-concepts
+
+Apply the following repository files as one skill. File boundaries are semantic and must be preserved.
+
+## `skills/defining-concepts/SKILL.md`
+
+---
+name: defining-concepts
+description: Engineers source-grounded concepts and definitions, including definition, revision, audit, comparison, mapping, formalization, multilingual equivalence, and epistemic-governance work. Use for deliberate semantic work on a concept's identity, boundary, designation, reuse, relation, or representation. Do NOT use for casual dictionary lookup, code-symbol naming, product or brand naming, copyediting without semantic work, or implementation-only requests.
+license: MPL-2.0
+compatibility: Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.
+metadata:
+  category: research
+---
+
+# Defining Concepts
+
+Engineer the intended concept before polishing its words. Produce the smallest useful, source-grounded result while preserving concept identity, boundary, evidence, status, and unresolved decisions.
+
+## Trigger boundary
+
+Use this skill to define, revise, audit, compare, map, formalize, assess multilingual equivalence for, or govern a concept. This includes terminology entries, metadata concepts, controlled-vocabulary mappings, ontology formalization, contested meanings, and community-governed concepts.
+
+Do not use it for a casual dictionary meaning, code or variable naming, product naming, copyediting that does not change or test meaning, or an implementation-only request. If the user asks for implementation and the concept is already settled, follow the implementation task instead.
+
+## Universal workflow
+
+Follow `Route -> Frame -> Research -> Model -> Decide -> Define -> Validate -> Present`. Scale every step to the request; a routine definition may require only a compact internal record and a one- or two-paragraph answer.
+
+### 1. Route
+
+- Identify the requested task, target concept or candidate designation, intended human renderer, any explicitly requested machine representation, applicable specialist profiles, and any ambiguity that blocks responsible work.
+- Ask one focused clarification only when plausible interpretations would yield materially different concepts or a required authority, jurisdiction, threshold, or use decision cannot be inferred safely. Otherwise state a bounded assumption and use provisional status when needed.
+- Use `definition-answer` for a direct definition, `revision-audit` for a supplied definition or semantic defect review, and `concept-package` for a reusable, governed, mapped, or formally modeled entry.
+
+### 2. Frame
+
+- Build a proportional ConceptBrief containing only material facts: target and task; purpose and intended use or non-use; subject field; included and excluded scope; desired granularity; audience; jurisdiction, scheme, language, and time or version context; stakeholders, responsible authority, and affected communities; active profiles and requested representations; assumptions; unresolved ambiguities; and competency questions.
+- Classify risk as `routine`, `consequential`, or `authority-sensitive`. Routine work is familiar and reversible; consequential work can affect interoperability, policy, legal, safety, scientific, or operational outcomes; authority-sensitive work is contested, normative, situated, or community-governed and may not be legitimate for the agent to settle.
+- Use only enough competency questions to expose the intended boundary. Mark a question critical when failure would invalidate the concept or intended use.
+
+### 3. Research
+
+- Plan evidence lanes from the ConceptBrief. Read [Evidence and provenance](references/evidence-and-provenance.md) when external research, reuse, mapping, audit, consequential use, authority-sensitive use, source conflict, licensing, or version choice is material.
+- Retrieve the exact destination that supports each retained claim and record its role, edition or version, status, scope, retrieval, authority basis, and wording permission. A wording-permission conclusion requires its own retrieved license or permission destination; if that destination was not inspected, record permission as unresolved and do not claim verbatim reuse. A search result, citation record, inaccessible page, model memory, or worker summary is discovery evidence only.
+- Before stating that wording may be copied or reused verbatim, directly retrieve the exact license or permission URL that will support and be cited for that statement, inspect whether it applies to the source wording and proposed action, and retain that retrieval. A publisher policy hub, source-page footer, discovered link, search result, or remembered rule is not a substitute. If the exact destination is not retrieved or applicability remains unclear, state `Wording permission: unresolved - do not reuse verbatim`.
+- Keep semantic equivalence separate from permission to reuse wording. Do not copy protected wording merely because it defines the same concept.
+
+#### Capability-aware parallel research
+
+Parallel dispatch is optional and allowed only when the environment permits spawning, at least two bounded non-overlapping multi-step lanes can be fixed before dispatch, neither lane depends on the other, and likely time savings exceed coordination overhead. Prefer batched tool calls for shallow independent lookups; use subagents only for multi-step standards or registry, domain, mapping, licensing or version, or governance research.
+
+Give every worker the same ConceptBrief and require the exact destination, source role, edition or version, retrieval status, supported claim, boundary evidence, licensing information when material, conflicts, and uncertainty. The coordinator owns concept identity, clarification, routing, source eligibility, disposition, mapping, synthesis, conflict resolution, definition drafting, final validation, and the final answer; the coordinator must reverify uncertain or material evidence at its destination.
+
+Use sequential fallback when any eligibility condition fails. Completion depends on result quality and evidence integrity, not on whether a subagent was available or used.
+
+### 4. Model
+
+- Separate concept from designation, object from concept, class from individual, property from value, process from result, information content from carrier, and the semantic construct from its code, field, datatype, unit, syntax, value domain, record, file, serialization, or interface.
+- Treat polysemous or homonymous designations as separate candidate concepts until disambiguated. Build a term inventory only when useful, distinguishing preferred, alternative or admitted, hidden, deprecated, forbidden, and candidate designations.
+- Build only enough typed neighborhood to test identity and boundary: immediate superordinate or broader context, plausible siblings or coordinate concepts, narrower concepts, part-whole relations, and material associative or profile-specific relations. Never turn a generic broader relation into subclass or partitive semantics.
+- Test the proposed extension with positive examples, negative examples or exclusions, counterexamples, and near misses as appropriate. For an audit, reusable package, mapping, or other substantive entry, read the format-neutral [Concept-entry model](references/concept-entry-model.md).
+
+### 5. Decide
+
+- Compare each candidate independently on semantic relationship (`same`, `broader`, `narrower`, `overlapping`, `related`, `constituent-only`, `conflicting`, or `unresolved`), scope and granularity fit, authority fit, edition or version status, and wording or license permission.
+- Choose one disposition: `Adopt` an authoritative same-concept definition without semantic change when wording use is permitted; `Adapt` the same concept for wording, granularity, context, or formulation; `Formulate` a new definition when no sufficiently matching reusable definition is verified; or `Defer` when identity, authority, evidence, permission, or a user decision is insufficient.
+- Choose the definition strategy that fits the concept: intensional, extensional, partitive, mixed, operational, formal rule or axiom, or perspectival or provisional. Intensional immediate-superordinate plus delimiting-characteristics formulation is the default, not a universal requirement.
+- For an extensional strategy, ensure the extension is finite and label completeness; for a partitive strategy, do not confuse part with kind; for a mixed strategy, label each list's role; for an operational strategy, separate the concept from a method- or jurisdiction-specific threshold; for a formal strategy, keep textual meaning separate from machine commitments; for a perspectival strategy, name the standpoint and preserve legitimate alternatives.
+
+### 6. Define
+
+- Draft against the chosen strategy, scope, and concept system. Include only essential or delimiting characteristics needed to establish the intended extension and distinguish relevant neighbors.
+- Put examples, permissible values, implementation details, rationale, procedures, formulas, units, governance rules, and storage or transport details outside the definition unless one is constitutive of the concept.
+- Avoid circularity, hidden secondary definitions, unnecessary negation, unexplained abbreviations, category shifts, accidental implementation dependence, and wording that merely rearranges the designation.
+
+### 7. Validate
+
+- Check identity, category, scope, granularity, strategy, superordinate fit, delimiting-characteristic necessity, sibling and boundary discrimination, critical competency questions, typed relations, mapping conservatism, evidence support, exact source and edition status, contradictions, wording permission, active-profile rules, governance authority, qualitative status, blockers, and definition-first presentation.
+- Treat a wrong identity or category, circular or non-discriminating definition, failed critical competency question or boundary case, unsupported or misattributed evidence, licensing problem, false exact mapping, invented identifier or tool result, inappropriate profile or out-of-scope compliance claim, or illegitimate authority claim as a critical failure. Repair it, make the result explicitly provisional, or Defer; prose quality cannot compensate.
+- Before presenting, compare every final wording-permission claim and cited license or permission URL against the current-task retrieval record; if the exact URL was not directly retrieved or its applicability was not established, mark wording permission unresolved and forbid verbatim reuse.
+- Report each material tool-dependent check as `passed`, `failed`, `warning`, `not run`, or `not applicable`, and name the actor or method that actually performed it. An agent semantic check is not human review; use `human review` only when a human actually reviewed this result. Never invent an identifier, registry acceptance, source retrieval, parser result, schema result, SHACL result, reasoner result, conformance finding, review, approval, release, or version history.
+- Use qualitative status such as `established`, `adopted`, `adapted`, `proposed`, `provisional`, `contested`, `deprecated`, or `blocked pending clarification or evidence`. Keep lifecycle status, reuse disposition, source status, validation result, and review need independent; do not convert self-assessment into a number.
+
+### 8. Present
+
+- Present the definition first when responsible formulation is possible. A warning, focused clarification, or evidence blocker may precede it only when omission would materially mislead or no responsible definition can yet be supplied.
+- Read [Concept-entry presentation](references/concept-entry-presentation.md) when selecting or projecting the `definition-answer`, `revision-audit`, or `concept-package` renderer. Omit empty sections and internal research narration.
+- Read [Concept-entry serialization](references/concept-entry-serialization.md) only when the user explicitly requests machine-readable output; default an unspecified machine form to versioned plain JSON and preserve the same semantic record.
+
+## Profile routing
+
+The terminology core is always active: keep concept, designation, extension, object, and record distinct; resolve polysemy; type relations; test boundaries; and preserve evidence and status. An otherwise unqualified deliberate request to "define this concept" uses the terminology core plus the data-definitions fallback unless user context or one focused clarification selects a more appropriate profile.
+
+Multiple profiles may compose. Apply each profile only to its semantic responsibilities and reconcile their checks in the shared concept entry; do not duplicate output or let one profile silently change another profile's semantic type.
+
+| Profile | Activate and read when |
+|---|---|
+| [Data definitions](references/profiles/data-definitions.md) | The request concerns data elements, metadata registries, fields, codes, value domains, data constructs, naming under ISO/IEC 11179, or the unqualified data-definitions fallback. |
+| [Knowledge organization systems](references/profiles/knowledge-organization-systems.md) | The request concerns a thesaurus, taxonomy, classification, controlled vocabulary, concept scheme, semantic relation, or cross-scheme mapping. |
+| [Formal ontology](references/profiles/formal-ontology.md) | The request concerns a class, individual, property, role, axiom, restriction, competency question, ontology mapping, constraint, or machine reasoning. |
+| [Multilingual terminology](references/profiles/multilingual-terminology.md) | More than one language, language variety, script, translation-oriented term record, or cross-language equivalence is material. |
+| [Epistemic governance](references/profiles/epistemic-governance.md) | Meaning is contested, situated, normative, culturally sensitive, community-governed, jurisdiction-dependent, or authority-dependent. |
+
+The data-definitions fallback supplies disciplined formulation questions only. For an ordinary concept outside data and metadata scope, it must not force data-specific fields, turn the concept into a registry item, claim ISO/IEC 11179 compliance, or imply registry acceptance.
+
+## Completion contract
+
+Return the smallest renderer that answers the task and exposes every material limitation or next decision. Definition text, concept identity, disposition, qualitative status, evidence relationship, active profiles, and unresolved blockers must remain consistent across human and machine projections.
+
+Do not claim completion while a critical failure remains hidden. Defer when the missing clarification, evidence, reuse permission, legitimate authority, or affected-community decision cannot be supplied responsibly.
+
+## `skills/defining-concepts/references/concept-entry-model.md`
+
+# Concept-Entry Model
+
+This is the single format-neutral semantic record from which human renderers and machine representations are projected. It is not an executable schema, a mandatory form, or permission to invent missing values. Populate only supported fields that help the task.
+
+## 1. Definition
+
+Retain definition text and language; selected strategy; local lifecycle status; adopt, adapt, formulate, or defer disposition; relationship to any source wording; responsible-authority or standpoint qualifier; and material limitations. If formulation is blocked, retain the blocker and do not create placeholder prose that looks final.
+
+## 2. Identity and designations
+
+Retain the concept's subject field, intended ontological or semantic category, scope key, identity assumptions, and only supplied or verified persistent identifiers. Keep designations as term records that may be preferred, alternative or admitted, hidden, deprecated, forbidden, or candidate, with language, language variety, script, jurisdiction, community, grammatical information, source, and status only when material.
+
+Never treat designation identity as concept identity. Separate homonymous and polysemous senses, and never mint an identifier, namespace, scheme membership, registry record, or status merely to fill the group.
+
+## 3. ConceptBrief
+
+Retain the requested task; purpose; intended use and material non-use; included and excluded scope; desired granularity; audience; subject field; jurisdiction, scheme, language, and time or version context; stakeholders, responsible authority, and affected communities; routine, consequential, or authority-sensitive risk; active profiles; requested representations; assumptions; unresolved ambiguities; and competency questions with criticality.
+
+Keep the brief proportional. It may be a few internal facts for a direct routine definition and a fuller explicit record for an audit, concept package, consequential decision, or authority-sensitive task.
+
+## 4. Characteristics and boundaries
+
+Classify characteristics as essential, delimiting, contextual, typical, operational, or rejected. Retain inclusions and exclusions separately from positive examples, negative examples, counterexamples, and near misses; label each item's role so an illustration is never mistaken for an exhaustive extension.
+
+Record why each decisive characteristic includes intended members and excludes siblings or near misses. For threshold, fuzzy, operational, jurisdiction-dependent, or perspectival concepts, retain the rule, standpoint, uncertainty, and applicability boundary without silently universalizing them.
+
+## 5. Typed concept system
+
+Retain only relations needed to establish identity, boundaries, mappings, or intended inference. Available types include immediate superordinate or genus, generic broader and narrower, coordinate or sibling, partitive whole and part, associative, causal, temporal, agent-role, quality-bearer, information-content/carrier, class-instance, property-value, process-result, and profile-specific relations.
+
+Record relation direction, target identity, rationale, evidence, scope, and profile semantics. Superordinate, broader, narrower, coordinate, partitive, associative, causal, temporal, agent-role, quality-bearer, information-content and carrier relations are not interchangeable, and a human-readable broader relation is not automatically an OWL subclass axiom or SKOS relation.
+
+## 6. Reuse, formulation, and mapping
+
+For every material candidate retain concept identity, semantic relationship (`same`, `broader`, `narrower`, `overlapping`, `related`, `constituent-only`, `conflicting`, or `unresolved`), scope and granularity fit, authority fit, edition or version fit, wording permission, and rationale. Retain the chosen `Adopt`, `Adapt`, `Formulate`, or `Defer` disposition and the intensional, extensional, partitive, mixed, operational, formal, or perspectival or provisional definition strategy.
+
+For a mapping retain source and target scheme or system, direction, predicate or relationship, evidence, intension and extension comparison, scope, system position, use context, version, status, and unresolved limits. Do not infer exact equivalence from shared labels.
+
+## 7. Evidence and provenance
+
+Link each retained evidence item to the claim, field, boundary, mapping, or decision it supports or contradicts. Retain exact destination, title, publisher or responsible body, role, authority basis, edition or version and status, applicable date and jurisdiction or community, retrieval event and status, locator, licensing or wording action, semantic relationship, conflicts, negative-search limits, and coordinator reverification as defined in [Evidence and provenance](evidence-and-provenance.md).
+
+Do not convert discovery evidence, model memory, a worker summary, or an inaccessible destination into a verified source.
+
+## 8. Validation
+
+Retain competency-question results; positive, negative, counterexample, near-miss, sibling, and substitutability tests; definition-quality checks; mapping checks; active-profile checks; governance and authority checks; and any tool-dependent parser, schema, SHACL, reasoner, registry, or retrieval check.
+
+For every check retain its target, method, result (`passed`, `failed`, `warning`, `not run`, or `not applicable`), evidence, and limitation. Keep conceptual correctness distinct from syntax validity, graph conformance, logical consistency, satisfiability, and operational acceptance.
+
+## 9. Active-profile extensions
+
+Retain only information required by active profiles: data-definition object distinctions and audits; KOS scheme, label, notation, note, relation, and mapping semantics; ontology commitments and intended inferences; multilingual designation and equivalence details; or epistemic-authority, standpoint, consent, and co-governance information.
+
+Name profile information for readers when presenting it. Do not create a generic extension bucket in the final answer, force inactive-profile fields, duplicate core facts, or let one profile overwrite another profile's type.
+
+## 10. Governance and maintenance
+
+Retain unresolved questions, contested alternatives, responsible authority, affected parties, review or co-governance need, local lifecycle status, supplied local version, source-review date, change rationale, deprecation reason, replacement relationship, and next action when material.
+
+Preserve supplied identifiers, versions, review dates, and maintenance decisions exactly. Do not imply a release manager, approval body, registry workflow, monitoring service, or version history exists when none was supplied or verified.
+
+## State semantics
+
+Use explicit states rather than ambiguous blanks: `absent` means the field is not present in this projection; `unknown` means it is relevant but not known; `not applicable` means the field does not apply; `contested` means materially different positions remain; `intentionally withheld` means a legitimate decision keeps it undisclosed; `not checked` means a relevant assessment was not performed; and `unsupported` means a value or claim was proposed but lacks adequate evidence.
+
+Keep missing state, local lifecycle status, reuse disposition, source status, validation result, and review need independent. Never collapse absent, unknown, not applicable, contested, intentionally withheld, not checked, and unsupported into an empty string, unqualified null, false, or an invented value.
+
+## Projection invariant
+
+Every renderer and serialization projects this same record. Definition text, concept identity, disposition, qualitative status, evidence relationships, active-profile conclusions, and unresolved blockers must not contradict one another because the presentation or representation changes.
+
+## `skills/defining-concepts/references/concept-entry-presentation.md`
+
+# Concept-Entry Presentation
+
+Choose one human renderer after validation and project only useful fields from the shared concept-entry record. The first substantive block is the definition or revised definition whenever responsible formulation is possible; an optional concept-name heading is not substantive.
+
+A warning or clarification may appear before the definition only when omission would materially mislead, and a blocker may appear first when no responsible definition can yet be supplied. Omit empty sections, internal research diaries, generic numbering, compliance theater, and evidence that does not help the reader decide or act.
+
+## Definition answer
+
+Use for a direct request whose main need is a usable definition. A compact answer may contain only the definition plus one sentence of scope, source basis, status, or limitation.
+
+Project in this order when populated:
+
+1. **Definition:** State the definition first, without a preamble that makes the reader hunt for it.
+2. **Scope and status:** State the subject field, jurisdiction, time, standpoint, provisional status, or disposition only when needed to interpret the sentence.
+3. **Boundaries:** Give the one or more inclusion, exclusion, positive example, negative example, counterexample, or near miss that most usefully tests the extension; label the role explicitly.
+4. **Source basis:** Place concise citations beside the claims they support and distinguish adopted or adapted wording from constituent semantic evidence.
+5. **Open decision:** State a blocker, review need, or user decision only when material.
+
+Do not display a full ConceptBrief, audit checklist, standards table, claim ledger, or every considered alternative unless the user requests it or the risk and decision require it.
+
+## Revision audit
+
+Use when the user supplies a definition, suspects a semantic defect, or asks for an audit. Preserve both the intended original concept identity and the revised concept identity so a wording correction does not silently redefine the target.
+
+Project in this order when populated:
+
+1. **Revised definition:** Put the best responsible revision first.
+2. **Audit verdict:** State whether the original was usable, materially defective, scope-dependent, provisional, or blocked and name the decisive issue.
+3. **What changed and why:** For each material defect use `defect -> consequence -> remedy`, covering category shifts, circularity, hidden definitions, scope errors, accidental representation detail, non-discriminating characteristics, unsupported evidence, or designation problems as applicable.
+4. **Boundary tests:** Show the decisive sibling, inclusion, exclusion, counterexample, or near miss and whether the revision passes it.
+5. **Evidence and profile checks:** Report only material source, edition, licensing, mapping, standards-profile, governance, or tool-dependent results.
+6. **Unresolved decisions:** Expose remaining evidence, authority, review, or user decisions.
+
+An audit verdict is not a bare pass/fail label. Explain enough causal reasoning for the user to judge the repair and its consequence.
+
+## Concept package
+
+Use for a reusable terminology or registry entry, mapping decision, ontology work, multilingual entry, authority-sensitive concept, substantive governance record, or an explicit full-package request.
+
+For a concept package whose request makes a boundary or reuse decision material, expose the selected `Adopt`, `Adapt`, `Formulate`, or `Defer` disposition and label at least one positive instance, one negative instance or explicit exclusion, and one near miss or counterexample. Do not omit these observable decisions merely because a prose summary makes them seem implicit.
+
+Project populated groups in this reader-facing order: definition; identity and designations; purpose, scope, stakeholders, and competency questions; characteristics, boundaries, positive and negative examples, counterexamples, and near misses; typed relations, reuse disposition, and mappings; evidence, provenance, and licensing; named active-profile results; and status, contested matters, maintenance, review, and next action.
+
+Use descriptive headings rather than a generic extension section. Separate a concept's label inventory from its identity, within-system relations from cross-system mappings, examples from members of an exhaustive extension, and evidential status from local lifecycle status.
+
+Keep citations adjacent to supported claims. A fuller evidence ledger may appear when source conflicts, consequential use, authority, mapping, or wording permission makes it useful; otherwise summarize the decisive source basis and link to exact destinations. Present a validation result with the actor or method that actually performed it; label a check as human review only when a human reviewed this result, never when the assistant merely checked its own work.
+
+## Blocker behavior
+
+If no responsible definition can be supplied, lead with the exact blocker and its consequence, then give the smallest useful boundary, evidence, alternatives, and next action. Do not put a polished placeholder under a Definition heading.
+
+If a definition can be supplied only provisionally, put it first only after any indispensable warning, label its scope or standpoint in plain language, and preserve the unresolved decision nearby.
+
+## Cross-renderer consistency
+
+All three projections come from one entry. The same definition text, concept identity, Adopt/Adapt/Formulate/Defer disposition, qualitative status, evidence relationship, mapping relationship, and unresolved blocker must remain consistent when moving between definition answer, revision audit, and concept package.
+
+Compression may omit supported detail but must not reverse it, strengthen provisional evidence, hide a critical failure, turn an example into an exhaustive extension, convert a broader or close mapping into identity, or imply validation that was not run.
+
+## Accessibility and economy
+
+Use informative headings only when they help scanning. Prefer plain status language before specialist notation, short paragraphs, meaningful link text, and lists whose items have genuinely parallel roles. Do not rely on color or layout alone to distinguish examples, exclusions, warnings, or status.
+
+## `skills/defining-concepts/references/concept-entry-serialization.md`
+
+# Concept-Entry Serialization
+
+Load this reference only when the user explicitly requests machine-readable output. Serialization is a projection of the shared concept-entry model, never a substitute for concept engineering and never evidence that a representation has been validated or accepted.
+
+## Representation routing
+
+Use the explicitly requested representation only when it fits the active semantics and the available evidence. If machine-readable output is requested without a representation, default to versioned plain JSON with a declared local format version and no invented external conformance claim.
+
+- Use plain JSON for a format-neutral exchange record when no established target model is required.
+- Use JSON-LD or RDF only when graph identity, typed relations, vocabularies, and namespaces are justified and supplied or verified.
+- Use SKOS for a knowledge-organization-system representation whose concepts, schemes, labels, notes, semantic relations, collections, or mappings fit SKOS semantics.
+- Use OWL only for explicit ontology commitments; keep annotations and textual definitions separate from necessary or sufficient axioms.
+- Use TBX only for applicable terminology-resource exchange and a declared dialect or profile.
+- Use OntoLex-Lemon only for an applicable lexical-ontology representation, not as decoration on a generic term list.
+- Use another requested representation only after stating its semantic fit, version, profile, and known limitations.
+
+Do not generate an executable serializer, schema, ontology service, SHACL shape, or registry unless the user separately asks for implementation and that task is in scope.
+
+## Required preservation
+
+Preserve definition text and language, concept identity, supplied identifiers, designation language and status, typed relation direction and semantics, Adopt/Adapt/Formulate/Defer disposition, qualitative lifecycle and evidence status, active profiles, mappings and their strength, exact source and version, retrieval and licensing limits, validation results, review needs, and every material blocker.
+
+Preserve state distinctions explicitly: `absent`, `unknown`, `not applicable`, `contested`, `intentionally withheld`, `not checked`, and `unsupported`. Never flatten them into an unqualified null, empty string, false value, omitted key whose meaning is unclear, or fabricated replacement.
+
+Never mint an identifier, namespace, IRI, registry key, version, language tag, mapping predicate, source status, or validation result to make output look complete. Preserve a user-supplied identifier exactly and label a proposed local identifier as proposed only when the user requested one.
+
+## Plain JSON default
+
+For versioned plain JSON, use a concise top-level object with a local `formatVersion` and only populated concept-entry groups. Encode missing states with an explicit status object or another unambiguous convention documented in the same output. Do not call the shape a JSON Schema or claim compatibility with a standard merely because field names resemble it.
+
+Use stable, semantically descriptive lowerCamelCase property names unless the user supplies another naming convention. Keep human-readable definition text separate from machine relationships, and keep source metadata linked to the claims or fields it supports rather than as an undifferentiated bibliography.
+
+## Validation disclosure
+
+For every material parser, schema, SHACL, reasoner, mapping, or registry check, state the exact tool or method, target bytes or graph, applicable profile or version, and whether it was performed, passed, failed, produced a warning, was not run, or was not applicable. A textual model review is not parser execution, schema validation, SHACL conformance, reasoning, registry acceptance, or legal review.
+
+For OWL, distinguish proposed axioms, syntax parsed, profile or conformance checks, consistency, class satisfiability, and whether intended competency-question inferences were actually tested. For SHACL, distinguish shapes-graph syntax from data-graph conformance and conceptual correctness. For TBX, SKOS, JSON-LD, RDF, or OntoLex-Lemon, identify the exact specification, profile, dialect, context, or vocabulary actually checked.
+
+The output must not claim conformance from superficial resemblance. If no suitable validator is available or authorized, mark the check `not run` and state the resulting limitation without weakening the semantic record.
+
+## Representation-specific integrity
+
+Do not silently strengthen relations during export: a generic broader relation is not automatically `skos:broader` or `rdfs:subClassOf`; a close mapping is not exact identity; a preferred label is not a class; a term translation is not full concept equivalence; and a textual constraint is not an OWL axiom or SHACL result.
+
+Keep provenance, source/version/licensing, and local-status distinctions sufficient to interpret each serialized claim. Preserve proposed versus established, locally adopted versus source-published, and passed versus not-run validation states.
+
+## Cross-projection consistency
+
+Machine and human output must preserve the same definition text, concept identity, disposition, qualitative status, evidence relationships, mapping strength, and unresolved blocker. Representation constraints may omit unsupported optional detail but cannot manufacture certainty, identifiers, evidence, validation, or authority.
+
+## `skills/defining-concepts/references/evidence-and-provenance.md`
+
+# Evidence and Provenance
+
+Read this reference only when the router identifies external research, reuse, mapping, audit, consequential use, authority-sensitive use, source conflict, licensing, or version choice as material. It defines a human-readable claim contract, not a storage schema.
+
+## Evidence-lane planning
+
+Plan lanes from the ConceptBrief before searching. Candidate lanes include governing rules and standards; authoritative registries, terminologies, vocabularies, or ontologies; domain and usage evidence; neighboring concepts and boundary cases; mappings; current and historical versions; wording permission and licensing; and jurisdictional, professional, or community authority.
+
+Use the smallest lane set that can resolve the task. A lane has a question, scope, likely primary destinations, stopping condition, and expected claim type. Do not collect prestigious but claim-irrelevant sources.
+
+Prefer batched tool calls for shallow independent lookups. Use the parallel worker contract below only for bounded, non-overlapping, multi-step lanes when the environment permits and coordination will save time; otherwise research sequentially.
+
+## Source eligibility and roles
+
+Authority is claim-relative: it depends on the specific claim, subject field, jurisdiction or community, date, and intended use. A legal instrument may govern a legal threshold, a terminology standard may govern formulation, a registry may establish its own concept record, a domain ontology may establish maintained domain commitments, a professional body may govern practice, a research paper may support empirical findings, a corpus may support usage, and a community authority may govern situated knowledge. Prestige in one role does not transfer automatically to another.
+
+Assign each retained source one or more explicit roles: normative formulation rule; governing rule; authoritative vocabulary or registry; exact-definition candidate; constituent semantic evidence; related-concept or boundary evidence; usage evidence; mapping evidence; contradictory evidence; version or supersession evidence; licensing or wording-permission evidence; community-authority evidence; methodological support; or user-supplied assertion.
+
+A source becomes eligible for a claim only after the exact destination has been retrieved and inspected, the destination supports the assigned role and claim, and the applicable edition, version, recommendation status, jurisdiction, and date have been checked. A search result, citation record, worker summary, model memory, copied bibliography, generic homepage, or inaccessible page is discovery evidence only.
+
+## Retained evidence item
+
+For each material item retain: exact destination; source title and publisher or responsible body; source role; the exact claim, field, or boundary it supports or contradicts; edition or version and publication, recommendation, draft, superseded, or other status; applicable date, historical-date perspective, jurisdiction, scheme, or community; retrieval date and retrieval status; a useful passage, section, clause, record, fragment, or other locator; authority basis for this claim and context; semantic relationship to the target concept; wording permission, attribution requirement, and licensing uncertainty; conflicts and limitations; and whether the coordinator independently reverified it.
+
+Record retrieval status truthfully, such as retrieved and inspected, retrieved but insufficient, inaccessible, authentication-blocked, not retrieved, or superseded. Do not use "verified" as a blanket description for multiple destinations.
+
+## Claim ledger
+
+Use adjacent citations and concise source-basis language for a compact answer. Use a fuller claim ledger for audits, concept packages, consequential or authority-sensitive work, source conflicts, mappings, exact wording reuse, or an explicit provenance request.
+
+Each ledger row connects one material claim or field to its eligible evidence, role, support or contradiction, version, retrieval event, authority basis, semantic relationship, reuse permission, and limitations. Multiple sources may support different parts of one decision; one source must not be promoted beyond the claim it actually supports.
+
+## Negative search
+
+A bounded unsuccessful search does not prove absence. Record the searched designations or identifiers, destinations or source classes, relevant filters, version or date scope, retrieval limitations, and the narrower conclusion justified, such as "no exact definition was found in the inspected sources." Do not write "no definition exists" unless a genuinely exhaustive authoritative source establishes it.
+
+## Semantic relationship and wording permission
+
+Decide the semantic relationship independently as `same`, `broader`, `narrower`, `overlapping`, `related`, `constituent-only`, `conflicting`, or `unresolved`. Compare intension, extension, category, scope, granularity, jurisdiction, time, concept-system position, and intended use; label or wording similarity is not identity evidence.
+
+Decide the wording action independently as permitted verbatim reuse, attributed quotation, paraphrase required, link or citation only, or unresolved. A same-concept relationship does not grant permission to copy wording, and open access to a page does not by itself establish a license.
+
+Combine semantic relationship, scope fit, authority fit, version fit, and wording permission into the router's single disposition system: `Adopt` only for a same-concept eligible source and permitted wording action; `Adapt` for the same concept when formulation, granularity, context, or wording must change; `Formulate` when sources are broader, narrower, overlapping, related, constituent-only, conflicting, or insufficient for exact reuse but adequately support responsible synthesis; and `Defer` when identity, evidence, authority, conflict, or permission remains blocking.
+
+## Parallel worker contract
+
+Give every worker the same frozen ConceptBrief, one non-overlapping lane, its question and stopping condition, eligible source types, relevant profiles, and this evidence contract. Require a compact return containing exact destination; title and responsible body; source role; edition or version and status; retrieval status and locator; supported or contradicted claim; boundary evidence; semantic relationship; wording permission or licensing information when material; conflicts; uncertainty; and recommended next check.
+
+A worker return is a research lead, not final evidence. The coordinator owns clarification, concept identity, profile routing, source eligibility, candidate relationships, reuse disposition, mapping, conflict resolution, synthesis, definition drafting, final validation, and presentation. The coordinator reopens or otherwise reverifies every uncertain or materially decision-bearing destination and records that reverification.
+
+## Conflict resolution and synthesis
+
+When sources disagree, compare concept identity, claim type, category, scope, jurisdiction or community, authority basis, edition or version, applicable date, intended use, and wording permission. Determine whether the sources truly conflict or govern different claims or contexts.
+
+Prefer the source legitimately authoritative for the material claim and context, not a global prestige ranking. Preserve a material conflict, historical distinction, or legitimate standpoint instead of averaging it away. If the conflict prevents a responsible universal definition, narrow the scope, present qualified alternatives, mark the result contested or provisional, request the missing authority decision, or Defer.
+
+## Licensing and attribution gate
+
+Before verbatim reuse, retrieve and inspect the exact license, terms, or permission destination that supports the wording action, including any attribution or modification conditions. The exact license or permission URL cited in the final answer must have a completed direct retrieval in the current task, and its inspected content must establish applicability to the source wording and proposed action. A general policy hub, source-page footer, or discovered link is not a substitute for directly retrieving that exact destination; a search result, publisher identity, general reputation, or remembered license is discovery evidence rather than permission evidence.
+
+Keep semantic reuse, quotation, paraphrase, and redistribution decisions separate. When the exact permission destination is absent from the current-task retrieval record or its application is unclear, record wording permission as unresolved; paraphrase only if lawful and supportable, or cite or link without reproducing protected wording, and do not imply that citation cures a copying restriction.
+
+Do not bundle proprietary standards text or expose machine-specific paths to authorized copies. Cite the exact edition reviewed and paraphrase no more broadly than its verified scope.
+
+## `skills/defining-concepts/references/profiles/data-definitions.md`
+
+# Data-Definitions Profile
+
+This profile adds data- and metadata-specific distinctions to the terminology core. It uses ISO/IEC 11179-4:2004 as the reviewed formulation baseline within its actual scope and ISO/IEC 11179-5:2015 only when metadata-registry naming is material.
+
+## Activation
+
+Activate for a data element, data element concept, metadata item, metadata registry, object class, property, conceptual domain, value domain, permissible value, representation class, field, code, datatype, unit, syntax, or another data construct; for an explicit ISO/IEC 11179 request; or as the router's fallback for an otherwise unqualified deliberate definition.
+
+The fallback supplies formulation discipline only. If context establishes another domain or profile, replace or compose the fallback. An ordinary concept outside data and metadata scope must not be converted into a data element, registry record, or compliance target.
+
+## Additional questions
+
+- What kind of semantic or registry object is being defined: concept, object class, property, data element concept, conceptual domain, value domain, data element, permissible value, representation class, or another data construct?
+- Is the target the semantic concept, its recorded value, a representation, or a registry record about one of those things?
+- Which object class and property combine in the data element concept, and which conceptual domain expresses the possible value meanings independently of representation?
+- Which value domain, datatype, format, unit, code list, permissible values, or syntax represents the conceptual domain, and which of those details are accidental rather than constitutive?
+- Is metadata-registry naming part of the task, and if so which naming convention, language, context, and administered-item type apply?
+
+## Semantic distinctions
+
+Keep a data element concept distinct from a data element and its representation; an object class distinct from the objects it classifies; a property distinct from a value; a conceptual domain distinct from a value domain; a permissible value distinct from the concept it denotes; and the semantic construct distinct from a field, column, code, datatype, unit, syntax, interface, storage location, transport form, or registry record.
+
+A value list is boundary evidence unless the concept is responsibly defined extensionally. A field or code may represent a concept without being that concept. A registry's acceptance, identifier, status, and naming convention describe an administered record and must not be inferred from definition quality.
+
+Use the immediate superordinate concept and delimiting characteristics when an intensional definition fits. Match specificity to context, users, data-sharing needs, and the exact metadata-item or data-construct type. Do not embed secondary definitions, implementation instructions, permissible values, examples, rationale, or measurement procedures in the definition unless constitutive.
+
+## Evidence
+
+Treat the official ISO product page as edition and lifecycle evidence, and an authorized copy as the rule source. Record ISO/IEC 11179-4:2004, Edition 2, and the exact clauses applied. The official page describes Part 4 as covering semantic requirements and recommendations for definitions of data, metadata, data elements, and related data constructs, not formatting rules for every concept.
+
+Use ISO/IEC 11179-5:2015, Edition 3, only for naming concepts, data element concepts, conceptual domains, data elements, and value domains in metadata registries. Its official lifecycle page was at stage 90.92, to be revised, with ISO/IEC DIS 11179-5 under development when reviewed on 2026-08-29; do not silently substitute the draft for the published edition.
+
+Supplement standards rules with directly retrieved domain, registry, neighboring-concept, value-domain, and representation evidence. A registry candidate establishes only what its retrieved record and version support.
+
+## Validation
+
+For an ISO/IEC 11179-4:2004 audit, first test whether the statement represents one concept and differentiates it from related concepts. Then apply the reviewed mandatory formulation checks: singular form unless the concept itself is plural; positive declaration; descriptive phrase or grammatically complete sentence rather than a synonym or rearranged designation; full words except commonly understood or adopted abbreviations, with acronyms expanded when needed; and no embedded definitions of other concepts.
+
+Apply the reviewed recommendations proportionately: essential meaning at the context-appropriate specificity; precision and one defensible interpretation; concision without lost discrimination; standalone intelligibility; no extraneous rationale, usage, domain, procedure, or implementation detail in the sentence; no circular reasoning; consistent terminology and logical structure among related definitions; and appropriateness for the actual metadata-item or data-construct type.
+
+Perform an additional category and substitutability check: substitute the definition for the designation in representative statements, compare it with plausible siblings, and test that it does not conflate concept with process, result, representation, carrier, field, code, datatype, unit, syntax, conceptual domain, value domain, permissible value, or registry record. Label this category test as a skill safeguard, not an extra ISO/IEC 11179-4 requirement.
+
+## Prohibited claims
+
+- Do not claim ISO/IEC 11179-4 compliance outside its data and metadata scope or when every applicable requirement and recommendation was not actually checked.
+- Do not claim ISO/IEC 11179-5 conformance from a plausible name, and do not describe the in-development replacement as the published standard.
+- Do not equate a well-formed definition with registry acceptance, registration, standardization, release, identifier assignment, or administered-item status.
+- Do not copy proprietary standards text into the answer or repository; cite the reviewed edition and paraphrase within its verified scope.
+- Do not force data-specific fields or ISO terminology into an ordinary out-of-scope concept merely because this profile was selected as fallback.
+
+## Completion additions
+
+When material, add the identified data or metadata construct type; object class and property; conceptual-domain and value-domain boundary; representation details kept outside the definition; exact Part 4 checks performed and their results; naming context under Part 5; and a narrow conformance or audit statement.
+
+If fallback use was ordinary and out of Part 4 scope, state only that terminology and data-definition formulation discipline informed the result. Do not add an ISO section or compliance statement that the user does not need.
+
+## Reviewed sources
+
+- [ISO/IEC 11179-4:2004 official record](https://www.iso.org/standard/35346.html) - Edition 2, published 2004-07, status Published and stage 90.93 Confirmed when checked on 2026-08-29; official scope summary plus an authorized copy were reviewed, and the protected text is not reproduced here.
+- [ISO/IEC 11179-5:2015 official record](https://www.iso.org/standard/60341.html) - Edition 3, published 2015-04, status Published and stage 90.92 To be revised when checked on 2026-08-29; the page identified ISO/IEC DIS 11179-5 as the replacement under development, so Edition 3 remains the reviewed published naming baseline rather than a claim about the future edition.
+- [ISO 704:2022 official record](https://www.iso.org/standard/79077.html) - Edition 4, published 2022-07, status Published when checked on 2026-08-29; used only through the always-active terminology core for concept-oriented terminology principles.
+- [ISO 1087:2019 official record](https://www.iso.org/standard/62330.html) - Edition 2, published 2019-09, confirmed in 2025 and stage 90.93 when checked on 2026-08-29; used as terminology vocabulary, not as a registry-conformance source.
+
+## Composition notes
+
+Compose with the multilingual profile when designations, language varieties, translation equivalence, or TBX exchange are material; keep the data construct's identity shared while each profile adds its own checks. Compose with the KOS profile for code lists or controlled vocabularies only after deciding whether a permissible value, concept, label, notation, and mapping are actually distinct.
+
+Compose with formal ontology for class, property, or axiom commitments and with epistemic governance for authority-sensitive data concepts. The terminology core owns identity and definition; this profile must not overwrite a multilingual equivalence judgment, KOS mapping, ontology category, or legitimate governance decision.
+
+## `skills/defining-concepts/references/profiles/epistemic-governance.md`
+
+# Epistemic-Governance Profile
+
+This profile adds standpoint, authority, affected-party, and legitimacy checks to the terminology core. It does not manufacture consensus or grant the agent authority to settle contested meaning.
+
+## Activation
+
+Activate for contested, situated, normative, culturally sensitive, Indigenous, community-governed, jurisdiction-dependent, authority-dependent, high-impact, or perspective-dependent concepts and whenever the requested definition could displace a locally authoritative meaning.
+
+## Additional questions
+
+- Whose knowledge is being represented, from which standpoint and jurisdiction, and for which purpose and audience?
+- Who has legitimate authority to define, name, approve, disclose, reuse, or revise the concept, and who is affected by the result?
+- Is disagreement empirical, terminological, normative, legal, ethical, political, cultural, or perspective-dependent?
+- Which local protocols, consent conditions, access limits, benefit obligations, responsibilities, or harms govern the concept or its evidence?
+- Should the result preserve alternatives, narrow its scope, remain provisional, request review or co-governance, or Defer?
+
+## Semantic distinctions
+
+Keep descriptive empirical disagreement distinct from terminology choice, normative judgment, legal definition, and perspective-dependent conceptualization. A cross-context synthesis, majority usage, technical standard, or interoperable representation does not automatically override locally legitimate authority.
+
+Record standpoint, jurisdiction, community, responsible authority, affected parties, source role, consent or permission, disclosure limits, licensing, contestation, and review need when material. Preserve materially different definitions and designations when they answer different legitimate perspectives rather than forcing one universal extension.
+
+Treat Indigenous and other community-governed data and knowledge as authority-sensitive. CARE-informed questions concern Collective Benefit, Authority to Control, Responsibility, and Ethics, but locally supplied governance, protocols, and decisions take precedence over a generic checklist.
+
+## Evidence
+
+Prioritize directly supplied or retrieved sources from the legitimate community, jurisdiction, legal authority, professional body, governance institution, or affected-party process for the claim it governs. Record whose authority a source represents, who may be absent, its scope and date, and whether it is binding, advisory, empirical, terminological, or advocacy material.
+
+Use the CARE Principles as a people- and purpose-oriented prompt when Indigenous data governance is applicable, not as proof that local consultation or consent occurred. Use FAIR as guidance for findability, accessibility, interoperability, and reuse properties only; FAIR does not establish legitimacy, authority, consent, or benefit.
+
+If a source conflict reflects different jurisdictions, standpoints, or communities, preserve that structure. Do not average positions or let a technically convenient vocabulary erase a legitimate local concept.
+
+## Validation
+
+Check whose knowledge and standpoint the entry represents; jurisdiction and time; legitimate authority; affected parties and likely harms or benefits; consent, access, disclosure, licensing, and reuse limits; the type of disagreement; whether alternatives are preserved; and whether the proposed scope is narrower than the evidence and authority permit.
+
+For CARE-informed review ask: who receives Collective Benefit; who has Authority to Control; what Responsibilities attach to relationships, capability, and future use; and what Ethics, harms, benefits, and safeguards govern the work. Apply the questions proportionately and defer to applicable local frameworks.
+
+Require provisional status, explicit alternatives, specialist or legal review, affected-community review, co-governance, a narrowed claim, or deferral when the agent cannot legitimately settle the concept. Never treat technical validation, source count, institutional prestige, or interoperability as a substitute for authority.
+
+## Prohibited claims
+
+- Do not universalize a situated or jurisdiction-specific concept, erase a material alternative, or present agent synthesis as community consensus.
+- Do not claim consent, consultation, approval, Indigenous authority, affected-community review, co-governance, legal validity, or ethical acceptance unless identified evidence establishes it.
+- Do not infer legitimacy from FAIR alignment, interoperability, open licensing, technical quality, source prestige, or a standards citation.
+- Do not disclose intentionally withheld or restricted knowledge, invent a community position, or override a locally supplied governance rule with this generic profile.
+- Do not collapse empirical, terminological, normative, and perspective-dependent disagreement into one confidence label.
+
+## Completion additions
+
+When material, add standpoint and jurisdiction; represented and missing authorities; affected parties; disagreement type; alternative definitions or designations; consent, access, disclosure, licensing, benefit, responsibility, and ethics limits; qualitative status; required review or co-governance; and the next legitimate decision-maker or action.
+
+If no responsible universal definition is possible, provide a scoped or perspectival definition only when it helps and label it plainly. Otherwise state the blocker first and Defer without manufacturing neutral language that hides the authority dispute.
+
+## Reviewed sources
+
+- [CARE Principles for Indigenous Data Governance](https://www.gida-global.org/careprinciples) - Global Indigenous Data Alliance page checked on 2026-08-29; reviewed for the people- and purpose-oriented Collective Benefit, Authority to Control, Responsibility, and Ethics framing and its stated relationship to FAIR.
+- [The CARE Principles for Indigenous Data Governance](https://doi.org/10.5334/dsj-2020-043) - Carroll et al., Data Science Journal 19(1), 2020, article 43; research source for the CARE formulation, not evidence that any particular community adopted or applied it.
+- [The FAIR Guiding Principles for scientific data management and stewardship](https://doi.org/10.1038/sdata.2016.18) - Wilkinson et al., Scientific Data 3, 160018, published 2016-03-15; reviewed for findability, accessibility, interoperability, and reuse, with an explicit scope boundary against epistemic legitimacy claims.
+
+## Composition notes
+
+Compose with formal ontology when axioms or categories encode contested or authority-sensitive knowledge; an epistemic blocker can require alternatives, provisional formalization, review, or deferral even when syntax and reasoning pass. Compose with multilingual terminology when naming, translation, or equivalence authority belongs to a language community.
+
+Compose with KOS for community-governed vocabularies and mappings and with data definitions for consequential or regulated data concepts. The terminology core owns the shared identity record, while this profile can limit scope or finality but must not silently change another profile's semantic type.
+
+## `skills/defining-concepts/references/profiles/formal-ontology.md`
+
+# Formal-Ontology Profile
+
+This profile adds explicit ontological commitments, constraints, and validation-state distinctions to the terminology core. It does not turn every concept definition into an ontology class.
+
+## Activation
+
+Activate for classes, individuals, object or data properties, roles, qualities, processes, information objects, carriers, axioms, restrictions, ontology mappings, competency questions, intended inferences, graph constraints, SHACL, OWL, or machine reasoning.
+
+## Additional questions
+
+- Which competency questions and intended inferences must the formalization answer, and which are critical?
+- Is the target a class, individual, property, role, quality, process, event, state, information object, carrier, collection, relation, or another category in the selected ontology?
+- Which conditions are necessary, sufficient, both, or merely typical, and which open-world assumptions apply?
+- Which domain, range, identity, disjointness, quantification, cardinality, temporal, or dependence commitments are actually justified?
+- Which ontology, profile, namespace, imports, version, constraint language, reasoner, and validation environment are supplied or verified?
+
+## Semantic distinctions
+
+Keep class, individual, property, role, quality, process, information object, and carrier distinct. Separate textual definition from necessary conditions, sufficient conditions, constraints, mappings, annotations, competency questions, and intended inferences.
+
+Distinguish taxonomy from partonomy, class membership from subclassing, identity from equivalence or close mapping, a role from a rigid type, a quality from its measured value, a process from its result, and information content from its physical or digital carrier.
+
+Use OntoClean-style identity, unity, rigidity, and dependence diagnostics only when they expose a likely taxonomic error. Do not label a quick diagnostic a complete OntoClean analysis.
+
+## Evidence
+
+Base formal commitments on the ConceptBrief, verified domain evidence, the target ontology's exact version and documentation, and the competency questions. Retrieve every reused class, property, identifier, namespace, import, and mapping destination that materially affects the proposal.
+
+Use the normative OWL 2 Recommendation-family specifications for OWL commitments and conformance questions; the OWL 2 overview is an informative roadmap. Use SHACL Recommendation 20 July 2017 for claims about SHACL 1.0 validation. SHACL 1.2 Core was a Working Draft dated 16 May 2026 when reviewed and must not silently replace the Recommendation.
+
+Treat OBO Foundry principles as conditional norms for OBO Foundry ontologies, not global ontology law. Treat CIDOC CRM as conditional cultural-heritage practice and use an official or stable release rather than a newer draft unless the task explicitly targets that draft.
+
+## Validation
+
+Begin with competency questions and intended inferences, then test category, identity criteria, superordinate placement, sibling discrimination, part-versus-kind relations, necessary and sufficient conditions, and the justification for domain, range, disjointness, quantification, and cardinality.
+
+Keep result states separate in this order: proposed semantics; parser-valid syntax; applicable OWL profile or other conformance check; SHACL data-graph conformance; reasoner consistency and class satisfiability; competency-question inference result; and conceptual correctness. One passing layer does not establish another.
+
+Run a parser, SHACL processor, reasoner, query, or mapping checker only when the tool, exact ontology bytes, imports, profile, and authorization are available. Record the tool and version, input, check, result, warnings, and limitation. An LLM review is not an execution result.
+
+For OntoClean-style review, ask whether identity criteria are supplied or inherited, whether instances form relevant wholes, whether membership in the class is essential to instances, and whether the class depends on another entity. Use the answers to diagnose category and subsumption errors, not to manufacture metaproperties unsupported by evidence.
+
+## Prohibited claims
+
+- Do not invent an IRI, prefix, namespace, import, class, property, axiom, ontology version, or mapping target.
+- Do not claim syntax validity, OWL conformance, SHACL conformance, consistency, satisfiability, entailment, or competency-question success unless the corresponding tool actually ran on identified inputs.
+- Do not infer conceptual correctness from parser, SHACL, or reasoner success, or infer graph conformance from conceptual plausibility.
+- Do not apply OBO Foundry or CIDOC CRM rules outside their domains and governance, and do not use a draft as an official or stable release without explicit scope.
+- Do not collapse textual definitions, axioms, constraints, and mappings into one field or claim that an OWL class is automatically a SKOS concept.
+
+## Completion additions
+
+When material, add competency questions and intended inferences; selected ontological category; textual definition; proposed necessary and sufficient conditions; justified axioms or constraints; mapping semantics; ontology, imports, and version; tool-result states; unresolved modeling choices; and the next validation or domain-review action.
+
+Put the textual definition first in a human concept package unless a blocker prevents it. Label every formal artifact `proposed` until its stated validation has actually occurred.
+
+## Reviewed sources
+
+- [OWL 2 Web Ontology Language Document Overview, Second Edition](https://www.w3.org/TR/owl-overview/) - W3C Recommendation 11 December 2012; reviewed as the non-normative roadmap to the normative OWL 2 Recommendation-family specifications and their separation of structure, semantics, mappings, profiles, syntax, and conformance.
+- [OWL 2 Structural Specification and Functional-Style Syntax, Second Edition](https://www.w3.org/TR/owl-syntax/) - W3C Recommendation 11 December 2012; reviewed for the distinction between ontology structures and presentation syntax.
+- [Shapes Constraint Language (SHACL)](https://www.w3.org/TR/shacl/) - W3C Recommendation 20 July 2017; reviewed for RDF graph validation and conformance semantics.
+- [SHACL 1.2 Core](https://www.w3.org/TR/shacl12-core/) - W3C Working Draft 16 May 2026 when checked on 2026-08-29; treated as an in-development source, not as the latest Recommendation.
+- [OBO Foundry Principles](https://obofoundry.org/principles/fp-000-summary.html) - Maintained normative principles for OBO Foundry ontology review when checked on 2026-08-29; applied only conditionally to OBO work.
+- [CIDOC CRM versions](https://cidoc-crm.org/versions-of-the-cidoc-crm) - Version 7.1.3, released 2024-02, was listed as Official (ISO Correspondence), while Version 7.3.2, released 2026-03, was Draft when checked on 2026-08-29; use the status appropriate to the task.
+- [Towards OntoClean 2.0: A framework for rigidity](https://doi.org/10.3233/APO-2005-000009) - Research source for proportionate rigidity diagnostics, not a conformance standard.
+
+## Composition notes
+
+Compose with epistemic governance when ontology commitments represent contested, situated, community-governed, or authority-dependent knowledge; the governance profile may require alternative models, provisional status, review, co-governance, or deferral even when an axiom is syntactically valid.
+
+Compose with KOS when linking SKOS concepts and ontology entities, but preserve each model's relation semantics. Compose with multilingual terminology for lexicalization or OntoLex-Lemon and with data definitions for metadata constructs; the terminology core owns shared concept identity and definition.
+
+## `skills/defining-concepts/references/profiles/knowledge-organization-systems.md`
+
+# Knowledge-Organization-Systems Profile
+
+This profile adds thesaurus, taxonomy, classification, controlled-vocabulary, concept-scheme, and mapping semantics to the terminology core.
+
+## Activation
+
+Activate for thesauri, taxonomies, classifications, subject-heading systems, authority files, controlled vocabularies, concept schemes, collections, labels, notations, semantic relations, or cross-scheme mappings. Do not activate merely because an ordinary answer uses a list of related terms.
+
+## Additional questions
+
+- Which concept scheme or vocabulary, version, language, jurisdiction, and use context is authoritative for each side?
+- Is the target a concept, concept scheme, collection, label, notation, documentation note, semantic relation, or mapping assertion?
+- Is the relationship within one scheme or across schemes, and is its intended use retrieval expansion, navigation, data integration, migration, or editorial alignment?
+- What evidence establishes intension, extension, scope, system position, and actual use for each candidate concept?
+- Would a proposed broader, narrower, partitive, associative, exact, close, broad, narrow, or related relation behave safely for the intended application?
+
+## Semantic distinctions
+
+Keep concepts distinct from their preferred, alternative, or hidden labels; notations distinct from labels; documentation notes distinct from definitions; concept schemes distinct from concepts and collections; collection membership distinct from hierarchy; and within-scheme semantic relations distinct from cross-scheme mappings.
+
+Type generic broader and narrower, partitive, and associative relations according to the governing scheme. Do not treat every broader relation as genus-species, every hierarchy as transitive for every application, a part-whole relation as `is-a`, or collection membership as a semantic parent.
+
+For SKOS, distinguish `skos:broader`, `skos:narrower`, and `skos:related` from `skos:broadMatch`, `skos:narrowMatch`, `skos:relatedMatch`, `skos:closeMatch`, and `skos:exactMatch`. A SKOS concept is not an OWL class, and a label is neither a concept nor evidence of identity.
+
+## Evidence
+
+Use the maintained scheme's exact records, scope notes, definitions, labels, relations, version history, and governance documentation as primary evidence for its own assertions. For a mapping, retrieve both exact concept destinations and applicable scheme versions; compare intension, extension, category, scope, granularity, concept-system position, jurisdiction, time, and use.
+
+Use ISO 25964-1:2011 as the reviewed published thesaurus baseline and ISO 25964-2:2013 as the reviewed published interoperability and mapping baseline, while disclosing their lifecycle status. Use the SKOS Reference, W3C Recommendation 18 August 2009, for SKOS data-model semantics. Do not make a protected ISO rule visible merely because an implementation summary is public.
+
+Lexical similarity, shared notation, an existing mapping assertion, or symmetric-looking labels are candidate evidence only. Exact mapping requires especially strong evidence because downstream expansion can propagate error.
+
+## Validation
+
+Validate concept identity on both sides, relation type and direction, source and target scheme versions, within-scheme versus mapping semantics, scope and granularity, intension and extension, hierarchy or system position, use context, and whether the chosen mapping predicate is conservative.
+
+For exact mapping, require evidence that the concepts can be used interchangeably across the stated scope without a material extension, intension, category, jurisdiction, temporal, or governance mismatch. Prefer close, broad, narrow, related, unresolved, or no mapping when exactness is not established.
+
+Check that labels, notations, collections, and documentation notes have not been mistaken for semantic relations; that broader/narrower, partitive, and associative relations remain distinct; and that exporting to SKOS does not silently strengthen local semantics.
+
+## Prohibited claims
+
+- Do not claim exact equivalence from labels, shared identifiers, machine similarity, or an unverified mapping record.
+- Do not call a SKOS concept an OWL class, a collection a concept scheme, a notation a preferred label, or `skos:related` a hierarchy.
+- Do not call output ISO 25964-conformant or SKOS-conformant unless the applicable requirements and actual validation were identified and performed.
+- Do not describe a published edition under revision as an unchanged future baseline, and do not silently use a draft replacement.
+- Do not invent scheme membership, identifiers, labels, mappings, governance approval, or version history.
+
+## Completion additions
+
+When material, add scheme identity and version, concept records on both sides, label and notation status, within-scheme relations, mapping direction and predicate, comparison of intension and extension, scope and system position, evidence and limitations, and the requested serialization or validation state.
+
+For a compact mapping answer, put the concept definition or identity statement first, then the proposed relationship and decisive reason. Do not expose every KOS field when the user only needs a conservative mapping decision.
+
+## Reviewed sources
+
+- [ISO 25964-1:2011 official record](https://www.iso.org/standard/53657.html) - Edition 1, published 2011-08, status Published and stage 90.92 To be revised when checked on 2026-08-29; ISO/FDIS 25964-1 was identified as the expected replacement, so the published edition is a reviewed baseline under revision.
+- [ISO 25964-2:2013 official record](https://www.iso.org/standard/53658.html) - Edition 1, published 2013-03, status Published and stage 90.92 To be revised when checked on 2026-08-29; ISO/AWI 25964-2 was under development, so no draft was substituted.
+- [SKOS Simple Knowledge Organization System Reference](https://www.w3.org/TR/skos-reference/) - W3C Recommendation 18 August 2009 and normative SKOS data-model specification; reviewed for concepts, schemes, labels, notations, documentation, semantic relations, collections, and mappings.
+- [OWL 2 Document Overview, Second Edition](https://www.w3.org/TR/owl-overview/) - W3C Recommendation 11 December 2012, non-normative overview within the OWL 2 Recommendation family; reviewed only to preserve the SKOS concept versus OWL class boundary.
+
+## Composition notes
+
+Compose with multilingual terminology when labels or mappings span languages; preserve concept-first equivalence and language-specific designation status rather than translating scheme labels in isolation. Compose with formal ontology only when the user needs explicit class or property commitments, and keep SKOS mapping semantics separate from OWL identity or subclass axioms.
+
+Compose with data definitions for code lists, value domains, or permissible values only after typing each construct. Compose with epistemic governance when a scheme or mapping is community-governed, contested, or jurisdiction-sensitive; interoperability does not override legitimate local authority.
+
+## `skills/defining-concepts/references/profiles/multilingual-terminology.md`
+
+# Multilingual-Terminology Profile
+
+This profile adds multilingual designation records and cross-language equivalence analysis to the terminology core. It starts from concepts, not isolated word translation.
+
+## Activation
+
+Activate when two or more languages, language varieties, scripts, jurisdictions, translation-oriented term records, multilingual concept schemes, cross-language mappings, TBX exchange, OntoLex-Lemon, or linguistic equivalence are material.
+
+## Additional questions
+
+- Which concept and subject field are shared, and which language, variety, script, jurisdiction, community, and time context applies to each designation?
+- Which designation is preferred, alternative or admitted, hidden, deprecated, forbidden, or candidate in each context, and who assigns that status?
+- Is equivalence full, partial, directional, pragmatic, or absent for the intended use, and which dimensions differ?
+- Do grammatical behavior, register, connotation, legal status, cultural framing, or extension change the mapping?
+- Is the requested machine representation terminology exchange, KOS labels, or lexical grounding for an ontology, and which profile or dialect applies?
+
+## Semantic distinctions
+
+Preserve concept orientation before translation: establish the source concept's identity and boundary, then determine whether a target-language community lexicalizes the same concept. Shared spelling, cognates, dictionary glosses, corpus co-occurrence, and machine translation are not sufficient evidence of concept equivalence.
+
+Record language, language variety, script, jurisdiction, community, grammatical information, register, usage status, source, and designation status only when material. Do not treat a language tag as proof of linguistic or community validation.
+
+Distinguish full equivalence from partial equivalence, directional equivalence, pragmatic equivalence for a stated task, and absent equivalence. Preserve a lexical gap, broader or narrower target concept, culturally different partition, or non-equivalent legal category rather than forcing one label-to-label translation.
+
+Keep TBX terminology-resource exchange, SKOS language-tagged labels, and OntoLex-Lemon lexical-ontology representation distinct. Representation choice does not determine the underlying equivalence.
+
+## Evidence
+
+Use directly retrieved concept records, term records, subject-field sources, corpora, standards, legal or policy texts, and community sources appropriate to each language and jurisdiction. Record who assigns preference or acceptability and whether a source supports lexical use, concept identity, domain meaning, or community authority.
+
+For consequential use, seek native-language domain expertise or legitimate community review proportionate to risk. A machine-generated translation or general bilingual dictionary may discover candidates but cannot establish specialist, legal, scientific, or community-governed equivalence alone.
+
+Use ISO 30042:2019 only when TBX representation or terminology-resource interchange is actually requested. Use the 2016 OntoLex-Lemon Community Group Report only for applicable lexical grounding of ontology or vocabulary entities; it is a W3C Community Group Report, not a W3C Standard or Recommendation.
+
+## Validation
+
+Test source and target concept intension, extension, category, scope, granularity, system position, jurisdiction, time, register, and intended use. Test positive examples, exclusions, siblings, and near misses in both languages where possible, and state whether the mapping is symmetric or directional.
+
+Validate each designation's language or variety, script, grammatical and usage information, source, and status only to the depth the task needs. Distinguish linguistic review, domain review, community review, parser validation, TBX dialect validation, RDF validation, and ontology reasoning.
+
+When native-speaker, domain-specialist, or community review is needed but unavailable, mark the entry proposed or provisional, specify the review question, and avoid operationally final language.
+
+## Prohibited claims
+
+- Do not claim full equivalence from machine translation, shared spelling, cognates, labels, or a single general dictionary.
+- Do not invent a preferred designation, language variety, script, grammatical property, community acceptance, equivalence relation, or review result.
+- Do not claim that native-speaker, domain-specialist, or community review occurred unless an identified review actually occurred.
+- Do not claim TBX, SKOS, RDF, or OntoLex-Lemon conformance from surface resemblance or undeclared profiles.
+- Do not force a target-language label when no responsible equivalent exists; preserve explanation, borrowing, paraphrase, narrower mappings, or a lexical gap as appropriate.
+
+## Completion additions
+
+When material, add concept identity shared across languages; designation records with language, variety, script, jurisdiction, source, and status; equivalence type and direction; decisive mismatches; candidate recommendations by use context; required review; and requested representation plus validation state.
+
+For a compact answer, keep the definition first, then state the recommended designation and the one material equivalence limitation. Do not display exchange-format fields unless the user requests them.
+
+## Reviewed sources
+
+- [ISO 704:2022 official record](https://www.iso.org/standard/79077.html) - Edition 4, published 2022-07 and status Published when checked on 2026-08-29; used through the terminology core for concept-oriented terminology work and designation principles.
+- [ISO 1087:2019 official record](https://www.iso.org/standard/62330.html) - Edition 2, published 2019-09 and stage 90.93 Confirmed when checked on 2026-08-29; used for terminology vocabulary.
+- [ISO 30042:2019 official record](https://www.iso.org/standard/62510.html) - Edition 2, published 2019-04, status Published and stage 90.92 To be revised when checked on 2026-08-29; ISO/CD 30042 was under development, so the published edition remains the reviewed TBX baseline under revision.
+- [Lexicon Model for Ontologies](https://www.w3.org/2016/05/ontolex/) - OntoLex-Lemon final W3C Community Group Report published 2016-05; the report explicitly is not a W3C Standard or Standards Track document.
+- [Ontology-Lexica Community Group status page](https://www.w3.org/community/ontolex/wiki/Main_Page) - Maintained community page checked on 2026-08-29 for module and report status; emerging modules are not silently treated as final core specifications.
+
+## Composition notes
+
+Compose with data definitions when multilingual designations belong to metadata items or TBX output is requested; preserve the shared concept and add language-specific records without duplicating the Part 4 audit. Compose with KOS for multilingual labels and cross-scheme mappings, and with formal ontology for OntoLex-Lemon or language-tagged ontology annotations.
+
+Compose with epistemic governance when language authority, naming rights, contested translation, or community conceptualization is material. The terminology core owns concept identity; this profile must not override locally legitimate governance with an ostensibly universal translation.
