@@ -1213,37 +1213,7 @@ function inspectCapabilities(models, providerCapabilities, policy) {
   };
 }
 
-function assertNoSkills(result, policy) {
-  if (
-    !Array.isArray(result?.data) ||
-    result.data.length !== policy.isolation.runtimeWorkspaceRoots.length
-  ) {
-    throw sessionError(
-      "capability-rejected",
-      "INVALID_SKILL_STATE",
-      "Codex skill state is invalid",
-    );
-  }
-  for (const [index, entry] of result.data.entries()) {
-    if (
-      typeof entry?.cwd !== "string" ||
-      resolve(entry.cwd) !==
-        resolve(policy.isolation.runtimeWorkspaceRoots[index]) ||
-      !Array.isArray(entry.errors) ||
-      entry.errors.length !== 0 ||
-      !Array.isArray(entry.skills) ||
-      entry.skills.length !== 0
-    ) {
-      throw sessionError(
-        "capability-rejected",
-        "SKILL_SOURCE_PRESENT",
-        "Codex discovered an enabled or unexpected skill source",
-      );
-    }
-  }
-}
-
-function assertNoHooks(result, policy) {
+function assertHookIsolation(result, policy) {
   if (
     !Array.isArray(result?.data) ||
     result.data.length !== policy.isolation.runtimeWorkspaceRoots.length
@@ -1264,27 +1234,27 @@ function assertNoHooks(result, policy) {
       !Array.isArray(entry.warnings) ||
       entry.warnings.length !== 0 ||
       !Array.isArray(entry.hooks) ||
-      entry.hooks.length !== 0
+      entry.hooks.some(
+        (hook) =>
+          hook === null ||
+          typeof hook !== "object" ||
+          Array.isArray(hook) ||
+          typeof hook.enabled !== "boolean",
+      )
     ) {
+      throw sessionError(
+        "protocol-failed",
+        "INVALID_HOOK_STATE",
+        "Codex hook state is invalid",
+      );
+    }
+    if (entry.hooks.some(({ enabled }) => enabled)) {
       throw sessionError(
         "capability-rejected",
         "HOOK_SOURCE_PRESENT",
-        "Codex discovered an enabled or unexpected hook",
+        "Codex discovered an enabled hook",
       );
     }
-  }
-}
-
-function assertNoCallableApps(result) {
-  if (
-    !Array.isArray(result?.apps) ||
-    result.apps.some((app) => app.enabled === true || app.callable === true)
-  ) {
-    throw sessionError(
-      "capability-rejected",
-      "CALLABLE_APP_PRESENT",
-      "Codex discovered an enabled or callable app",
-    );
   }
 }
 
@@ -1301,60 +1271,37 @@ function threadStartParams(policy) {
     ephemeral: true,
     model: policy.model,
     modelProvider: policy.provider,
-    runtimeWorkspaceRoots: policy.isolation.runtimeWorkspaceRoots,
-    sandbox: policy.isolation.sandbox,
+    runtimeWorkspaceRoots: [],
+    sandbox: "read-only",
     selectedCapabilityRoots: [],
   };
 }
 
 function assertThreadIsolation(result, policy) {
-  const expectedSandboxType =
-    policy.isolation.sandbox === "workspace-write"
-      ? "workspaceWrite"
-      : "readOnly";
-  const roots = result?.sandbox?.writableRoots ?? [];
   if (
-    result?.allowProviderModelFallback !== false ||
     result?.approvalPolicy !== "on-request" ||
     result?.approvalsReviewer !== "user" ||
-    result?.baseInstructions !== policy.instructions.base ||
-    result?.developerInstructions !== policy.instructions.developer ||
     typeof result?.cwd !== "string" ||
     resolve(result?.cwd ?? "") !== resolve(policy.isolation.workingDirectory) ||
-    !Array.isArray(result?.dynamicTools) ||
-    result.dynamicTools.length !== 0 ||
-    !Array.isArray(result?.environments) ||
-    result.environments.length !== 0 ||
     result?.model !== policy.model ||
     result?.modelProvider !== policy.provider ||
-    result?.reasoningEffort !== policy.effort ||
+    result?.reasoningEffort !== null ||
+    result?.activePermissionProfile !== null ||
     result?.thread?.ephemeral !== true ||
     typeof result?.thread?.id !== "string" ||
     typeof result?.thread?.cwd !== "string" ||
     resolve(result?.thread?.cwd ?? "") !==
       resolve(policy.isolation.workingDirectory) ||
     result?.thread?.modelProvider !== policy.provider ||
+    !Array.isArray(result?.thread?.turns) ||
+    result.thread.turns.length !== 0 ||
     result?.multiAgentMode !== "explicitRequestOnly" ||
     !Array.isArray(result?.instructionSources) ||
     result.instructionSources.length !== 0 ||
-    result?.sandbox?.type !== expectedSandboxType ||
-    result?.sandbox?.networkAccess !== policy.capabilities.network ||
+    result?.sandbox?.type !== "readOnly" ||
+    result?.sandbox?.networkAccess !== false ||
     !Array.isArray(result?.runtimeWorkspaceRoots) ||
-    canonicalJsonBytes(result.runtimeWorkspaceRoots).compare(
-      canonicalJsonBytes(policy.isolation.runtimeWorkspaceRoots),
-    ) !== 0 ||
-    (expectedSandboxType === "workspaceWrite" &&
-      (roots.length !== 1 ||
-        resolve(roots[0]) !== resolve(policy.isolation.workingDirectory) ||
-        result.sandbox.excludeSlashTmp !== true ||
-        result.sandbox.excludeTmpdirEnvVar !== true)) ||
-    !Array.isArray(result?.selectedCapabilityRoots) ||
-    result.selectedCapabilityRoots.length !== 0 ||
-    !Array.isArray(result?.tools) ||
-    canonicalJsonBytes(result.tools).compare(
-      canonicalJsonBytes(policy.capabilities.tools),
-    ) !== 0 ||
-    result?.webSearch !== policy.capabilities.webSearch
+    result.runtimeWorkspaceRoots.length !== 0
   ) {
     throw sessionError(
       "capability-rejected",
@@ -1572,7 +1519,7 @@ async function establishIsolatedThread({
 }) {
   const initialized = await request("initialize", {
     capabilities: {
-      experimentalApi: false,
+      experimentalApi: true,
       requestAttestation: false,
     },
     clientInfo: {
@@ -1611,19 +1558,10 @@ async function establishIsolatedThread({
     policy,
   );
 
-  const [skills, hooks, apps] = await Promise.all([
-    request("skills/list", {
-      cwds: policy.isolation.runtimeWorkspaceRoots,
-      forceReload: true,
-    }),
-    request("hooks/list", {
-      cwds: policy.isolation.runtimeWorkspaceRoots,
-    }),
-    request("app/installed", { forceRefresh: false }),
-  ]);
-  assertNoSkills(skills, policy);
-  assertNoHooks(hooks, policy);
-  assertNoCallableApps(apps);
+  const hooks = await request("hooks/list", {
+    cwds: policy.isolation.runtimeWorkspaceRoots,
+  });
+  assertHookIsolation(hooks, policy);
 
   const threadStart = await request("thread/start", threadStartParams(policy));
   if (typeof threadStart.thread?.id !== "string") {
@@ -1649,6 +1587,13 @@ async function establishIsolatedThread({
       webSearch: policy.capabilities.webSearch,
       instructionSources: policy.isolation.instructionSources,
       persistence: policy.isolation.persistence,
+      preflightThread: {
+        instructionSources: [],
+        multiAgentMode: threadStart.multiAgentMode,
+        network: false,
+        runtimeWorkspaceRoots: [],
+        sandbox: "read-only",
+      },
     },
     threadId: threadStart.thread.id,
   };

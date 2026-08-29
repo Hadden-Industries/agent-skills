@@ -252,11 +252,18 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
             data: message.params.cwds.map((cwd) => ({
               cwd,
               errors: [],
-              skills: ["disabled-skill", "enabled-skill"].includes(scenario)
+              skills: [
+                "available-provider-inventories",
+                "disabled-skill",
+                "enabled-skill",
+              ].includes(scenario)
                 ? [
                     {
                       description: "Unexpected skill",
-                      enabled: scenario === "enabled-skill",
+                      enabled: [
+                        "available-provider-inventories",
+                        "enabled-skill",
+                      ].includes(scenario),
                       name: "unexpected-skill",
                       path: join(cwd, "SKILL.md"),
                       scope: "repo",
@@ -273,15 +280,22 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
             data: message.params.cwds.map((cwd) => ({
               cwd,
               errors: [],
-              hooks: ["disabled-hook", "enabled-hook"].includes(scenario)
-                ? [
-                    {
-                      enabled: scenario === "enabled-hook",
-                      eventName: "sessionStart",
-                      key: "unexpected-hook",
-                    },
-                  ]
-                : [],
+              hooks:
+                scenario === "malformed-hook-state"
+                  ? [{ enabled: "false" }]
+                  : [
+                        "available-provider-inventories",
+                        "disabled-hook",
+                        "enabled-hook",
+                      ].includes(scenario)
+                    ? [
+                        {
+                          enabled: scenario === "enabled-hook",
+                          eventName: "sessionStart",
+                          key: "unexpected-hook",
+                        },
+                      ]
+                    : [],
               warnings: [],
             })),
           },
@@ -290,17 +304,18 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
         writeMessage({
           id: message.id,
           result: {
-            apps:
-              scenario === "callable-app"
-                ? [
-                    {
-                      callable: true,
-                      enabled: true,
-                      id: "unexpected-app",
-                      runtimeName: "unexpected",
-                    },
-                  ]
-                : [],
+            apps: ["available-provider-inventories", "callable-app"].includes(
+              scenario,
+            )
+              ? [
+                  {
+                    callable: true,
+                    enabled: true,
+                    id: "unexpected-app",
+                    runtimeName: "unexpected",
+                  },
+                ]
+              : [],
           },
         });
       } else if (message.method === "thread/start") {
@@ -315,35 +330,35 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
           result: {
             allowProviderModelFallback:
               message.params.allowProviderModelFallback,
+            activePermissionProfile: null,
             approvalPolicy: message.params.approvalPolicy,
             approvalsReviewer: message.params.approvalsReviewer,
             baseInstructions: message.params.baseInstructions,
             cwd: message.params.cwd,
             developerInstructions: message.params.developerInstructions,
-            dynamicTools:
-              scenario === "missing-thread-isolation-field"
-                ? undefined
-                : message.params.dynamicTools,
+            dynamicTools: message.params.dynamicTools,
             environments: message.params.environments,
             instructionSources:
-              scenario === "leaked-instructions"
-                ? [join(message.params.cwd, "AGENTS.md")]
-                : [],
+              scenario === "missing-thread-isolation-field"
+                ? undefined
+                : scenario === "leaked-instructions"
+                  ? [join(message.params.cwd, "AGENTS.md")]
+                  : [],
             model: message.params.model,
             modelProvider: message.params.modelProvider,
             multiAgentMode: "explicitRequestOnly",
-            reasoningEffort: "low",
+            reasoningEffort: null,
             runtimeWorkspaceRoots: message.params.runtimeWorkspaceRoots,
             sandbox:
               scenario === "sandbox-mismatch"
-                ? { networkAccess: false, type: "readOnly" }
-                : {
+                ? {
                     excludeSlashTmp: true,
                     excludeTmpdirEnvVar: true,
                     networkAccess: false,
                     type: "workspaceWrite",
                     writableRoots: [message.params.cwd],
-                  },
+                  }
+                : { networkAccess: false, type: "readOnly" },
             selectedCapabilityRoots: message.params.selectedCapabilityRoots,
             thread: {
               cwd: message.params.cwd,

@@ -31,7 +31,7 @@
 - Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. Do not edit either file until the user explicitly approves the exact proposed fields, case inventory, prompts, expectations, trigger queries, and campaign selection.
 - Do not modify `package.json`, lockfiles, build configuration, lint configuration, formatting configuration, CI, environment configuration, or repository policy as part of this work.
 - Do not call an external model until the exact skill bundle, every prompt and follow-up turn, provider, model, effort, runtime fingerprint, and transmission SHA-256 have been prepared and explicitly authorized.
-- For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, while thread state and runtime events establish actual activation. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
+- For each prepared OpenAI campaign, require one exclusive sequence-1 zero-turn preflight bound to the exact manifest and selected transmission before authorization artifacts are created or execution begins. Provider capability discovery establishes availability, the minimal preflight thread attests zero-turn isolation, exact execution settings are bound at `turn/start`, and runtime events establish whether an unrequested facility was used. Do not query skill or installed-app inventories as activation evidence; accept only well-formed disabled hooks. A missing, failed, malformed, nonzero-turn, or stale preflight permanently blocks that campaign.
 - A materially changed candidate is a new iteration. Never reuse a prior candidate's authorization, campaign identity, or result directory.
 - Do not claim human usability, general expert superiority, calibrated probability, within-prompt repeatability, or stochastic variance from this campaign.
 - Commits require explicit authorization through `committing-to-git`; pushes require a separate explicit authorization.
@@ -410,7 +410,7 @@ Each bundle contains:
 
 - [ ] **Step 7: Preserve transport-specific capability truth**
 
-  Do not claim live web search for a provider configuration that lacks it. Reject unsupported multi-turn/provider combinations before execution. Keep all existing exact authorization and managed-home safeguards.
+  Do not claim live web search for a provider configuration that lacks it. Reject unsupported multi-turn/provider combinations before execution. Keep all existing exact authorization and managed-home safeguards. For Codex, distinguish provider and host inventory availability from per-thread activation, inspect enabled hook state, attest a minimal zero-turn thread, and bind exact effort, workspace roots, sandbox policy, and input at `turn/start`.
 
 - [ ] **Step 8: Run focused tests and confirm GREEN**
 
@@ -451,7 +451,7 @@ evaluation-runner.mjs aggregate --campaign-dir <graded-dir>
 
 - [ ] **Step 4: Write campaign preflight tests**
 
-  Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the disabled packet policy; actual thread state still matches the packet; and the record binds the exact manifest and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
+  Assert that exactly one deterministic sequence-1 session is preflighted with zero model turns; provider capability availability may be broader than the disabled packet policy; host skill and app inventories are not treated as activation or retained; disabled hooks are accepted while enabled or malformed hooks fail closed; the preflight thread is ephemeral, read-only, networkless, and has no instruction sources or workspace roots; exact effort, execution roots, sandbox policy, and input are bound at `turn/start`; and the record binds the exact manifest and transmission. Assert that a missing, failed, malformed, nonzero-turn, overwritten, or stale preflight prevents every execution callback.
 
 - [ ] **Step 5: Write execution authorization tests**
 
@@ -1019,7 +1019,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 2: Pass the mandatory zero-turn campaign gate**
 
-  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, the intended disabled thread facilities, clean managed-home retirement, and confirmed provider-process closure. Treat provider capability booleans as availability rather than activation: broader provider availability is acceptable when the packet and actual thread disable the facility, while a packet-requested but unavailable facility fails closed. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
+  Before creating authorization artifacts or executing a model turn, run one sequence-1 preflight for each prepared campaign. Require an exclusive campaign-level record bound to the exact manifest digest, selected transmission digest, provider, model, and effort, with `status: "completed"`, `modelTurns: 0`, well-formed disabled hooks, a read-only and networkless ephemeral thread with no instruction sources or workspace roots, clean managed-home retirement, and confirmed provider-process closure. Treat provider and host inventories as availability rather than activation: broader provider availability is acceptable when the packet disables the facility, skill and installed-app inventories are not queried or retained, and a packet-requested but unavailable facility fails closed. Confirm that exact effort, execution roots, workspace sandbox, and input are packet-bound at `turn/start`, with runtime rejection of unrequested events. A failed, malformed, nonzero-turn, or stale preflight closes that campaign; retain it, diagnose test-first, and prepare a fresh timestamped campaign rather than retrying or bypassing it.
 
 - [ ] **Step 3: Review the frozen campaign**
 

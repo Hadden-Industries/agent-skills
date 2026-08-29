@@ -473,6 +473,14 @@ test("preflight accepts the official initialize response and writes terminal evi
   );
   const methods = clientMessages.map(({ method }) => method);
   assert.equal(methods.filter((method) => method === "initialize").length, 1);
+  assert.deepEqual(
+    transcript.find(({ method }) => method === "initialize").params
+      .capabilities,
+    {
+      experimentalApi: true,
+      requestAttestation: false,
+    },
+  );
   assert.equal(methods.filter((method) => method === "initialized").length, 1);
   assert.equal(
     methods.indexOf("account/read") < methods.indexOf("thread/start"),
@@ -480,11 +488,19 @@ test("preflight accepts the official initialize response and writes terminal evi
   );
   assert.equal(methods.includes("model/list"), true);
   assert.equal(methods.includes("modelProvider/capabilities/read"), true);
-  assert.equal(methods.includes("skills/list"), true);
+  assert.equal(methods.includes("skills/list"), false);
   assert.equal(methods.includes("hooks/list"), true);
-  assert.equal(methods.includes("app/installed"), true);
+  assert.equal(methods.includes("app/installed"), false);
   assert.equal(methods.includes("turn/start"), false);
   assert.equal(methods.at(-1), "thread/delete");
+  const threadStartRequest = transcript.find(
+    ({ method }) => method === "thread/start",
+  );
+  assert.equal(threadStartRequest.params.sandbox, "read-only");
+  assert.deepEqual(threadStartRequest.params.runtimeWorkspaceRoots, []);
+  assert.deepEqual(threadStartRequest.params.selectedCapabilityRoots, []);
+  assert.deepEqual(threadStartRequest.params.dynamicTools, []);
+  assert.deepEqual(threadStartRequest.params.environments, []);
   const modelRequest = transcript.find(({ method }) => method === "model/list");
   const capabilitiesRequest = transcript.find(
     ({ method }) => method === "modelProvider/capabilities/read",
@@ -538,8 +554,8 @@ test("preflight accepts the official initialize response and writes terminal evi
     ephemeral: true,
     model: "gpt-5.6-luna",
     modelProvider: "openai",
-    runtimeWorkspaceRoots: [fixtureRoot],
-    sandbox: "workspace-write",
+    runtimeWorkspaceRoots: [],
+    sandbox: "read-only",
     selectedCapabilityRoots: [],
   });
 
@@ -652,6 +668,51 @@ test("malformed provider capability availability fails as a protocol error", asy
   assert.equal(result.failureClass, "protocol-failed");
   assert.equal(result.error.code, "INVALID_PROVIDER_CAPABILITIES");
   assert.equal(result.modelTurns, 0);
+});
+
+test("available skill and app inventories plus disabled hooks do not count as activated thread facilities", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(
+    t,
+    root,
+    "available-provider-inventories",
+  );
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy: policyFixture(fixtureRoot),
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.failureClass, null);
+  assert.equal(result.modelTurns, 0);
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "skills/list"),
+    false,
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "app/installed"),
+    false,
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "hooks/list"),
+    true,
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "turn/start"),
+    false,
+  );
 });
 
 test("non-authentication server JSONL bytes and delimiters are retained exactly", async (t) => {
@@ -908,11 +969,8 @@ for (const [domain, mutate] of [
 for (const [scenario, failureClass, errorCode] of [
   ["model-unavailable", "preflight-rejected", "MODEL_UNAVAILABLE"],
   ["effort-unavailable", "preflight-rejected", "EFFORT_UNAVAILABLE"],
-  ["enabled-skill", "capability-rejected", "SKILL_SOURCE_PRESENT"],
-  ["disabled-skill", "capability-rejected", "SKILL_SOURCE_PRESENT"],
+  ["malformed-hook-state", "protocol-failed", "INVALID_HOOK_STATE"],
   ["enabled-hook", "capability-rejected", "HOOK_SOURCE_PRESENT"],
-  ["disabled-hook", "capability-rejected", "HOOK_SOURCE_PRESENT"],
-  ["callable-app", "capability-rejected", "CALLABLE_APP_PRESENT"],
   ["wrong-codex-home", "capability-rejected", "CODEX_HOME_MISMATCH"],
   ["leaked-instructions", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
   ["sandbox-mismatch", "capability-rejected", "THREAD_ISOLATION_MISMATCH"],
@@ -1155,10 +1213,19 @@ test("execution consumes one launch, returns the authoritative final agent item,
   const transcript = await readJsonLines(
     join(execution.preparedSession, "outputs", "transcript.jsonl"),
   );
-  assert.equal(
-    transcript.some(({ method }) => method === "turn/start"),
-    true,
-  );
+  const turnStart = transcript.find(({ method }) => method === "turn/start");
+  assert.equal(turnStart.params.effort, "low");
+  assert.equal(turnStart.params.model, "gpt-5.6-luna");
+  assert.deepEqual(turnStart.params.runtimeWorkspaceRoots, [
+    execution.fixtureRoot,
+  ]);
+  assert.deepEqual(turnStart.params.sandboxPolicy, {
+    excludeSlashTmp: true,
+    excludeTmpdirEnvVar: true,
+    networkAccess: false,
+    type: "workspaceWrite",
+    writableRoots: [execution.fixtureRoot],
+  });
   assert.equal(
     transcript.some(
       (message) => message?.params?.item?.text === "later non-final commentary",

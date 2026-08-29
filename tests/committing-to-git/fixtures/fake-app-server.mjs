@@ -256,18 +256,11 @@ function startTurn(request) {
 }
 
 function threadStartResult(params) {
-  const implicitCwd = scenario === "implicit-cwd";
-  const readOnlyBaseline = scenario === "read-only-baseline";
-
   return {
-    allowProviderModelFallback: params.allowProviderModelFallback,
+    activePermissionProfile: null,
     approvalPolicy: params.approvalPolicy,
     approvalsReviewer: params.approvalsReviewer,
-    baseInstructions: params.baseInstructions,
     cwd: params.cwd,
-    developerInstructions: params.developerInstructions,
-    dynamicTools: params.dynamicTools,
-    environments: params.environments,
     instructionSources: ["leaked-skill", "leaked-instructions"].includes(
       scenario,
     )
@@ -276,19 +269,13 @@ function threadStartResult(params) {
     model: params.model,
     modelProvider: params.modelProvider,
     multiAgentMode: "explicitRequestOnly",
-    reasoningEffort: "low",
-    runtimeWorkspaceRoots: implicitCwd ? [] : params.runtimeWorkspaceRoots,
-    sandbox: readOnlyBaseline
-      ? { networkAccess: false, type: "readOnly" }
-      : {
-          excludeSlashTmp: true,
-          excludeTmpdirEnvVar: true,
-          networkAccess: false,
-          type: "workspaceWrite",
-          writableRoots: implicitCwd ? [] : [params.cwd],
-        },
+    reasoningEffort: null,
+    runtimeWorkspaceRoots: scenario === "implicit-cwd" ? [params.cwd] : [],
+    sandbox:
+      scenario === "read-only-baseline"
+        ? { networkAccess: false, type: "workspaceWrite" }
+        : { networkAccess: false, type: "readOnly" },
     serviceTier: null,
-    selectedCapabilityRoots: params.selectedCapabilityRoots,
     thread: {
       cliVersion: "0.149.1",
       createdAt: 1,
@@ -304,8 +291,6 @@ function threadStartResult(params) {
       turns: [],
       updatedAt: 1,
     },
-    tools: ["commandExecution", "fileChange"],
-    webSearch: false,
   };
 }
 
