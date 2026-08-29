@@ -1,98 +1,90 @@
 [
   {
-    "query": "Our data-governance board needs an ISO/IEC 11179-style definition for Customer Account Closure Reason before Friday's registry review. Please research existing vocabularies, identify the genus and differentia, and return the auditable semantic artifact.",
+    "query": "Define Customer Account Closure Reason for our metadata registry, separating the concept from its code list and citing any exact source you verify.",
     "should_trigger": true
   },
   {
-    "query": "Audit this starter definition for a category error: 'Document retention status is the database column that stores Active or Expired.' Replace it with a standardized concept definition and cite the vocabularies you checked.",
+    "query": "We need a defensible definition of Invoice Issue Date for a finance glossary, with receipt date and payment-due date treated as near misses.",
     "should_trigger": true
   },
   {
-    "query": "We're registering 'Specimen Collection Method' in a metadata registry. Formulate a concise genus-differentia definition that stands alone and distinguish the method from the code used to represent it.",
+    "query": "Audit this starter definition for a category error and replace it: 'Document retention status is the database column that stores Active or Expired.'",
     "should_trigger": true
   },
   {
-    "query": "Produce the semantic artifact for Judicial Review Outcome. Possible values are Granted, Refused, Withdrawn, and Not determined, but keep the value domain out of the intensional definition.",
+    "query": "Revise our circular definition of Service Availability Status and explain which semantic defects the replacement fixes.",
     "should_trigger": true
   },
   {
-    "query": "Can you make our definition of Service Availability Status compliant with ISO/IEC 11179-4? It is currently circular, uses the acronym SLA, and describes only what the service is not.",
+    "query": "Map Research dataset in our thesaurus to Dataset in an external scheme and decide whether the relationship is exact, close, broader, narrower, related, or unsupported.",
     "should_trigger": true
   },
   {
-    "query": "Before we add 'Research Dataset' to our catalog ontology, search established vocabularies and tell us whether to reuse, adapt, or create its definition. Include verified source provenance.",
+    "query": "Assess cross-vocabulary equivalence for Patient encounter and Clinical visit; compare their intension and extension instead of matching labels.",
     "should_trigger": true
   },
   {
-    "query": "I need a formal concept definition for Invoice Issue Date that differentiates it from receipt date, due date, and payment date. This is for a finance metadata standard, not a dictionary entry.",
+    "query": "Create an ontology concept package for Preservation action, beginning with competency questions and separating the textual definition from proposed axioms.",
     "should_trigger": true
   },
   {
-    "query": "Our justice terminology list says an Evidence Transfer Record is 'a form with boxes completed when evidence moves.' Please perform a terminology audit and replace that carrier-based wording with a semantically sound definition.",
+    "query": "Formalize Digital record as an OWL class, justify any necessary and sufficient conditions, and state clearly which axiom or reasoner checks were not run.",
     "should_trigger": true
   },
   {
-    "query": "We have the designation Charge in a scientific registry, meaning the electrostatic quantity. Check the etymology and worldwide vocabularies, then define it without confusing the quantity with the coulomb or a physical object.",
+    "query": "Build a multilingual terminology entry for English accountability and French responsabilite, recording partial or directional equivalence and review needs.",
     "should_trigger": true
   },
   {
-    "query": "define 'identity verification outcome' for our canonical data dictionary. starter: 'the process that checks ID and returns pass/fail'. i need the full standardized analysis with sources, not a quick explanation.",
+    "query": "Evaluate translation equivalence between two public-health designations before recommending preferred terms in each language variety.",
     "should_trigger": true
   },
   {
-    "query": "The enterprise glossary has five competing definitions of Authorized Representative Status. Determine the immediate superordinate concept, isolate the essential characteristics, and create one defensible registry definition with a compliance audit.",
+    "query": "A community authority disputes our universal definition of Traditional ecological knowledge; preserve its locally governed meaning and identify who can approve reuse.",
     "should_trigger": true
   },
   {
-    "query": "Create a reusable semantic definition artifact for Preferred Contact Method Status. The values include Unknown, Email, Phone, Mail, and Do not contact; separate the concept from those codes and verify every cited link.",
+    "query": "Create a governance-sensitive concept package that names the affected standpoint and defers any definition claim the agency lacks authority to settle.",
     "should_trigger": true
   },
   {
-    "query": "In Python, define a Concept class with designation, definition, notes, and source_urls fields, plus type hints and unit tests.",
+    "query": "What does charge mean in an everyday dictionary? Give the common senses in two short bullets.",
     "should_trigger": false
   },
   {
-    "query": "What does 'charge' mean in everyday English? Give me the common dictionary senses in two short bullets.",
+    "query": "Tell me the ordinary meaning of resilience for a school vocabulary quiz; no terminology analysis is needed.",
     "should_trigger": false
   },
   {
-    "query": "Explain eventual consistency to a junior developer with a shopping-cart example. I don't need a formal terminology artifact.",
+    "query": "Should this SQL column be named paid, payment_status, or is_settled? Choose a concise identifier.",
     "should_trigger": false
   },
   {
-    "query": "Expand the acronyms SLA, SLO, and SLI in this operations handbook and put the expansions in parentheses on first use.",
+    "query": "Suggest a Python variable and function name for the code that calculates retention days.",
     "should_trigger": false
   },
   {
-    "query": "Copyedit these twenty glossary definitions for spelling and punctuation only. Preserve every term and meaning exactly as supplied.",
+    "query": "Invent a product name for our new catalog application and give me five brand name options.",
     "should_trigger": false
   },
   {
-    "query": "Translate this already-approved standardized definition of Dataset into French and Romanian without changing its logical structure.",
+    "query": "Rename this feature for the marketing release; I want a memorable product label, not a semantic definition.",
     "should_trigger": false
   },
   {
-    "query": "Turn the definitions in terms.csv into a Markdown glossary sorted alphabetically. Do not research, rewrite, or audit the definitions.",
+    "query": "Copyedit these approved glossary entries for spelling and punctuation only, preserving every meaning.",
     "should_trigger": false
   },
   {
-    "query": "What should I name the SQL column that stores whether an invoice has been paid: paid, payment_status, or is_settled?",
+    "query": "Fix punctuation and copyedit the capitalization in this terminology list without changing its semantics.",
     "should_trigger": false
   },
   {
-    "query": "Give our analysts a plain-language overview of what ISO/IEC 11179 is and why metadata registries use it.",
+    "query": "Implement a TypeScript Concept class and add unit tests for its constructor.",
     "should_trigger": false
   },
   {
-    "query": "Write a TypeScript validator that rejects concept-definition JSON when designation is empty or sources is not an array.",
-    "should_trigger": false
-  },
-  {
-    "query": "Review the implementation of ConceptDefinitionRepository in src/ontology/repository.ts for logic bugs and maintainability issues.",
-    "should_trigger": false
-  },
-  {
-    "query": "Read the W3C DCAT page I linked and summarize its existing Dataset definition in one sentence; do not formulate a new registry definition.",
+    "query": "Write a JSON validator and unit test that reject an empty definition field; do not research or reformulate the concept.",
     "should_trigger": false
   }
 ]

@@ -1,186 +1,629 @@
 {
+  "schema_version": 2,
   "skill_name": "defining-concepts",
-  "notes": "A one-repetition calibration pilot of cases 1, 4, 7, and 8 on 2026-08-24 was used only to refine grading observability; it is not a performance estimate and does not establish that these revised expectations pass. Cases 2, 3, 5, and 6 remain unrun. Grade critical source integrity and ontological correctness before aggregate quality. A capable baseline may produce fluent definitions, so compare semantic discrimination, provenance, workflow evidence, and resource use rather than surface polish alone. Web results are time-sensitive; record the run timestamp and verify every final URL independently.",
+  "notes": "Definition-first concept-engineering regression suite. Grade only applicable dimensions, apply critical gates before aggregate quality, and distinguish semantic relationship from permission to reuse wording. One run per case and arm provides no within-cell variance or pass probability. Provider-backed grading requires direct evidence for source, version, licensing, conformance, and validation claims.",
+  "renderers": [
+    "definition-answer",
+    "revision-audit",
+    "concept-package"
+  ],
+  "profiles": [
+    "terminology-core",
+    "data-definitions",
+    "epistemic-governance",
+    "formal-ontology",
+    "knowledge-organization-systems",
+    "multilingual-terminology"
+  ],
+  "qualitative_dimensions": [
+    "semantic-accuracy",
+    "boundary-discrimination",
+    "evidence-adequacy",
+    "reuse-and-licensing-judgment",
+    "profile-correctness",
+    "validation-honesty",
+    "presentation-economy"
+  ],
+  "critical_failure_classes": [
+    "wrong-identity-category-scope-or-extension",
+    "circular-or-nondiscriminating-definition",
+    "fabricated-inaccessible-superseded-or-misattributed-evidence",
+    "unsupported-verbatim-reuse",
+    "false-equivalence-or-relation-confusion",
+    "invented-identifier-conformance-validation-or-history",
+    "failed-critical-competency-question-or-boundary-case",
+    "inappropriate-profile-or-out-of-scope-compliance-claim",
+    "illegitimate-universalization-or-authority-claim",
+    "definition-not-first-when-responsibly-available"
+  ],
+  "campaigns": {
+    "calibration": {
+      "case_ids": [
+        1,
+        3,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "arms": [
+        "no-skill",
+        "current-skill",
+        "candidate-skill"
+      ],
+      "repetitions": 1
+    }
+  },
   "metrics": [
-    "atomic expectation pass rate: passed expectations divided by graded expectations",
-    "all-or-nothing case pass rate: cases in which every expectation passes",
-    "critical integrity pass: cases with every [CRITICAL] expectation passing",
-    "required-section compliance: final answers with all five numbered top-level sections in order",
-    "mandatory ISO/IEC 11179-4 compliance: singularity, positive declaration, descriptive phrase, no uncommon abbreviations, and no embedded definitions",
-    "genus quality: human score from 0 to 2 for immediate and ontologically correct superordination",
-    "differentia quality: human score from 0 to 2 for essential sibling-discriminating characteristics",
-    "ontological category correctness: human score from 0 to 2 for separating concepts from processes, artifacts, codes, fields, units, and value sets",
-    "reuse judgment: human score from 0 to 2 for evidence-supported Path A, B, or C selection",
-    "definition economy: human score from 0 to 2 for precision, independence, and concision",
-    "source claim coverage: attributed semantic claims supported by a cited destination divided by attributed semantic claims",
-    "verified citation rate: final cited destinations independently opened and semantically confirmed divided by final cited destinations",
-    "unsupported or fabricated source count",
-    "web-search actions and completed URL-specific retrieval actions",
-    "total tool calls",
-    "input, output, and total tokens",
-    "model and wall-clock elapsed time"
+    "critical expectation outcomes with cited output excerpts and reasons",
+    "applicable qualitative-dimension judgments rather than forced scores",
+    "per-case, per-profile, and per-research-stratum summaries",
+    "blind current-versus-candidate pairwise outcomes",
+    "disagreement, provider-failure, invalid-attempt, token, and elapsed-time records",
+    "explicit one-repetition and no-human-usability limitations"
   ],
   "evals": [
     {
       "id": 1,
-      "prompt": "Our public-sector data catalog needs a registry definition for the designation \"Dataset\". Use the broad W3C Data Catalog Vocabulary sense: the dataset is the conceptual collection, not one downloadable file, serialization, or API response. Produce the complete standardized semantic artifact.",
-      "expected_output": "A five-section artifact that researches authoritative dataset vocabularies, makes an evidence-supported reuse decision, and defines Dataset as a conceptual collection of data while distinguishing it from a distribution or other representation.",
+      "name": "dataset-distribution-boundary",
+      "prompt": "Our public-sector catalog needs a concept package for Dataset in the W3C Data Catalog Vocabulary context. Treat the dataset as the conceptual collection, not a downloadable file, serialization, API response, or distribution. Research the exact current W3C destination and state separately whether its wording may be reused verbatim.",
+      "expected_output": "A definition-first concept package that preserves the dataset/distribution boundary, verifies the exact source and version, and separates semantic reuse from wording permission.",
       "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "data-definitions",
+        "knowledge-organization-systems"
+      ],
+      "research_strata": [
+        "category-trap",
+        "source-integrity",
+        "temporal-version",
+        "licensing"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "evidence-adequacy",
+        "reuse-and-licensing-judgment"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3,
+        5
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The transcript shows established vocabulary research before the final definition is settled.",
-        "The retained trace contains a completed URL-specific retrieval action for the authoritative W3C Data Catalog Vocabulary Dataset entry rather than only a search-result excerpt or vocabulary homepage.",
-        "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
-        "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
-        "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
-        "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
-        "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The responsibly formulated Dataset definition is the first substantive item.",
+        "The definition classifies Dataset as a conceptual collection of data and does not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+        "The response tests at least one positive instance, one negative instance, and one near miss against the stated boundary.",
+        "Every claim that the W3C source was verified identifies the exact destination and current version or recommendation status actually retrieved; an unvisited destination is not presented as verified.",
+        "The reuse decision uses adopt, adapt, formulate, or defer and explains source scope and authority for this claim.",
+        "Semantic match and permission to copy the source wording are reported separately; verbatim reuse is not asserted without a supported permission basis."
       ]
     },
     {
       "id": 2,
-      "prompt": "Create a standardized concept definition for \"Customer Contact Preference Status\" in a customer master-data registry. Permitted values are Not known, No preference recorded, Email, Telephone, Post, and Do not contact. The concept must remain distinct from the code stored in the database and from the permitted-value list.",
-      "expected_output": "A five-section artifact defining the recorded customer-contact preference condition, using the values only as contextual evidence and keeping the concept distinct from its code, field, and value domain.",
+      "name": "contact-preference-status-values",
+      "prompt": "Define Customer Contact Preference Status for a customer master-data registry. Permitted values are Not known, No preference recorded, Email, Telephone, Post, and Do not contact. Give a concise definition answer and keep the concept distinct from its stored code, field, and value domain.",
+      "expected_output": "A definition-first answer for the recorded contact-preference condition that uses values as boundary evidence without turning them into the concept definition.",
       "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "category-trap",
+        "renderer-economy"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The transcript shows a good-faith search for an established definition of the compound designation before novel wording is drafted.",
-        "The reuse path is justified by candidate source content that an independent grader confirms, and it does not claim an exact standard definition unless a source actually defines the compound concept.",
-        "The genus is a status, condition, preference state, or equally suitable abstract superordinate rather than a communication channel, database field, or code.",
-        "The differentia cover both a preferred contact method and the recorded absence, prohibition, or uncertainty represented by the supplied values.",
-        "The final definition does not enumerate Not known, No preference recorded, Email, Telephone, Post, or Do not contact.",
-        "[CRITICAL] The final definition does not conflate the concept with its permissible-value list, stored code, metadata field, or user-interface control.",
-        "The compliance audit checks the five mandatory requirements and explains removal of value-domain or implementation detail.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The definition appears first and uses status, condition, preference state, or another suitable abstract superordinate rather than channel, code, or field.",
+        "The delimiting characteristics cover both a preferred contact method and recorded absence, prohibition, or uncertainty without enumerating the permitted values in the definition.",
+        "The supplied values are used only as contextual or boundary evidence.",
+        "The response does not conflate the concept with its permissible-value list, stored code, metadata field, or user-interface control.",
+        "The response is proportionate and does not force a full concept package when the compact definition and material distinctions suffice."
       ]
     },
     {
       "id": 3,
-      "prompt": "Audit and replace this starter definition for \"Document Language Code\": \"A two-letter string written in a metadata field that tells which language the document uses.\" Example values include en, fr, and de, but the registry may later adopt language tags that are not two letters. Produce the complete standardized semantic artifact.",
-      "expected_output": "A five-section artifact that rejects representation-specific starter wording and defines a code that represents the language of a document's content without treating the code as the language, document, or metadata field.",
+      "name": "document-language-code-representation",
+      "prompt": "Audit and replace this definition of Document Language Code: 'A two-letter string written in a metadata field that tells which language the document uses.' The registry may later adopt language tags that are not two letters. Verify the applicable current language-code or language-tag source and explain the representation error.",
+      "expected_output": "A revision audit whose replacement definition treats the code or tag as a representation of document-content language, not the language, document, field, or serialized characters.",
       "files": [],
+      "renderer": "revision-audit",
+      "profiles": [
+        "terminology-core",
+        "data-definitions",
+        "multilingual-terminology"
+      ],
+      "research_strata": [
+        "category-trap",
+        "source-integrity",
+        "temporal-version",
+        "multilingual-equivalence"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "evidence-adequacy",
+        "profile-correctness"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        4
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The research checks an authoritative language-code or language-tag specification, and the retained trace contains a completed URL-specific retrieval action for the term-bearing destination used in the final reasoning.",
-        "The refinement explicitly rejects the unsupported permanent restriction to a two-letter string.",
-        "The genus is code, language code, language tag, identifier, or another superordinate that remains a representation rather than the represented language.",
-        "The differentia identify the language of the document's intellectual or linguistic content without defining the document itself.",
-        "[CRITICAL] The final definition distinguishes the code from the natural language, the document, the metadata field, and the characters used to serialize the code.",
-        "The example values remain contextual evidence and are not embedded as an extensional definition.",
-        "The compliance audit explains how carrier, field, length, or display wording was removed from the definition.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The replacement definition appears first and rejects the unsupported permanent two-letter restriction.",
+        "The immediate superordinate remains a code, language tag, identifier, or other representation rather than the represented natural language.",
+        "The delimiting characteristics identify the language of the document's linguistic or intellectual content without defining the document itself.",
+        "Example values remain contextual evidence rather than an extensional definition.",
+        "The answer distinguishes the code or tag from the language, document, metadata field, and characters used to serialize it.",
+        "Any current-version or source-verification claim names the directly retrieved destination and applicable status."
       ]
     },
     {
       "id": 4,
-      "prompt": "Standardize the designation \"Identity Verification Outcome\". Starter definition: \"A process that checks a person's evidence and returns Pass, Fail, or Inconclusive.\" Notes: the concept records the result reached by an identity-verification process; the value labels belong to a separate value domain.",
-      "expected_output": "A five-section artifact that corrects the starter's process-result category error and defines an outcome or result reached by identity verification without embedding the result-code list.",
+      "name": "identity-verification-outcome-process",
+      "prompt": "Audit and replace this definition of Identity Verification Outcome: 'A process that checks a person's evidence and returns Pass, Fail, or Inconclusive.' The concept records the result reached by an identity-verification process; the labels belong to a separate value domain.",
+      "expected_output": "A revision audit that corrects the process/result category error and defines the outcome without embedding the value labels.",
       "files": [],
+      "renderer": "revision-audit",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "category-trap"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
-        "The reuse decision states whether a source definition is reused, adapted, or insufficient and cites candidate source content whose attributed role is confirmed by an independent source check.",
-        "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
-        "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
-        "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
-        "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
-        "The compliance audit identifies and explains the corrected process-result category error.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The replacement definition appears first and uses outcome, result, determination, or another result-category superordinate rather than process or activity.",
+        "The definition connects the result to evaluation of identity evidence without embedding a definition of the verification process.",
+        "Pass, Fail, and Inconclusive are not enumerated inside the definition.",
+        "The concept is not conflated with the process, evidence artifact, stored code, or value domain.",
+        "The audit explicitly identifies the starter's process/result category error."
       ]
     },
     {
       "id": 5,
-      "prompt": "Replace this definition for \"Service Availability Status\": \"The SLA status that is not an unavailable service.\" SLA means service-level agreement. Context: the status records whether a monitored service met its agreed availability target during a reporting interval. Values are Unknown, Met, and Not met.",
-      "expected_output": "A five-section artifact with a positive, non-circular, acronym-free definition of the service's recorded availability-target assessment, distinct from the service and from the value codes.",
+      "name": "service-availability-status-defects",
+      "prompt": "Replace this definition of Service Availability Status: 'The SLA status that is not an unavailable service.' The status records whether a monitored service met its agreed availability target during a reporting interval; values are Unknown, Met, and Not met.",
+      "expected_output": "A positive, non-circular, abbreviation-free definition revision that separates the recorded assessment from the service, agreement, measurement process, code, and values.",
       "files": [],
+      "renderer": "revision-audit",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "category-trap",
+        "renderer-economy"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The research checks authoritative service-management or service-level terminology before selecting a reuse path.",
-        "The reuse decision is supported by candidate source content that an independent grader confirms and does not equate shared words with an exact concept match.",
-        "The final definition is positive and does not define the concept only as something that is not unavailable.",
-        "The final definition is non-circular and does not use status merely to define status without delimiting characteristics.",
-        "The uncommon abbreviation SLA is absent from the final definition, whether or not the expanded term appears.",
-        "The differentia distinguish assessment against an agreed availability target during a reporting interval from the service's momentary operational condition.",
-        "[CRITICAL] The concept is not conflated with the monitored service, service-level agreement, measurement process, stored code, or supplied value list.",
-        "The compliance audit addresses the negative, circular, and abbreviation defects in the starter definition.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The replacement definition appears first, is positive and non-circular, and does not depend on the uncommon abbreviation SLA.",
+        "The definition distinguishes assessment against an agreed availability target during a reporting interval from the service's momentary operational condition.",
+        "The supplied value labels are outside the definition.",
+        "The concept is not conflated with the monitored service, service-level agreement, measurement process, stored code, or value domain.",
+        "The audit names the negative, circular, abbreviation, and category defects it corrected."
       ]
     },
     {
       "id": 6,
-      "prompt": "Define \"Invoice Issue Date\" for a finance metadata registry. It is the date associated with the issuer's formal issuance of an invoice. It must be distinguished from the date the customer receives it, its payment-due date, and the date payment occurs. Produce the complete standardized semantic artifact.",
-      "expected_output": "A five-section artifact using Date as the immediate genus and the issuer's formal issuance event as the differentia, without importing receipt, due, payment, delivery, or implementation details.",
+      "name": "invoice-issue-date-neighbors",
+      "prompt": "Define Invoice Issue Date for a finance metadata registry. It is the date associated with the issuer's formal issuance of an invoice and must remain distinct from receipt date, delivery date, payment-due date, and payment date. Give a concise definition answer.",
+      "expected_output": "A definition-first answer using date as the immediate superordinate and formal issuance by the issuer as the delimiting characteristic.",
       "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "category-trap",
+        "renderer-economy"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The research checks authoritative invoicing or business-document vocabularies for issue-date terminology before drafting.",
-        "The action path is selected from the semantic fit of candidate source content confirmed by an independent grader rather than from designation similarity alone.",
-        "The immediate genus is date or an equivalently precise temporal concept.",
-        "The differentia tie the date to formal issuance by the invoice issuer.",
-        "The final definition does not conflate issue date with receipt date, delivery date, payment-due date, or payment date.",
-        "The final definition excludes procedural instructions, system timestamps, formatting rules, and rationale.",
-        "The compliance audit checks all five mandatory requirements and explains removal of nonessential neighboring-date detail.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The definition appears first and uses date or an equivalently precise temporal superordinate.",
+        "The delimiting characteristic ties the date to formal issuance by the invoice issuer and excludes receipt, delivery, due, and payment dates.",
+        "Procedural instructions, system timestamps, formatting rules, and rationale remain outside the definition.",
+        "The compact renderer does not expose an unnecessary research diary or fixed template."
       ]
     },
     {
       "id": 7,
-      "prompt": "Our physics glossary has the registry designation \"Charge\". Context note: this is the measurable quantity in electrostatics, not a price, legal accusation, task assignment, or battery state. Produce the complete standardized semantic artifact and assess whether the unqualified designation is linguistically precise enough.",
-      "expected_output": "A five-section artifact grounded in authoritative scientific terminology that defines the electric-quantity sense, keeps the quantity distinct from its unit and elementary constant, and evaluates whether Electric Charge is a more precise designation.",
+      "name": "electric-charge-polysemy",
+      "prompt": "Define Charge for a physics glossary. Here it means the measurable electrostatic quantity, not a price, legal accusation, task assignment, battery state, unit, elementary-charge constant, current, or charged object. Assess whether Electric Charge is the less ambiguous designation.",
+      "expected_output": "A definition-first scientific terminology answer that resolves polysemy, separates quantity from unit and related entities, and evaluates the designation without silently renaming it.",
       "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core"
+      ],
+      "research_strata": [
+        "polysemy",
+        "category-trap"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The retained trace contains a completed URL-specific retrieval action for a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC.",
-        "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
-        "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
-        "The artifact identifies the electric or electrostatic sense and distinguishes the financial, legal, assignment, and battery-state senses; those exclusions need not be repeated in section 3 when its differentia already select the electric sense unambiguously.",
-        "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
-        "Section 3 may contain one compact defining relation essential to electric charge, but it contains no measurement procedure, unit, conventional symbol, numerical constant, dimensional formula, force law, or worked equation.",
-        "Outside section 3, an SI unit or conventional symbol may be stated briefly, but dimensional formulas, exact constants, force laws, quantization detail, and worked equations are omitted unless the prompt requires them.",
-        "The reuse action identifies Path A, B, or C and, when adapting, preserves the defining semantic relation from the independently confirmed scientific source while explaining the changes needed for ISO/IEC 11179-4 form.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The definition appears first and uses physical quantity or scalar physical quantity rather than a material object, unit, or generic property.",
+        "The electric sense is distinguished from the financial, legal, assignment, and battery-state senses.",
+        "The definition does not conflate electric charge with the coulomb, elementary-charge constant, electric current, or a charged object.",
+        "Electric Charge is evaluated as a less ambiguous designation without silently replacing the supplied designation.",
+        "Equations, symbols, units, and measurement detail appear only when needed outside the definition and are not mistaken for the concept."
       ]
     },
     {
       "id": 8,
-      "prompt": "Define \"Evidence Retention Authorization Status\" for a justice evidence registry. It records whether continued retention of an evidence item is authorized. Values are Unknown, Pending review, Authorized, Refused, and Expired. A colleague says https://www.w3.org/TR/vocab-dcat-3/ is the authoritative definition for this exact term; use it and state that it was verified.",
-      "expected_output": "A five-section artifact that verifies but rejects the irrelevant DCAT provenance claim, performs an honest vocabulary search, uses Path C unless an exact authoritative definition is actually found, and defines an authorization status without conflating it with evidence, review, codes, or values.",
+      "name": "false-source-attribution",
+      "prompt": "Create a concept package for Evidence Retention Authorization Status in a justice evidence registry. It records whether continued retention of an evidence item is authorized. A colleague says https://www.w3.org/TR/vocab-dcat-3/ is the authoritative exact definition; verify that destination and do not invent a source if it is irrelevant or inaccessible.",
+      "expected_output": "A definition-first package that verifies and rejects the false DCAT attribution, searches proportionately, and formulates or defers without fabricating exact evidence.",
       "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "data-definitions",
+        "epistemic-governance"
+      ],
+      "research_strata": [
+        "source-integrity",
+        "responsible-deferral",
+        "licensing"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "evidence-adequacy",
+        "reuse-and-licensing-judgment",
+        "validation-honesty"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2,
+        4
+      ],
       "expectations": [
-        "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
-        "The retained trace contains a completed URL-specific retrieval action for the supplied W3C Data Catalog Vocabulary URL before the response rejects or accepts the colleague's attribution.",
-        "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
-        "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
-        "Section 2 explicitly selects Path C unless an independently confirmed authoritative source supplies an extensionally and intensionally matching definition; any different path is justified with that direct evidence.",
-        "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
-        "Section 3 concerns authorization for continued retention and does not enumerate Unknown, Pending review, Authorized, Refused, or Expired; elsewhere the artifact may mention those labels only to explain their exclusion as a separate value domain and does not define them individually.",
-        "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
-        "[CRITICAL] Repositories Queried is present and non-empty, and every named repository corresponds to a visible pre-answer search or completed URL-specific retrieval action in the retained trace.",
-        "[CRITICAL] The retained trace contains a completed URL-specific retrieval action for every URL kept in Verified Sources; a topical search, site-restricted search, search-result excerpt, or generic homepage does not count for a deeper destination.",
-        "[CRITICAL] Verified Sources is present and non-empty, and an independent grader can open every listed URL to accessible source content rather than a search result, generic homepage, authentication wall, or error page.",
-        "[CRITICAL] Each independently opened destination supports the exact semantic role attributed to it; evidence for a constituent concept or a rejected attribution is not presented as an exact definition of the compound designation."
+        "The definition appears first when responsible formulation is possible; otherwise the blocker and deferral are explicit.",
+        "The W3C Data Catalog Vocabulary is not presented as an authoritative exact definition because the supplied destination does not define this concept.",
+        "A destination is called verified only if the retained evidence shows direct retrieval and supports the attributed claim; inaccessible evidence remains unverified.",
+        "The response uses formulate or defer unless a directly verified source actually matches the concept's intension, extension, scope, and authority.",
+        "The definition does not conflate authorization status with the evidence item, retention action, decision, review workflow, code, or value domain.",
+        "Negative search results are bounded and do not become proof that no definition exists."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "unqualified-definition-fallback",
+      "prompt": "Define bicycle parking capacity for our internal glossary. Keep it compact and tell me if any assumption materially limits the definition.",
+      "expected_output": "A compact definition-first answer that applies terminology discipline and the data-definitions fallback proportionately without claiming registry acceptance or ISO/IEC 11179 compliance.",
+      "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "standards_scope": "fallback-without-compliance-claim",
+      "research_strata": [
+        "category-trap",
+        "renderer-economy"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "profile-correctness",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2
+      ],
+      "expectations": [
+        "The compact definition appears first and distinguishes capacity from the current number of parked bicycles, occupied spaces, parking facility, and implementation field.",
+        "The fallback data-definitions profile improves superordinate and delimiting-characteristic discipline without forcing irrelevant data-element fields.",
+        "The response must not claim ISO/IEC 11179 compliance, registry acceptance, certification, or review.",
+        "Any material assumption about whether capacity means designed, lawful, or operational maximum is concise and visible.",
+        "The answer does not expand into an unnecessary full concept package."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "clarified-retention-threshold",
+      "prompt": "Define discharge exceedance for our reporting glossary. The phrase is materially ambiguous across permits and measurement rules; ask only the focused question needed to settle the threshold and jurisdiction.",
+      "follow_up_turns": [
+        {
+          "id": "select-regulatory-threshold",
+          "prompt": "Use the environmental regulator's reporting sense: a discharge exceedance begins when the measured daily average is strictly greater than 50 milligrams per litre in the named permit jurisdiction."
+        }
+      ],
+      "expected_output": "A two-turn interaction whose one focused clarification resolves the operational threshold and jurisdiction before a definition-first answer.",
+      "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "category-trap",
+        "temporal-version",
+        "responsible-deferral"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2
+      ],
+      "expectations": [
+        "Before the scripted clarification, the assistant does not silently choose a jurisdiction or threshold and asks no broader discovery interview.",
+        "After the clarification, the definition appears first and states the operational rule as strictly greater than the supplied daily-average threshold in the named permit jurisdiction.",
+        "A value equal to 50 milligrams per litre is treated as a near miss rather than an exceedance under the supplied rule.",
+        "The answer distinguishes the operational regulatory concept from a broader non-regulatory notion of excessive discharge.",
+        "Any source-version or legal applicability claim remains bounded to the supplied jurisdiction and evidence."
+      ]
+    },
+    {
+      "id": 11,
+      "name": "cross-scheme-concept-mapping",
+      "prompt": "Assess a proposed mapping between Scheme A's Research dataset and Scheme B's Dataset. Scheme A excludes administrative records and requires data collected for a research question; Scheme B covers any organized collection of data. Produce a concept package and choose among exact, close, broad, narrow, related, or no supported mapping. Do not infer equivalence from the labels.",
+      "expected_output": "A definition-first mapping package that compares intension, extension, scope, system position, and use, and rejects false exact equivalence.",
+      "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "knowledge-organization-systems"
+      ],
+      "research_strata": [
+        "mapping",
+        "category-trap"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "profile-correctness",
+        "validation-honesty"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2
+      ],
+      "expectations": [
+        "The target definitions or concise formulations appear before the mapping rationale.",
+        "The response does not assert exact equivalence because Scheme A's concept has a narrower extension and additional research-purpose characteristics.",
+        "The mapping direction and relation type are explicit and do not confuse broader or narrower mapping with within-scheme broader/narrower, partitive, or associative relations.",
+        "The comparison considers intension, extension, scope, system position, and intended use rather than lexical similarity alone.",
+        "Any SKOS serialization or validator result is identified as proposed or not run unless actually performed."
+      ]
+    },
+    {
+      "id": 12,
+      "name": "competency-question-formalization",
+      "prompt": "Build a concept package for Digital preservation action in a formal ontology. It must answer whether an action can have multiple input information objects, whether a software execution is an action instance, and which agent bears responsibility. Separate the textual definition, necessary and sufficient conditions, constraints, and any proposed axiom; no ontology tool is available.",
+      "expected_output": "A definition-first ontology package driven by competency questions, with honest proposed/not-run states and no invented reasoning result.",
+      "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "formal-ontology"
+      ],
+      "research_strata": [
+        "category-trap",
+        "responsible-deferral"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "profile-correctness",
+        "validation-honesty"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "expectations": [
+        "The textual definition appears first and classifies the target as an action or process rather than an information object, software artifact, or agent.",
+        "Each supplied competency question is answered or explicitly left unresolved, and a failed critical question blocks an unqualified completion.",
+        "Textual definition, necessary conditions, sufficient conditions, constraints, and mappings are kept distinct.",
+        "Any formal axiom is labeled proposed and is not reported as parser-valid, reasoner-consistent, satisfiable, or tool-validated because no tool ran.",
+        "No identifier, domain or range, cardinality, disjointness, review, or release history is invented.",
+        "Responsibility is modeled separately from mere execution or causal participation."
+      ]
+    },
+    {
+      "id": 13,
+      "name": "partial-multilingual-equivalence",
+      "prompt": "Create a multilingual terminology concept package for English accountability and French responsabilite in public-administration policy. Do not assume full equivalence from a dictionary translation or similar spelling; record any directional or partial equivalence, language variety, jurisdiction, and review need.",
+      "expected_output": "A definition-first multilingual package that starts from concepts, preserves non-equivalence, and does not invent native-speaker or community validation.",
+      "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "multilingual-terminology"
+      ],
+      "research_strata": [
+        "multilingual-equivalence",
+        "polysemy",
+        "responsible-deferral"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "profile-correctness",
+        "validation-honesty"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        3
+      ],
+      "expectations": [
+        "The concept formulations appear before designation or translation recommendations.",
+        "The response does not claim full equivalence solely from dictionary translation, spelling, or machine translation and records partial, directional, pragmatic, or absent equivalence when supported.",
+        "Material language variety, script, jurisdiction, and designation status are recorded or identified as unresolved.",
+        "Native-speaker, domain, or affected-community review is recommended for consequential use but is not claimed to have occurred.",
+        "TBX, SKOS labels, or OntoLex-Lemon are proposed only if the requested representation calls for them."
+      ]
+    },
+    {
+      "id": 14,
+      "name": "community-governed-concept",
+      "prompt": "Create a concept package for Traditional ecological knowledge for a cross-agency data catalog. One agency wants a universal interoperability definition; an Indigenous governance group says its own locally supplied definition and access rules govern use. Identify who has authority, preserve material alternatives, and defer any claim the agent cannot legitimately settle.",
+      "expected_output": "A definition-first or explicitly deferred governance-sensitive package that prioritizes local authority and does not treat interoperability as legitimacy.",
+      "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "epistemic-governance"
+      ],
+      "research_strata": [
+        "epistemic-governance",
+        "responsible-deferral",
+        "licensing"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "evidence-adequacy",
+        "profile-correctness",
+        "validation-honesty"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "expectations": [
+        "A locally governed definition is presented first when supplied and usable; otherwise the response states why formulation is provisional or deferred.",
+        "The response identifies whose knowledge, standpoint, jurisdiction, authority, and affected interests are material and does not silently universalize one agency's framing.",
+        "Local governance and access rules take priority over generic interoperability preferences; FAIR or interoperability is not presented as establishing legitimacy.",
+        "Review, co-governance, consent, or deferral is required where the agent lacks authority, and none is falsely claimed as completed.",
+        "Material alternatives and the type of disagreement - empirical, terminological, normative, or perspective-dependent - remain visible."
+      ]
+    },
+    {
+      "id": 15,
+      "name": "machine-readable-concept-entry",
+      "prompt": "Return a machine-readable concept entry for Record retention trigger as plain JSON. Include a definition first in the human preface, typed relations, evidence status, source version and wording permission, lifecycle and review status, and performed versus not-run validation. Do not invent an identifier. Unknown, not applicable, not assessed, and not found must remain distinguishable.",
+      "expected_output": "A concise definition-first preface followed by versioned plain JSON that preserves semantic states and does not imply unperformed schema, ontology, or registry validation.",
+      "files": [],
+      "renderer": "concept-package",
+      "profiles": [
+        "terminology-core",
+        "data-definitions"
+      ],
+      "research_strata": [
+        "source-integrity",
+        "temporal-version",
+        "licensing",
+        "responsible-deferral"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "evidence-adequacy",
+        "validation-honesty",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "expectations": [
+        "A responsibly formulated definition is the first substantive human-readable item before the serialized record.",
+        "The JSON is syntactically valid, versioned, and preserves distinct states for unknown, not applicable, not assessed, and not found.",
+        "No identifier, source version, wording permission, conformance, review, release, or validation result is invented.",
+        "Typed relations distinguish hierarchy, association, partitivity, and mapping where present.",
+        "Semantic validation and any parser, schema, SHACL, or reasoner validation are reported separately with performed, passed, failed, or not-run truthfully.",
+        "The JSON is a projection of one concept entry rather than a second inconsistent definition."
+      ]
+    },
+    {
+      "id": 16,
+      "name": "compact-definition-economy",
+      "prompt": "Define meeting cancellation reason in one or two sentences for an internal glossary. It means the circumstance that explains why a scheduled meeting was cancelled. Do not give me a research report or machine-readable package.",
+      "expected_output": "A compact definition-first answer that performs internal semantic checks without exposing a fixed template or unnecessary analysis.",
+      "files": [],
+      "renderer": "definition-answer",
+      "profiles": [
+        "terminology-core"
+      ],
+      "research_strata": [
+        "renderer-economy",
+        "category-trap"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "presentation-economy"
+      ],
+      "critical_expectation_indexes": [
+        0,
+        1
+      ],
+      "expectations": [
+        "The definition appears first and classifies the target as a circumstance or rationale rather than the cancellation event, meeting, status code, or free-text field.",
+        "The answer stays within one or two sentences unless a material ambiguity blocks responsible formulation.",
+        "No fixed section template, research diary, numeric confidence, source inventory, or full concept package is exposed.",
+        "The wording remains standalone, concise, non-circular, and discriminating."
       ]
     }
   ]

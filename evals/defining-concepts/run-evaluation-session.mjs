@@ -37,12 +37,23 @@ import {
   prepareEvidenceSession,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
+import {
+  createScriptedContinuationPolicy,
+  normalizeEvaluationConversation,
+} from "../../scripts/evaluation/scripted-conversation.js";
+import { renderSkillBundle } from "../../scripts/evaluation/skill-bundle.js";
 import { createDefiningConceptController } from "./session-controller.mjs";
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "../..");
 const CONTROLLER_PATH = path.join(
   import.meta.dirname,
   "session-controller.mjs",
+);
+const SCRIPTED_CONTROLLER_PATH = path.join(
+  REPOSITORY_ROOT,
+  "scripts",
+  "evaluation",
+  "scripted-conversation.js",
 );
 const HARNESS = `# Isolated behavioral evaluation
 
@@ -57,6 +68,8 @@ const EMPTY_MCP = '{"mcpServers":{}}';
 const COMMON_RUNTIME_MODULES = [
   "evals/defining-concepts/run-evaluation-session.mjs",
   "evals/defining-concepts/session-controller.mjs",
+  "scripts/evaluation/scripted-conversation.js",
+  "scripts/evaluation/skill-bundle.js",
   "scripts/evaluation/runtime.js",
 ];
 const PROVIDER_RUNTIME_MODULES = Object.freeze({
@@ -170,6 +183,115 @@ function inputRecord(id, role, mediaType, content) {
   };
 }
 
+function readJsonFile(filePath, label) {
+  let value;
+  try {
+    value = JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (error) {
+    fail(`Unable to read ${label}: ${error.message}`);
+  }
+  return value;
+}
+
+function exactKeys(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label} must be an object`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((name, index) => name !== expected[index])
+  ) {
+    fail(`${label} contains missing or unknown members`);
+  }
+}
+
+function validateSkillBundle(bundle, arm) {
+  exactKeys(
+    bundle,
+    ["aggregateSha256", "files", "schemaVersion", "skillName", "source"],
+    "skill bundle",
+  );
+  if (bundle.schemaVersion !== 1 || bundle.skillName !== "defining-concepts") {
+    fail("skill bundle identity is invalid");
+  }
+  if (!Array.isArray(bundle.files) || bundle.files.length === 0) {
+    fail("skill bundle files must be nonempty");
+  }
+  let previousPath = null;
+  for (const [index, file] of bundle.files.entries()) {
+    exactKeys(
+      file,
+      ["byteLength", "content", "path", "sha256"],
+      `skill bundle file ${index}`,
+    );
+    if (
+      typeof file.path !== "string" ||
+      !file.path.startsWith("skills/defining-concepts/") ||
+      file.path.includes("\\") ||
+      file.path.split("/").some((part) => part === "" || part === "." || part === "..")
+    ) {
+      fail(`skill bundle file ${index} has an invalid path`);
+    }
+    if (previousPath !== null && Buffer.compare(Buffer.from(previousPath), Buffer.from(file.path)) >= 0) {
+      fail("skill bundle files must use unique stable path order");
+    }
+    previousPath = file.path;
+    if (typeof file.content !== "string") {
+      fail(`skill bundle file ${index} content must be text`);
+    }
+    const bytes = Buffer.from(file.content, "utf8");
+    if (file.byteLength !== bytes.byteLength || file.sha256 !== sha256Hex(bytes)) {
+      fail(`skill bundle file ${index} digest does not match its content`);
+    }
+  }
+  if (!bundle.files.some((file) => file.path === "skills/defining-concepts/SKILL.md")) {
+    fail("skill bundle is missing skills/defining-concepts/SKILL.md");
+  }
+  const payload = {
+    schemaVersion: bundle.schemaVersion,
+    skillName: bundle.skillName,
+    source: bundle.source,
+    files: bundle.files,
+  };
+  if (bundle.aggregateSha256 !== sha256Hex(canonicalJsonBytes(payload))) {
+    fail("skill bundle aggregate digest does not match its contents");
+  }
+  if (arm === "current-skill" && bundle.source?.kind !== "git") {
+    fail("current-skill requires a committed Git skill bundle");
+  }
+  if (arm === "candidate-skill" && bundle.source?.kind !== "working-tree") {
+    fail("candidate-skill requires a working-tree skill bundle");
+  }
+  return bundle;
+}
+
+function controllerDigest() {
+  return sha256Hex(
+    canonicalJsonBytes([
+      {
+        path: "evals/defining-concepts/session-controller.mjs",
+        sha256: sha256Hex(readFileSync(CONTROLLER_PATH)),
+      },
+      {
+        path: "scripts/evaluation/scripted-conversation.js",
+        sha256: sha256Hex(readFileSync(SCRIPTED_CONTROLLER_PATH)),
+      },
+    ]),
+  );
+}
+
+function withInitialText(conversation, text) {
+  return Object.freeze([
+    Object.freeze({
+      id: "prompt",
+      input: Object.freeze({ type: "text", text }),
+    }),
+    ...conversation.slice(1),
+  ]);
+}
+
 function fingerprint(provider) {
   if (!Object.hasOwn(PROVIDER_RUNTIME_MODULES, provider)) {
     fail(`Unsupported fingerprint provider: ${provider}`);
@@ -226,10 +348,16 @@ function assertOutsideRepository(directory) {
   }
 }
 
-function instructionText(skill) {
-  return skill === null
+function instructionText(skill, webSearch) {
+  const harness = webSearch
     ? HARNESS
-    : `${HARNESS}\n# Task-specific skill\n\n${skill}`;
+    : HARNESS.replace(
+        "the user's prompt, live web search, and the",
+        "the user's prompt and the",
+      );
+  return skill === null
+    ? harness
+    : `${harness}\n# Task-specific skill\n\n${skill}`;
 }
 
 function antigravityPrompt(prompt, skill) {
@@ -252,41 +380,46 @@ function preparedInputs(transmission) {
 
 async function prepare(options) {
   const { values, repeated } = options;
-  const promptPath = path.resolve(requireValue(values, "--prompt-file"));
+  const casePath = path.resolve(requireValue(values, "--case-file"));
   const destination = path.resolve(requireValue(values, "--destination"));
   const workingDirectory = path.resolve(requireValue(values, "--working-dir"));
   const arm = requireValue(values, "--arm");
   const providerOption = requireValue(values, "--provider");
   const model = requireValue(values, "--model");
   const effort = requireValue(values, "--effort");
-  const evalId = positiveInteger(
-    requireValue(values, "--eval-id"),
-    "--eval-id",
-  );
   const repetition = positiveInteger(
     requireValue(values, "--repetition"),
     "--repetition",
   );
-  if (!new Set(["with_skill", "without_skill"]).has(arm))
+  if (!new Set(["no-skill", "current-skill", "candidate-skill"]).has(arm))
     fail(`Unsupported arm: ${arm}`);
+  if (repetition !== 1) fail("defining-concepts sessions require repetition 1");
   if (!new Set(["antigravity", "codex", "claude"]).has(providerOption))
     fail(`Unsupported provider: ${providerOption}`);
-  const skillPath = values.get("--skill-file")
-    ? path.resolve(values.get("--skill-file"))
+  const bundlePath = values.get("--skill-bundle-file")
+    ? path.resolve(values.get("--skill-bundle-file"))
     : null;
-  if (arm === "with_skill" && skillPath === null)
-    fail("with_skill requires --skill-file");
-  if (arm === "without_skill" && skillPath !== null)
-    fail("without_skill forbids --skill-file");
+  if (arm !== "no-skill" && bundlePath === null)
+    fail(`${arm} requires --skill-bundle-file`);
+  if (arm === "no-skill" && bundlePath !== null)
+    fail("no-skill forbids --skill-bundle-file");
   assertNewDirectory(destination, "destination");
   prepareWorkingDirectory(workingDirectory);
   if (providerOption === "antigravity") {
     assertOutsideRepository(workingDirectory);
   }
 
-  const prompt = readFileSync(promptPath, "utf8");
-  const skill = skillPath === null ? null : readFileSync(skillPath, "utf8");
-  const instructions = instructionText(skill);
+  const evaluationCase = readJsonFile(casePath, "evaluation case");
+  const evalId = positiveInteger(evaluationCase.id, "evaluation case id");
+  const declaredConversation = normalizeEvaluationConversation(evaluationCase);
+  if (providerOption === "claude" && declaredConversation.length > 1) {
+    fail("Claude CLI evaluation sessions do not support scripted follow-up turns");
+  }
+  const bundle =
+    bundlePath === null
+      ? null
+      : validateSkillBundle(readJsonFile(bundlePath, "skill bundle"), arm);
+  const renderedBundle = bundle === null ? null : renderSkillBundle(bundle);
   const environment = environmentProfile();
   const provider =
     providerOption === "codex"
@@ -296,7 +429,7 @@ async function prepare(options) {
         : "google";
   const capabilities =
     provider === "openai"
-      ? { network: true, webSearch: true, tools: [], providerFacilities: [] }
+      ? { network: false, webSearch: false, tools: [], providerFacilities: [] }
       : provider === "anthropic"
         ? {
             network: true,
@@ -310,6 +443,7 @@ async function prepare(options) {
             tools: [],
             providerFacilities: ["provider-default-context"],
           };
+  const instructions = instructionText(renderedBundle, capabilities.webSearch);
   const preparedSessionId = randomBytes(16).toString("hex");
   let toolchain;
   let authentication = null;
@@ -372,10 +506,49 @@ async function prepare(options) {
     provider === "openai"
       ? "Use only the packet-bound evaluation inputs."
       : null;
+  const caseContent = canonicalJsonBytes(evaluationCase).toString("utf8");
+  const bundleContent =
+    bundle === null ? null : canonicalJsonBytes(bundle).toString("utf8");
+  const initialPrompt = declaredConversation[0].input.text;
+  const providerInitialPrompt =
+    provider === "google"
+      ? antigravityPrompt(initialPrompt, renderedBundle)
+      : initialPrompt;
+  const conversation = withInitialText(
+    declaredConversation,
+    providerInitialPrompt,
+  );
+  const continuationInputs = declaredConversation
+    .slice(1)
+    .map((turn, index) =>
+      inputRecord(
+        `follow-up-${String(index + 1).padStart(2, "0")}`,
+        "continuation",
+        "text/plain",
+        turn.input.text,
+      ),
+    );
   const inputs =
     provider === "openai"
       ? [
-          inputRecord("prompt", "user", "text/plain", prompt),
+          inputRecord("prompt", "user", "text/plain", providerInitialPrompt),
+          ...continuationInputs,
+          inputRecord(
+            "evaluation-case",
+            "configuration",
+            "application/json",
+            caseContent,
+          ),
+          ...(bundleContent === null
+            ? []
+            : [
+                inputRecord(
+                  "skill-bundle",
+                  "configuration",
+                  "application/json",
+                  bundleContent,
+                ),
+              ]),
           inputRecord("base-instructions", "base", "text/plain", base),
           inputRecord(
             "instructions",
@@ -392,7 +565,24 @@ async function prepare(options) {
         ]
       : provider === "anthropic"
         ? [
-            inputRecord("prompt", "user", "text/plain", prompt),
+            inputRecord("prompt", "user", "text/plain", providerInitialPrompt),
+            ...continuationInputs,
+            inputRecord(
+              "evaluation-case",
+              "configuration",
+              "application/json",
+              caseContent,
+            ),
+            ...(bundleContent === null
+              ? []
+              : [
+                  inputRecord(
+                    "skill-bundle",
+                    "configuration",
+                    "application/json",
+                    bundleContent,
+                  ),
+                ]),
             inputRecord(
               "instructions",
               "system",
@@ -417,8 +607,25 @@ async function prepare(options) {
               "prompt",
               "user",
               "text/markdown",
-              antigravityPrompt(prompt, skill),
+              providerInitialPrompt,
             ),
+            ...continuationInputs,
+            inputRecord(
+              "evaluation-case",
+              "configuration",
+              "application/json",
+              caseContent,
+            ),
+            ...(bundleContent === null
+              ? []
+              : [
+                  inputRecord(
+                    "skill-bundle",
+                    "configuration",
+                    "application/json",
+                    bundleContent,
+                  ),
+                ]),
             inputRecord(
               "runner-settings",
               "configuration",
@@ -429,7 +636,7 @@ async function prepare(options) {
   const isolation =
     provider === "openai"
       ? {
-          sandbox: "read-only",
+          sandbox: "workspace-write",
           workingDirectory,
           runtimeWorkspaceRoots: [workingDirectory],
           instructionSources: [],
@@ -461,6 +668,11 @@ async function prepare(options) {
       arm,
       repetition,
       sequence: 1,
+      metadata: {
+        conversationTurnIds: declaredConversation.map(({ id }) => id),
+        skillBundleAggregateSha256: bundle?.aggregateSha256 ?? null,
+        skillBundleSource: bundle?.source ?? null,
+      },
       suiteArtifacts: [],
     },
     provider,
@@ -477,12 +689,10 @@ async function prepare(options) {
     capabilities,
     isolation,
     harnessControlledInputs: inputs,
-    continuationPolicy: {
-      controllerSha256: sha256Hex(readFileSync(CONTROLLER_PATH)),
-      maxTurns: 1,
-      allowedTransitions: [],
-      templates: [],
-    },
+    continuationPolicy: createScriptedContinuationPolicy({
+      conversation,
+      controllerSha256: controllerDigest(),
+    }),
   };
   const packet = createTransmissionPacket(transmission);
   const prepared = await prepareEvidenceSession({
@@ -510,6 +720,25 @@ function assertRuntimeCurrent(expected, provider) {
   if (!canonicalJsonBytes(current).equals(canonicalJsonBytes(expected))) {
     fail("runtime fingerprint changed after preparation");
   }
+}
+
+function conversationFromTransmission(transmission) {
+  const promptInput = transmission.harnessControlledInputs.find(
+    ({ id }) => id === "prompt",
+  );
+  if (promptInput === undefined) fail("prepared prompt is missing");
+  return Object.freeze([
+    Object.freeze({
+      id: "prompt",
+      input: Object.freeze({ type: "text", text: promptInput.content }),
+    }),
+    ...transmission.continuationPolicy.templates.map((template) =>
+      Object.freeze({
+        id: template.transitionId,
+        input: Object.freeze({ ...template.input[0] }),
+      }),
+    ),
+  ]);
 }
 
 async function run(options) {
@@ -541,13 +770,8 @@ async function run(options) {
   );
   if (settingsInput === undefined) fail("prepared runner settings are missing");
   const settings = JSON.parse(settingsInput.content);
-  const promptInput = transmission.harnessControlledInputs.find(
-    ({ id }) => id === "prompt",
-  );
-  const initialInput = Object.freeze([
-    Object.freeze({ type: "text", text: promptInput.content }),
-  ]);
-  const controller = createDefiningConceptController({ initialInput });
+  const conversation = conversationFromTransmission(transmission);
+  const controller = createDefiningConceptController({ conversation });
   let adapter;
   let request;
   if (transmission.provider === "openai") {
@@ -618,7 +842,7 @@ async function run(options) {
     assertCurrent: async (current) => {
       assertRuntimeCurrent(current.runtimeFingerprint, current.provider);
       if (
-        sha256Hex(readFileSync(CONTROLLER_PATH)) !==
+        controllerDigest() !==
         current.continuationPolicy.controllerSha256
       ) {
         fail("session controller changed after preparation");
