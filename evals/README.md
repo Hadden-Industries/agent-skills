@@ -16,6 +16,50 @@ The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, an
 
 `evals.json` and `trigger-evals.json` remain the shared manifest surfaces. `npm run build:check` verifies matching skill/suite names, behavioral and trigger shapes, unique normalized cases, contained fixture paths, and the deployable/evaluation boundary. Mechanical validation is not model or semantic evidence.
 
+## Declarative Conversations
+
+A behavioral case may declare a single initial prompt or a bounded scripted conversation. The generic manifest shape is:
+
+```json
+{
+  "prompt": "The initial user turn.",
+  "follow_up_turns": [
+    {
+      "id": "stable-transition-id",
+      "prompt": "The exact next user turn."
+    }
+  ]
+}
+```
+
+`follow_up_turns` is optional. When present, it is a nonempty array of at most 31 entries, making 32 total turns including the initial prompt. Every entry contains exactly `id` and `prompt`; IDs are unique lowercase kebab-case identifiers and prompts are nonempty strings. Array order is conversation order. These turns are committed test inputs, not suggestions for a provider or controller to paraphrase.
+
+`normalizeEvaluationConversation(...)` converts the declaration into an immutable `prompt` turn followed by the exact declared transitions. `createScriptedContinuationPolicy(...)` binds the controller digest, total turn limit, ordered allowed transition IDs, and exact continuation templates into the transmission packet. The packet and retained inputs therefore authorize the complete conversation rather than only its opening turn.
+
+## Scripted Controller Boundary
+
+`createScriptedConversationController(...)` owns only bounded conversation mechanics. It supplies the initial text, accepts one completed nonempty final answer for the expected turn, emits the exact next committed input when one exists, and completes through a suite-provided result function after the last turn. It rejects duplicate, skipped, failed, out-of-order, or post-completion turns and rejects every approval request. It does not inspect domain semantics, invent clarifications, branch on answer content, grade outputs, call providers, or broaden capabilities.
+
+Suites may wrap this controller to shape their terminal result or permission-rejection reason, but domain policy remains in the suite. Adapters receive the same bounded controller interface. A provider that cannot preserve the declared turn count and transition semantics must be rejected during preparation or preflight; silently truncating a scripted conversation to one turn is invalid.
+
+## Skill Bundles and Comparison Arms
+
+Treat a deployable skill directory as the evaluation treatment. `captureGitSkillBundle(...)` captures ordinary UTF-8 files from one exact Git commit; `captureWorkingTreeSkillBundle(...)` captures the current canonical directory. Both retain source identity, repository-relative file paths, exact content, byte lengths, per-file SHA-256 values, and an aggregate SHA-256 over canonical JSON. `renderSkillBundle(...)` preserves file boundaries when presenting those bytes to a model. A bundle must include `skills/<name>/SKILL.md`; unsupported entries, invalid UTF-8, or a digest mismatch fail closed.
+
+Use these canonical arm names when a campaign measures both incremental skill value and a proposed revision:
+
+- `no-skill`: the isolated task without a task-specific skill bundle;
+- `current-skill`: the complete skill captured from an exact comparison Git revision; and
+- `candidate-skill`: the complete proposed skill captured from the working tree when the campaign is frozen.
+
+The prompt, provider conditions, and all non-treatment inputs remain matched across arms. Capturing only `SKILL.md` is insufficient when the skill depends on references, scripts, or assets. Changing candidate bytes after preparation invalidates that candidate iteration; create a new bundle and campaign rather than modifying retained evidence. Historical two-arm names such as `with_skill` and `without_skill` remain valid only within their recorded schema and are never silently renamed.
+
+## Provider Capability Preflight
+
+Before preparing a campaign, compare every declared conversation and case requirement with the selected adapter's reviewed capability profile. Freeze provider, exact model, effort, toolchain, network, web search, tools, provider facilities, isolation, and runtime fingerprint in each transmission. Reject unsupported multi-turn conversations, tools, permissions, network requirements, or provider facilities before execution. Do not claim that a tool is unavailable merely because it was unused, or that a capability is available because a provider normally advertises it; the packet records the reviewed session policy.
+
+Capability differences are methodologically material. Keep matched arms on the same profile, label cross-provider evidence separately, and never infer source retrieval, validation, subagent use, or another unavailable action from fluent output. Preparation and zero-turn preflight are not model calls and do not establish that a later authenticated provider launch will succeed.
+
 ## Transmission Packet
 
 `packet.json` is RFC 8785 canonical JSON with `schemaVersion`, `canonicalization`, `digestAlgorithm`, `transmission`, and `transmissionSha256`. The transmission binds:
@@ -110,7 +154,7 @@ Common terminal execution failures use exactly these classes:
 
 ## Historical Results
 
-Existing files under `evals/*/results/` are immutable evidence for their recorded runner and schema. Do not rewrite packet digests, retrofit the common envelope, or make an older result claim current runtime, adapter, authorization, or stable-home guarantees. Readers branch on an explicit schema/version; they do not infer a schema from absent fields.
+Existing files under `evals/*/results/` are immutable evidence for their recorded runner and schema. Every new manifest, packet, bundle, controller policy, and derived record declares its own schema version. Readers branch on the explicit version, preserve documented legacy branches, and reject unknown versions; they never infer a schema from absent fields. Do not rewrite packet digests, retrofit the common envelope, rename historical arms, or make an older result claim current runtime, adapter, authorization, bundle, scripted-controller, or stable-home guarantees.
 
 The retained `committing-to-git/results/2026-08-22-gemini-3.5-flash-low.json` record remains a legacy Antigravity 1.1.18 explicit-activation policy experiment. It is not migrated to the 1.1.19 adapter schema and does not establish automatic discovery, dynamic approvals, Git command execution, or current-run parity.
 

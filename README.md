@@ -16,7 +16,7 @@ The repository follows one core rule:
 
 * **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, guides creation of an explicitly approved signed root or ordinary one-parent commit, reports whether the result matches, and can guide an explicitly authorized push of that exact commit. Use for message drafts, new local commits, or a later push from this workflow; not for amending history or continuing merge, rebase, cherry-pick, or revert operations.
 
-* **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Generates strictly ISO/IEC 11179-4 compliant concept definitions from a designation. It features advanced etymological analysis, worldwide vocabulary reuse checking, and strict ontological category error prevention.
+* **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance. It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
 
 * **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
 
@@ -152,9 +152,18 @@ agent-skills/
 │   │   └── scripts/
 │   │       └── commitWorkflow.mjs         # Generated, self-contained workflow CLI
 │   ├── defining-concepts/
-│   │   ├── SKILL.md
+│   │   ├── SKILL.md                      # Universal concept-engineering router and workflow
 │   │   └── references/
-│   │       └── judicial_plea_status_definition.md
+│   │       ├── concept-entry-model.md     # Format-neutral semantic record
+│   │       ├── concept-entry-presentation.md # Definition-first human renderers
+│   │       ├── concept-entry-serialization.md # Machine projections and missing states
+│   │       ├── evidence-and-provenance.md # Research, authority, version, and licensing evidence
+│   │       └── profiles/
+│   │           ├── data-definitions.md    # ISO/IEC 11179 data and metadata discipline
+│   │           ├── epistemic-governance.md # Authority, standpoint, consent, and deferral
+│   │           ├── formal-ontology.md     # Ontology semantics and honest tool validation
+│   │           ├── knowledge-organization-systems.md # KOS relations and mappings
+│   │           └── multilingual-terminology.md # Cross-language designation and equivalence
 │   ├── reading-epubs/
 │   │   ├── SKILL.md
 │   │   ├── references/
@@ -180,6 +189,14 @@ agent-skills/
 │   │   ├── evals.json                    # Workflow pressure scenarios
 │   │   ├── trigger-evals.json            # Should/should-not-trigger prompts
 │   │   └── results/                      # Compact retained run evidence
+│   ├── defining-concepts/
+│   │   ├── README.md                     # Concept-engineering campaign and grading protocol
+│   │   ├── evals.json                    # Sixteen stratified semantic cases
+│   │   ├── evaluation-runner.mjs         # Three-arm preparation, blinding, and aggregation
+│   │   ├── run-evaluation-session.mjs    # Packet-bound provider session
+│   │   ├── session-controller.mjs        # Exact scripted-turn controller
+│   │   ├── trigger-evals.json            # Should/should-not-trigger prompts
+│   │   └── results/                      # Immutable legacy and current campaign evidence
 │   └── reading-epubs/
 │       ├── README.md                     # Method, evidence, and limitations
 │       ├── evals.json                    # Behavioral evals
@@ -259,8 +276,16 @@ agent-skills/
 │   ├── assurance-cases/
 │   │   ├── 2026-08-23-committing-to-git-proportional-workflow.md
 │   │   └── 2026-08-25-committing-to-git-witnessed-checks.md
-│   └── plans/
-│       └── 2026-08-21-committing-to-git-workflow-redesign.md
+│   ├── designs/                          # Artifact-type-first design records
+│   │   └── defining-concepts/
+│   │       └── 2026-08-29-concept-engineering.md
+│   ├── plans/                            # Artifact-type-first implementation plans
+│   │   ├── defining-concepts/
+│   │   │   └── 2026-08-29-concept-engineering.md
+│   │   └── 2026-08-21-committing-to-git-workflow-redesign.md # Historical root-level plan
+│   ├── committing-to-git/
+│   │   └── issues/                       # Dated implementation issue records
+│   └── 2026-08-26-skill-build-architecture.md # Historical root-level document
 │
 ├── .tessl-plugin/
 │   └── plugin.json                       # Tessl package root — COMMITTED
@@ -296,7 +321,7 @@ agent-skills/
 | `src/` | Maintainable source and schemas for generated skill executables | **Yes** |
 | `scripts/` | Repository-wide build commands and reproducible development bootstrap | **Yes** |
 | `package.json` and `package-lock.json` | Compatible authoring dependency ranges, reproducible resolutions, and commands | **Yes** |
-| `docs/` | Dated implementation plans and assurance cases for substantial changes | **Yes** |
+| `docs/` | Artifact-type-first designs, plans, assurance cases, and issue records, plus retained historical root-level documents | **Yes** |
 | `.tessl-plugin/plugin.json` | Tessl package root that makes `tessl skill lint` resolvable | **Yes** |
 | `tests/` | Contract tests for skill scripts and their committed schemas | **Yes** |
 | `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
