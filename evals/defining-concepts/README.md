@@ -112,6 +112,17 @@ The current adapter profiles are materially different:
 
 Do not pool or compare provider profiles as though they offered the same evidence opportunities. An independent verifier can establish that a destination is reachable and semantically relevant, but it cannot retroactively prove that a no-web executor retrieved it. Conversely, a tool event does not by itself prove that the returned source supported the claim. Subagent and batched-tool availability are not quality requirements.
 
+### Matched model-effort groups
+
+The 2026-08-29 calibration protocol uses two separately frozen OpenAI groups with identical cases, arms, bundles, and single-agent provider policy:
+
+- the representative group uses exact model `gpt-5.6-sol` at the installed model catalog's declared default effort, `low` when this iteration was designed; and
+- the capability-ceiling group uses exact model `gpt-5.6-sol` at `max`, the catalog's maximum reasoning-depth setting that preserves the same single-agent topology.
+
+The catalog also exposes `ultra`, described as maximum reasoning with automatic task delegation. That is a different capability treatment, not merely a higher value on the matched single-agent effort axis. Do not use it as the ceiling group, silently permit delegation in the existing no-tools policy, or pool a future `ultra` campaign with these results. An `ultra` evaluation requires its own preregistered capability declaration, adapter review, authorization, grading, and limitations.
+
+Prepare, authorize, execute, grade, and aggregate the representative and capability-ceiling groups as two campaign directories. Each group has 10 cases x 3 arms x 1 repetition = 30 sessions and at most 33 turns; together they have 60 sessions and at most 66 turns. One repetition is enforced per case/arm/model-effort cell. Effort groups are conditions, not repetitions, and their scores remain separate.
+
 ## Prepare, review, authorize, and run
 
 Preparation is local-only and launches zero model turns. Use a new filesystem-safe UTC directory name derived from the same `--started-at` value, for example `2026-08-29T123456.789Z`; the colons are omitted only from the directory name. Use a fresh non-repository `--working-root`. For Codex, bind the reviewed executable and name the initialized managed evaluation-homes root.
@@ -122,16 +133,16 @@ node evals/defining-concepts/evaluation-runner.mjs prepare --campaign calibratio
 
 Provider-specific preparation may additionally use the repeatable prefix arguments accepted by the runner. On Windows, `--codex-command` must resolve directly to a native `.exe` or `.com`; command wrappers and scripts are rejected because closing a wrapper does not prove that its App Server descendant has closed. Do not substitute a mutable label such as `latest` for an exact model identifier when the provider offers a stable exact ID.
 
-Before execution, review and disclose:
+Before execution of either group, review and disclose:
 
 1. the campaign destination and `manifest.json`;
 2. both bundle inventories, their source identities, every file digest, and both aggregate hashes;
 3. all ten exact initial prompts and the exact case-10 follow-up;
 4. provider, model, effort, toolchain, runtime fingerprint, isolation, and capability declaration;
-5. all 30 transmission SHA-256 values and the intended call count; and
+5. all 30 transmission SHA-256 values and the intended call and turn count for that group; and
 6. the enforced one-repetition limitation.
 
-Preparation, implementation approval, login, an earlier campaign authorization, and authorization of one cell do not authorize any of the 30 transmissions. Obtain an exact authorization artifact for **every** prepared session. `run` verifies all 30 artifacts before the first provider call, so a missing or mismatched authorization cannot create a partial campaign.
+Preparation, implementation approval, login, an earlier campaign authorization, authorization of the other model-effort group, and authorization of one cell do not authorize any of the 30 transmissions in a group. Obtain an exact authorization artifact for **every** prepared session. `run` verifies all 30 artifacts before the first provider call, so a missing or mismatched authorization cannot create a partial campaign. A single conversational authorization may cover both groups only when it explicitly identifies both manifest digests, both exact efforts, the two disclosed hash lists, the 60-session and 66-turn ceilings, and whether any grading calls are included.
 
 ```text
 node evals/defining-concepts/evaluation-runner.mjs run --campaign-dir <absolute-campaign-directory> --authorization-dir <absolute-authorization-directory>
@@ -246,7 +257,7 @@ Place one complete grade record per blind session in `grading/grades/`, one pair
 node evals/defining-concepts/evaluation-runner.mjs aggregate --campaign-dir <absolute-campaign-directory>
 ```
 
-The generated aggregate reports critical totals and whether the candidate has any critical failure; dimension-observation counts; coverage by case, profile, and research stratum; candidate/current/tie pairwise totals; disagreement records; retained token and elapsed-time totals; and the one-repetition, no-variance, no-human-usability, and no-calibrated-pass-probability limitations. Raw packets, outputs, transcripts, provider evidence, and individual grades remain authoritative. The aggregate is a derived index, not a substitute for reading failures.
+Each generated aggregate reports critical totals and whether the candidate has any critical failure; dimension-observation counts; coverage by case, skill profile, and research stratum; candidate/current/tie pairwise totals; disagreement records; retained token and elapsed-time totals; and the one-repetition, no-variance, no-human-usability, and no-calibrated-pass-probability limitations. Freeze both group aggregates before producing a bounded cross-profile synthesis. Never pool the scores, treat effort groups as repetitions, or let strong ceiling-group prose compensate for a representative-group critical failure. Raw packets, outputs, transcripts, provider evidence, and individual grades remain authoritative. Each aggregate is a derived index, not a substitute for reading failures.
 
 Calibration is diagnostic. Separate candidate defects from case ambiguity, grader ambiguity, provider failure, and absent evidence. If a critical failure or material design defect requires any candidate skill byte to change, close that iteration: keep its campaign immutable, make the change through a new test-first cycle, capture a new bundle, prepare a new timestamped campaign, and obtain new authorization. Never overwrite or relabel the prior campaign.
 

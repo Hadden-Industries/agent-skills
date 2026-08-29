@@ -27,6 +27,7 @@
 - Put the definition or revised definition first whenever responsible formulation is possible. Do not restore a universal section count.
 - Keep human usability evaluation outside this implementation and promotion gate. Document it only as a recommended immediate follow-up.
 - Use exactly one run per arm per scenario. Add independent cases for broader evidence; do not add hidden repetitions.
+- Run two separately frozen and separately aggregated model-effort groups: a representative `gpt-5.6-sol` group at the model catalog's default effort (`low` for the 2026-08-29 iteration) and a capability-ceiling `gpt-5.6-sol` group at `max`. Keep `ultra` outside this matched protocol because automatic task delegation changes capabilities rather than only reasoning depth.
 - Treat `evals/defining-concepts/evals.json` and `evals/defining-concepts/trigger-evals.json` as configuration. Do not edit either file until the user explicitly approves the exact proposed fields, case inventory, prompts, expectations, trigger queries, and campaign selection.
 - Do not modify `package.json`, lockfiles, build configuration, lint configuration, formatting configuration, CI, environment configuration, or repository policy as part of this work.
 - Do not call an external model until the exact skill bundle, every prompt and follow-up turn, provider, model, effort, runtime fingerprint, and transmission SHA-256 have been prepared and explicitly authorized.
@@ -1000,13 +1001,13 @@ Where a single case cannot make a research stratum observable without becoming c
 
   Walk every row in the design's adopt/adapt/defer/reject table against the final diff. Confirm that the implementation contains the adopted semantic capabilities, preserves the adapted four-disposition and five-profile architecture, and has not accidentally introduced the deferred JSON Schema, reasoner/service, registry, workbench, monitoring, human study, or numeric confidence formula. Record any intentional difference as a design change requiring user review rather than silently improvising.
 
-## Task 15: Prepare and authorize the 30-session calibration
+## Task 15: Prepare and authorize the two-profile 60-session calibration
 
 **Blocking prerequisite:** Tasks 1-14 pass, candidate bytes are frozen, and the user wants provider-backed evaluation to proceed.
 
 - [ ] **Step 1: Prepare without executing**
 
-  Use `evaluation-runner.mjs prepare` to create a new timestamped calibration directory under `evals/defining-concepts/results/`. Capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, and 30 exact transmission hashes.
+  Inspect and retain the current exact model-catalog metadata before preparation. For this iteration, prepare two new timestamped calibration directories under `evals/defining-concepts/results/`: a representative `gpt-5.6-sol` campaign at its declared default effort `low`, and a capability-ceiling `gpt-5.6-sol` campaign at `max`. For each directory capture all ten approved cases, three arms, one repetition, skill bundles, runtime fingerprints, blind mappings, and 30 exact transmission hashes. Treat `ultra` as a different automatic-delegation capability profile and do not substitute it for the matched single-agent ceiling campaign.
 
 - [ ] **Step 2: Review the frozen campaign**
 
@@ -1014,19 +1015,22 @@ Where a single case cannot make a research stratum observable without becoming c
 
   - exact current and candidate bundle inventories and aggregate hashes;
   - exact ten initial prompts and every follow-up turn;
-  - provider, model, and effort;
-  - 30 transmission hashes;
-  - expected external calls and grading calls;
-  - output destination;
-  - confirmation that one repetition is enforced.
+  - the model-catalog evidence supporting the representative and ceiling labels;
+  - provider, exact model, and exact effort for each group;
+  - both sets of 30 transmission hashes;
+  - 60 expected external sessions and at most 66 total model turns across the two groups;
+  - expected grading calls, which remain separately authorized;
+  - both output destinations;
+  - confirmation that one repetition is enforced per case/arm/profile cell; and
+  - confirmation that `ultra` and automatic task delegation are outside the matched protocol.
 
 - [ ] **Step 3: Obtain exact authorization**
 
-  Stop until the user explicitly authorizes the exact frozen campaign transmissions. Do not reuse the earlier four-prompt/eight-run authorization or infer authorization from approval of this plan.
+  Stop until the user explicitly authorizes the exact frozen transmissions for each model-effort group. Authorization may cover both fully disclosed manifests in one statement, but it must identify both manifest digests, both exact efforts, all 60 packet digests by reference to the disclosed lists, the 66-turn ceiling, and the absence or presence of grading calls. Do not reuse the earlier four-prompt/eight-run authorization, an authorization for a superseded effort, or approval of this plan.
 
 - [ ] **Step 4: Execute each session once**
 
-  Run only authorized sessions. Preserve failures and invalid attempts without silently replacing them. Never rerun an unchanged case/arm cell and call it the same one-repetition campaign.
+  Run only authorized sessions. Preserve failures and invalid attempts without silently replacing them. Never rerun an unchanged case/arm/profile cell and call it the same one-repetition campaign. Keep representative and ceiling evidence in their respective campaign directories.
 
 - [ ] **Step 5: Prepare blind grading packets**
 
@@ -1034,11 +1038,11 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 6: Grade and aggregate**
 
-  Produce expectation evidence, critical-gate outcomes, applicable-dimension judgments, per-profile and per-research-stratum summaries, pairwise outcomes, disagreement records, token/time summaries, and limitations. Report exact/close/broad/narrow/related mapping results separately where labeled cases permit it. Treat any candidate critical failure as non-compensable under the preregistered rule. Do not calculate within-cell variance, standard deviation across repetitions, calibrated confidence, or a general pass probability.
+  Produce expectation evidence, critical-gate outcomes, applicable-dimension judgments, per-skill-profile and per-research-stratum summaries, pairwise outcomes, disagreement records, token/time summaries, and limitations separately for the representative and capability-ceiling campaigns. Only after both aggregates are frozen, compare profile-conditioned outcomes without pooling their scores or treating effort as a repetition. Report exact/close/broad/narrow/related mapping results separately where labeled cases permit it. Treat any candidate critical failure as non-compensable under the preregistered rule. Do not calculate within-cell variance, standard deviation across repetitions, calibrated confidence, or a general pass probability.
 
 - [ ] **Step 7: Apply the iteration rule**
 
-  If a critical failure or material design problem requires a skill change, close this candidate iteration. Modify the skill through a new test-first cycle, freeze new bytes, create a new timestamped campaign, and obtain new authorization. Do not overwrite the prior campaign.
+  If a critical failure or material design problem in either model-effort group requires a skill change, close this candidate iteration. Modify the skill through a new test-first cycle, freeze new bytes, create new timestamped representative and ceiling campaigns, and obtain new authorization. Do not overwrite either prior campaign.
 
 ## Task 16: Freeze and run the confirmatory campaign
 
@@ -1054,7 +1058,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 3: Freeze the confirmatory protocol**
 
-  Record exact cases, arms, one repetition, graders, critical gates, pairwise decision rule, promotion thresholds, provider, model, effort, runtime, and transmission hashes before execution.
+  Record exact cases, arms, one repetition per case/arm/profile cell, graders, critical gates, pairwise decision rule, promotion thresholds, provider, exact model, representative effort, capability-ceiling effort, runtime, and transmission hashes before execution. Preserve the two-profile protocol unless the user approves a narrower confirmatory claim as an explicit design change.
 
 - [ ] **Step 4: Obtain exact authorization and execute**
 
@@ -1062,7 +1066,7 @@ Where a single case cannot make a research stratum observable without becoming c
 
 - [ ] **Step 5: Apply the promotion gate**
 
-  Promote only if deterministic gates pass, no unresolved candidate critical failure remains, preregistered primary comparisons improve over `current-skill`, no capability stratum materially regresses, negative trigger precision is preserved, and evidence is complete.
+  Promote only if deterministic gates pass, no unresolved candidate critical failure remains in either retained model-effort profile, preregistered primary comparisons improve over `current-skill`, no semantic or model-effort capability stratum materially regresses, negative trigger precision is preserved, and evidence is complete.
 
 - [ ] **Step 6: Bound the final claim**
 

@@ -31,6 +31,29 @@ function resultDirectories() {
     .sort();
 }
 
+function resultSchemaKind(manifest) {
+  if (Number.isSafeInteger(manifest?.schema_version)) {
+    assert.ok(
+      manifest.schema_version === 1 || manifest.schema_version === 2,
+      `unsupported retained result schema ${manifest.schema_version}`,
+    );
+    return "legacy";
+  }
+  if (manifest?.schemaVersion === 2) {
+    return "current";
+  }
+  throw new Error(
+    "result artifact set must declare an explicitly supported result schema",
+  );
+}
+
+function resultDirectoriesFor(kind) {
+  return resultDirectories().filter(
+    (directory) =>
+      resultSchemaKind(readJson(directory, "manifest.json")) === kind,
+  );
+}
+
 function currentSchemaFixture() {
   const caseBytes = Buffer.from(
     '{"id":1,"prompt":"Define distribution."}\n',
@@ -148,11 +171,7 @@ function validateResultArtifactSet({
   execution,
   invalidAttempts = [],
 }) {
-  if (Number.isSafeInteger(manifest?.schema_version)) {
-    assert.ok(
-      manifest.schema_version === 1 || manifest.schema_version === 2,
-      `unsupported retained result schema ${manifest.schema_version}`,
-    );
+  if (resultSchemaKind(manifest) === "legacy") {
     assert.deepEqual(manifest.arms, ["with_skill", "without_skill"]);
     assert.equal(manifest.runs_per_configuration, 1);
     return "legacy";
@@ -264,8 +283,174 @@ function retainedCases(resultDirectory) {
     .sort((left, right) => left.evalId - right.evalId);
 }
 
-test("all retained manifests bind the exact prompts used by successful runs", () => {
-  const directories = resultDirectories();
+function validateCurrentResultDirectory(resultDirectory) {
+  const manifestPath = path.join(resultDirectory, "manifest.json");
+  const manifestBytes = readFileSync(manifestPath);
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  assert.equal(resultSchemaKind(manifest), "current");
+  assert.equal(manifest.state, "prepared");
+  assert.equal(manifest.directoryName, path.basename(resultDirectory));
+  assert.equal(
+    manifest.runIdentity.replaceAll(":", ""),
+    manifest.directoryName,
+  );
+  assert.deepEqual(manifest.protocol.arms, [
+    "no-skill",
+    "current-skill",
+    "candidate-skill",
+  ]);
+  assert.equal(manifest.protocol.repetitionCount, 1);
+  assert.equal(
+    manifest.sessions.length,
+    manifest.protocol.caseIds.length * manifest.protocol.arms.length,
+  );
+
+  for (const [manifestKey, fileName] of [
+    ["currentSkill", "current-skill.json"],
+    ["candidateSkill", "candidate-skill.json"],
+  ]) {
+    const declared = manifest.skillBundles[manifestKey];
+    const retained = readJson(resultDirectory, "bundles", fileName);
+    assert.equal(retained.aggregateSha256, declared.aggregateSha256);
+    assert.deepEqual(
+      retained.files.map(
+        ({ path: filePath, byteLength, sha256: fileSha256 }) => ({
+          path: filePath,
+          byteLength,
+          sha256: fileSha256,
+        }),
+      ),
+      declared.files,
+    );
+    assert.deepEqual(retained.source, declared.source);
+  }
+
+  const caseSnapshots = new Map();
+  for (const snapshot of manifest.caseSnapshots) {
+    assert.ok(!caseSnapshots.has(snapshot.id));
+    const retainedBytes = readFileSync(
+      path.join(resultDirectory, ...snapshot.relativePath.split("/")),
+    );
+    assert.equal(sha256(retainedBytes), snapshot.caseSha256);
+    assert.match(snapshot.conversationSha256, /^[0-9a-f]{64}$/u);
+    caseSnapshots.set(snapshot.id, snapshot);
+  }
+  assert.deepEqual(
+    [...caseSnapshots.keys()].sort((left, right) => left - right),
+    [...manifest.protocol.caseIds].sort((left, right) => left - right),
+  );
+
+  const mappingBytes = readFileSync(
+    path.join(resultDirectory, "sealed", "blind-mapping.json"),
+  );
+  assert.equal(sha256(mappingBytes), manifest.blindMappingSealSha256);
+
+  const cells = new Set();
+  const aliases = new Set();
+  const transmissions = new Set();
+  for (const session of manifest.sessions) {
+    const cell = `${session.caseId}/${session.arm}/${session.repetition}`;
+    assert.ok(!cells.has(cell));
+    assert.ok(!aliases.has(session.blindAlias));
+    assert.ok(!transmissions.has(session.transmissionSha256));
+    cells.add(cell);
+    aliases.add(session.blindAlias);
+    transmissions.add(session.transmissionSha256);
+    assert.equal(session.repetition, 1);
+    assert.ok(manifest.protocol.arms.includes(session.arm));
+    assert.equal(session.provider, manifest.protocol.provider);
+    assert.equal(session.model, manifest.protocol.model);
+    assert.equal(session.effort, manifest.protocol.effort);
+    assert.equal(session.disposition, "prepared");
+    assert.equal(
+      session.caseSha256,
+      caseSnapshots.get(session.caseId).caseSha256,
+    );
+    assert.equal(
+      session.conversationSha256,
+      caseSnapshots.get(session.caseId).conversationSha256,
+    );
+    assert.equal(typeof session.runtimeFingerprint, "object");
+    assert.ok(Array.isArray(session.runtimeFingerprint.modules));
+    assert.match(session.transmissionSha256, /^[0-9a-f]{64}$/u);
+    const packet = readJson(
+      resultDirectory,
+      ...session.relativeSessionPath.split("/"),
+      "packet.json",
+    );
+    assert.equal(packet.transmissionSha256, session.transmissionSha256);
+  }
+
+  assert.deepEqual(manifest.limitations, {
+    repeatedSampling: false,
+    withinCellVarianceAvailable: false,
+    humanUsabilityEvaluated: false,
+  });
+
+  const executedPath = path.join(resultDirectory, "executed.json");
+  const gradingPreparedPath = path.join(
+    resultDirectory,
+    "grading-prepared.json",
+  );
+  const aggregatePath = path.join(resultDirectory, "aggregate.generated.json");
+  if (!existsSync(executedPath)) {
+    assert.equal(existsSync(gradingPreparedPath), false);
+    assert.equal(existsSync(aggregatePath), false);
+    return "prepared";
+  }
+
+  const executed = readJson(executedPath);
+  assert.equal(executed.schemaVersion, 1);
+  assert.equal(executed.state, "executed");
+  assert.equal(executed.campaignManifestSha256, sha256(manifestBytes));
+  assert.equal(executed.sessions.length, manifest.sessions.length);
+  assert.deepEqual(
+    new Set(executed.sessions.map(({ blindAlias }) => blindAlias)),
+    aliases,
+  );
+  for (const session of executed.sessions) {
+    assert.ok(session.status === "completed" || session.status === "failed");
+    assert.equal(
+      session.disposition,
+      session.status === "completed" ? "valid" : "invalid",
+    );
+  }
+
+  const invalidSessions = executed.sessions.filter(
+    ({ disposition }) => disposition === "invalid",
+  );
+  const invalidAttemptsDirectory = path.join(
+    resultDirectory,
+    "invalid-attempts",
+  );
+  const invalidAttempts = existsSync(invalidAttemptsDirectory)
+    ? readdirSync(invalidAttemptsDirectory, { withFileTypes: true }).filter(
+        (entry) => entry.isDirectory(),
+      )
+    : [];
+  assert.equal(invalidAttempts.length, invalidSessions.length);
+  if (invalidSessions.length > 0) {
+    assert.equal(existsSync(gradingPreparedPath), false);
+    assert.equal(existsSync(aggregatePath), false);
+    return "executed-invalid";
+  }
+
+  if (!existsSync(gradingPreparedPath)) {
+    assert.equal(existsSync(aggregatePath), false);
+    return "executed";
+  }
+  const gradingPrepared = readJson(gradingPreparedPath);
+  assert.equal(gradingPrepared.state, "grading-prepared");
+  if (!existsSync(aggregatePath)) {
+    return "grading-prepared";
+  }
+  const aggregate = readJson(aggregatePath);
+  assert.equal(aggregate.state, "graded");
+  return "graded";
+}
+
+test("all retained legacy manifests bind the exact prompts used by successful runs", () => {
+  const directories = resultDirectoriesFor("legacy");
   assert.ok(directories.length > 0, "expected at least one retained run set");
 
   for (const resultDirectory of directories) {
@@ -335,8 +520,8 @@ test("all retained manifests bind the exact prompts used by successful runs", ()
   }
 });
 
-test("all retained grades preserve frozen expectation text and consistent totals", () => {
-  for (const resultDirectory of resultDirectories()) {
+test("all retained legacy grades preserve frozen expectation text and consistent totals", () => {
+  for (const resultDirectory of resultDirectoriesFor("legacy")) {
     const manifest = readJson(resultDirectory, "manifest.json");
 
     for (const retainedCase of retainedCases(resultDirectory)) {
@@ -385,8 +570,8 @@ test("all retained grades preserve frozen expectation text and consistent totals
   }
 });
 
-test("current-schema manifests and aggregates agree with retained grades", () => {
-  for (const resultDirectory of resultDirectories()) {
+test("legacy schema-v2 manifests and aggregates agree with retained grades", () => {
+  for (const resultDirectory of resultDirectoriesFor("legacy")) {
     const manifest = readJson(resultDirectory, "manifest.json");
     if (manifest.schema_version < 2) {
       continue;
@@ -470,10 +655,18 @@ test("current-schema manifests and aggregates agree with retained grades", () =>
 });
 
 test("retained two-arm artifacts remain on their explicitly declared legacy schemas", () => {
-  for (const resultDirectory of resultDirectories()) {
+  for (const resultDirectory of resultDirectoriesFor("legacy")) {
     const manifest = readJson(resultDirectory, "manifest.json");
     assert.equal(validateResultArtifactSet({ manifest }), "legacy");
   }
+});
+
+test("current three-arm result directories validate according to retained campaign state", () => {
+  const directories = resultDirectoriesFor("current");
+  assert.ok(directories.length > 0, "expected current retained campaigns");
+  const states = directories.map(validateCurrentResultDirectory);
+  assert.ok(states.includes("prepared"));
+  assert.ok(states.includes("executed-invalid"));
 });
 
 test("current three-arm fixture binds bundles, bytes, runtime, transmissions, dispositions, and limits", () => {
