@@ -141,6 +141,7 @@ test("router: decisions, strategies, renderers, and completion gates remain disc
     /licensing problem/iu,
     /false exact mapping/iu,
     /illegitimate authority/iu,
+    /before presenting.*wording-permission.*cited.*URL.*retrieval record.*unresolved/isu,
   ]);
   assert.doesNotMatch(
     skill,
@@ -210,6 +211,8 @@ test("evidence: the claim contract separates eligibility, semantics, and permiss
     /unsuccessful search.*does not prove absence/isu,
     /same.*broader.*narrower.*overlapping.*related.*constituent-only.*conflicting.*unresolved/isu,
     /verbatim.*attributed quotation.*paraphrase.*link.*unresolved/isu,
+    /exact.*license.*permission.*URL.*final answer.*completed.*direct retrieval.*current task.*applicab/isu,
+    /policy.*hub.*footer.*discovered link.*not.*substitute/isu,
     /adopt.*adapt.*formulate.*defer/isu,
     /## Parallel worker contract/u,
     /## Conflict resolution and synthesis/u,
@@ -253,6 +256,7 @@ test("presentation: three projections are definition-first, proportional, and bl
     /omit empty sections/iu,
     /defect.*consequence.*remedy/isu,
     /definition.*identity and designations.*purpose.*scope.*characteristics.*typed relations.*evidence.*profile.*status.*maintenance/isu,
+    /concept package.*boundary.*reuse.*Adopt.*Adapt.*Formulate.*Defer.*positive.*negative.*near miss/isu,
     /same.*concept identity.*disposition.*status.*evidence.*blocker/isu,
   ]);
   assert.doesNotMatch(

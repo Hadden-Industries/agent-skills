@@ -37,6 +37,8 @@ An audit verdict is not a bare pass/fail label. Explain enough causal reasoning 
 
 Use for a reusable terminology or registry entry, mapping decision, ontology work, multilingual entry, authority-sensitive concept, substantive governance record, or an explicit full-package request.
 
+For a concept package whose request makes a boundary or reuse decision material, expose the selected `Adopt`, `Adapt`, `Formulate`, or `Defer` disposition and label at least one positive instance, one negative instance or explicit exclusion, and one near miss or counterexample. Do not omit these observable decisions merely because a prose summary makes them seem implicit.
+
 Project populated groups in this reader-facing order: definition; identity and designations; purpose, scope, stakeholders, and competency questions; characteristics, boundaries, positive and negative examples, counterexamples, and near misses; typed relations, reuse disposition, and mappings; evidence, provenance, and licensing; named active-profile results; and status, contested matters, maintenance, review, and next action.
 
 Use descriptive headings rather than a generic extension section. Separate a concept's label inventory from its identity, within-system relations from cross-system mappings, examples from members of an exhaustive extension, and evidential status from local lifecycle status.
