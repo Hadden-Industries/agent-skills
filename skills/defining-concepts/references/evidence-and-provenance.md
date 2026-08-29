@@ -24,6 +24,8 @@ For each material item retain: exact destination; source title and publisher or 
 
 Record retrieval status truthfully, such as retrieved and inspected, retrieved but insufficient, inaccessible, authentication-blocked, not retrieved, or superseded. Do not use "verified" as a blanket description for multiple destinations.
 
+Before finalizing, compare every final source claim and cited destination against the retrieval record. An unvisited destination, including a link discovered inside an eligible source, remains discovery-only; omit it from verified sources and unsupported claims, or label it `not checked` without relying on it.
+
 ## Claim ledger
 
 Use adjacent citations and concise source-basis language for a compact answer. Use a fuller claim ledger for audits, concept packages, consequential or authority-sensitive work, source conflicts, mappings, exact wording reuse, or an explicit provenance request.

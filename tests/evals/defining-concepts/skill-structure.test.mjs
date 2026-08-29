@@ -136,10 +136,12 @@ test("router: non-negotiable output gates precede the long workflow", () => {
     "critical gates must precede workflow detail",
   );
   assertMatchesAll(skill.slice(gateStart, workflowStart), [
+    /every.*final.*source claim.*cited.*destination.*directly retrieved.*current task/isu,
+    /unvisited.*destination.*discovery-only.*not.*verified source/isu,
     /affirmative.*permission.*forbidden.*exact.*permission destination.*cited.*final answer.*directly retrieved.*current task/isu,
     /never.*(?:construct|invent).*license.*URL/isu,
     /concept package.*boundary.*positive instance.*negative instance.*near miss.*unresolved.*omit/isu,
-    /Adopt.*source wording.*unchanged.*permission.*verified.*Adapt.*Formulate.*Defer/isu,
+    /explicitly label.*disposition.*Adopt.*source wording.*unchanged.*permission.*verified.*Adapt.*Formulate.*Defer/isu,
   ]);
 });
 
@@ -159,6 +161,7 @@ test("router: decisions, strategies, renderers, and completion gates remain disc
     /licensing problem/iu,
     /false exact mapping/iu,
     /illegitimate authority/iu,
+    /compare every.*final.*source claim.*cited.*destination.*retrieval record.*unvisited.*discovery-only/isu,
     /before presenting.*wording-permission.*cited.*URL.*retrieval record.*unresolved/isu,
   ]);
   assert.doesNotMatch(
@@ -226,6 +229,7 @@ test("evidence: the claim contract separates eligibility, semantics, and permiss
     /claim-relative authority|authority is claim-relative/iu,
     /exact destination.*title.*publisher.*role.*claim.*edition.*version.*jurisdiction.*retrieval.*locator.*authority.*relationship.*permission.*conflict.*reverified/isu,
     /search result.*citation record.*worker summary.*inaccessible.*discovery evidence/isu,
+    /final source claim.*cited destination.*retrieval record.*unvisited.*discovery-only.*(?:omit|not checked)/isu,
     /unsuccessful search.*does not prove absence/isu,
     /same.*broader.*narrower.*overlapping.*related.*constituent-only.*conflicting.*unresolved/isu,
     /verbatim.*attributed quotation.*paraphrase.*link.*unresolved/isu,
@@ -275,6 +279,7 @@ test("presentation: three projections are definition-first, proportional, and bl
     /defect.*consequence.*remedy/isu,
     /definition.*identity and designations.*purpose.*scope.*characteristics.*typed relations.*evidence.*profile.*status.*maintenance/isu,
     /concept package.*boundary.*reuse.*Adopt.*Adapt.*Formulate.*Defer.*positive.*negative.*near miss/isu,
+    /explicit.*label.*Disposition.*Adopt.*Adapt.*Formulate.*Defer.*not.*implicit/isu,
     /same.*concept identity.*disposition.*status.*evidence.*blocker/isu,
   ]);
   assert.doesNotMatch(
