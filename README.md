@@ -18,6 +18,8 @@ The repository follows one core rule:
 
 * **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance. It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
 
+* **[naming-objects-in-software-engineering](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/naming-objects-in-software-engineering/SKILL.md)**: Create, assess, and refactor semantically precise, ecosystem-conformant names for programming and data artefacts. Use whenever naming or renaming files, directories, packages, modules, types, functions, methods, parameters, arguments, variables, fields, properties, constants, APIs, CLI commands/options, environment variables, or database objects; and during code review when naming quality, consistency, ambiguity, or terminology is relevant. Enforces conceptual discrimination before casing and separators.
+
 * **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
 
   Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/evals/reading-epubs/README.md) for the method, the null results, and the limits.
@@ -164,6 +166,17 @@ agent-skills/
 │   │           ├── formal-ontology.md     # Ontology semantics and honest tool validation
 │   │           ├── knowledge-organization-systems.md # KOS relations and mappings
 │   │           └── multilingual-terminology.md # Cross-language designation and equivalence
+│   ├── naming-objects-in-software-engineering/
+│   │   ├── SKILL.md                      # Conceptual discrimination and lexical release gate
+│   │   ├── assets/
+│   │   │   └── naming-policy.json        # Bundled lexical profiles and vague-token dictionary
+│   │   ├── references/
+│   │   │   ├── language-conventions.md   # Ecosystem profiles and baseline conventions
+│   │   │   ├── policy-precedence.md      # Authority, legacy, and exception handling
+│   │   │   ├── semantic-naming.md        # Conceptual decomposition and verb precision
+│   │   │   └── source-authorities.md     # External standards and explicit house policies
+│   │   └── scripts/
+│   │       └── check-name.py             # Offline standard-library lexical checker
 │   ├── reading-epubs/
 │   │   ├── SKILL.md
 │   │   ├── references/

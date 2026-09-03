@@ -1,0 +1,1318 @@
+{
+  "schema_version": "1.0",
+  "policy_name": "naming-objects-in-software-engineering",
+  "policy_version": "1.0.0",
+  "generated_on": "2026-09-03",
+  "character_scope": "ASCII lexical profiles. Language-valid Unicode identifiers and externally required spellings require an explicit scoped override.",
+  "scope": "Deterministic lexical validation after exact artefact classification. This policy does not mechanically certify semantic correctness.",
+  "governing_principle": "One concept, one canonical semantic stem per governed context; many ecosystem-correct physical designations where syntax requires them.",
+  "authority_precedence": [
+    "Validity-critical language, runtime, protocol, framework, build-tool, and discovery requirements.",
+    "Explicit governing instructions for the organisation, repository, task, or scoped path.",
+    "Official ecosystem convention, or a clearly selected style profile where no language-owned convention exists.",
+    "This policy's generic fallback."
+  ],
+  "semantic_gate": {
+    "mechanically_certified": false,
+    "presumptively_vague_tokens": [
+      "base",
+      "common",
+      "data",
+      "handler",
+      "helper",
+      "helpers",
+      "info",
+      "item",
+      "manager",
+      "misc",
+      "object",
+      "processor",
+      "service",
+      "thing",
+      "util",
+      "utility",
+      "utils"
+    ],
+    "review_questions": [
+      "Does the designation identify the intended concept without opening the implementation?",
+      "Does it distinguish the nearest plausible related concepts?",
+      "Does every term add information at the use site?",
+      "Are verb, cardinality, units, representation, side effects, and boundaries truthful where relevant?",
+      "Does it use governed domain vocabulary and only standard, unambiguous abbreviations?",
+      "Does the final spelling obey the rule for the exact artefact kind?"
+    ],
+    "warning_only": "The checker can flag vague tokens as prompts for review, but context can justify them and their absence does not prove semantic precision."
+  },
+  "profiles": {
+    "cli-command": {
+      "description": "CLI command or subcommand token.",
+      "form": "kebab-case",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "rebuild-index",
+        "validate-ontology"
+      ],
+      "invalid_examples": [
+        "rebuild_index",
+        "RebuildIndex"
+      ]
+    },
+    "cli-long-option": {
+      "description": "CLI long option including its two-hyphen prefix.",
+      "form": "--kebab-case",
+      "pattern": "^--[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "--dry-run",
+        "--output-directory"
+      ],
+      "invalid_examples": [
+        "-dry-run",
+        "--dry_run",
+        "--DryRun"
+      ]
+    },
+    "cpp-constant": {
+      "description": "C++ constant under the selected profile.",
+      "form": "kPascalCase",
+      "pattern": "^k[A-Z][A-Za-z0-9]*$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "kDefaultTimeoutSeconds",
+        "kMaxRetryCount"
+      ],
+      "invalid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "k_default_timeout_seconds"
+      ]
+    },
+    "cpp-data-member": {
+      "description": "C++ class data member.",
+      "form": "snake_case_",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*_$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "retry_count_",
+        "customer_id_"
+      ],
+      "invalid_examples": [
+        "retry_count",
+        "_retry_count"
+      ]
+    },
+    "cpp-function": {
+      "description": "C++ function.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "CustomerRegistry",
+        "CalculateNetAmount"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "calculateNetAmount"
+      ]
+    },
+    "cpp-header-file": {
+      "description": "C++ header filename under the selected underscore profile.",
+      "form": "snake_case.h",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*\\.h$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "invoice_parser.h",
+        "customer_registry.h"
+      ],
+      "invalid_examples": [
+        "invoice-parser.hpp",
+        "InvoiceParser.h"
+      ],
+      "notes": [
+        "A repository or build system may govern another extension; treat that as a scoped override."
+      ]
+    },
+    "cpp-parameter": {
+      "description": "C++ parameter.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "retry_count",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "retryCount",
+        "CustomerId"
+      ]
+    },
+    "cpp-source-file": {
+      "description": "C++ source filename under the selected underscore profile.",
+      "form": "snake_case.cc",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*\\.cc$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "invoice_parser.cc",
+        "customer_registry.cc"
+      ],
+      "invalid_examples": [
+        "invoice-parser.cc",
+        "InvoiceParser.cpp"
+      ],
+      "notes": [
+        "A repository or build system may govern another extension; treat that as a scoped override."
+      ]
+    },
+    "cpp-type": {
+      "description": "C++ type.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "CustomerRegistry",
+        "CalculateNetAmount"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "calculateNetAmount"
+      ]
+    },
+    "cpp-variable": {
+      "description": "C++ variable.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Selected Google C++ Style profile",
+      "valid_examples": [
+        "retry_count",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "retryCount",
+        "CustomerId"
+      ]
+    },
+    "csharp-constant": {
+      "description": "C# constant.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "CalculateNetAmount",
+        "DefaultTimeoutSeconds"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "DEFAULT_TIMEOUT_SECONDS"
+      ]
+    },
+    "csharp-interface": {
+      "description": "C# interface.",
+      "form": "I + PascalCase",
+      "pattern": "^I[A-Z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "IInvoiceReader",
+        "ICustomerRegistry"
+      ],
+      "invalid_examples": [
+        "InvoiceReader",
+        "iInvoiceReader",
+        "I_InvoiceReader"
+      ]
+    },
+    "csharp-local": {
+      "description": "C# local variable.",
+      "form": "camelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "grossAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "gross_amount",
+        "GrossAmount"
+      ]
+    },
+    "csharp-method": {
+      "description": "C# method.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "CalculateNetAmount",
+        "DefaultTimeoutSeconds"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "DEFAULT_TIMEOUT_SECONDS"
+      ]
+    },
+    "csharp-namespace": {
+      "description": "C# namespace.",
+      "form": "PascalCase dot-separated segments",
+      "pattern": "^[A-Z][A-Za-z0-9]*(?:\\.[A-Z][A-Za-z0-9]*)*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "Billing.InvoiceProcessing",
+        "HaddenIndustries.Data"
+      ],
+      "invalid_examples": [
+        "billing.invoiceProcessing",
+        "Billing_InvoiceProcessing"
+      ]
+    },
+    "csharp-parameter": {
+      "description": "C# parameter.",
+      "form": "camelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "grossAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "gross_amount",
+        "GrossAmount"
+      ]
+    },
+    "csharp-private-instance-field": {
+      "description": "Private or internal C# instance field.",
+      "form": "_camelCase",
+      "pattern": "^_[a-z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "_clock",
+        "_customerRegistry"
+      ],
+      "invalid_examples": [
+        "clock_",
+        "_customer_registry"
+      ]
+    },
+    "csharp-private-static-field": {
+      "description": "Private or internal C# static field.",
+      "form": "s_camelCase",
+      "pattern": "^s_[a-z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "s_cache",
+        "s_customerRegistry"
+      ],
+      "invalid_examples": [
+        "_cache",
+        "s_Cache"
+      ]
+    },
+    "csharp-public-member": {
+      "description": "C# public property, field, or event.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "CalculateNetAmount",
+        "DefaultTimeoutSeconds"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "DEFAULT_TIMEOUT_SECONDS"
+      ]
+    },
+    "csharp-type": {
+      "description": "C# class, struct, enum, record, or delegate type.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Microsoft .NET conventions",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "Customer_Registry"
+      ]
+    },
+    "environment-variable": {
+      "description": "Environment variable.",
+      "form": "UPPER_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "DATABASE_URL",
+        "DEFAULT_TIMEOUT_SECONDS"
+      ],
+      "invalid_examples": [
+        "database_url",
+        "DatabaseUrl"
+      ]
+    },
+    "generic-directory": {
+      "description": "Human-authored directory governed by no more specific ecosystem or tool rule.",
+      "form": "kebab-case",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "architecture-decisions",
+        "customer-import"
+      ],
+      "invalid_examples": [
+        "architecture_decisions",
+        "ArchitectureDecisions"
+      ]
+    },
+    "generic-file": {
+      "description": "Human-authored file governed by no more specific ecosystem or tool rule; validate the complete basename including one or more lowercase extensions.",
+      "form": "kebab-case.ext",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z0-9]+(?:-[a-z0-9]+)*)+$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "customer-import-guide.md",
+        "release-notes.en.md"
+      ],
+      "invalid_examples": [
+        "customer_import_guide.md",
+        "CustomerImportGuide.md",
+        "README.md"
+      ],
+      "notes": [
+        "Required or conventional special filenames such as README.md, SKILL.md, Dockerfile, and package.json are scoped exceptions."
+      ]
+    },
+    "go-exported-identifier": {
+      "description": "Exported Go identifier.",
+      "form": "MixedCaps beginning uppercase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Official Go guidance",
+      "valid_examples": [
+        "CustomerID",
+        "ParseInvoice"
+      ],
+      "invalid_examples": [
+        "customerID",
+        "Customer_ID"
+      ]
+    },
+    "go-identifier": {
+      "description": "Go identifier where visibility is not part of this check.",
+      "form": "MixedCaps or mixedCaps",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$",
+      "basis": "Official Go guidance",
+      "valid_examples": [
+        "CustomerID",
+        "customerID",
+        "ParseInvoice"
+      ],
+      "invalid_examples": [
+        "customer_id",
+        "parse-invoice"
+      ],
+      "notes": [
+        "The checker cannot establish correct initialism treatment or semantic use of canonical method names."
+      ]
+    },
+    "go-package": {
+      "description": "Go package name.",
+      "form": "shortlowercaseword",
+      "pattern": "^[a-z][a-z0-9]*$",
+      "basis": "Official Go guidance",
+      "valid_examples": [
+        "invoice",
+        "http"
+      ],
+      "invalid_examples": [
+        "invoice_parser",
+        "Invoice"
+      ]
+    },
+    "go-unexported-identifier": {
+      "description": "Unexported Go identifier.",
+      "form": "mixedCaps beginning lowercase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Official Go guidance",
+      "valid_examples": [
+        "customerID",
+        "parseInvoice"
+      ],
+      "invalid_examples": [
+        "CustomerID",
+        "customer_id"
+      ]
+    },
+    "java-constant": {
+      "description": "Java constant under the selected style guide's semantic definition.",
+      "form": "UPPER_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "DefaultTimeoutSeconds",
+        "default_timeout_seconds"
+      ]
+    },
+    "java-field": {
+      "description": "Java non-constant field.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "java-local": {
+      "description": "Java local variable.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "java-method": {
+      "description": "Java method.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "java-module": {
+      "description": "Java module name under the selected profile.",
+      "form": "lowercase dot-separated segments",
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "com.example.billing",
+        "org.example.invoice"
+      ],
+      "invalid_examples": [
+        "com.example.customer_registry",
+        "Com.Example.Billing"
+      ]
+    },
+    "java-package": {
+      "description": "Dot-separated Java package name under the selected Google Java profile.",
+      "form": "lowercase concatenated segments",
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "com.example.customerregistry",
+        "org.example.billing"
+      ],
+      "invalid_examples": [
+        "com.example.customer_registry",
+        "Com.Example.Billing"
+      ]
+    },
+    "java-parameter": {
+      "description": "Java parameter.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "java-type": {
+      "description": "Java class, interface, enum, record, or annotation type.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Selected Google Java Style profile",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "Customer_Registry"
+      ]
+    },
+    "kotlin-constant": {
+      "description": "Kotlin compile-time or otherwise conventional true constant.",
+      "form": "UPPER_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "DefaultTimeoutSeconds",
+        "default_timeout_seconds"
+      ]
+    },
+    "kotlin-function": {
+      "description": "Kotlin function.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "kotlin-local": {
+      "description": "Kotlin local variable.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "kotlin-package": {
+      "description": "Dot-separated Kotlin package name.",
+      "form": "lowercase segments without underscores",
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "com.example.customerregistry",
+        "org.example.billing"
+      ],
+      "invalid_examples": [
+        "com.example.customer_registry",
+        "Com.Example.Billing"
+      ]
+    },
+    "kotlin-parameter": {
+      "description": "Kotlin parameter.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "kotlin-private-backing-property": {
+      "description": "Kotlin private backing property paired with a public conceptual property.",
+      "form": "_lowerCamelCase",
+      "pattern": "^_[a-z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "_table",
+        "_customerId"
+      ],
+      "invalid_examples": [
+        "table_",
+        "_customer_id"
+      ]
+    },
+    "kotlin-property": {
+      "description": "Kotlin property.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "kotlin-type": {
+      "description": "Kotlin class, object, interface, enum, annotation, or type alias.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Official Kotlin coding conventions",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "Customer_Registry"
+      ]
+    },
+    "python-class": {
+      "description": "Python class or exception type.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceParseError"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "Customer_Registry"
+      ]
+    },
+    "python-constant": {
+      "description": "Module-level Python constant.",
+      "form": "UPPER_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "default_timeout_seconds",
+        "DefaultTimeoutSeconds"
+      ]
+    },
+    "python-function": {
+      "description": "Python function.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "calculate_net_amount",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "CustomerId"
+      ]
+    },
+    "python-method": {
+      "description": "Python method.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "calculate_net_amount",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "CustomerId"
+      ]
+    },
+    "python-module": {
+      "description": "Ordinary importable Python module filename.",
+      "form": "snake_case.py",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*\\.py$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "rebuild_index.py",
+        "ontology_parser.py"
+      ],
+      "invalid_examples": [
+        "rebuild-index.py",
+        "OntologyParser.py"
+      ],
+      "notes": [
+        "Special modules such as __init__.py and generated or framework-required modules are scoped exceptions."
+      ]
+    },
+    "python-package": {
+      "description": "Python import package directory name.",
+      "form": "lowercase or snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "billing",
+        "customer_registry"
+      ],
+      "invalid_examples": [
+        "CustomerRegistry",
+        "customer-registry"
+      ],
+      "notes": [
+        "Prefer a short all-lowercase name; underscores are allowed when needed for readability."
+      ]
+    },
+    "python-parameter": {
+      "description": "Python parameter.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "calculate_net_amount",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "CustomerId"
+      ]
+    },
+    "python-private-function": {
+      "description": "Non-public Python function or method with one conventional leading underscore.",
+      "form": "_snake_case",
+      "pattern": "^_[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "_parse_header",
+        "_load_registry"
+      ],
+      "invalid_examples": [
+        "__parse_header",
+        "_parseHeader"
+      ]
+    },
+    "python-private-variable": {
+      "description": "Non-public Python variable with one conventional leading underscore.",
+      "form": "_snake_case",
+      "pattern": "^_[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "_cache",
+        "_customer_id"
+      ],
+      "invalid_examples": [
+        "__cache",
+        "_customerId"
+      ]
+    },
+    "python-script": {
+      "description": "Standalone executable Python script, not an ordinary importable module.",
+      "form": "kebab-case.py",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\.py$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "rebuild-index.py",
+        "verify-ontology.py"
+      ],
+      "invalid_examples": [
+        "rebuild_index.py",
+        "Rebuild-Index.py"
+      ]
+    },
+    "python-variable": {
+      "description": "Python variable.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "calculate_net_amount",
+        "customer_id"
+      ],
+      "invalid_examples": [
+        "calculateNetAmount",
+        "CustomerId"
+      ]
+    },
+    "rust-constant": {
+      "description": "Rust constant.",
+      "form": "SCREAMING_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "DefaultTimeoutSeconds",
+        "default_timeout_seconds"
+      ]
+    },
+    "rust-function": {
+      "description": "Rust function.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "invoice_parser",
+        "calculate_net_amount"
+      ],
+      "invalid_examples": [
+        "invoiceParser",
+        "InvoiceParser"
+      ]
+    },
+    "rust-local": {
+      "description": "Rust local binding.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "invoice_parser",
+        "calculate_net_amount"
+      ],
+      "invalid_examples": [
+        "invoiceParser",
+        "InvoiceParser"
+      ]
+    },
+    "rust-method": {
+      "description": "Rust method.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "invoice_parser",
+        "calculate_net_amount"
+      ],
+      "invalid_examples": [
+        "invoiceParser",
+        "InvoiceParser"
+      ]
+    },
+    "rust-module": {
+      "description": "Rust module.",
+      "form": "snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "invoice_parser",
+        "calculate_net_amount"
+      ],
+      "invalid_examples": [
+        "invoiceParser",
+        "InvoiceParser"
+      ]
+    },
+    "rust-static": {
+      "description": "Rust static.",
+      "form": "SCREAMING_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "DefaultTimeoutSeconds",
+        "default_timeout_seconds"
+      ]
+    },
+    "rust-trait": {
+      "description": "Rust trait.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "Customer_Registry"
+      ]
+    },
+    "rust-type": {
+      "description": "Rust type.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Rust API Guidelines",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "Customer_Registry"
+      ]
+    },
+    "sql-check-constraint": {
+      "description": "SQL check constraint.",
+      "form": "ck_<table>__<rule_concept>",
+      "pattern": "^ck_[a-z][a-z0-9]*(?:_[a-z0-9]+)*__[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "ck_invoice__net_amount_nonnegative",
+        "ck_person__birth_date_not_future"
+      ],
+      "invalid_examples": [
+        "check_invoice_amount",
+        "CK_INVOICE_AMOUNT"
+      ]
+    },
+    "sql-column": {
+      "description": "SQL column under this skill's explicit physical naming profile.",
+      "form": "lower_snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "customer_id",
+        "created_at_epoch_ms"
+      ],
+      "invalid_examples": [
+        "Customer",
+        "customer-id"
+      ]
+    },
+    "sql-foreign-key-constraint": {
+      "description": "SQL foreign-key constraint.",
+      "form": "fk_<child_table>__<parent_table>",
+      "pattern": "^fk_[a-z][a-z0-9]*(?:_[a-z0-9]+)*__[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "fk_invoice__customer",
+        "fk_invoice_line__invoice"
+      ],
+      "invalid_examples": [
+        "fk_invoice_customer",
+        "invoice_customer_fk"
+      ]
+    },
+    "sql-index": {
+      "description": "SQL index.",
+      "form": "ix_<table>__<semantic_columns>",
+      "pattern": "^ix_[a-z][a-z0-9]*(?:_[a-z0-9]+)*__[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "ix_invoice__customer_id_created_at",
+        "ix_customer__family_name"
+      ],
+      "invalid_examples": [
+        "idx_invoice_customer",
+        "IX_INVOICE"
+      ]
+    },
+    "sql-primary-key-constraint": {
+      "description": "SQL primary-key constraint.",
+      "form": "pk_<table>",
+      "pattern": "^pk_[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "pk_invoice",
+        "pk_customer_account"
+      ],
+      "invalid_examples": [
+        "invoice_pk",
+        "PK_INVOICE"
+      ]
+    },
+    "sql-schema": {
+      "description": "SQL schema under this skill's explicit physical naming profile.",
+      "form": "lower_snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "billing",
+        "inventory"
+      ],
+      "invalid_examples": [
+        "Customer",
+        "customer-id"
+      ],
+      "notes": [
+        "Schema concepts represent bounded contexts or namespaces under the selected profile."
+      ]
+    },
+    "sql-table": {
+      "description": "SQL table row concept under this skill's explicit physical naming profile.",
+      "form": "lower_snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "customer",
+        "customer_account"
+      ],
+      "invalid_examples": [
+        "Customer",
+        "customer-id"
+      ],
+      "notes": [
+        "Table and view concepts are singular by semantic policy; plurality is not mechanically decidable by this regex."
+      ]
+    },
+    "sql-unique-constraint": {
+      "description": "SQL unique constraint.",
+      "form": "uq_<table>__<semantic_columns>",
+      "pattern": "^uq_[a-z][a-z0-9]*(?:_[a-z0-9]+)*__[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "uq_customer__external_identifier",
+        "uq_invoice__issuer_id_number"
+      ],
+      "invalid_examples": [
+        "uk_customer_external_identifier",
+        "UQ_CUSTOMER"
+      ]
+    },
+    "sql-view": {
+      "description": "SQL view row concept under this skill's explicit physical naming profile.",
+      "form": "lower_snake_case",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "active_customer",
+        "customer_summary"
+      ],
+      "invalid_examples": [
+        "Customer",
+        "customer-id"
+      ],
+      "notes": [
+        "Table and view concepts are singular by semantic policy; plurality is not mechanically decidable by this regex."
+      ]
+    },
+    "swift-enum-case": {
+      "description": "Swift enum case.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ],
+      "notes": [
+        "The checker cannot establish grammatical quality at the call site or correct mutating/non-mutating pair semantics."
+      ]
+    },
+    "swift-function": {
+      "description": "Swift function.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ],
+      "notes": [
+        "The checker cannot establish grammatical quality at the call site or correct mutating/non-mutating pair semantics."
+      ]
+    },
+    "swift-local": {
+      "description": "Swift local variable.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ],
+      "notes": [
+        "The checker cannot establish grammatical quality at the call site or correct mutating/non-mutating pair semantics."
+      ]
+    },
+    "swift-method": {
+      "description": "Swift method.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ],
+      "notes": [
+        "The checker cannot establish grammatical quality at the call site or correct mutating/non-mutating pair semantics."
+      ]
+    },
+    "swift-property": {
+      "description": "Swift property.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ],
+      "notes": [
+        "The checker cannot establish grammatical quality at the call site or correct mutating/non-mutating pair semantics."
+      ]
+    },
+    "swift-protocol": {
+      "description": "Swift protocol.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReading"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "Customer_Registry"
+      ]
+    },
+    "swift-type": {
+      "description": "Swift type.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Swift API Design Guidelines",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReading"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "Customer_Registry"
+      ]
+    },
+    "typescript-declaration-file": {
+      "description": "Hand-authored TypeScript declaration filename.",
+      "form": "snake_case.d.ts",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*\\.d\\.ts$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "customer_registry.d.ts",
+        "invoice_api.d.ts"
+      ],
+      "invalid_examples": [
+        "customer-registry.d.ts",
+        "CustomerRegistry.d.ts"
+      ],
+      "notes": [
+        "Generated or package-owned declaration filenames may be externally governed exceptions."
+      ]
+    },
+    "typescript-function": {
+      "description": "TypeScript function.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "typescript-global-constant": {
+      "description": "Global TypeScript constant value under the selected profile.",
+      "form": "CONSTANT_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_SECONDS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "DefaultTimeoutSeconds",
+        "default_timeout_seconds"
+      ]
+    },
+    "typescript-method": {
+      "description": "TypeScript method.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "typescript-parameter": {
+      "description": "TypeScript parameter.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "typescript-property": {
+      "description": "TypeScript property.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    },
+    "typescript-source-file": {
+      "description": "TypeScript source filename under the selected Google TypeScript profile.",
+      "form": "snake_case.ts or snake_case.tsx",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*\\.(?:ts|tsx)$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "invoice_parser.ts",
+        "customer_registry.tsx"
+      ],
+      "invalid_examples": [
+        "invoice-parser.ts",
+        "InvoiceParser.ts"
+      ]
+    },
+    "typescript-type": {
+      "description": "TypeScript class, interface, type alias, enum, or decorator.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceReader"
+      ],
+      "invalid_examples": [
+        "customer_registry",
+        "customer-registry"
+      ],
+      "notes": [
+        "A legacy interface prefix such as ICustomerRegistry is lexically UpperCamelCase but violates the selected profile semantically; a case-only regex cannot reject it."
+      ]
+    },
+    "typescript-value": {
+      "description": "TypeScript variable or value.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "Selected Google TypeScript Style profile",
+      "valid_examples": [
+        "calculateNetAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CustomerId"
+      ]
+    }
+  }
+}
