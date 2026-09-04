@@ -1,0 +1,130 @@
+[
+  {
+    "query": "Rename this function process_data to something semantically discriminating that clarifies its behavior.",
+    "should_trigger": true
+  },
+  {
+    "query": "We need a name for a new SQL table storing customer billing accounts and its primary key column.",
+    "should_trigger": true
+  },
+  {
+    "query": "Should this API request payload field be named user_info, profile_data, or customer_profile?",
+    "should_trigger": true
+  },
+  {
+    "query": "Help me choose idiomatic names for this CLI tool's export subcommand and its batch size option.",
+    "should_trigger": true
+  },
+  {
+    "query": "What should we name this standalone Python data migration script vs the helper module it imports?",
+    "should_trigger": true
+  },
+  {
+    "query": "How should I name this Go package and its customer lookup method to follow Effective Go conventions?",
+    "should_trigger": true
+  },
+  {
+    "query": "Review the identifier names in this pull request diff for vague tokens and inconsistent casing.",
+    "should_trigger": true
+  },
+  {
+    "query": "We have a boolean flag named not_empty with negative semantics; what is a better assertive designation?",
+    "should_trigger": true
+  },
+  {
+    "query": "Name this cache expiration parameter to explicitly state its unit of time.",
+    "should_trigger": true
+  },
+  {
+    "query": "Our repository style guide conflicts with the standard Python PEP 8 module casing; how should we resolve precedence?",
+    "should_trigger": true
+  },
+  {
+    "query": "We need to rename an external webhook payload property without breaking existing third-party integrations.",
+    "should_trigger": true
+  },
+  {
+    "query": "Choose idiomatic Rust trait and function names for this message serialization component.",
+    "should_trigger": true
+  },
+  {
+    "query": "Define the concept of Customer Account Closure Reason for our corporate metadata registry.",
+    "should_trigger": false
+  },
+  {
+    "query": "Draft a conventional commit message for our staged changes to the authentication middleware.",
+    "should_trigger": false
+  },
+  {
+    "query": "Extract the text from the attached EPUB ebook and give me a summary of chapter two.",
+    "should_trigger": false
+  },
+  {
+    "query": "Refactor this 200-line method by extracting helper functions to reduce its cyclomatic complexity.",
+    "should_trigger": false
+  },
+  {
+    "query": "Add a B-tree index on customer_id to improve query performance on the orders table.",
+    "should_trigger": false
+  },
+  {
+    "query": "Format this JavaScript codebase using Prettier with single quotes and trailing commas.",
+    "should_trigger": false
+  },
+  {
+    "query": "What is the common dictionary definition and etymology of the English word 'aggregate'?",
+    "should_trigger": false
+  },
+  {
+    "query": "Why is this Python test failing with an unhandled KeyError on line 42?",
+    "should_trigger": false
+  },
+  {
+    "query": "Brainstorm creative marketing brand names for our new cloud accounting startup.",
+    "should_trigger": false
+  },
+  {
+    "query": "Write unit tests with Jest for this password validation function covering boundary cases.",
+    "should_trigger": false
+  },
+  {
+    "query": "Rebase my feature branch onto main and resolve the merge conflict in package-lock.json.",
+    "should_trigger": false
+  },
+  {
+    "query": "Audit our backend folder structure to check whether repository layers violate clean architecture.",
+    "should_trigger": false
+  },
+  {
+    "query": "How should we name this React custom hook for customer billing and its on-submit callback prop?",
+    "should_trigger": true
+  },
+  {
+    "query": "What are the naming conventions for our JavaScript ESM modules vs standalone npm automation scripts?",
+    "should_trigger": true
+  },
+  {
+    "query": "Choose valid BEM CSS class names and a CSS custom property for an invoice summary widget.",
+    "should_trigger": true
+  },
+  {
+    "query": "Should this custom Python exception be named InvoiceNotFoundException or something else according to PEP 8?",
+    "should_trigger": true
+  },
+  {
+    "query": "How do I configure Vite to compile JSX and bundle CSS modules for production?",
+    "should_trigger": false
+  },
+  {
+    "query": "Explain how the virtual DOM diffing algorithm works in React 18.",
+    "should_trigger": false
+  },
+  {
+    "query": "Fix the CSS flexbox layout issue causing this button to wrap on mobile screens.",
+    "should_trigger": false
+  },
+  {
+    "query": "Profile this Python generator to identify memory bottlenecks during execution.",
+    "should_trigger": false
+  }
+]

@@ -15,7 +15,24 @@ Classification comes first. The generic fallback MUST NOT override a language, r
 | Python package | short lowercase; avoid underscores unless needed | PEP 8 |
 | Python function, method, parameter, variable | `snake_case` | PEP 8 |
 | Python class | `PascalCase` / CapWords | PEP 8 |
+| Python exception class | `PascalCase` ending in `Error` | PEP 8 |
+| Python TypeVar / type parameter | `UpperCamelCase` | PEP 484 / PEP 695 |
+| Python protocol | `UpperCamelCase` | PEP 544 |
+| Python generator / iterator factory | `iter_snake_case` or `stream_snake_case` | Python standard library idiom |
 | Python constant | `UPPER_SNAKE_CASE` | PEP 8 |
+| JavaScript ESM module | `lowerCamelCase.js` or `lowerCamelCase.mjs` | Selected modern JavaScript house profile |
+| JavaScript standalone automation script | `kebab-case.mjs` | Selected modern Node.js house profile |
+| JavaScript class | `PascalCase` | ECMAScript 2015+ / ecosystem convention |
+| JavaScript function, method, property, variable | `lowerCamelCase` | ECMAScript / ecosystem convention |
+| JavaScript private class member | `#lowerCamelCase` | ECMAScript 2022 private fields |
+| JavaScript constant | `UPPER_SNAKE_CASE` | Ecosystem convention |
+| React component | `PascalCase` / `PascalCase.jsx` | React convention |
+| React custom hook | `use` + `PascalCase` | React Rules of Hooks |
+| React event handler prop | `on` + `PascalCase` | React / DOM convention |
+| React internal event handler | `handle` + `PascalCase` | React community convention |
+| CSS custom property (variable) | `--kebab-case` | W3C CSS Custom Properties Level 1 |
+| CSS class (BEM) | `block__element--modifier` | BEM CSS convention |
+| HTML data attribute | `data-kebab-case` | W3C HTML5 data-* specification |
 | Go package | short lowercase single word | Go guidance |
 | Go identifier | `MixedCaps` or `mixedCaps`; no word-separating underscores | Go guidance |
 | Rust module, function, method, local | `snake_case` | Rust API Guidelines |
@@ -105,6 +122,156 @@ Non-public functions, methods, and variables may use one leading underscore wher
 Use `self` for the first parameter of an instance method and `cls` for the first parameter of a class method. A trailing underscore may resolve a Python keyword collision, but first consider a semantically better term.
 
 Do not invent double-underscore names. Reserve language-defined "dunder" names for their specified meanings, and use name mangling only for its intended subclass-collision purpose.
+
+### Exceptions
+
+Exception classes MUST use `PascalCase` and end with the suffix `Error` (PEP 8):
+
+```python
+class InvoiceNotFoundError(LookupError): ...
+class ValidationFailureError(ValueError): ...
+```
+
+Do not suffix an exception with `Exception`. Reserve generic suffixes such as `BaseException` or built-in root exceptions to their standard library contexts. Specific error types distinguish failures by condition, not merely by the word "Exception".
+
+### Type parameters and protocols
+
+Generic type variables and parameters use `UpperCamelCase` (PEP 484, PEP 695):
+
+```python
+from typing import TypeVar, Protocol
+
+T = TypeVar("T")
+KeyT = TypeVar("KeyT")
+
+# Python 3.12+ (PEP 695) type parameter syntax:
+type RegistryMap[KeyT, ValueT] = dict[KeyT, ValueT]
+
+class InvoiceReader(Protocol):
+    def read_invoice(self, invoice_id: str) -> Invoice: ...
+```
+
+Protocols should use expressive nouns or capability names (`InvoiceReader`, `SupportsClose`) rather than arbitrary abstract prefixes.
+
+### Generators versus materialized collections
+
+Distinguish iterables that generate values lazily on demand from materialized in-memory collections:
+
+- Use `iter_*` or `stream_*` prefixes (e.g. `iter_invoices()`, `stream_chunks()`) for generator functions that yield items one at a time and consume state.
+- Use plural nouns or collection types (e.g. `invoices`, `customer_list`, `pending_orders`) for materialized collections that support repeated indexing, sizing, or random access.
+
+```python
+def iter_invoices(account_id: str) -> Iterator[Invoice]:
+    for page in fetch_pages(account_id):
+        yield from page.items
+
+invoices: list[Invoice] = list(iter_invoices(account_id))
+```
+
+### Context managers
+
+Context managers that acquire and release resources should use descriptive action verbs indicating acquisition or setup, such as `open_*`, `acquire_*`, or `scoped_*`:
+
+```python
+@contextmanager
+def open_invoice_session(session_id: str) -> Iterator[Session]:
+    ...
+```
+
+### Pytest discovery conventions
+
+Pytest test discovery relies on deterministic prefix conventions:
+
+- Test files: `test_*.py` or `*_test.py` (prefer `test_<module>.py`).
+- Test classes: `Test<Concept>` (using `PascalCase` without `__init__`).
+- Test functions and methods: `test_<behaviour>_<condition>()` using `snake_case`.
+- Fixtures: descriptive noun phrases representing the provided resource (e.g. `mock_db_session`, `authenticated_client`).
+
+## JavaScript, React, and modern web frontends
+
+Web applications synthesize four distinct authority tiers:
+1. First principles (semantic precision, cognitive clarity, point-of-use ergonomics, I/O boundary truthfulness, state vs event differentiation).
+2. Authoritative standards and specifications (ECMAScript 2022+ private fields `#`, TC39 ESM resolution, W3C CSS Custom Properties Level 1 `--*`, W3C HTML5 `data-*`, React Rules of Hooks).
+3. Major tech and ecosystem guides (Airbnb JavaScript Style Guide, Google JavaScript/TypeScript Guides, React documentation idioms, Vitest/Jest/Playwright conventions, BEM CSS methodology).
+4. Repository and house profiles (pure ESM modules, `lowerCamelCase.js` domain modules, `kebab-case.mjs` automation scripts, faceted and cross-runner tests `<module>.<facet>.test.js`, `<subject>.<runner>.js`, `<seam>.architecture.test.js`, domain errors with `UPPER_SNAKE_CASE` codes).
+
+### Module and file taxonomy
+
+Modern JavaScript projects distinguish four kinds of files:
+
+- Domain and library modules: use `lowerCamelCase.js` or `lowerCamelCase.mjs` (e.g. `invoiceParser.js`, `customerRegistry.js`). Pure ESM requires explicit file extensions in relative imports.
+- Standalone automation and build scripts: use `kebab-case.mjs` (or `kebab-case.js` in ESM packages), such as `rebuild-index.mjs` or `verify-bundle.mjs`. These are executed directly by Node.js or npm scripts, not imported as library symbols.
+- Test suites:
+  - Unit and faceted tests: `<module>.<facet>.test.js` (e.g. `invoiceParser.unit.test.js`, `invoiceParser.edge.test.js`).
+  - Cross-runner isolation: `<subject>.<runner>.js` (e.g. `workflow.node.test.js` vs `workflow.browser.test.js`).
+  - Architectural seam tests: `<seam>.architecture.test.js` (e.g. `domainBoundaries.architecture.test.js`).
+- Configuration and infrastructure files: governed by external tool specifications (e.g. `package.json`, `vite.config.mjs`, `eslint.config.js`).
+
+### JavaScript identifiers and classes
+
+- Classes and constructor functions: `PascalCase` (e.g. `CustomerRegistry`, `InvoiceParser`).
+- Functions, methods, properties, and variables: `lowerCamelCase` (e.g. `calculateNetAmount`, `customerId`).
+- True module constants: `UPPER_SNAKE_CASE` (e.g. `MAX_RECONNECT_ATTEMPTS`, `DEFAULT_TIMEOUT_MS`).
+- True private class fields: use ECMAScript 2022 `#privateField` syntax rather than underscore prefixing (e.g. `#cache`, `#connectionPool`).
+- Domain error codes: domain exceptions should attach a stable `UPPER_SNAKE_CASE` machine-readable `.code` property (e.g. `INVOICE_NOT_FOUND`, `INVALID_CREDENTIALS`).
+
+```javascript
+export class CustomerRegistry {
+  #cache = new Map();
+
+  constructor(options = {}) {
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
+  async findCustomer(customerId) {
+    if (this.#cache.has(customerId)) {
+      return this.#cache.get(customerId);
+    }
+    const customer = await this.#fetchRemote(customerId);
+    this.#cache.set(customerId, customer);
+    return customer;
+  }
+
+  async #fetchRemote(customerId) { ... }
+}
+```
+
+### React components, hooks, and event pairing
+
+- Components: `PascalCase` for both component function/class and file stem (e.g. `CustomerInvoiceCard.jsx`, `OrderSummary.tsx`).
+- Custom Hooks: MUST start with `use` followed by `PascalCase` (e.g. `useCustomerAccount`, `useWindowDimensions`). This triggers React hook linter checks.
+- Event props vs event handlers:
+  - Callback props passed into components MUST start with `on[Event]` (e.g. `onInvoiceSubmit`, `onCustomerSelect`).
+  - Internal handler functions implementing the callback MUST start with `handle[Event]` (e.g. `handleInvoiceSubmit`, `handleCustomerSelect`).
+  - This pairing cleanly discriminates the event contract interface from the concrete handling implementation.
+
+```jsx
+export function InvoiceForm({ onInvoiceSubmit, onCancel }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function handleInvoiceSubmit(event) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    onInvoiceSubmit(formData);
+  }
+
+  return (
+    <form onSubmit={handleInvoiceSubmit}>
+      <button type="submit" disabled={isSubmitting}>Submit</button>
+      <button type="button" onClick={onCancel}>Cancel</button>
+    </form>
+  );
+}
+```
+
+### CSS custom properties and class naming
+
+- CSS Custom Properties (variables): MUST use `--kebab-case` according to W3C CSS Custom Properties Level 1 (e.g. `--color-primary-600`, `--font-size-base`, `--z-index-modal`).
+- CSS classes (BEM): use `block__element--modifier` to maintain clear architectural boundaries and avoid specificity wars:
+  - Block: standalone entity (e.g. `invoice-card`).
+  - Element: part of a block with no standalone meaning (e.g. `invoice-card__header`, `invoice-card__total`).
+  - Modifier: flag that changes appearance or behavior (e.g. `invoice-card--highlighted`, `invoice-card__total--overdue`).
+- HTML data attributes: MUST use `data-kebab-case` according to W3C HTML5 (e.g. `data-customer-id`, `data-state="active"`).
 
 ## Go
 

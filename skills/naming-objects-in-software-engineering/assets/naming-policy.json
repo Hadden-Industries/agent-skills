@@ -332,6 +332,37 @@
         "Customer_Registry"
       ]
     },
+    "css-class-bem": {
+      "description": "CSS class name using BEM (Block Element Modifier) notation.",
+      "form": "block__element--modifier",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:__[a-z][a-z0-9]*(?:-[a-z0-9]+)*)?(?:--[a-z][a-z0-9]*(?:-[a-z0-9]+)*)?$",
+      "basis": "BEM CSS methodology",
+      "valid_examples": [
+        "invoice-card",
+        "invoice-card__header",
+        "invoice-card__header--highlighted"
+      ],
+      "invalid_examples": [
+        "invoiceCard",
+        "invoice_card",
+        "invoice-card--"
+      ]
+    },
+    "css-custom-property": {
+      "description": "CSS custom property (variable).",
+      "form": "--kebab-case",
+      "pattern": "^--[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "basis": "W3C CSS Custom Properties Level 1",
+      "valid_examples": [
+        "--color-primary",
+        "--spacing-unit-lg"
+      ],
+      "invalid_examples": [
+        "--colorPrimary",
+        "color-primary",
+        "--color_primary"
+      ]
+    },
     "environment-variable": {
       "description": "Environment variable.",
       "form": "UPPER_SNAKE_CASE",
@@ -436,6 +467,21 @@
       "invalid_examples": [
         "CustomerID",
         "customer_id"
+      ]
+    },
+    "html-data-attribute": {
+      "description": "HTML5 custom data attribute.",
+      "form": "data-kebab-case",
+      "pattern": "^data-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "basis": "W3C HTML5 specification",
+      "valid_examples": [
+        "data-customer-id",
+        "data-status-badge"
+      ],
+      "invalid_examples": [
+        "data-customerId",
+        "data_customer_id",
+        "customerId"
       ]
     },
     "java-constant": {
@@ -548,6 +594,148 @@
       "invalid_examples": [
         "customerRegistry",
         "Customer_Registry"
+      ]
+    },
+    "javascript-class": {
+      "description": "JavaScript class or constructor function.",
+      "form": "PascalCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "ECMAScript 2015+ / ecosystem convention",
+      "valid_examples": [
+        "CustomerRegistry",
+        "InvoiceParser"
+      ],
+      "invalid_examples": [
+        "customerRegistry",
+        "customer_registry"
+      ]
+    },
+    "javascript-constant": {
+      "description": "Module-level JavaScript constant value.",
+      "form": "UPPER_SNAKE_CASE",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "basis": "Ecosystem convention",
+      "valid_examples": [
+        "DEFAULT_TIMEOUT_MS",
+        "MAX_RETRY_COUNT"
+      ],
+      "invalid_examples": [
+        "defaultTimeoutMs",
+        "DefaultTimeoutMs"
+      ]
+    },
+    "javascript-function": {
+      "description": "JavaScript function.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "ECMAScript / ecosystem convention",
+      "valid_examples": [
+        "calculateNetAmount",
+        "findCustomer"
+      ],
+      "invalid_examples": [
+        "calculate_net_amount",
+        "CalculateNetAmount"
+      ]
+    },
+    "javascript-method": {
+      "description": "JavaScript method.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "ECMAScript / ecosystem convention",
+      "valid_examples": [
+        "findCustomer",
+        "calculateNetAmount"
+      ],
+      "invalid_examples": [
+        "find_customer",
+        "FindCustomer"
+      ]
+    },
+    "javascript-module": {
+      "description": "JavaScript ESM library or domain module filename.",
+      "form": "lowerCamelCase.js or lowerCamelCase.mjs",
+      "pattern": "^[a-z][A-Za-z0-9]*\\.(?:js|mjs)$",
+      "basis": "Selected modern JavaScript house profile",
+      "valid_examples": [
+        "invoiceParser.js",
+        "customerRegistry.mjs"
+      ],
+      "invalid_examples": [
+        "invoice-parser.js",
+        "InvoiceParser.js"
+      ]
+    },
+    "javascript-private-field": {
+      "description": "ECMAScript private class field or method.",
+      "form": "#lowerCamelCase",
+      "pattern": "^#[a-z][A-Za-z0-9]*$",
+      "basis": "ECMAScript 2022 private class fields",
+      "valid_examples": [
+        "#cache",
+        "#parseHeader"
+      ],
+      "invalid_examples": [
+        "_cache",
+        "#_cache",
+        "#parse_header"
+      ]
+    },
+    "javascript-property": {
+      "description": "JavaScript object property.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "ECMAScript / ecosystem convention",
+      "valid_examples": [
+        "customerId",
+        "timeoutMs"
+      ],
+      "invalid_examples": [
+        "customer_id",
+        "CustomerId"
+      ]
+    },
+    "javascript-script": {
+      "description": "Standalone automation or build script in JavaScript.",
+      "form": "kebab-case.mjs or kebab-case.js",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\.(?:mjs|js)$",
+      "basis": "Explicit house policy",
+      "valid_examples": [
+        "rebuild-index.mjs",
+        "verify-bundle.js"
+      ],
+      "invalid_examples": [
+        "rebuildIndex.mjs",
+        "rebuild_index.js"
+      ]
+    },
+    "javascript-test-file": {
+      "description": "JavaScript test file (unit, faceted, cross-runner, or architecture seam).",
+      "form": "<stem>.<facet>.test.js, <subject>.<runner>.js, or <seam>.architecture.test.js",
+      "pattern": "^[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)*\\.(?:test|architecture\\.test|[a-z0-9]+)\\.(?:js|mjs)$",
+      "basis": "Selected modern JavaScript house profile",
+      "valid_examples": [
+        "invoiceParser.unit.test.js",
+        "domainBoundaries.architecture.test.js",
+        "workflow.node.test.js"
+      ],
+      "invalid_examples": [
+        "invoice_parser_test.txt",
+        "test-invoice.spec"
+      ]
+    },
+    "javascript-variable": {
+      "description": "JavaScript variable.",
+      "form": "lowerCamelCase",
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "basis": "ECMAScript / ecosystem convention",
+      "valid_examples": [
+        "grossAmount",
+        "customerId"
+      ],
+      "invalid_examples": [
+        "gross_amount",
+        "GrossAmount"
       ]
     },
     "kotlin-constant": {
@@ -690,6 +878,20 @@
         "DefaultTimeoutSeconds"
       ]
     },
+    "python-exception": {
+      "description": "Python exception class ending with Error.",
+      "form": "PascalCase ending with Error",
+      "pattern": "^[A-Z][A-Za-z0-9]*Error$",
+      "basis": "PEP 8",
+      "valid_examples": [
+        "InvoiceNotFoundError",
+        "ValidationError"
+      ],
+      "invalid_examples": [
+        "InvoiceNotFoundException",
+        "invoice_not_found_error"
+      ]
+    },
     "python-function": {
       "description": "Python function.",
       "form": "snake_case",
@@ -702,6 +904,20 @@
       "invalid_examples": [
         "calculateNetAmount",
         "CustomerId"
+      ]
+    },
+    "python-generator": {
+      "description": "Python generator function or iterator factory yielding items over time.",
+      "form": "iter_snake_case or stream_snake_case",
+      "pattern": "^(?:iter|stream)_[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "basis": "Python standard library and idiom",
+      "valid_examples": [
+        "iter_invoices",
+        "stream_chunks"
+      ],
+      "invalid_examples": [
+        "get_invoices",
+        "invoices_generator"
       ]
     },
     "python-method": {
@@ -808,6 +1024,21 @@
         "Rebuild-Index.py"
       ]
     },
+    "python-type-var": {
+      "description": "Python TypeVar or generic type parameter.",
+      "form": "UpperCamelCase",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "basis": "PEP 484 and PEP 695",
+      "valid_examples": [
+        "T",
+        "KeyT",
+        "ItemType"
+      ],
+      "invalid_examples": [
+        "item_type",
+        "type_t"
+      ]
+    },
     "python-variable": {
       "description": "Python variable.",
       "form": "snake_case",
@@ -820,6 +1051,63 @@
       "invalid_examples": [
         "calculateNetAmount",
         "CustomerId"
+      ]
+    },
+    "react-component": {
+      "description": "React component function or filename.",
+      "form": "PascalCase or PascalCase.jsx / PascalCase.tsx",
+      "pattern": "^[A-Z][A-Za-z0-9]*(?:\\.(?:jsx|tsx))?$",
+      "basis": "React community convention",
+      "valid_examples": [
+        "CustomerInvoiceCard",
+        "UserProfile.jsx",
+        "OrderSummary.tsx"
+      ],
+      "invalid_examples": [
+        "customerInvoiceCard",
+        "user-profile.jsx"
+      ]
+    },
+    "react-event-handler": {
+      "description": "Component internal event handler function.",
+      "form": "handle + PascalCase",
+      "pattern": "^handle[A-Z][A-Za-z0-9]*$",
+      "basis": "React community convention",
+      "valid_examples": [
+        "handleInvoiceSubmit",
+        "handleCustomerSelect"
+      ],
+      "invalid_examples": [
+        "onInvoiceSubmit",
+        "invoiceSubmitCallback"
+      ]
+    },
+    "react-event-prop": {
+      "description": "Event handler prop on a component.",
+      "form": "on + PascalCase",
+      "pattern": "^on[A-Z][A-Za-z0-9]*$",
+      "basis": "React community convention / DOM idiom",
+      "valid_examples": [
+        "onInvoiceSubmit",
+        "onCustomerSelect"
+      ],
+      "invalid_examples": [
+        "handleInvoiceSubmit",
+        "invoiceSubmittedHandler"
+      ]
+    },
+    "react-hook": {
+      "description": "React custom hook.",
+      "form": "use + PascalCase",
+      "pattern": "^use[A-Z][A-Za-z0-9]*$",
+      "basis": "React Rules of Hooks",
+      "valid_examples": [
+        "useCustomerAccount",
+        "useWindowDimensions"
+      ],
+      "invalid_examples": [
+        "customerAccountHook",
+        "usecustomerAccount"
       ]
     },
     "rust-constant": {

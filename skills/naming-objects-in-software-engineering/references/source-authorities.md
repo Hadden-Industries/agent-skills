@@ -45,8 +45,59 @@ This file distinguishes external authority from explicit house policy. A selecte
 
 - URL: https://peps.python.org/pep-0008/
 - Authority: Python Enhancement Proposal published on the official Python PEP site.
-- Applied to: lowercase module names, optional underscores for module readability, lowercase-with-underscores functions and variables, CapWords classes, uppercase-with-underscores constants, `self`, `cls`, non-public underscores, and keyword-collision handling.
+- Applied to: lowercase module names, optional underscores for module readability, lowercase-with-underscores functions and variables, CapWords classes, exception classes ending with `Error`, uppercase-with-underscores constants, `self`, `cls`, non-public underscores, and keyword-collision handling.
 - House-policy addition: standalone executable Python scripts use `kebab-case.py`. PEP 8's importable-module convention remains separate.
+
+### PEP 484 and PEP 695 -- Type Hints and Type Parameter Syntax
+
+- PEP 484 URL: https://peps.python.org/pep-0484/
+- PEP 695 URL: https://peps.python.org/pep-0695/
+- Authority: official Python type system specifications.
+- Applied to: `UpperCamelCase` naming for type variables (`TypeVar`) and generic type parameters.
+
+### PEP 544 -- Protocols: Structural Subtyping
+
+- URL: https://peps.python.org/pep-0544/
+- Authority: official Python static typing specification.
+- Applied to: expressive protocol naming representing capabilities or interfaces (`SupportsClose`, `InvoiceReader`).
+
+## JavaScript, React, and modern web standards
+
+### ECMAScript 2022+ Specification (TC39)
+
+- URL: https://tc39.es/ecma262/
+- Authority: Ecma International Standard ECMA-262.
+- Applied to: official `#privateField` syntax for private class fields and methods; standard identifier syntax and case rules.
+
+### W3C CSS Custom Properties for Cascading Variables Module Level 1
+
+- URL: https://www.w3.org/TR/css-variables-1/
+- Authority: W3C Recommendation.
+- Applied to: `--kebab-case` prefix and casing for CSS custom properties.
+
+### W3C HTML5 Specification -- Embedding Custom Non-Visible Data
+
+- URL: https://html.spec.whatwg.org/multipage/dom.html#embedding-custom-non-visible-data-with-the-data-*-attributes
+- Authority: WHATWG HTML Living Standard / W3C.
+- Applied to: `data-*` custom attributes with kebab-case property naming.
+
+### React Rules of Hooks and Documentation Idioms
+
+- URL: https://react.dev/reference/rules/rules-of-hooks
+- Authority: official React documentation.
+- Applied to: `use` prefix for custom hooks; `PascalCase` component naming; `on[Event]` callback props paired with `handle[Event]` local handler functions.
+
+### Airbnb JavaScript Style Guide
+
+- URL: https://github.com/airbnb/javascript
+- Status: widely adopted ecosystem style profile.
+- Applied to: `lowerCamelCase` functions and variables; `PascalCase` classes and constructors; `UPPER_SNAKE_CASE` constants; file naming conventions.
+
+### BEM (Block Element Modifier) Methodology
+
+- URL: https://en.bem.info/methodology/naming-convention/
+- Status: widely adopted frontend CSS architecture convention.
+- Applied to: `block__element--modifier` class naming.
 
 ## Go
 
@@ -154,6 +205,9 @@ The following are intentional policy choices, not attributed to ISO or a languag
 
 - generic human-authored files and directories use `kebab-case`;
 - standalone Python scripts use `kebab-case.py`;
+- JavaScript domain and library modules use `lowerCamelCase.js` or `lowerCamelCase.mjs`;
+- standalone JavaScript automation and build scripts use `kebab-case.mjs` (or `kebab-case.js` in ESM packages);
+- JavaScript test suites use `<module>.<facet>.test.js`, `<subject>.<runner>.js`, and `<seam>.architecture.test.js`;
 - environment variables use `UPPER_SNAKE_CASE`;
 - CLI commands and long options use kebab case;
 - SQL schemas, tables, views, and columns use `lower_snake_case`;

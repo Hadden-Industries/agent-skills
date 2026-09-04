@@ -42,7 +42,9 @@ Do not conflate:
 - a function with a method;
 - a field with a property;
 - a type with an instance;
-- a Python distribution, package, module, standalone script, test module, generated file, or framework-discovered file;
+- a JavaScript library module, standalone automation script, React component, custom hook, event prop, event handler, or DOM element reference;
+- a CSS class, CSS custom property (variable), or HTML data attribute;
+- a Python package, importable module, standalone script, exception class, type parameter, protocol, generator, or pytest fixture;
 - a directory with a package namespace;
 - a database table, view, column, constraint, or index;
 - a public API designation with an internal implementation name.

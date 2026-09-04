@@ -1,0 +1,211 @@
+{
+  "skill_name": "naming-objects-in-software-engineering",
+  "notes": "Behavioral evaluation suite for naming-objects-in-software-engineering. Cases 1, 2, 4, and 6 comprise the calibration set.",
+  "calibration_case_ids": [
+    1,
+    2,
+    4,
+    6
+  ],
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a Python function in our order-management service named `def process_data(data):`. It takes an incoming raw order payload dictionary from the checkout queue, validates the schema against our domain rules, calculates tax and shipping totals, and returns an immutable `OrderRecord`. Recommend a semantically precise name for this function and explain what defects the original name had.",
+      "expected_output": "The model rejects process_data, identifying 'process' and 'data' as vague forbidden tokens under the skill. It recommends a discriminated designation such as create_order_record_from_checkout_payload or process_order (replacing 'data' with the exact entity 'order' and specifying the action), and explains the semantic defect.",
+      "files": [],
+      "expectations": [
+        "Identifies 'process' and 'data' as vague tokens that conceal the real concept.",
+        "Names the entity being operated on as Order or Checkout Payload.",
+        "Proposes a semantically precise function name using snake_case for Python.",
+        "Distinguishes the input entity (raw checkout payload) from the output entity (OrderRecord).",
+        "Does not propose generic alternatives like handle_data, do_processing, or run_order."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We are designing an account service interface in TypeScript. We have three methods: 1) One that looks up a customer profile in an in-memory Redis cache; 2) One that calls an external Stripe billing HTTP API to retrieve payment methods; 3) One that computes the customer's discount tier based on order history. What should each method be named according to strict verb conventions?",
+      "expected_output": "The model uses 'get' for the in-memory cache lookup (getCustomerProfile), 'fetch' for the remote HTTP network call (fetchPaymentMethods), and 'calculate' or 'derive' for the pure computation (calculateDiscountTier), explaining the I/O and operational distinction of each verb.",
+      "files": [],
+      "expectations": [
+        "Uses 'get' for the in-memory or cached lookup (e.g. getCustomerProfile).",
+        "Uses 'fetch' for the remote network/HTTP operation (e.g. fetchPaymentMethods).",
+        "Uses 'calculate' or 'derive' for the computation (e.g. calculateDiscountTier or deriveDiscountTier).",
+        "Explains the verb distinction between in-memory access, remote I/O, and pure computation.",
+        "Formats method names in camelCase per TypeScript conventions without Hungarian or type prefixes."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "In our repository, we have two Python files: 1) An executable standalone CLI script that operators run manually to backfill missing transaction records; 2) An importable library module containing reusable database query helpers for transactions. What should each file be named?",
+      "expected_output": "The model names the standalone script with kebab-case (backfill-transactions.py) and the importable module with snake_case (transaction_queries.py), explaining the policy distinction between standalone scripts and importable modules.",
+      "files": [],
+      "expectations": [
+        "Names the standalone CLI script using kebab-case with .py extension (e.g. backfill-transactions.py).",
+        "Names the importable library module using snake_case with .py extension (e.g. transaction_queries.py).",
+        "Explicitly explains that standalone executable Python scripts follow kebab-case while importable modules follow snake_case under repository policy.",
+        "Does not use camelCase or mixed separators for either Python file."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "We are authoring a new Go package that manages customer accounts and provides an AccountStore interface. How should we name: 1) The Go package directory/declaration; 2) An interface method that returns an account by its unique identifier string; 3) An identifier representing the customer's HTTP URL?",
+      "expected_output": "The model uses a short single-word lowercase package name (account), names the getter method without 'Get' prefix (Account(id string) (*Account, error)), and uses standard capitalized initialisms (URL, ID).",
+      "files": [],
+      "expectations": [
+        "Recommends a short, lowercase, single-word package name without underscores or mixed caps (e.g. 'account').",
+        "Recommends an idiomatic getter name without the 'Get' prefix (e.g. Account(id string)).",
+        "Applies consistent uppercase treatment to common initialisms such as 'URL' and 'ID' (e.g. CustomerURL, AccountID).",
+        "Avoids redundant stutter such as account.GetAccount()."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In a Rust networking library, we are defining: 1) A trait for types that can serialize themselves into a JSON byte buffer; 2) A struct representing an HTTP request header; 3) A function that converts a socket address into a connection string. What designations should we use for each?",
+      "expected_output": "The model uses UpperCamelCase for traits and structs (SerializeJson, HttpHeader), treats acronyms as words in CamelCase (HttpHeader, not HTTPHeader), and uses snake_case for the conversion function (socket_addr_to_connection_string).",
+      "files": [],
+      "expectations": [
+        "Names the trait in UpperCamelCase (e.g. SerializeJson or ToJsonBytes).",
+        "Names the struct in UpperCamelCase (e.g. HttpHeader or RequestHeader), treating acronyms as words in CamelCase.",
+        "Names the conversion function in snake_case (e.g. socket_addr_to_connection_string).",
+        "Cites or aligns with Rust API guidelines for naming."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "We are designing a PostgreSQL relational schema for an e-commerce platform. We need names for: 1) A table storing registered customer accounts; 2) A view showing only active customers; 3) A boolean column indicating if email is verified; 4) A timestamp column recording when the account was created in milliseconds since UNIX epoch.",
+      "expected_output": "The model recommends singular snake_case for the table (customer_account or customer), snake_case for the view (active_customer), a predicate prefix for the boolean column (is_email_verified), and an explicit unit suffix for the timestamp (created_at_epoch_ms).",
+      "files": [],
+      "expectations": [
+        "Recommends a singular snake_case noun for the table representing row entities (e.g. customer_account or customer).",
+        "Recommends snake_case for the database view (e.g. active_customer).",
+        "Prefixes the boolean column with an assertive predicate like 'is_' (e.g. is_email_verified).",
+        "Appends explicit unit and representation suffix to the timestamp column (e.g. created_at_epoch_ms).",
+        "Does not recommend customer_id as the table or view name."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "We are building a TypeScript service following the Google TypeScript Style Guide profile. We need names for: 1) An interface representing a payment transaction payload; 2) The source file containing this interface; 3) A boolean property indicating whether the payment has settled; 4) A parameter representing the transaction timeout duration in milliseconds.",
+      "expected_output": "The model uses PaymentTransactionPayload (UpperCamelCase, no I prefix), snake_case.ts for the source file (payment_transaction_payload.ts), isSettled or hasSettled for the boolean property, and timeoutMs for the parameter.",
+      "files": [],
+      "expectations": [
+        "Recommends UpperCamelCase for the interface without an 'I' prefix (e.g. PaymentTransactionPayload, not IPaymentTransactionPayload).",
+        "Recommends snake_case.ts for the TypeScript source file under Google TS style (e.g. payment_transaction_payload.ts).",
+        "Recommends camelCase with predicate prefix for the boolean property (e.g. isSettled or hasSettled).",
+        "Encodes explicit units in the parameter name (e.g. timeoutMs)."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "In a configuration object, we have three boolean flags: `not_empty = false`, `disable_cache = false`, and `valid = true`. What issues exist with these names, and how should they be refactored?",
+      "expected_output": "The model identifies negative naming in not_empty and disable_cache (which cause double negatives when checked or negated) and the vague bare adjective valid. It refactors them to positive assertive predicates such as is_populated, enable_cache, and is_authorized or is_syntactically_valid.",
+      "files": [],
+      "expectations": [
+        "Flags 'not_empty' and 'disable_cache' as negative boolean anti-patterns causing double negatives.",
+        "Proposes positive assertive boolean replacements (e.g. is_populated / has_items, enable_cache / use_cache).",
+        "Flags 'valid' as underspecified and clarifies what kind of validity is checked (e.g. is_valid, is_authorized, is_verified).",
+        "Prefixes boolean predicates with standard auxiliary verbs (is, has, can, enable)."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "A junior developer drafted these variable names in a batch processing worker: `timeout = 30`, `max_size = 1048576`, and `user_list = [101, 102, 103]`. Critique these names and provide standard designations.",
+      "expected_output": "The model critiques missing units on timeout (seconds? milliseconds?) and max_size (bytes? items?) and redundant type encoding in user_list. It proposes timeout_seconds (or timeout_ms), max_size_bytes, and plural user_ids.",
+      "files": [],
+      "expectations": [
+        "Identifies missing unit qualifiers in 'timeout' and 'max_size'.",
+        "Recommends explicit unit suffixes such as 'timeout_seconds' (or 'timeout_ms') and 'max_size_bytes'.",
+        "Identifies redundant type encoding ('list') in 'user_list'.",
+        "Recommends plural noun encoding for the collection (e.g. 'user_ids' or 'users')."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Our team is debating how to name an internal Python package module that wraps a third-party C library named 'FastParser_v2'. The repository README specifies that all files must use kebab-case, PEP 8 specifies snake_case without hyphens for importable modules, and Python's import syntax rejects hyphens (e.g., `import fast-parser` is a syntax error). How should this conflict be resolved according to the policy precedence ladder?",
+      "expected_output": "The model resolves the conflict using the precedence ladder: Language/runtime/syntax validity (Level 1) overrides repository instructions (Level 2). Because Python import syntax rejects hyphens, the importable module must use snake_case (fast_parser.py), not kebab-case.",
+      "files": [],
+      "expectations": [
+        "Applies the policy precedence ladder: language/runtime validity sits above repository instructions.",
+        "Notes that hyphens in Python module names cause syntax errors on import statements.",
+        "Concludes that the importable module must use snake_case (e.g. fast_parser.py), overriding the repository's kebab-case rule.",
+        "Explains that syntax validity is non-negotiable and not a mere stylistic preference."
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "In our public payment API, an endpoint JSON response field is currently named `cust_nbr`. We want to rename it to `customer_account_id` to eliminate the abbreviation. Several external clients consume this endpoint in production. How should this rename be executed safely without breaking clients?",
+      "expected_output": "The model recognizes that cust_nbr is an external contract that cannot be modified atomically. It recommends introducing customer_account_id alongside a compatibility alias/mapping for cust_nbr, deprecating cust_nbr with a versioned migration window, and updating internal code first before retiring the legacy field.",
+      "files": [],
+      "expectations": [
+        "Identifies that the field is an externally observable contract and cannot be renamed via a direct destructive change.",
+        "Recommends introducing the precise internal name with a compatibility mapping/alias.",
+        "Proposes a versioned deprecation or migration strategy allowing external consumers to transition.",
+        "Warns against breaking external callers synchronously."
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Review this diff chunk from a PR for naming issues and provide structured findings using the format `[semantic | lexical | authority | compatibility] current -> proposed -> reason -> evidence`:\n```diff\n- def get_user_by_email(email: str):\n+ def handle_user_data(user_info, check_not_empty=False):\n+     result = fetch_cached_profile(user_info)\n+     return result\n```",
+      "expected_output": "The model identifies multiple issues: replacement of specific get_user_by_email with vague handle_user_data, vague parameter user_info, negative boolean parameter check_not_empty, and improper verb fetch for a cached profile (get_cached_profile). It structures the review with the requested tags and fields.",
+      "files": [],
+      "expectations": [
+        "Uses the structured review format [semantic | lexical | authority | compatibility].",
+        "Identifies vague tokens in 'handle_user_data' and 'user_info'.",
+        "Flags 'check_not_empty' as a negative boolean parameter anti-pattern.",
+        "Flags verb misuse in 'fetch_cached_profile' for an in-memory cache lookup (should be 'get').",
+        "Proposes semantically precise replacements with clear justifications."
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "In a modern Node.js/JavaScript ESM web application repository, we need to create four new files: (1) a domain parsing module for customer invoices, (2) an automation/build script executed by an npm script that rebuilds search indices, (3) a unit test file for the invoice parser, and (4) an architectural seam test verifying domain boundaries. What are the correct file names for these four artefacts under modern best practices and why?",
+      "expected_output": "The model distinguishes the artefact kinds: (1) domain ESM module uses lowerCamelCase.js (e.g. invoiceParser.js), (2) standalone build/automation script uses kebab-case.mjs (e.g. rebuild-index.mjs), (3) faceted unit test uses <module>.<facet>.test.js (e.g. invoiceParser.unit.test.js), and (4) architectural seam test uses <seam>.architecture.test.js (e.g. domainBoundaries.architecture.test.js). It explains the distinction between importable domain modules and standalone CLI scripts.",
+      "files": [],
+      "expectations": [
+        "Assigns lowerCamelCase.js (e.g., invoiceParser.js) to the domain module.",
+        "Assigns kebab-case.mjs (e.g., rebuild-index.mjs) to the standalone automation/build script.",
+        "Assigns a faceted or unit test extension (e.g., invoiceParser.unit.test.js or invoiceParser.test.js) to the test file.",
+        "Assigns an architectural seam test extension (e.g., domainBoundaries.architecture.test.js or seam.architecture.test.js).",
+        "Explicitly contrasts importable ESM modules with standalone executable scripts."
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "We are developing a React customer billing feature. We need to name: (1) a React component that displays an editable customer invoice form, (2) a custom hook that manages fetching and subscribing to the customer account state, (3) the callback prop passed into the invoice form when the user submits it, and (4) the internal handler function inside the form that intercepts the form submit event before invoking the callback. What should each be named and what authorities govern these patterns?",
+      "expected_output": "The model names: (1) Component: PascalCase (e.g. CustomerInvoiceForm / CustomerInvoiceForm.jsx), (2) Custom Hook: use + PascalCase (e.g. useCustomerAccount) governed by React Rules of Hooks, (3) Event callback prop: on + PascalCase (e.g. onInvoiceSubmit), and (4) Internal handler function: handle + PascalCase (e.g. handleInvoiceSubmit). It explains the on[Event] vs handle[Event] interface-versus-implementation pairing and cites React conventions.",
+      "files": [],
+      "expectations": [
+        "Names the React component using PascalCase (e.g. CustomerInvoiceForm or CustomerInvoiceForm.jsx).",
+        "Names the custom hook starting with 'use' followed by PascalCase (e.g. useCustomerAccount).",
+        "Names the callback prop starting with 'on' (e.g. onInvoiceSubmit).",
+        "Names the internal handler function starting with 'handle' (e.g. handleInvoiceSubmit).",
+        "Explains the distinction between callback prop contracts (onEvent) and internal implementation handlers (handleEvent)."
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "In a web design system, we are implementing a reusable invoice summary card. We need designations for: (1) a CSS custom property (variable) defining the primary brand theme color, (2) a CSS class for the card container, the card's header sub-element, and a highlighted variation of the card container using BEM methodology, and (3) an HTML custom data attribute placed on the DOM element to store the customer ID for end-to-end testing and analytics. Provide the exact designations and cite the governing specifications.",
+      "expected_output": "The model specifies: (1) CSS custom property using --kebab-case (e.g. --color-primary), citing W3C CSS Custom Properties Level 1. (2) BEM classes using block__element--modifier: block invoice-card, element invoice-card__header, modifier invoice-card--highlighted. (3) HTML data attribute using data-kebab-case (e.g. data-customer-id), citing the W3C HTML5 specification.",
+      "files": [],
+      "expectations": [
+        "Names the CSS custom property starting with '--' in kebab-case (e.g. --color-primary).",
+        "Applies BEM syntax (block__element--modifier) for container, sub-element, and modifier (e.g. invoice-card, invoice-card__header, invoice-card--highlighted).",
+        "Names the HTML data attribute starting with 'data-' in kebab-case (e.g. data-customer-id).",
+        "Cites authoritative standards (W3C CSS Custom Properties Level 1, W3C HTML5 data-* specification, BEM methodology)."
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "In a Python billing microservice, a developer proposed: (1) an exception class named `InvoiceNotFoundException`, (2) a generic TypeVar named `type_t`, (3) a function returning a lazy generator that yields invoices one-by-one named `get_invoices()`, and (4) a materialized in-memory list of invoices named `invoice_generator`. Evaluate these designations, identify any violations of Python standards, and provide the correct designations.",
+      "expected_output": "The model critiques all four: (1) PEP 8 requires custom exception classes to end with Error, not Exception; rename to InvoiceNotFoundError. (2) PEP 484/695 requires TypeVars to use UpperCamelCase; rename to T, KeyT, or InvoiceT. (3) Lazy generators yielding over time should be named with iter_* or stream_* (e.g. iter_invoices()), while get_* implies a direct lookup or value return. (4) In-memory lists should not be called generator; rename to a plural noun or collection name (e.g. invoices or invoice_list).",
+      "files": [],
+      "expectations": [
+        "Rejects 'InvoiceNotFoundException' and specifies the mandatory 'Error' suffix (e.g. InvoiceNotFoundError) per PEP 8.",
+        "Replaces 'type_t' with an UpperCamelCase TypeVar name (e.g. T, InvoiceT, or KeyT) per PEP 484/695.",
+        "Recommends an iter_* or stream_* prefix (e.g. iter_invoices) for the lazy generator yielding items.",
+        "Replaces 'invoice_generator' with a plural noun or collection descriptor (e.g. invoices or invoice_list) for the materialized in-memory collection.",
+        "Explicitly articulates the semantic difference between lazy generators and materialized collections."
+      ]
+    }
+  ]
+}
