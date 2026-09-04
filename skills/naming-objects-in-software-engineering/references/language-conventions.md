@@ -4,6 +4,58 @@ This reference renders an already-correct semantic stem into the physical form r
 
 Classification comes first. The generic fallback MUST NOT override a language, runtime, framework, protocol, or tooling requirement.
 
+## Canonical language classification (GitHub Linguist)
+
+Language names, detection metadata, and taxonomy in this skill are standardised on the open-source **GitHub Linguist** library (`languages.yml`). For reproducible data, entries are pinned to Linguist release `v9.7.0`:
+
+```yaml
+classificationScheme:
+  name: GitHub Linguist languages
+  version: "v9.7.0"
+  commit: "e0c78d62c42abae6122235d8e68a7aa43eef89da"
+  source: https://github.com/github-linguist/linguist/blob/v9.7.0/lib/linguist/languages.yml
+```
+
+Each language entry conforms to this canonical model:
+
+```yaml
+language:
+  notation: "JavaScript"
+  linguistLanguageId: 183
+  preferredLabel: "JavaScript"
+  color: "#f1e05a"
+  type: programming
+```
+
+- **Canonical language name**: The top-level YAML key in `languages.yml` (e.g. `JavaScript`, `Python`, `XSLT`, `CSS`, `HTML`, `PowerShell`). Case-normalized names (e.g. `javascript`) serve as search aliases.
+- **Internal language ID (`linguistLanguageId`)**: The numeric identifier used internally by GitHub. It is not a public persistent IRI scheme (e.g. `https://github.com/languages/183` does not exist).
+- **Language type**: Categorised by Linguist as `programming`, `markup`, `data`, or `prose`.
+- **Display colour**: The canonical hex display colour used in GitHub repository statistics bars.
+- **Grouping**: Subordinate dialects or extensions (e.g. `TSX` grouped under `TypeScript`) contribute to parent language statistics. Frameworks (such as React) are documented beside their host languages.
+
+| Canonical Linguist name | Linguist ID | Type | Color | Group / Scope | Spoke guide |
+|---|---|---|---|---|---|
+| `JavaScript` | 183 | programming | `#f1e05a` | Host of JSX | [`languages/javascript.md`](languages/javascript.md) |
+| `Python` | 303 | programming | `#3572A5` | PEP 8, typing PEPs, Pytest | [`languages/python.md`](languages/python.md) |
+| `TypeScript` | 378 | programming | `#3178c6` | Host of TSX (ID 94901924) | [`languages/typescript.md`](languages/typescript.md) |
+| `CSS` | 50 | markup | `#663399` | W3C CSS variables, BEM | [`languages/css.md`](languages/css.md) |
+| `HTML` | 146 | markup | `#e34c26` | W3C HTML5 data-* attributes | [`languages/html.md`](languages/html.md) |
+| `PowerShell` | 293 | programming | `#012456` | Microsoft Verb-Noun cmdlets | [`languages/powershell.md`](languages/powershell.md) |
+| `XSLT` | 404 | programming | `#EB8CEB` | W3C XSLT templates, XPath | [`languages/xslt.md`](languages/xslt.md) |
+| `Go` | 132 | programming | `#00ADD8` | MixedCaps, export visibility | [`languages/go.md`](languages/go.md) |
+| `Rust` | 327 | programming | `#dea584` | Traits, snake_case modules | [`languages/rust.md`](languages/rust.md) |
+| `C#` | 42 | programming | `#7355dd` | .NET, I-prefix interfaces | [`languages/csharp.md`](languages/csharp.md) |
+| `Java` | 181 | programming | `#b07219` | Google Java profile | [`languages/java.md`](languages/java.md) |
+| `Kotlin` | 189 | programming | `#A97BFF` | JetBrains conventions | [`languages/kotlin.md`](languages/kotlin.md) |
+| `C++` | 43 | programming | `#f34b7d` | Google C++ profile | [`languages/cpp.md`](languages/cpp.md) |
+| `Swift` | 362 | programming | `#F05138` | Swift API Design Guidelines | [`languages/swift.md`](languages/swift.md) |
+| `SQL` | 333 | data | `#e38c00` | Relational schemas, rows | [`languages/sql.md`](languages/sql.md) |
+| `Shell` | 346 | programming | `#89e051` | Bash, sh automation scripts | [`languages/cli-environment.md`](languages/cli-environment.md) |
+
+Frameworks and operational environments:
+- React (UI library built on JavaScript and TypeScript): [`languages/react.md`](languages/react.md)
+- CLI and Environment (cross-platform CLI tools and shell environment variables): [`languages/cli-environment.md`](languages/cli-environment.md)
+
 ## Baseline profile
 
 | Ecosystem / artefact | Mandatory form in this skill | Authority |
@@ -63,12 +115,41 @@ Classification comes first. The generic fallback MUST NOT override a language, r
 | C++ constant | `kPascalCase` | Selected Google C++ profile |
 | Swift type or protocol | `UpperCamelCase` | Swift API Design Guidelines |
 | Swift function, method, property, variable, enum case | `lowerCamelCase` | Swift API Design Guidelines |
+| PowerShell cmdlet or exported function | `Verb-Noun` with approved verb and singular noun | Microsoft PowerShell guidelines |
+| PowerShell parameter | `PascalCase` | Microsoft PowerShell guidelines |
+| PowerShell standalone script | `kebab-case.ps1` or `PascalCase.ps1` | Microsoft PowerShell guidelines |
+| PowerShell script module | `PascalCase.psm1` | Microsoft PowerShell guidelines |
+| XSLT named template | `lowerCamelCase` or `kebab-case` | W3C XSLT Recommendations |
+| XSLT variable or parameter | `lowerCamelCase` or `kebab-case` | W3C XSLT Recommendations |
+| XSLT stylesheet function | `prefix:name` | W3C XSLT 2.0+ / XML Namespaces |
 | Environment variable | `UPPER_SNAKE_CASE` | Explicit house policy |
 | CLI command | `kebab-case` | Explicit house policy |
 | CLI long option | `--kebab-case` | Explicit house policy |
 | SQL schema, table, view, column | `lower_snake_case` | Explicit house policy, not an ISO or SQL requirement |
 
 The machine-readable forms are in `../assets/naming-policy.json`.
+
+## Ecosystem-specific guides
+
+For detailed rules, idioms, and code patterns, consult the dedicated guide for your target ecosystem:
+
+- JavaScript and Node.js: [`languages/javascript.md`](languages/javascript.md) (modules, scripts, `#private` members, test suites, error codes)
+- React: [`languages/react.md`](languages/react.md) (components, custom hooks, `onEvent` vs `handleEvent` pairing)
+- CSS: [`languages/css.md`](languages/css.md) (custom properties `--kebab-case`, BEM class methodology)
+- HTML: [`languages/html.md`](languages/html.md) (custom data attributes `data-kebab-case`, element IDs)
+- Python: [`languages/python.md`](languages/python.md) (scripts vs modules, `Error` exception suffix, TypeVars, generators, Pytest)
+- PowerShell: [`languages/powershell.md`](languages/powershell.md) (Verb-Noun cmdlets, PascalCase parameters, script modules)
+- XSLT: [`languages/xslt.md`](languages/xslt.md) (templates, modes, variables, namespace-prefixed functions)
+- Go: [`languages/go.md`](languages/go.md) (packages, initialisms, getters without 'Get', -er interfaces)
+- Rust: [`languages/rust.md`](languages/rust.md) (modules, traits, acronym-as-word convention)
+- TypeScript: [`languages/typescript.md`](languages/typescript.md) (Google TS profile, interfaces without 'I', declaration files)
+- C# and .NET: [`languages/csharp.md`](languages/csharp.md) (namespaces, I-prefix interfaces, `_camelCase`, `s_camelCase`)
+- Java: [`languages/java.md`](languages/java.md) (Google Java profile, packages, semantic constants)
+- Kotlin: [`languages/kotlin.md`](languages/kotlin.md) (packages, backing properties, role name guidance)
+- C++: [`languages/cpp.md`](languages/cpp.md) (Google C++ profile, `kPascalCase`, trailing underscore data members)
+- Swift: [`languages/swift.md`](languages/swift.md) (Swift API Design Guidelines, call-site ergonomics)
+- SQL and physical database objects: [`languages/sql.md`](languages/sql.md) (schemas, singular row concepts, constraint prefixes)
+- CLI commands and environment variables: [`languages/cli-environment.md`](languages/cli-environment.md) (environment variables, commands, long options)
 
 ## Generic files and directories
 
@@ -83,438 +164,6 @@ release-notes.md
 Do not infer from `SKILL.md`, `README.md`, `LICENSE`, `.editorconfig`, `package.json`, `pyproject.toml`, framework routes, migration filenames, or generated artefacts that generic filenames may use arbitrary case. These are explicit tooling, platform, or community exceptions.
 
 A file's extension is not part of its semantic stem. Keep extensions lowercase unless the external format or tool requires otherwise.
-
-## Python
-
-### Standalone scripts versus importable modules
-
-This skill deliberately distinguishes them.
-
-Standalone executable script:
-
-```text
-rebuild-index.py       valid
-rebuild_index.py       invalid for this profile
-Rebuild-Index.py       invalid
-```
-
-Importable module:
-
-```text
-rebuild_index.py       valid
-rebuild-index.py       invalid because `-` cannot form an ordinary import identifier
-```
-
-Classify a `.py` file before naming it. A command-line entry point can be implemented in an importable module; the distribution's console command and the module do not need the same physical spelling.
-
-### Identifiers
-
-```python
-class CustomerRegistry: ...
-
-def calculate_net_amount(gross_amount, deductions): ...
-
-DEFAULT_TIMEOUT_SECONDS = 30
-```
-
-Non-public functions, methods, and variables may use one leading underscore where the Python convention is intended. Do not add underscores as decoration.
-
-Use `self` for the first parameter of an instance method and `cls` for the first parameter of a class method. A trailing underscore may resolve a Python keyword collision, but first consider a semantically better term.
-
-Do not invent double-underscore names. Reserve language-defined "dunder" names for their specified meanings, and use name mangling only for its intended subclass-collision purpose.
-
-### Exceptions
-
-Exception classes MUST use `PascalCase` and end with the suffix `Error` (PEP 8):
-
-```python
-class InvoiceNotFoundError(LookupError): ...
-class ValidationFailureError(ValueError): ...
-```
-
-Do not suffix an exception with `Exception`. Reserve generic suffixes such as `BaseException` or built-in root exceptions to their standard library contexts. Specific error types distinguish failures by condition, not merely by the word "Exception".
-
-### Type parameters and protocols
-
-Generic type variables and parameters use `UpperCamelCase` (PEP 484, PEP 695):
-
-```python
-from typing import TypeVar, Protocol
-
-T = TypeVar("T")
-KeyT = TypeVar("KeyT")
-
-# Python 3.12+ (PEP 695) type parameter syntax:
-type RegistryMap[KeyT, ValueT] = dict[KeyT, ValueT]
-
-class InvoiceReader(Protocol):
-    def read_invoice(self, invoice_id: str) -> Invoice: ...
-```
-
-Protocols should use expressive nouns or capability names (`InvoiceReader`, `SupportsClose`) rather than arbitrary abstract prefixes.
-
-### Generators versus materialized collections
-
-Distinguish iterables that generate values lazily on demand from materialized in-memory collections:
-
-- Use `iter_*` or `stream_*` prefixes (e.g. `iter_invoices()`, `stream_chunks()`) for generator functions that yield items one at a time and consume state.
-- Use plural nouns or collection types (e.g. `invoices`, `customer_list`, `pending_orders`) for materialized collections that support repeated indexing, sizing, or random access.
-
-```python
-def iter_invoices(account_id: str) -> Iterator[Invoice]:
-    for page in fetch_pages(account_id):
-        yield from page.items
-
-invoices: list[Invoice] = list(iter_invoices(account_id))
-```
-
-### Context managers
-
-Context managers that acquire and release resources should use descriptive action verbs indicating acquisition or setup, such as `open_*`, `acquire_*`, or `scoped_*`:
-
-```python
-@contextmanager
-def open_invoice_session(session_id: str) -> Iterator[Session]:
-    ...
-```
-
-### Pytest discovery conventions
-
-Pytest test discovery relies on deterministic prefix conventions:
-
-- Test files: `test_*.py` or `*_test.py` (prefer `test_<module>.py`).
-- Test classes: `Test<Concept>` (using `PascalCase` without `__init__`).
-- Test functions and methods: `test_<behaviour>_<condition>()` using `snake_case`.
-- Fixtures: descriptive noun phrases representing the provided resource (e.g. `mock_db_session`, `authenticated_client`).
-
-## JavaScript, React, and modern web frontends
-
-Web applications synthesize four distinct authority tiers:
-1. First principles (semantic precision, cognitive clarity, point-of-use ergonomics, I/O boundary truthfulness, state vs event differentiation).
-2. Authoritative standards and specifications (ECMAScript 2022+ private fields `#`, TC39 ESM resolution, W3C CSS Custom Properties Level 1 `--*`, W3C HTML5 `data-*`, React Rules of Hooks).
-3. Major tech and ecosystem guides (Airbnb JavaScript Style Guide, Google JavaScript/TypeScript Guides, React documentation idioms, Vitest/Jest/Playwright conventions, BEM CSS methodology).
-4. Repository and house profiles (pure ESM modules, `lowerCamelCase.js` domain modules, `kebab-case.mjs` automation scripts, faceted and cross-runner tests `<module>.<facet>.test.js`, `<subject>.<runner>.js`, `<seam>.architecture.test.js`, domain errors with `UPPER_SNAKE_CASE` codes).
-
-### Module and file taxonomy
-
-Modern JavaScript projects distinguish four kinds of files:
-
-- Domain and library modules: use `lowerCamelCase.js` or `lowerCamelCase.mjs` (e.g. `invoiceParser.js`, `customerRegistry.js`). Pure ESM requires explicit file extensions in relative imports.
-- Standalone automation and build scripts: use `kebab-case.mjs` (or `kebab-case.js` in ESM packages), such as `rebuild-index.mjs` or `verify-bundle.mjs`. These are executed directly by Node.js or npm scripts, not imported as library symbols.
-- Test suites:
-  - Unit and faceted tests: `<module>.<facet>.test.js` (e.g. `invoiceParser.unit.test.js`, `invoiceParser.edge.test.js`).
-  - Cross-runner isolation: `<subject>.<runner>.js` (e.g. `workflow.node.test.js` vs `workflow.browser.test.js`).
-  - Architectural seam tests: `<seam>.architecture.test.js` (e.g. `domainBoundaries.architecture.test.js`).
-- Configuration and infrastructure files: governed by external tool specifications (e.g. `package.json`, `vite.config.mjs`, `eslint.config.js`).
-
-### JavaScript identifiers and classes
-
-- Classes and constructor functions: `PascalCase` (e.g. `CustomerRegistry`, `InvoiceParser`).
-- Functions, methods, properties, and variables: `lowerCamelCase` (e.g. `calculateNetAmount`, `customerId`).
-- True module constants: `UPPER_SNAKE_CASE` (e.g. `MAX_RECONNECT_ATTEMPTS`, `DEFAULT_TIMEOUT_MS`).
-- True private class fields: use ECMAScript 2022 `#privateField` syntax rather than underscore prefixing (e.g. `#cache`, `#connectionPool`).
-- Domain error codes: domain exceptions should attach a stable `UPPER_SNAKE_CASE` machine-readable `.code` property (e.g. `INVOICE_NOT_FOUND`, `INVALID_CREDENTIALS`).
-
-```javascript
-export class CustomerRegistry {
-  #cache = new Map();
-
-  constructor(options = {}) {
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  }
-
-  async findCustomer(customerId) {
-    if (this.#cache.has(customerId)) {
-      return this.#cache.get(customerId);
-    }
-    const customer = await this.#fetchRemote(customerId);
-    this.#cache.set(customerId, customer);
-    return customer;
-  }
-
-  async #fetchRemote(customerId) { ... }
-}
-```
-
-### React components, hooks, and event pairing
-
-- Components: `PascalCase` for both component function/class and file stem (e.g. `CustomerInvoiceCard.jsx`, `OrderSummary.tsx`).
-- Custom Hooks: MUST start with `use` followed by `PascalCase` (e.g. `useCustomerAccount`, `useWindowDimensions`). This triggers React hook linter checks.
-- Event props vs event handlers:
-  - Callback props passed into components MUST start with `on[Event]` (e.g. `onInvoiceSubmit`, `onCustomerSelect`).
-  - Internal handler functions implementing the callback MUST start with `handle[Event]` (e.g. `handleInvoiceSubmit`, `handleCustomerSelect`).
-  - This pairing cleanly discriminates the event contract interface from the concrete handling implementation.
-
-```jsx
-export function InvoiceForm({ onInvoiceSubmit, onCancel }) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  function handleInvoiceSubmit(event) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    onInvoiceSubmit(formData);
-  }
-
-  return (
-    <form onSubmit={handleInvoiceSubmit}>
-      <button type="submit" disabled={isSubmitting}>Submit</button>
-      <button type="button" onClick={onCancel}>Cancel</button>
-    </form>
-  );
-}
-```
-
-### CSS custom properties and class naming
-
-- CSS Custom Properties (variables): MUST use `--kebab-case` according to W3C CSS Custom Properties Level 1 (e.g. `--color-primary-600`, `--font-size-base`, `--z-index-modal`).
-- CSS classes (BEM): use `block__element--modifier` to maintain clear architectural boundaries and avoid specificity wars:
-  - Block: standalone entity (e.g. `invoice-card`).
-  - Element: part of a block with no standalone meaning (e.g. `invoice-card__header`, `invoice-card__total`).
-  - Modifier: flag that changes appearance or behavior (e.g. `invoice-card--highlighted`, `invoice-card__total--overdue`).
-- HTML data attributes: MUST use `data-kebab-case` according to W3C HTML5 (e.g. `data-customer-id`, `data-state="active"`).
-
-## Go
-
-Packages use short, concise, lowercase single-word names with no underscores or mixed case:
-
-```go
-package invoice
-package http
-```
-
-Exported identifiers begin with an uppercase letter; unexported identifiers begin with a lowercase letter. Multiword identifiers use `MixedCaps` or `mixedCaps`:
-
-```go
-type InvoiceReader interface { ... }
-func ParseInvoice(...) ...
-var customerID string
-```
-
-Use package context to remove redundancy:
-
-```text
-bufio.Reader   not bufio.BufReader
-ring.New       not ring.NewRing
-```
-
-Getter methods normally omit `Get`:
-
-```go
-Owner()
-SetOwner(...)
-```
-
-One-method interfaces commonly use the method name plus `-er` or an established analogous form (`Reader`, `Writer`, `Formatter`). Do not use a canonical method name such as `Read`, `Write`, `Close`, or `String` with incompatible meaning or signature.
-
-Effective Go is authoritative for stable core idioms but is not actively updated for the whole modern ecosystem. Check current standard-library practice and repository governance for cases it does not cover.
-
-## Rust
-
-```rust
-mod invoice_parser;
-fn calculate_net_amount() {}
-let customer_id = ...;
-
-struct CustomerRegistry;
-trait InvoiceReader {}
-
-const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
-```
-
-Treat acronyms as words in CamelCase unless a public contract requires otherwise:
-
-```text
-UuidParser     preferred profile form
-UUIDParser     reject under this profile
-```
-
-Follow compiler and standard-library conventions for lifetimes, type parameters, feature names, crates, macros, and generated identifiers when those are more specific than this table.
-
-## Java
-
-This skill selects Google Java Style as the enforceable profile; it is not presented as a rule of the Java language specification.
-
-```java
-package com.example.customerregistry;
-
-final class CustomerRegistry {
-  static final int DEFAULT_TIMEOUT_SECONDS = 30;
-
-  Invoice findInvoice(String invoiceId) { ... }
-}
-```
-
-Package names use lowercase concatenated words. Types use `UpperCamelCase`; methods, parameters, and locals use `lowerCamelCase`; constants, as semantically defined by the selected style guide, use `UPPER_SNAKE_CASE`.
-
-Do not mechanically uppercase every `static final` field. Apply the selected profile's semantic definition of a constant.
-
-## Kotlin
-
-```kotlin
-package com.example.customerregistry
-
-class CustomerRegistry
-fun calculateNetAmount(grossAmount: Money): Money
-const val DEFAULT_TIMEOUT_SECONDS = 30
-```
-
-Packages use lowercase names without underscores. Classes and objects use `UpperCamelCase`; functions, properties, parameters, and locals use `lowerCamelCase`; true constants use `UPPER_SNAKE_CASE`.
-
-Avoid meaningless suffixes such as `Manager`, `Wrapper`, `Util`, or `Helper`. A private backing property may use a leading underscore when paired with its public conceptual property according to Kotlin convention.
-
-## C#
-
-```csharp
-namespace Billing.InvoiceProcessing;
-
-public interface IInvoiceReader { }
-public sealed class CustomerRegistry { }
-
-public decimal CalculateNetAmount(decimal grossAmount) { ... }
-private readonly IClock _clock;
-private static ICache s_cache;
-public const int DefaultTimeoutSeconds = 30;
-```
-
-Use:
-
-- `PascalCase` for namespaces, types, methods, public properties/fields/events, and constants;
-- `I` + `PascalCase` for interfaces;
-- `camelCase` for parameters and locals;
-- `_camelCase` for private/internal instance fields;
-- `s_camelCase` for private/internal static fields under the selected Microsoft convention.
-
-Prefer clarity to brevity. Use .NET analyser naming rules when the repository configures them; explicit `.editorconfig` rules are repository governance.
-
-## TypeScript
-
-This skill selects Google TypeScript Style as the enforceable profile; it is not presented as a TypeScript language requirement.
-
-Source files:
-
-```text
-invoice_parser.ts
-customer_registry.tsx
-```
-
-Identifiers:
-
-```typescript
-interface InvoiceReader {}
-type CustomerIdentifier = string;
-class CustomerRegistry {}
-
-function calculateNetAmount(grossAmount: Money): Money { ... }
-const DEFAULT_TIMEOUT_SECONDS = 30;
-```
-
-Use `UpperCamelCase` for classes, interfaces, types, enums, and decorators; `lowerCamelCase` for variables, parameters, functions, methods, and properties; and `CONSTANT_CASE` for global constant values under the selected profile.
-
-Do not prefix an interface merely to announce that it is an interface. Avoid Hungarian notation and container/type suffixes already expressed by TypeScript's type system.
-
-Declaration files, generated files, test-runner discoveries, routes, and framework conventions require separate classification and may be valid exceptions.
-
-## C++
-
-This skill chooses the underscore form that Google's C++ guide permits and prefers when no local convention governs filenames:
-
-```text
-invoice_parser.cc
-invoice_parser.h
-```
-
-Identifiers:
-
-```cpp
-class CustomerRegistry {};
-Money CalculateNetAmount(Money gross_amount);
-int retry_count;
-int retry_count_;
-constexpr int kDefaultTimeoutSeconds = 30;
-```
-
-Use `PascalCase` for types and functions, `snake_case` for variables and parameters, trailing underscore for class data members, and `kPascalCase` for constants under the selected profile.
-
-Build-system, platform, generated, and imported library conventions may require other extensions or spellings. Record the exception rather than broadening the generic rule.
-
-## Swift
-
-Swift naming is evaluated at the point of use.
-
-```swift
-struct CustomerRegistry { }
-protocol InvoiceReading { }
-
-func calculateNetAmount(grossAmount: Money) -> Money
-let customerId: CustomerIdentifier
-```
-
-Use `UpperCamelCase` for types and protocols, and `lowerCamelCase` for functions, methods, properties, variables, and enum cases.
-
-Clarity at use outranks brevity. Base names and argument labels together should form a clear phrase. Boolean methods and properties should read as assertions. Name mutating/non-mutating pairs according to established Swift API design idioms.
-
-The lexical checker intentionally validates only simple case profiles; semantic and grammatical quality must be reviewed at call sites.
-
-## Environment variables and CLI names
-
-Environment variables:
-
-```text
-DATABASE_URL
-DEFAULT_TIMEOUT_SECONDS
-```
-
-CLI command and option:
-
-```text
-rebuild-index
---dry-run
---output-directory
-```
-
-A short option is a separate artefact and follows the CLI framework's syntax, for example `-o`. Do not force a long-option policy onto it.
-
-Published CLI names are compatibility contracts. Renaming one normally requires an alias, deprecation period, documentation update, and shell-completion update.
-
-## SQL and physical data objects
-
-This is an explicit house profile, not a claim about ISO/IEC 11179 or the SQL standard.
-
-```text
-schema/table/view/column     lower_snake_case
-
-pk_<table>
-fk_<child_table>__<parent_table>
-uq_<table>__<semantic_columns>
-ck_<table>__<rule_concept>
-ix_<table>__<semantic_columns>
-```
-
-Examples:
-
-```text
-billing
-invoice
-open_invoice
-customer_id
-
-pk_invoice
-fk_invoice__customer
-uq_customer__external_identifier
-ck_invoice__net_amount_nonnegative
-ix_invoice__customer_id_created_at
-```
-
-Table and view concept names are singular in this profile. The name must denote the row concept, not the physical container:
-
-```text
-customer       preferred row concept
-customers      rejected by this house profile
-```
-
-Do not rename deployed database objects without an explicit migration and impact analysis. Account for quoted identifiers, engine limits, ORM mappings, replication, reporting, grants, stored code, and downstream consumers.
-
-Derive physical terms from governed conceptual vocabulary wherever practical. The lexical form does not establish semantic equivalence.
 
 ## Special and externally required names
 

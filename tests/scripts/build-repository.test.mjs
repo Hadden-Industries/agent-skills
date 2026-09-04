@@ -28,6 +28,6 @@ test("repository build preserves full-repository validation counts", async () =>
   assert.equal(result.deployableSkillsValidated, 4);
   assert.equal(result.evaluationSuitesValidated, 4);
   assert.equal(result.evaluationFileReferencesValidated, 5);
-  assert.equal(result.markdownFilesValidated, 25);
+  assert.equal(result.markdownFilesValidated, 42);
   assert.ok(result.skillFilesValidated > 0);
 });

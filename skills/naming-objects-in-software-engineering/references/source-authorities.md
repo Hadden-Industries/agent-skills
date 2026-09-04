@@ -199,6 +199,16 @@ This file distinguishes external authority from explicit house policy. A selecte
 - Authority: official Swift documentation.
 - Applied to: clarity at the point of use, evaluating base names with argument labels, Boolean proposition naming, mutation semantics, and `UpperCamelCase` types / `lowerCamelCase` members.
 
+## Language classification and detection
+
+### GitHub Linguist (`languages.yml`)
+
+- URL: https://github.com/github-linguist/linguist/blob/v9.7.0/lib/linguist/languages.yml
+- Pinned release: `v9.7.0` (commit `e0c78d62c42abae6122235d8e68a7aa43eef89da`).
+- Status used here: normative source for canonical repository language names, internal GitHub language IDs (`language_id`), language categories (`type`), display colors (`color`), and parent grouping (`group`).
+- Applied to: canonical language taxonomy in `language-conventions.md` and ecosystem reference metadata.
+- Important limit: `language_id` is an internal identifier used by GitHub, not a public persistent IRI scheme (e.g. `https://github.com/languages/183` does not exist). The taxonomy is canonical for the pinned release rather than an immutable global registry.
+
 ## Explicit house policies
 
 The following are intentional policy choices, not attributed to ISO or a language standard:
