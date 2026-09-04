@@ -15,6 +15,19 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Source file | `snake_case.ts` / `.tsx` | `payment_transaction_payload.ts` | Google TS style profile |
+| Declaration file | `snake_case.d.ts` | `customer_registry.d.ts` | Type definitions |
+| Interface / Type | `UpperCamelCase` | `PaymentTransactionPayload` | No `I` prefix |
+| Class / Enum | `UpperCamelCase` | `CustomerRegistry` | Instantiable or enumerations |
+| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Action or accessor |
+| Property / Variable | `lowerCamelCase` | `isSettled`, `timeoutMs` | Explicit units, affirmative booleans |
+| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_MS` | True module-level immutable |
+| Type parameter | `UpperCamelCase` | `T`, `KeyT` | Single letter or descriptive |
+
 ## Source files
 
 Use `snake_case.ts` or `snake_case.tsx` for hand-authored source files under this selected profile:

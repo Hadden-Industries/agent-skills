@@ -206,6 +206,32 @@
         "Replaces 'invoice_generator' with a plural noun or collection descriptor (e.g. invoices or invoice_list) for the materialized in-memory collection.",
         "Explicitly articulates the semantic difference between lazy generators and materialized collections."
       ]
+    },
+    {
+      "id": 17,
+      "prompt": "We are implementing a PowerShell administrative module for managing cloud virtual machines. A developer proposed these designations:\n(1) A function that checks whether a virtual machine is reachable, named `Check-VirtualMachine`.\n(2) A function that provisions and initializes a new virtual machine, named `Create-VirtualMachine`.\n(3) A parameter for the virtual machine shutdown timeout, named `-timeout` (storing seconds).\n(4) A switch parameter to bypass disk caching during transfer, named `-NoCache`.\nEvaluate these designations according to official Microsoft PowerShell cmdlet design guidelines and approved verbs. Identify any violations and provide the standard conformant designations.",
+      "expected_output": "The model critiques all four: (1) 'Check' is an unapproved PowerShell verb; replace with approved Diagnostic verb 'Test' (e.g. Test-VirtualMachine). (2) 'Create' is unapproved; replace with approved Lifecycle/Creation verb 'New' (e.g. New-VirtualMachine). (3) Parameters must use PascalCase and explicit units (e.g. -TimeoutSeconds). (4) Switch parameters must use affirmative phrasing, rejecting negative switches like -NoCache (replace with -SkipCache, -Force, or -BypassCache).",
+      "files": [],
+      "expectations": [
+        "Flags 'Check' as an unapproved PowerShell verb and replaces it with approved Diagnostic verb 'Test' (e.g. Test-VirtualMachine).",
+        "Flags 'Create' as an unapproved PowerShell verb and replaces it with approved verb 'New' (e.g. New-VirtualMachine).",
+        "Replaces '-timeout' with a PascalCase parameter encoding explicit units (e.g. -TimeoutSeconds).",
+        "Flags '-NoCache' as a negative switch anti-pattern and recommends affirmative switch phrasing (e.g. -SkipCache or -BypassCache).",
+        "Cites Microsoft Approved Verbs for PowerShell Commands and singular PascalCase noun rules."
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "We are developing an XSLT 3.0 transformation stylesheet converting customer invoices into an XHTML report. A developer authored these declarations:\n(1) A user-defined stylesheet function that formats an ISO date string into a localized display date, declared as `<xsl:function name=\"format-date\">`.\n(2) A named template that renders customer billing summary rows, named `<xsl:template name=\"RenderCustomerBillingSummary\">`.\n(3) A template mode used for generating compact preview cards, declared as `<xsl:template match=\"invoice\" mode=\"PREVIEW_CARD\">`.\n(4) A stylesheet parameter storing the maximum number of items per page, declared as `<xsl:param name=\"page_size\">`.\nEvaluate these designations according to W3C XSLT 2.0/3.0 recommendations and XML namespaces standards. Identify defects and provide conformant designations.",
+      "expected_output": "The model critiques all four: (1) Un-namespaced functions in XSLT 2.0+ are illegal (reserved for system/XPath functions); user functions MUST include a namespace prefix (e.g. f:format-date). (2) Named templates should follow consistent kebab-case or lowerCamelCase (e.g. render-customer-billing-summary or renderCustomerBillingSummary) rather than PascalCase. (3) Template modes should use kebab-case or lowerCamelCase (e.g. preview-card), not UPPER_SNAKE_CASE. (4) Stylesheet parameters follow kebab-case or lowerCamelCase (e.g. page-size or pageSize), not snake_case.",
+      "files": [],
+      "expectations": [
+        "Explains that un-namespaced stylesheet functions ('format-date') are illegal in XSLT 2.0+ and requires an explicit QName namespace prefix (e.g. f:format-date).",
+        "Recommends kebab-case or lowerCamelCase for named templates (e.g. format-billing-summary or renderCustomerBillingSummary) rather than PascalCase.",
+        "Flags 'PREVIEW_CARD' in template mode as non-idiomatic UPPER_SNAKE_CASE and recommends kebab-case (e.g. preview-card).",
+        "Recommends kebab-case or lowerCamelCase for stylesheet parameters (e.g. page-size or pageSize) rather than snake_case.",
+        "Cites W3C XSLT Recommendations and XML Namespaces specification requirements."
+      ]
     }
   ]
 }

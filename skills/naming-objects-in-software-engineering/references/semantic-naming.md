@@ -269,6 +269,20 @@ is_enabled            preferred
 is_not_disabled       reject unless the domain truly models that distinct state
 ```
 
+### Negative Boolean Anti-Patterns vs. Affirmative Replacements
+
+Negative Boolean identifiers force double-negation logic at call sites (`if (!is_not_empty)`, `if (!disable_cache)`), creating cognitive hazards and defect vectors. Always name Boolean flags and predicates as positive assertions:
+
+| Negative Anti-Pattern (Reject) | Affirmative Replacement (Preferred) | Rationale |
+| --- | --- | --- |
+| `is_not_empty` / `not_empty` | `is_populated` / `has_items` / `has_elements` | Eliminates `!not_empty` double-negation when checking emptiness. |
+| `disable_cache` / `no_cache` | `enable_cache` / `use_cache` | Affirmative configuration flag representing active capability. |
+| `is_invalid` | `is_valid` | Positive assertion of contract conformity. |
+| `unauthorized` | `is_authorized` / `has_access` | Clean, unambiguous permission predicate. |
+| `skip_validation` | `enforce_validation` / `validate` | Affirmative policy flag rather than bypass logic. |
+| `not_found` | `is_found` / `exists` | Direct, positive existential check. |
+| `ignore_errors` | `suppress_errors` / `allow_errors` | Explicit affirmative intent without negative prefix. |
+
 Do not prefix a Boolean mechanically when the ecosystem's API reads more naturally without it. Swift and some fluent APIs often achieve proposition-like clarity through the full use-site phrase.
 
 ## 9. Express cardinality semantically

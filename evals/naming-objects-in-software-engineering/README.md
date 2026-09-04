@@ -6,7 +6,7 @@ This maintainer-only suite evaluates the deployable skill at `skills/naming-obje
 
 | File | Purpose |
 | --- | --- |
-| `evals.json` | Sixteen behavioral cases testing conceptual discrimination, verb precision, web stacks, Python typing, and policy precedence. |
+| `evals.json` | Eighteen behavioral cases testing conceptual discrimination, verb precision, web stacks, Python typing, PowerShell cmdlets, XSLT namespaces, and policy precedence. |
 | `trigger-evals.json` | Thirty-two balanced activation and near-miss discrimination prompts. |
 | `evaluation-runner.mjs` | Automated test and calibration runner utilizing Google-accessible models across three operational tiers (`--branch judge`, `--branch default`, `--branch stress`). |
 | `results/` | Retained evaluation runs and terminal evidence. |

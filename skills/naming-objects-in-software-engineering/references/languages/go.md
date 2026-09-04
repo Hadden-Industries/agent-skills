@@ -15,6 +15,19 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Package | `lowercase` | `package account` | Short single-word, no underscores |
+| Exported type / struct | `PascalCase` | `CustomerRegistry` | First letter capitalized |
+| Unexported type | `lowerCamelCase` | `internalBuffer` | Package-private |
+| Exported func / method | `PascalCase` | `CalculateTax` | First letter capitalized |
+| Getter method | `Noun` (no `Get`) | `Account(id string)` | Never `GetAccount()` |
+| Single-method interface | `Method + er` | `Reader`, `Writer` | Idiomatic Go suffix |
+| Initialisms | Uppercase / Lowercase | `URL`, `ID`, `HTTP` | Consistent case throughout (`CustomerID`) |
+| Source file | `snake_case.go` | `customer_account.go` | Test files: `_test.go` |
+
 ## Packages
 
 Packages use short, concise, lowercase single-word names with no underscores or mixed case:

@@ -15,6 +15,21 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Importable module | `snake_case.py` | `customer_registry.py` | Valid import identifier |
+| Executable script | `kebab-case.py` | `rebuild-index.py` | Standalone CLI execution only |
+| Package directory | `lowercase` | `billing` | Avoid underscores if possible |
+| Class / Type | `PascalCase` | `CustomerRegistry` | CapWords per PEP 8 |
+| Function / Method | `snake_case` | `calculate_net_amount` | Verb or verb-noun |
+| Variable / Parameter | `snake_case` | `gross_amount` | Affirmative booleans (`is_valid`) |
+| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | True module-level immutable |
+| Exception | `PascalCaseError` | `InvoiceNotFoundError` | Must end in `Error` per PEP 8 |
+| TypeVar / Generic | `PascalCase` | `KeyT`, `ValueT` | PEP 484 / PEP 695 |
+| Non-public member | `_snake_case` | `_internal_cache` | Single leading underscore |
+
 ## Standalone scripts versus importable modules
 
 This skill deliberately distinguishes standalone scripts from importable modules:

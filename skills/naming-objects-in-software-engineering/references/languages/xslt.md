@@ -15,6 +15,17 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Stylesheet function | `prefix:name` | `f:calculateTax`, `ext:format-date` | Must use namespace prefix in XSLT 2.0+ |
+| Named template | `kebab-case` or `lowerCamelCase` | `format-currency`, `renderHeader` | Consistent casing per module |
+| Template mode | `kebab-case` or `lowerCamelCase` | `mode="summary-view"` | Never UPPER_SNAKE_CASE |
+| Variable / Param | `kebab-case` or `lowerCamelCase` | `customerTaxRate`, `page-size` | Global or template scope |
+| Tunnel parameter | `tunnel="yes"` with clear prefix | `tunnelParam` | Passed through call chain |
+| Stylesheet module file | `kebab-case.xsl` / `.xslt` | `invoice-transform.xsl` | Standard transformation file |
+
 ## Templates
 
 - Named templates (`<xsl:template name="...">`) use `lowerCamelCase` or `kebab-case` (e.g. `renderInvoiceHeader`, `format-currency`, `extractSummary`). Choose one convention consistently across the stylesheet module.

@@ -25,7 +25,8 @@ A lexically valid but vague name such as `process_data`, `processData`, or `Proc
 ## Load the supporting material deliberately
 
 - Read `references/semantic-naming.md` for every non-trivial name, ambiguous rename, API name, domain term, or semantic review.
-- Consult `references/language-conventions.md` for the cross-ecosystem baseline profile table, and load the dedicated guide from `references/languages/<ecosystem>.md` when naming artefacts in a specific language, framework, styling system, or runtime.
+- Consult `references/language-conventions.md` for the cross-ecosystem baseline profile table.
+- **On-demand single-spoke loading rule**: When naming artefacts in a specific language, framework, styling system, or runtime, load ONLY the single dedicated spoke file under `references/languages/<ecosystem>.md` (e.g. `references/languages/python.md` or `references/languages/react.md`). Do NOT load the entire references directory or unrelated language files into your context window.
 - Read `references/policy-precedence.md` whenever policies conflict, the repository is inconsistent, an external contract exists, or a generated/framework-required name is involved.
 - Read `references/source-authorities.md` when checking provenance or explaining why a convention was selected.
 - Use `assets/naming-policy.json` and `scripts/check-name.py` for supported lexical checks. A passing check never certifies semantics.

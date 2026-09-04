@@ -15,6 +15,19 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Crate / Module | `snake_case` | `invoice_parser` | Lowercase with underscores |
+| Struct / Enum / Trait | `UpperCamelCase` | `CustomerRegistry`, `HttpHeader` | Acronyms as words (`HttpHeader`) |
+| Function / Method | `snake_case` | `calculate_net_amount` | Action or conversion |
+| Conversion method | `to_`, `as_`, `into_` | `to_connection_string` | Follows Rust API Guidelines |
+| Variable / Field | `snake_case` | `customer_id` | Local bindings and struct fields |
+| Constant / Static | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | True immutables |
+| Type parameter | `UpperCamelCase` | `T`, `Item` | Usually single upper letter |
+| Source file | `snake_case.rs` | `invoice_parser.rs` | Matches module designation |
+
 ## Identifiers and items
 
 ```rust

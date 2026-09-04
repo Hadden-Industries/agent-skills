@@ -15,6 +15,20 @@ language:
   type: data
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Table | Singular `lower_snake_case` | `customer_account` | Represents individual row entity |
+| View | `lower_snake_case` | `active_customer` | Query abstraction / projection |
+| Column (general) | `lower_snake_case` | `billing_address` | Semantic attribute |
+| Column (boolean) | `is_predicate` | `is_email_verified` | Positive assertion |
+| Column (timestamp) | `name_unit` | `created_at_epoch_ms` | Explicit units / encoding |
+| Primary Key | `pk_<table>` | `pk_customer_account` | Standard prefix |
+| Foreign Key | `fk_<child>__<parent>` | `fk_invoice__customer_account` | Double underscore separator |
+| Unique Constraint | `uq_<table>__<columns>` | `uq_customer_account__email` | Double underscore separator |
+| Index | `ix_<table>__<columns>` | `ix_customer_account__created_at` | Double underscore separator |
+
 ## Physical naming patterns
 
 ```text

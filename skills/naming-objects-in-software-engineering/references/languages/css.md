@@ -15,6 +15,18 @@ language:
   type: markup
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Custom property (var) | `--kebab-case` | `--color-brand-primary` | W3C CSS Custom Properties Level 1 |
+| BEM Block | `kebab-case` | `invoice-card` | Standalone entity / component |
+| BEM Element | `block__element` | `invoice-card__header` | Part of block, separated by `__` |
+| BEM Modifier | `block--modifier` | `invoice-card--highlighted` | State or version, separated by `--` |
+| Utility / atomic class | `u-kebab-case` | `u-text-center`, `u-hidden` | Single-purpose utility helper |
+| State class | `is-state` / `has-state` | `is-active`, `is-collapsed` | Dynamic JavaScript state |
+| Stylesheet file | `kebab-case.css` | `invoice-card.css` | Component or layout stylesheet |
+
 ## CSS custom properties (variables)
 
 CSS custom properties MUST begin with two hyphens followed by kebab-case segments: `--kebab-case`. This is governed by the W3C CSS Custom Properties for Cascading Variables Module Level 1 specification.

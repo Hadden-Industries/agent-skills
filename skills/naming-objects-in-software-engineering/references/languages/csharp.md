@@ -15,6 +15,20 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Namespace | `PascalCase.PascalCase` | `Billing.InvoiceProcessing` | Hierarchical domain |
+| Class / Struct / Enum | `PascalCase` | `CustomerRegistry` | Instantiable types |
+| Interface | `IPascalCase` | `IInvoiceReader` | `I` prefix required in .NET |
+| Method / Property | `PascalCase` | `CalculateNetAmount` | Public member standard |
+| Parameter / Local var | `camelCase` | `grossAmount` | Method scope |
+| Private instance field | `_camelCase` | `_clock` | Leading underscore |
+| Private static field | `s_camelCase` | `s_cache` | `s_` prefix |
+| Constant | `PascalCase` | `DefaultTimeoutSeconds` | .NET standard (not UPPER_SNAKE) |
+| Source file | `PascalCase.cs` | `CustomerRegistry.cs` | Matches primary declared type |
+
 ## Identifiers and members
 
 ```csharp

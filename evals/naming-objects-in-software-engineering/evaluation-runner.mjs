@@ -336,6 +336,26 @@ function gradeExpectations(response, expectations) {
       passed = (text.includes("invoices") || text.includes("invoice_list")) && (text.includes("collection") || text.includes("materialized") || text.includes("list"));
     } else if (expLower.includes("semantic difference between lazy generators and materialized collections")) {
       passed = (text.includes("lazy") || text.includes("generator") || text.includes("yield")) && (text.includes("materialized") || text.includes("in-memory") || text.includes("collection") || text.includes("list"));
+    } else if (expLower.includes("flags 'check' as an unapproved powershell verb")) {
+      passed = (text.includes("check") || text.includes("test-virtualmachine")) && (text.includes("unapproved") || text.includes("approved") || text.includes("test"));
+    } else if (expLower.includes("flags 'create' as an unapproved powershell verb")) {
+      passed = (text.includes("create") || text.includes("new-virtualmachine")) && (text.includes("unapproved") || text.includes("approved") || text.includes("new"));
+    } else if (expLower.includes("replaces '-timeout' with a pascalcase parameter encoding explicit units")) {
+      passed = text.includes("timeoutseconds") || text.includes("timeoutmilliseconds") || (text.includes("timeout") && (text.includes("unit") || text.includes("second") || text.includes("ms")));
+    } else if (expLower.includes("flags '-nocache' as a negative switch anti-pattern")) {
+      passed = (text.includes("nocache") || text.includes("no-cache") || text.includes("negative switch")) && (text.includes("affirmative") || text.includes("anti-pattern") || text.includes("skipcache") || text.includes("bypass") || text.includes("force") || text.includes("positive"));
+    } else if (expLower.includes("cites microsoft approved verbs for powershell commands")) {
+      passed = (text.includes("approved verb") || text.includes("verb-noun") || text.includes("microsoft") || text.includes("cmdlet") || text.includes("powershell")) && (text.includes("singular") || text.includes("pascalcase") || text.includes("guideline") || text.includes("approved"));
+    } else if (expLower.includes("un-namespaced stylesheet functions ('format-date') are illegal in xslt")) {
+      passed = (text.includes("namespace") || text.includes("prefix") || text.includes("qname")) && (text.includes("format-date") || text.includes("illegal") || text.includes("reserved") || text.includes("f:") || text.includes("ext:") || text.includes("my:"));
+    } else if (expLower.includes("recommends kebab-case or lowercamelcase for named templates")) {
+      passed = (text.includes("kebab-case") || text.includes("lowercamelcase") || text.includes("render-customer") || text.includes("rendercustomer") || text.includes("format-billing")) && (text.includes("template") || text.includes("pascalcase"));
+    } else if (expLower.includes("flags 'preview_card' in template mode as non-idiomatic")) {
+      passed = (text.includes("preview_card") || text.includes("preview-card") || text.includes("upper_snake")) && (text.includes("kebab-case") || text.includes("lowercamelcase") || text.includes("mode") || text.includes("idiomatic"));
+    } else if (expLower.includes("recommends kebab-case or lowercamelcase for stylesheet parameters")) {
+      passed = (text.includes("page-size") || text.includes("pagesize") || text.includes("page_size")) && (text.includes("kebab-case") || text.includes("lowercamelcase") || text.includes("param") || text.includes("snake_case"));
+    } else if (expLower.includes("cites w3c xslt recommendations and xml namespaces")) {
+      passed = (text.includes("w3c") || text.includes("xslt") || text.includes("xml namespace") || text.includes("recommendation") || text.includes("standard") || text.includes("spec"));
     } else {
       // General semantic presence: check if key nouns from expectation are in response
       const words = expLower.replace(/[^a-z0-9_ ]/g, " ").split(/\s+/).filter(w => w.length > 3 && !["this", "that", "with", "from", "does", "have", "into"].includes(w));

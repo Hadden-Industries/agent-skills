@@ -15,6 +15,18 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Type / Struct / Class | `UpperCamelCase` | `CustomerRegistry` | Instantiable types |
+| Protocol (is-a noun) | `UpperCamelCase` | `Collection` | Noun describing identity |
+| Protocol (capability) | `-able` / `-ing` | `Equatable`, `InvoiceReading` | Suffix describing capability |
+| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Swift API Design Guidelines |
+| Variable / Property | `lowerCamelCase` | `customerId` | Fluent use-site reading |
+| Enum case | `lowerCamelCase` | `case pendingReview` | Swift 3+ standard |
+| Source file | `PascalCase.swift` | `CustomerRegistry.swift` | Matches primary type |
+
 ## Types and members
 
 ```swift

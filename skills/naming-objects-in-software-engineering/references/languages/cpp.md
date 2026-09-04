@@ -15,6 +15,19 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Source / Header file | `snake_case.cc` / `.h` | `invoice_parser.cc` | Google C++ Style profile |
+| Class / Struct / Enum | `PascalCase` | `CustomerRegistry` | Instantiable types |
+| Function / Method | `PascalCase` | `CalculateNetAmount` | Google C++ function style |
+| Local var / Parameter | `snake_case` | `gross_amount` | Function scope |
+| Private member variable | `snake_case_` | `clock_`, `cache_` | Trailing underscore |
+| Constant | `kPascalCase` | `kDefaultTimeoutSeconds` | `k` prefix convention |
+| Macro | `UPPER_SNAKE_CASE` | `DISALLOW_COPY_AND_ASSIGN` | Preprocessor definitions |
+| Namespace | `snake_case` | `billing_service` | All lowercase |
+
 ## Source and header filenames
 
 Use lowercase with underscores for filenames under this profile:

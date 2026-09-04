@@ -19,6 +19,19 @@ framework:
       type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Component | `PascalCase` | `CustomerInvoiceCard` | Function or class |
+| Component file | `PascalCase.jsx` / `.tsx` | `CustomerInvoiceCard.tsx` | Matches primary exported component |
+| Custom hook | `usePascalCase` | `useCustomerAccount` | React Rules of Hooks requirement |
+| Callback prop | `onEvent` | `onInvoiceSubmit` | External contract passed from parent |
+| Internal handler | `handleEvent` | `handleInvoiceSubmit` | Local event management implementation |
+| Context object | `PascalCaseContext` | `AuthContext` | Created via `createContext` |
+| Context provider | `PascalCaseProvider` | `AuthProvider` | JSX Provider component wrapper |
+| Higher-order component | `withPascalCase` | `withAuthentication` | Factory wrapper function |
+
 ## Components and filenames
 
 - Component functions and classes: `PascalCase` (e.g. `CustomerInvoiceCard`, `OrderSummary`).

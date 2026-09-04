@@ -15,6 +15,16 @@ language:
   type: markup
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Custom data attribute | `data-kebab-case` | `data-customer-id` | W3C / WHATWG HTML5 Living Standard |
+| Test automation hook | `data-testid` / `data-test` | `data-testid="invoice-form"` | Decoupled from CSS classes |
+| Element `id` | `kebab-case` | `id="billing-summary"` | Must be unique across entire document |
+| Form control `name` | `snake_case` or `lowerCamelCase` | `name="billing_address"` | Consistent payload key for forms |
+| HTML document file | `kebab-case.html` | `checkout-success.html` | Standard static document naming |
+
 ## Custom data attributes
 
 Custom data attributes on DOM elements MUST begin with `data-` followed by kebab-case segments: `data-kebab-case`. This is an authoritative requirement of the W3C / WHATWG HTML5 Living Standard for embedding custom non-visible data.

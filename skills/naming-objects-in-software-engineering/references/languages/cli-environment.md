@@ -22,6 +22,16 @@ relatedLanguages:
     type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Environment variable | `UPPER_SNAKE_CASE` | `DATABASE_URL`, `TIMEOUT_MS` | Process environment standard |
+| CLI executable command | `kebab-case` | `git-sync`, `check-name` | Shell binary or script |
+| CLI long option / flag | `--kebab-case` | `--timeout-seconds`, `--force` | GNU / POSIX utility syntax |
+| CLI short option | `-single-letter` | `-v`, `-h`, `-f` | Single-letter shortcut |
+| CLI subcommand | `kebab-case` | `rebuild-index` | Subcommand dispatch |
+
 ## Environment variables
 
 Environment variables use `UPPER_SNAKE_CASE`:

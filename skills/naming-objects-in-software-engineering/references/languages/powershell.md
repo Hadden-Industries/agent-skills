@@ -15,6 +15,20 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Cmdlet / Function | `ApprovedVerb-SingularNoun` | `Get-Process`, `Test-Connection` | Microsoft Approved Verbs list |
+| Parameter | `PascalCase` | `-Path`, `-TimeoutSeconds` | Standard parameter names preferred |
+| Switch parameter | `PascalCase` (affirmative) | `-Recurse`, `-Force` | Never negative (`-NoCache` rejected) |
+| Local variable | `lowerCamelCase` or `PascalCase` | `$itemCount`, `$targetPath` | Scriptblock / function scope |
+| Script variable | `$script:PascalCase` | `$script:ConnectionPool` | Script scope |
+| Environment variable | `$env:UPPER_SNAKE_CASE` | `$env:AGENT_SKILLS_HOME` | Environment provider |
+| Standalone script | `kebab-case.ps1` or `PascalCase.ps1` | `backup-database.ps1` | Executable utility |
+| Script module file | `PascalCase.psm1` | `StorageManagement.psm1` | Reusable module implementation |
+| Module manifest | `PascalCase.psd1` | `StorageManagement.psd1` | Module metadata descriptor |
+
 ## Functions and cmdlets
 
 - Cmdlets and exported functions MUST use the standard `Verb-Noun` format with approved verbs and singular nouns.

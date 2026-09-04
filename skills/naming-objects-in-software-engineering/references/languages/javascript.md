@@ -15,6 +15,19 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Domain / library module | `lowerCamelCase.js` | `invoiceParser.js` | Pure ESM explicit extension |
+| Standalone script | `kebab-case.mjs` | `rebuild-index.mjs` | Direct CLI / npm execution |
+| Class / Constructor | `PascalCase` | `CustomerRegistry` | Instantiable types |
+| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Action or property accessor |
+| Variable / Property | `lowerCamelCase` | `customerId` | Affirmative booleans (`isValid`) |
+| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_MS` | True module-level immutable |
+| Private field | `#privateField` | `#cache` | ECMAScript 2022 syntax |
+| Error code | `UPPER_SNAKE_CASE` | `INVOICE_NOT_FOUND` | Machine-readable `.code` |
+
 ## File and module taxonomy
 
 Modern JavaScript distinguishes importable domain modules from standalone automation scripts and test suites:

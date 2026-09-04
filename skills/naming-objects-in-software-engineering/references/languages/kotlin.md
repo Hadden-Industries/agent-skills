@@ -15,6 +15,18 @@ language:
   type: programming
 ```
 
+## At-a-glance summary
+
+| Artefact Kind | Convention | Example | Notes |
+| --- | --- | --- | --- |
+| Package | `lowercase` | `com.example.billing` | No underscores |
+| Class / Object / Interface | `UpperCamelCase` | `CustomerRegistry` | Instantiable or singleton |
+| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Verbs / verb phrases |
+| Property / Variable | `lowerCamelCase` | `grossAmount` | `val` or `var` |
+| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | `const val` in companion object |
+| Source file (single class) | `PascalCase.kt` | `CustomerRegistry.kt` | Matches declared class |
+| Source file (multiple/util) | `PascalCase.kt` | `CustomerUtils.kt` | Meaningful group name |
+
 ## Packages and types
 
 Packages use lowercase concatenated segments without underscores:
