@@ -23,22 +23,70 @@ const skillBundle = captureWorkingTreeSkillBundle({
 });
 const renderedSkillBundle = renderSkillBundle(skillBundle);
 
+const MODEL_BRANCHES = {
+  judge: {
+    id: "gemini-3.1-pro-high",
+    displayName: "Gemini 3.1 Pro (High)",
+    role: "High-Powered (The Judge)",
+  },
+  high: {
+    id: "gemini-3.1-pro-high",
+    displayName: "Gemini 3.1 Pro (High)",
+    role: "High-Powered (The Judge)",
+  },
+  default: {
+    id: "gemini-3.8-flash-medium",
+    displayName: "Gemini 3.8 Flash (Medium)",
+    role: "Default (The Worker)",
+  },
+  worker: {
+    id: "gemini-3.8-flash-medium",
+    displayName: "Gemini 3.8 Flash (Medium)",
+    role: "Default (The Worker)",
+  },
+  standard: {
+    id: "gemini-3.8-flash-medium",
+    displayName: "Gemini 3.8 Flash (Medium)",
+    role: "Default (The Worker)",
+  },
+  low: {
+    id: "gemini-3.6-flash-low",
+    displayName: "Gemini 3.6 Flash (Low)",
+    role: "Low-Powered (The Stress Tester)",
+  },
+  stress: {
+    id: "gemini-3.6-flash-low",
+    displayName: "Gemini 3.6 Flash (Low)",
+    role: "Low-Powered (The Stress Tester)",
+  },
+};
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let campaign = "calibration";
-  let model = "gemini-3.8-flash-low";
+  let branch = "default";
+  let model = MODEL_BRANCHES.default.id;
   let caseId = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--campaign" && args[i + 1]) {
       campaign = args[++i];
+    } else if (args[i] === "--branch" && args[i + 1]) {
+      branch = args[++i].toLowerCase();
+      if (MODEL_BRANCHES[branch]) {
+        model = MODEL_BRANCHES[branch].id;
+      }
     } else if (args[i] === "--model" && args[i + 1]) {
       model = args[++i];
+      if (model === "gemini-3.1-pro-high") branch = "judge";
+      else if (model === "gemini-3.8-flash-medium") branch = "default";
+      else if (model === "gemini-3.6-flash-low") branch = "stress";
+      else branch = "custom";
     } else if (args[i] === "--case" && args[i + 1]) {
       caseId = parseInt(args[++i], 10);
     }
   }
-  return { campaign, model, caseId };
+  return { campaign, model, caseId, branch };
 }
 
 function buildPrompt(arm, evalCase) {
@@ -307,7 +355,7 @@ function gradeExpectations(response, expectations) {
   };
 }
 
-async function runTriggerEvaluation(model, timestamp, runOutputDir) {
+async function runTriggerEvaluation(model, branch, branchInfo, timestamp, runOutputDir) {
   const TRIGGERS_PATH = join(SUITE_DIR, "trigger-evals.json");
   const triggers = JSON.parse(readFileSync(TRIGGERS_PATH, "utf8"));
   console.log(`Loaded ${triggers.length} trigger queries from trigger-evals.json.\n`);
@@ -359,14 +407,35 @@ Respond with ONLY the name of the skill that should be activated, or NONE if no 
   console.log(`Accuracy: ${passRate}`);
 
   const summaryPath = join(runOutputDir, "trigger-results.json");
-  writeFileSync(summaryPath, JSON.stringify({ timestamp, model, accuracy: passRate, results }, null, 2) + "\n", "utf8");
+  writeFileSync(
+    summaryPath,
+    JSON.stringify(
+      {
+        timestamp,
+        branch,
+        role: branchInfo?.role ?? "Custom",
+        model,
+        modelDisplayName: branchInfo?.displayName ?? model,
+        accuracy: passRate,
+        results,
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
   console.log(`Trigger evidence saved to: ${summaryPath}\n`);
 }
 
 async function main() {
-  const { campaign, model, caseId } = parseArgs();
+  const { campaign, model, caseId, branch } = parseArgs();
+  const branchInfo = MODEL_BRANCHES[branch];
   console.log(`=== Running NOISE Evaluation Runner ===`);
   console.log(`Campaign: ${campaign}`);
+  console.log(`Branch: ${branch} (${branchInfo?.displayName ?? "Custom"})`);
+  if (branchInfo?.role) {
+    console.log(`Role / Tier: ${branchInfo.role}`);
+  }
   console.log(`Model: ${model}`);
   console.log(`Provider: Google Antigravity CLI`);
   console.log(`Repetitions: 1 (no repetitions)\n`);
@@ -376,7 +445,7 @@ async function main() {
   mkdirSync(runOutputDir, { recursive: true });
 
   if (campaign === "triggers") {
-    await runTriggerEvaluation(model, timestamp, runOutputDir);
+    await runTriggerEvaluation(model, branch, branchInfo, timestamp, runOutputDir);
     return;
   }
 
@@ -442,7 +511,23 @@ async function main() {
 
   // Save results
   const summaryPath = join(runOutputDir, "results.json");
-  writeFileSync(summaryPath, JSON.stringify({ timestamp, model, campaign, results: allResults }, null, 2) + "\n", "utf8");
+  writeFileSync(
+    summaryPath,
+    JSON.stringify(
+      {
+        timestamp,
+        branch,
+        role: branchInfo?.role ?? "Custom",
+        model,
+        modelDisplayName: branchInfo?.displayName ?? model,
+        campaign,
+        results: allResults,
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
   console.log(`\nComplete evidence saved to: ${summaryPath}`);
 }
 

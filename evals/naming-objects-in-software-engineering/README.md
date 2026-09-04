@@ -6,10 +6,21 @@ This maintainer-only suite evaluates the deployable skill at `skills/naming-obje
 
 | File | Purpose |
 | --- | --- |
-| `evals.json` | Twelve behavioral cases testing conceptual discrimination, verb precision, language profiles, and policy precedence. |
-| `trigger-evals.json` | Twenty-four balanced activation and near-miss prompts. |
-| `evaluation-runner.mjs` | Automated test and calibration runner utilizing Google-accessible models (`gemini-3.8-flash-low`). |
+| `evals.json` | Sixteen behavioral cases testing conceptual discrimination, verb precision, web stacks, Python typing, and policy precedence. |
+| `trigger-evals.json` | Thirty-two balanced activation and near-miss discrimination prompts. |
+| `evaluation-runner.mjs` | Automated test and calibration runner utilizing Google-accessible models across three operational tiers (`--branch judge`, `--branch default`, `--branch stress`). |
 | `results/` | Retained evaluation runs and terminal evidence. |
+
+## Model Tiers & Roles
+
+The evaluation suite is adapted across three distinct operational tiers:
+
+- **High-Powered (The Judge)**: `gemini-3.1-pro-high` (`--branch judge` / `--branch high`)
+  - Evaluates complex architectural edge cases, nuanced semantic trade-offs, and policy hierarchy resolution requiring deep reasoning.
+- **Default (The Worker)**: `gemini-3.8-flash-medium` (`--branch default` / `--branch worker` / `--branch standard`)
+  - The standard daily driver for maintainer verification, calibration runs, and multi-language test campaigns.
+- **Low-Powered (The Stress Tester)**: `gemini-3.6-flash-low` (`--branch stress` / `--branch low`)
+  - Rigorous stress testing on lightweight models to ensure negative constraints (e.g. anti-pattern rejection, vague-token elimination, avoiding forbidden prefixes) are strictly honored without regression.
 
 ## Calibration Cases
 
