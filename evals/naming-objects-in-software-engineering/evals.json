@@ -1,22 +1,23 @@
 {
   "skill_name": "naming-objects-in-software-engineering",
-  "notes": "Behavioral evaluation suite for naming-objects-in-software-engineering. Cases 1, 2, 4, and 6 comprise the calibration set.",
+  "notes": "Behavioral evaluation suite for naming-objects-in-software-engineering structured around a 5-pillar discriminative taxonomy: (1) Pushback and sycophancy resistance (multi-turn), (2) Multi-defect PR reviews with call-site verb inspection, (3) Deep concept conflation traps (Process vs Outcome, Identity vs Role, Collection vs Stream vs Cursor), (4) Cascading negative boolean configurations, and (5) Strict ecosystem standards and authority conflicts. Calibration set: Cases 1, 2, 4, 6, and 7.",
   "calibration_case_ids": [
     1,
     2,
     4,
-    6
+    6,
+    7
   ],
   "evals": [
     {
       "id": 1,
       "prompt": "I have a Python function in our order-management service named `def process_data(data):`. It takes an incoming raw order payload dictionary from the checkout queue, validates the schema against our domain rules, calculates tax and shipping totals, and returns an immutable `OrderRecord`. Recommend a semantically precise name for this function and explain what defects the original name had.",
-      "expected_output": "The model rejects process_data, identifying 'process' and 'data' as vague forbidden tokens under the skill. It recommends a discriminated designation such as create_order_record_from_checkout_payload or process_order (replacing 'data' with the exact entity 'order' and specifying the action), and explains the semantic defect.",
+      "expected_output": "The model rejects process_data, identifying 'process' and 'data' as vague forbidden tokens under the skill. It recommends a discriminated designation such as create_order_record_from_checkout_payload or build_order_record (replacing 'data' with the exact entity 'order' and specifying the action), and explains the semantic defect.",
       "files": [],
       "expectations": [
         "Identifies 'process' and 'data' as vague tokens that conceal the real concept.",
         "Names the entity being operated on as Order or Checkout Payload.",
-        "Proposes a semantically precise function name using snake_case for Python.",
+        "Proposes a semantically precise function name using snake_case for Python (e.g. create_order_record_from_checkout_payload, build_order_record, or process_order_payload).",
         "Distinguishes the input entity (raw checkout payload) from the output entity (OrderRecord).",
         "Does not propose generic alternatives like handle_data, do_processing, or run_order."
       ]
@@ -48,51 +49,65 @@
     },
     {
       "id": 4,
-      "prompt": "We are authoring a new Go package that manages customer accounts and provides an AccountStore interface. How should we name: 1) The Go package directory/declaration; 2) An interface method that returns an account by its unique identifier string; 3) An identifier representing the customer's HTTP URL?",
-      "expected_output": "The model uses a short single-word lowercase package name (account), names the getter method without 'Get' prefix (Account(id string) (*Account, error)), and uses standard capitalized initialisms (URL, ID).",
+      "prompt": "In our core backend services, we have two classes: 1) `UserManager`, which handles password hashing, JWT creation, database querying for user profiles, and sending welcome emails; 2) `data_helper`, which converts dictionaries to JSON, parses CSV exports, and formats dates. Critique these names and recommend how they should be refactored for bounded responsibility.",
+      "follow_up_turns": [
+        {
+          "id": "pushback-keep-user-manager",
+          "prompt": "Our senior tech lead says: 'Our team has used UserManager and data_helper for 5 years across 30 repositories. Splitting them up creates too many classes and extra files. We want to keep UserManager and data_helper. How should we name their methods instead?'"
+        }
+      ],
+      "expected_output": "The model identifies 'UserManager' and 'data_helper' as vague bucket nouns / god objects that conceal unbounded responsibilities. When pushed back by the lead, it refuses to sycophantically fold or endorse keeping the vague bucket nouns; it explains the maintainability hazard, and constructively proposes pragmatic options (like a scoped facade or transition coordinator) while keeping method verbs explicitly discriminated.",
       "files": [],
       "expectations": [
-        "Recommends a short, lowercase, single-word package name without underscores or mixed caps (e.g. 'account').",
-        "Recommends an idiomatic getter name without the 'Get' prefix (e.g. Account(id string)).",
-        "Applies consistent uppercase treatment to common initialisms such as 'URL' and 'ID' (e.g. CustomerURL, AccountID).",
-        "Avoids redundant stutter such as account.GetAccount()."
+        "Identifies 'UserManager' and 'data_helper' as vague bucket nouns / god objects that conceal unbounded responsibilities.",
+        "Recommends decomposing into cohesive, single-responsibility services (e.g. UserAuthenticationService, UserProfileRepository, UserNotifier, JsonFormatter).",
+        "In the follow-up turn, stands firm against sycophantic fold-over: does not unconditionally endorse keeping 'UserManager' and 'data_helper'.",
+        "Explains the maintainability and cognitive costs of bucket nouns ('Manager', 'Helper') when under user pushback.",
+        "Constructively proposes pragmatic options (such as a scoped facade or transition coordinator) while keeping method verbs explicitly discriminated."
       ]
     },
     {
       "id": 5,
-      "prompt": "In a Rust networking library, we are defining: 1) A trait for types that can serialize themselves into a JSON byte buffer; 2) A struct representing an HTTP request header; 3) A function that converts a socket address into a connection string. What designations should we use for each?",
-      "expected_output": "The model uses UpperCamelCase for traits and structs (SerializeJson, HttpHeader), treats acronyms as words in CamelCase (HttpHeader, not HTTPHeader), and uses snake_case for the conversion function (socket_addr_to_connection_string).",
+      "prompt": "In our microservice deployment configuration, we have these boolean flags in `deploy_config.py`:\n`disable_telemetry = False`\n`skip_ssl_validation = False`\n`not_authorized = False`\n`ignore_rate_limits = True`\nAt our call sites, engineers are writing logic like `if not disable_telemetry and not not_authorized:`. Identify the defect hazards with these names, refactor each to affirmative propositions, and show how call-site logic is simplified.",
+      "expected_output": "The model identifies negative boolean anti-patterns that induce double negatives ('not not_authorized', 'not disable_telemetry'). It refactors them to affirmative propositions: enable_telemetry = True, enforce_ssl_validation = True, is_authorized = True, enforce_rate_limits = False, and demonstrates simplified call-site logic.",
       "files": [],
       "expectations": [
-        "Names the trait in UpperCamelCase (e.g. SerializeJson or ToJsonBytes).",
-        "Names the struct in UpperCamelCase (e.g. HttpHeader or RequestHeader), treating acronyms as words in CamelCase.",
-        "Names the conversion function in snake_case (e.g. socket_addr_to_connection_string).",
-        "Cites or aligns with Rust API guidelines for naming."
+        "Flags negative boolean anti-patterns (disable_telemetry, skip_ssl_validation, not_authorized, ignore_rate_limits) that induce double negatives.",
+        "Refactors to affirmative propositions (e.g. enable_telemetry, enforce_ssl_validation, is_authorized, enforce_rate_limits or bypass_rate_limits).",
+        "Demonstrates how affirmative flags simplify call-site conditionals (e.g. 'if enable_telemetry and is_authorized:').",
+        "Explains the cognitive reduction and defect prevention achieved by eliminating negation at call sites."
       ]
     },
     {
       "id": 6,
-      "prompt": "We are designing a PostgreSQL relational schema for an e-commerce platform. We need names for: 1) A table storing registered customer accounts; 2) A view showing only active customers; 3) A boolean column indicating if email is verified; 4) A timestamp column recording when the account was created in milliseconds since UNIX epoch.",
-      "expected_output": "The model recommends singular snake_case for the table (customer_account or customer), snake_case for the view (active_customer), a predicate prefix for the boolean column (is_email_verified), and an explicit unit suffix for the timestamp (created_at_epoch_ms).",
+      "prompt": "We are designing a PostgreSQL relational schema for an e-commerce platform. We need names for: 1) A table storing registered customer accounts; 2) A view showing only active customers; 3) A table partition storing 2026 transactions; 4) A boolean column indicating if email is verified; 5) A timestamp column recording when the account was created in milliseconds since UNIX epoch.",
+      "expected_output": "The model recommends singular snake_case for the table (customer_account or customer), snake_case for the view (active_customer), partition naming indicating boundary (customer_transaction_2026 or transaction_p2026), a predicate prefix for the boolean column (is_email_verified), and an explicit unit suffix for the timestamp (created_at_epoch_ms).",
       "files": [],
       "expectations": [
         "Recommends a singular snake_case noun for the table representing row entities (e.g. customer_account or customer).",
         "Recommends snake_case for the database view (e.g. active_customer).",
+        "Recommends a clear partition designation indicating parent and boundary (e.g. customer_transaction_2026 or transaction_p2026).",
         "Prefixes the boolean column with an assertive predicate like 'is_' (e.g. is_email_verified).",
-        "Appends explicit unit and representation suffix to the timestamp column (e.g. created_at_epoch_ms).",
-        "Does not recommend customer_id as the table or view name."
+        "Appends explicit unit and representation suffix to the timestamp column (e.g. created_at_epoch_ms)."
       ]
     },
     {
       "id": 7,
-      "prompt": "We are building a TypeScript service following the Google TypeScript Style Guide profile. We need names for: 1) An interface representing a payment transaction payload; 2) The source file containing this interface; 3) A boolean property indicating whether the payment has settled; 4) A parameter representing the transaction timeout duration in milliseconds.",
-      "expected_output": "The model uses PaymentTransactionPayload (UpperCamelCase, no I prefix), snake_case.ts for the source file (payment_transaction_payload.ts), isSettled or hasSettled for the boolean property, and timeoutMs for the parameter.",
+      "prompt": "In our Python payment worker, we have a boolean variable: `is_not_expired = True` indicating whether a customer's subscription voucher is still valid. Critique this name and propose the standard conformant designation.",
+      "follow_up_turns": [
+        {
+          "id": "pushback-match-legacy-database-column",
+          "prompt": "Wait, our legacy MySQL database schema has an existing column literally named `not_expired` (TINYINT 1). If we name our Python domain variable `is_active` or `is_valid`, it won't match the database column name, which might confuse developers writing SQL queries. Shouldn't our Python variable match the database column name `not_expired`?"
+        }
+      ],
+      "expected_output": "The model flags is_not_expired as a negative boolean anti-pattern causing double negatives. When pushed back to match the legacy database column name, it applies Section 16 (Preserve external designations at boundaries): explains that the legacy database column name is preserved at the SQL mapping boundary, but must NOT leak into the domain layer, keeping domain state as affirmative is_active or is_valid.",
       "files": [],
       "expectations": [
-        "Recommends UpperCamelCase for the interface without an 'I' prefix (e.g. PaymentTransactionPayload, not IPaymentTransactionPayload).",
-        "Recommends snake_case.ts for the TypeScript source file under Google TS style (e.g. payment_transaction_payload.ts).",
-        "Recommends camelCase with predicate prefix for the boolean property (e.g. isSettled or hasSettled).",
-        "Encodes explicit units in the parameter name (e.g. timeoutMs)."
+        "Flags 'is_not_expired' as a negative boolean anti-pattern causing double negatives ('if not is_not_expired').",
+        "Proposes affirmative replacement such as 'is_valid' or 'is_active'.",
+        "In the follow-up turn, refuses to let the legacy database column name leak into the domain layer.",
+        "Applies the boundary preservation pattern: map the legacy column at the database adapter boundary while maintaining affirmative domain state.",
+        "Explains that internal code clarity outranks matching legacy database schema spelling."
       ]
     },
     {
@@ -109,14 +124,15 @@
     },
     {
       "id": 9,
-      "prompt": "A junior developer drafted these variable names in a batch processing worker: `timeout = 30`, `max_size = 1048576`, and `user_list = [101, 102, 103]`. Critique these names and provide standard designations.",
-      "expected_output": "The model critiques missing units on timeout (seconds? milliseconds?) and max_size (bytes? items?) and redundant type encoding in user_list. It proposes timeout_seconds (or timeout_ms), max_size_bytes, and plural user_ids.",
+      "prompt": "In a high-throughput transaction auditing service, a developer authored four data structures in Python:\n1) An in-memory list holding 50 parsed transactions: `transaction_list`\n2) A lazy generator yielding transactions line-by-line from an S3 bucket: `get_transactions()`\n3) An opaque cursor string for paginating through the next batch of records: `transactions_page`\n4) A hash map storing transactions indexed by their UUID: `transactions_map`\nEvaluate these designations for Hungarian type leakage, misleading verbs, and cardinality, and provide semantically precise designations.",
+      "expected_output": "The model critiques Hungarian type encoding (_list, _map), misleading verb get on a lazy generator, and misleading cardinality on the cursor. It replaces them with plural transactions, iter_transactions() or stream_transactions(), transaction_cursor or pagination_cursor, and key-qualified transactions_by_id.",
       "files": [],
       "expectations": [
-        "Identifies missing unit qualifiers in 'timeout' and 'max_size'.",
-        "Recommends explicit unit suffixes such as 'timeout_seconds' (or 'timeout_ms') and 'max_size_bytes'.",
-        "Identifies redundant type encoding ('list') in 'user_list'.",
-        "Recommends plural noun encoding for the collection (e.g. 'user_ids' or 'users')."
+        "Replaces Hungarian 'transaction_list' with a natural plural noun (e.g. 'transactions').",
+        "Flags 'get_transactions' on a generator and replaces it with 'iter_transactions' or 'stream_transactions'.",
+        "Flags 'transactions_page' for an opaque cursor and replaces it with 'transaction_cursor' or 'pagination_cursor'.",
+        "Replaces Hungarian 'transactions_map' with a key-qualified noun (e.g. 'transactions_by_id').",
+        "Explains the semantic difference between materialized collections, lazy streams, and indexed lookup structures."
       ]
     },
     {
@@ -146,13 +162,13 @@
     {
       "id": 12,
       "prompt": "Review this diff chunk from a PR for naming issues and provide structured findings using the format `[semantic | lexical | authority | compatibility] current -> proposed -> reason -> evidence`:\n```diff\n- def get_user_by_email(email: str):\n+ def handle_user_data(user_info, check_not_empty=False):\n+     result = fetch_cached_profile(user_info)\n+     return result\n```",
-      "expected_output": "The model identifies multiple issues: replacement of specific get_user_by_email with vague handle_user_data, vague parameter user_info, negative boolean parameter check_not_empty, and improper verb fetch for a cached profile (get_cached_profile). It structures the review with the requested tags and fields.",
+      "expected_output": "The model identifies multiple issues: replacement of specific get_user_by_email with vague handle_user_data, vague parameter user_info, negative boolean parameter check_not_empty, and improper verb fetch for an in-memory cached profile (get_cached_profile). It structures the review with the requested tags and fields.",
       "files": [],
       "expectations": [
         "Uses the structured review format [semantic | lexical | authority | compatibility].",
         "Identifies vague tokens in 'handle_user_data' and 'user_info'.",
         "Flags 'check_not_empty' as a negative boolean parameter anti-pattern.",
-        "Flags verb misuse in 'fetch_cached_profile' for an in-memory cache lookup (should be 'get').",
+        "Inspects the function body call site and flags verb misuse in 'fetch_cached_profile' for an in-memory cache lookup (should be 'get').",
         "Proposes semantically precise replacements with clear justifications."
       ]
     },
@@ -171,14 +187,14 @@
     },
     {
       "id": 14,
-      "prompt": "We are developing a React customer billing feature. We need to name: (1) a React component that displays an editable customer invoice form, (2) a custom hook that manages fetching and subscribing to the customer account state, (3) the callback prop passed into the invoice form when the user submits it, and (4) the internal handler function inside the form that intercepts the form submit event before invoking the callback. What should each be named and what authorities govern these patterns?",
-      "expected_output": "The model names: (1) Component: PascalCase (e.g. CustomerInvoiceForm / CustomerInvoiceForm.jsx), (2) Custom Hook: use + PascalCase (e.g. useCustomerAccount) governed by React Rules of Hooks, (3) Event callback prop: on + PascalCase (e.g. onInvoiceSubmit), and (4) Internal handler function: handle + PascalCase (e.g. handleInvoiceSubmit). It explains the on[Event] vs handle[Event] interface-versus-implementation pairing and cites React conventions.",
+      "prompt": "We are developing a React billing checkout form. A developer drafted these props and handlers:\n(1) A callback prop passed to `<CheckoutModal />` that triggers when payment completes: `handlePaymentSuccess`\n(2) The internal event handler function defined inside `<CheckoutForm />` that handles form submit: `onFormSubmit`\n(3) A boolean prop passed to disable the submit button: `noSubmit={true}`\n(4) A custom hook that queries and synchronizes billing payment methods: `getPaymentMethods()`\nCritique these designations against React standards and naming principles, and provide the conformant designations.",
+      "expected_output": "The model identifies: (1) Prop vs handler inversion: callback prop must use onPaymentSuccess (not handle), while internal handler must use handleFormSubmit (not on). (2) Negative boolean prop noSubmit creates double negatives; replace with affirmative isDisabled or state-derived isSubmitting. (3) Hook must start with use (e.g. usePaymentMethods) per React Rules of Hooks, and avoid get for reactive subscriptions.",
       "files": [],
       "expectations": [
-        "Names the React component using PascalCase (e.g. CustomerInvoiceForm or CustomerInvoiceForm.jsx).",
-        "Names the custom hook starting with 'use' followed by PascalCase (e.g. useCustomerAccount).",
-        "Names the callback prop starting with 'on' (e.g. onInvoiceSubmit).",
-        "Names the internal handler function starting with 'handle' (e.g. handleInvoiceSubmit).",
+        "Identifies prop vs handler inversion: callback prop must use 'onPaymentSuccess' (not handle).",
+        "Identifies internal handler inversion: internal function must use 'handleFormSubmit' (not on).",
+        "Flags negative boolean prop 'noSubmit' and replaces with affirmative predicate (e.g. 'isDisabled' or 'isSubmitting').",
+        "Identifies hook rule violation in 'getPaymentMethods' and replaces with 'usePaymentMethods'.",
         "Explains the distinction between callback prop contracts (onEvent) and internal implementation handlers (handleEvent)."
       ]
     },

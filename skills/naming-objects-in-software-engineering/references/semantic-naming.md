@@ -445,6 +445,13 @@ view.dismiss(animated: true)
 
 A declaration that appears concise in isolation may be repetitive or ambiguous at the call site. Clarity at use outranks declaration-only neatness.
 
+### Inspect call sites and inner invocations during review
+
+When conducting naming reviews on code diffs or function declarations:
+- Inspect the entire function body and inner call sites, not merely the signature change. Check whether inner calls invoke improper I/O verbs (for example, invoking `fetch_...` for an in-memory cache lookup or `compute_...` for an operation performing durable database writes).
+- Ensure internal verbs and arguments match the operational boundaries defined in Section 7 (such as `get` for in-memory or cache access, `fetch` for remote HTTP calls, and `derive` or `calculate` for pure computations).
+- Verify that unvalidated payloads or raw storage representations (such as `mongo_doc` or `raw_dict`) do not leak into domain logic across abstraction seams.
+
 ## 16. Preserve external designations at boundaries
 
 External names can be semantically or lexically poor yet contractually fixed:
