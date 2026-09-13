@@ -2,8 +2,10 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -41,6 +43,21 @@ function resolveGitPath(root, name) {
   return resolve(isAbsolute(path) ? path : join(root, path));
 }
 
+function copyIndexFile(source, destination) {
+  // Git uses the index timestamp to rehash stat-matching, racy-clean files.
+  // A new timestamp on identical copied bytes can hide a same-size edit.
+  // Round down to whole seconds so filesystem precision cannot make it newer.
+  const observedTime = lstatSync(source, { bigint: true }).mtimeNs;
+  const timestamp = Number(observedTime / 1000000000n);
+  copyFileSync(source, destination);
+  utimesSync(destination, timestamp, timestamp);
+  if (lstatSync(destination, { bigint: true }).mtimeNs > observedTime) {
+    throw new Error(
+      "Copied index timestamp could not preserve native Git freshness.",
+    );
+  }
+}
+
 function copySharedIndexFiles(realIndexPath, preparedIndexPath) {
   const sourceDirectory = dirname(realIndexPath);
   const destinationDirectory = dirname(preparedIndexPath);
@@ -53,7 +70,7 @@ function copySharedIndexFiles(realIndexPath, preparedIndexPath) {
     const destination = join(destinationDirectory, name);
 
     if (!existsSync(destination)) {
-      copyFileSync(join(sourceDirectory, name), destination);
+      copyIndexFile(join(sourceDirectory, name), destination);
 
       if (process.platform !== "win32") {
         chmodSync(destination, 0o600);
@@ -251,7 +268,7 @@ function copyStableIndex(realIndexPath, preparedIndexPath, originalIdentity) {
     return;
   }
 
-  copyFileSync(realIndexPath, preparedIndexPath);
+  copyIndexFile(realIndexPath, preparedIndexPath);
   copySharedIndexFiles(realIndexPath, preparedIndexPath);
 
   if (process.platform !== "win32") {

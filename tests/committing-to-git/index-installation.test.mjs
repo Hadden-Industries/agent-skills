@@ -1,4 +1,11 @@
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  utimesSync,
+  statSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 import assert from "node:assert/strict";
@@ -78,6 +85,24 @@ function install(fixture, failureInjector) {
     failureInjector,
   });
 }
+
+test("index installation retains the prepared racy-clean timestamp boundary", (t) => {
+  const fixture = preparedFixture(t);
+  const timestamp = 1700000000;
+  utimesSync(fixture.preparedIndexPath, timestamp, timestamp);
+  fixture.preparedIndexIdentity = readIndexIdentity(fixture.preparedIndexPath);
+  const preparedTime = statSync(fixture.preparedIndexPath, {
+    bigint: true,
+  }).mtimeNs;
+  const preparedBytes = readFileSync(fixture.preparedIndexPath);
+  const result = install(fixture);
+  assert.equal(result.status, "installed");
+  assert.deepEqual(readFileSync(fixture.indexPath), preparedBytes);
+  assert.ok(
+    statSync(fixture.indexPath, { bigint: true }).mtimeNs <= preparedTime,
+    "Byte transport must not advance the timestamp used by Git to detect racy worktree entries",
+  );
+});
 
 test("index identities distinguish absence and install exact prepared bytes", (t) => {
   const fixture = preparedFixture(t);

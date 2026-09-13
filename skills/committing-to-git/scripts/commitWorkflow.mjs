@@ -3698,6 +3698,7 @@ import {
   existsSync as existsSync5,
   fstatSync as fstatSync3,
   fsyncSync as fsyncSync3,
+  futimesSync,
   lstatSync as lstatSync3,
   openSync as openSync4,
   readFileSync as readFileSync2,
@@ -3765,6 +3766,7 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
     }
     return {
       bytes,
+      modifiedTimeNanoseconds: fstatSync3(descriptor, { bigint: true }).mtimeNs,
       identity: {
         state: "file",
         byteCount: bytes.length,
@@ -4015,6 +4017,7 @@ function performJournaledReplacement({
   journal,
   journalPath,
   preparedBytes,
+  preparedModifiedTimeNanoseconds,
   failureInjector
 }) {
   const lockPath = `${journal.indexPath}.lock`;
@@ -4028,6 +4031,13 @@ function performJournaledReplacement({
     );
     lockOwned = true;
     writeFileSync3(lockDescriptor, preparedBytes);
+    const timestamp = Number(preparedModifiedTimeNanoseconds / 1000000000n);
+    futimesSync(lockDescriptor, timestamp, timestamp);
+    if (fstatSync3(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
+      throw new Error(
+        "Installed index timestamp could not preserve native Git freshness."
+      );
+    }
     fsyncSync3(lockDescriptor);
     closeSync4(lockDescriptor);
     lockDescriptor = void 0;
@@ -4109,6 +4119,7 @@ function resumePreparedIndexInstallation({ root, transactionPath }) {
     journal,
     journalPath,
     preparedBytes: prepared.bytes,
+    preparedModifiedTimeNanoseconds: prepared.modifiedTimeNanoseconds,
     failureInjector: () => {
     }
   });
@@ -4167,6 +4178,7 @@ function installPreparedIndex({
     journal,
     journalPath: invocation.journalPath,
     preparedBytes: invocation.stablePrepared.bytes,
+    preparedModifiedTimeNanoseconds: invocation.stablePrepared.modifiedTimeNanoseconds,
     failureInjector
   });
 }
@@ -4752,8 +4764,10 @@ import {
   chmodSync as chmodSync3,
   copyFileSync,
   existsSync as existsSync7,
+  lstatSync as lstatSync4,
   mkdirSync as mkdirSync4,
   readdirSync,
+  utimesSync,
   writeFileSync as writeFileSync4
 } from "node:fs";
 import { dirname as dirname5, isAbsolute as isAbsolute5, join as join5, resolve as resolve6 } from "node:path";
@@ -4769,6 +4783,17 @@ function resolveGitPath(root, name) {
   const path = readOnlyGitText(root, "git-path", [name]).trim();
   return resolve6(isAbsolute5(path) ? path : join5(root, path));
 }
+function copyIndexFile(source, destination) {
+  const observedTime = lstatSync4(source, { bigint: true }).mtimeNs;
+  const timestamp = Number(observedTime / 1000000000n);
+  copyFileSync(source, destination);
+  utimesSync(destination, timestamp, timestamp);
+  if (lstatSync4(destination, { bigint: true }).mtimeNs > observedTime) {
+    throw new Error(
+      "Copied index timestamp could not preserve native Git freshness."
+    );
+  }
+}
 function copySharedIndexFiles(realIndexPath2, preparedIndexPath) {
   const sourceDirectory = dirname5(realIndexPath2);
   const destinationDirectory = dirname5(preparedIndexPath);
@@ -4778,7 +4803,7 @@ function copySharedIndexFiles(realIndexPath2, preparedIndexPath) {
     }
     const destination = join5(destinationDirectory, name);
     if (!existsSync7(destination)) {
-      copyFileSync(join5(sourceDirectory, name), destination);
+      copyIndexFile(join5(sourceDirectory, name), destination);
       if (process.platform !== "win32") {
         chmodSync3(destination, 384);
       }
@@ -4935,7 +4960,7 @@ function copyStableIndex(realIndexPath2, preparedIndexPath, originalIdentity) {
   if (originalIdentity.state === "absent") {
     return;
   }
-  copyFileSync(realIndexPath2, preparedIndexPath);
+  copyIndexFile(realIndexPath2, preparedIndexPath);
   copySharedIndexFiles(realIndexPath2, preparedIndexPath);
   if (process.platform !== "win32") {
     chmodSync3(preparedIndexPath, 384);
@@ -5142,7 +5167,7 @@ import {
   existsSync as existsSync8,
   fstatSync as fstatSync4,
   fsyncSync as fsyncSync4,
-  lstatSync as lstatSync4,
+  lstatSync as lstatSync5,
   mkdirSync as mkdirSync5,
   openSync as openSync5,
   readFileSync as readFileSync3,
@@ -5964,7 +5989,7 @@ function readVerifiedPacket(outputDirectory, packet) {
       `Review packet ${packet.id} escapes its catalog directory.`
     );
   }
-  const initial = lstatSync4(path);
+  const initial = lstatSync5(path);
   if (initial.isSymbolicLink() || !initial.isFile() || realpathSync3(path) !== path) {
     failPacket(
       "REVIEW_PACKET_REPLACED",
@@ -5984,7 +6009,7 @@ function readVerifiedPacket(outputDirectory, packet) {
     const before = fstatSync4(descriptor);
     bytes = readFileSync3(descriptor);
     const after = fstatSync4(descriptor);
-    const final = lstatSync4(path);
+    const final = lstatSync5(path);
     if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync3(path) !== path) {
       failPacket(
         "REVIEW_PACKET_CHANGED",
@@ -7736,7 +7761,7 @@ import {
   existsSync as existsSync9,
   fstatSync as fstatSync5,
   fsyncSync as fsyncSync5,
-  lstatSync as lstatSync5,
+  lstatSync as lstatSync6,
   mkdirSync as mkdirSync6,
   openSync as openSync6,
   readFileSync as readFileSync4,
@@ -7784,7 +7809,7 @@ function artifactPath(transaction, name) {
   return path;
 }
 function ensureDirectory2(path, label) {
-  const stat = lstatSync5(path);
+  const stat = lstatSync6(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail2(
       "MESSAGE_ARTIFACT_REPLACED",
@@ -7828,7 +7853,7 @@ function openReadOnlyNoFollow3(path) {
 function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
   let initial;
   try {
-    initial = lstatSync5(path, { bigint: true });
+    initial = lstatSync6(path, { bigint: true });
   } catch (error) {
     if (error.code === "ENOENT") {
       fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
@@ -7868,7 +7893,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
       );
     }
     if (!allowPathReplacement) {
-      const pathStat = lstatSync5(path, { bigint: true });
+      const pathStat = lstatSync6(path, { bigint: true });
       if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity2(pathStat))) {
         fail2(
           "MESSAGE_INPUT_CHANGED",
@@ -7951,7 +7976,7 @@ function cleanupTransactionOwnedInput({
     closeSync6(descriptor);
   }
   try {
-    const finalPathStat = lstatSync5(path, { bigint: true });
+    const finalPathStat = lstatSync6(path, { bigint: true });
     if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity2, statIdentity2(finalPathStat))) {
       return {
         removed: false,
@@ -8896,7 +8921,7 @@ import {
   fstatSync as fstatSync7,
   fsyncSync as fsyncSync6,
   existsSync as existsSync10,
-  lstatSync as lstatSync6,
+  lstatSync as lstatSync7,
   mkdirSync as mkdirSync7,
   openSync as openSync8,
   readFileSync as readFileSync5,
@@ -9226,7 +9251,7 @@ function normalizeEvidencePlan(payload) {
 }
 function readBoundedJson(path, label) {
   const absolutePath = resolve10(path);
-  const initialPathStat = lstatSync6(absolutePath);
+  const initialPathStat = lstatSync7(absolutePath);
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
     fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
   }
@@ -9245,7 +9270,7 @@ function readBoundedJson(path, label) {
     }
     const bytes = readFileSync5(descriptor);
     const after = fstatSync7(descriptor);
-    const finalPathStat = lstatSync6(absolutePath);
+    const finalPathStat = lstatSync7(absolutePath);
     if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
       fail3("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
     }
@@ -10667,7 +10692,7 @@ import {
   constants as fsConstants7,
   existsSync as existsSync11,
   fstatSync as fstatSync8,
-  lstatSync as lstatSync7,
+  lstatSync as lstatSync8,
   mkdirSync as mkdirSync8,
   openSync as openSync9,
   readFileSync as readFileSync6,
@@ -10680,7 +10705,7 @@ function fail4(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
 }
 function readFixedEvidencePlan(path) {
-  const initialPathStat = lstatSync7(path);
+  const initialPathStat = lstatSync8(path);
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile() || initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
     fail4(
       "INVALID_EVIDENCE_PLAN_INPUT",
@@ -10693,7 +10718,7 @@ function readFixedEvidencePlan(path) {
     const before = fstatSync8(descriptor);
     const bytes = readFileSync6(descriptor);
     const after = fstatSync8(descriptor);
-    const finalPathStat = lstatSync7(path);
+    const finalPathStat = lstatSync8(path);
     if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
       fail4(
         "EVIDENCE_PLAN_INPUT_CHANGED",
@@ -11060,7 +11085,7 @@ __export(reviewNextWorkflow_exports, {
   runReviewNextCommand: () => runReviewNextCommand
 });
 import { createHash as createHash10 } from "node:crypto";
-import { lstatSync as lstatSync8, realpathSync as realpathSync5 } from "node:fs";
+import { lstatSync as lstatSync9, realpathSync as realpathSync5 } from "node:fs";
 import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve12, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder7 } from "node:util";
 function fail5(code, message, options) {
@@ -11085,7 +11110,7 @@ function readCurrentCatalog(transaction) {
       "The current review catalog is outside the fixed review directory."
     );
   }
-  const stat = lstatSync8(catalogPath);
+  const stat = lstatSync9(catalogPath);
   if (stat.isSymbolicLink() || !stat.isFile() || realpathSync5(catalogPath) !== catalogPath) {
     fail5(
       "REVIEW_CATALOG_REPLACED",
@@ -11431,7 +11456,7 @@ __export(resumePreparationWorkflow_exports, {
   runResumePreparationCommand: () => runResumePreparationCommand
 });
 import { createHash as createHash11 } from "node:crypto";
-import { existsSync as existsSync12, lstatSync as lstatSync9, readFileSync as readFileSync7, unlinkSync as unlinkSync7 } from "node:fs";
+import { existsSync as existsSync12, lstatSync as lstatSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync7 } from "node:fs";
 import { join as join8, relative as relative6, resolve as resolve13 } from "node:path";
 function fail6(code, message, { exitCode = 2, details = {} } = {}) {
   throw new PreparationError(code, message, { exitCode, details });
@@ -11448,7 +11473,7 @@ function assertContainedExactPath(attemptDirectory, path, name) {
       `${name} has an invalid recorded path.`
     );
   }
-  const stat = lstatSync9(path);
+  const stat = lstatSync10(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     fail6(
       "INVALID_TRANSACTION_ARTIFACT",
@@ -13070,7 +13095,7 @@ import {
   closeSync as closeSync10,
   existsSync as existsSync14,
   fsyncSync as fsyncSync7,
-  lstatSync as lstatSync10,
+  lstatSync as lstatSync11,
   mkdirSync as mkdirSync9,
   openSync as openSync10,
   realpathSync as realpathSync6,
@@ -13084,7 +13109,7 @@ function assertContained2(parent, child) {
   }
 }
 function ensureDirectory3(path, label) {
-  const stat = lstatSync10(path);
+  const stat = lstatSync11(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
@@ -13309,7 +13334,7 @@ var init_checkOutputCapture = __esm({
 });
 
 // src/committing-to-git/checks/checkWorkspace.js
-import { lstatSync as lstatSync11 } from "node:fs";
+import { lstatSync as lstatSync12 } from "node:fs";
 import { resolve as resolve16, sep as sep4 } from "node:path";
 function rawPath(value, label) {
   if (typeof value !== "string") {
@@ -13396,7 +13421,7 @@ function rawFilesystemPath(root, pathBytes3) {
 }
 function pathIsAbsent(root, pathBytes3) {
   try {
-    lstatSync11(rawFilesystemPath(root, pathBytes3));
+    lstatSync12(rawFilesystemPath(root, pathBytes3));
     return false;
   } catch (error) {
     if (ABSENCE_ERRORS.has(error?.code)) {
@@ -14431,7 +14456,7 @@ import {
   constants as fsConstants8,
   existsSync as existsSync15,
   fsyncSync as fsyncSync8,
-  lstatSync as lstatSync12,
+  lstatSync as lstatSync13,
   openSync as openSync11,
   readFileSync as readFileSync8,
   readdirSync as readdirSync3,
@@ -14462,7 +14487,7 @@ function validateAttemptDirectory(transaction) {
       "Transaction attempt directory does not contain its UUID handle."
     );
   }
-  const stat = lstatSync12(attempt);
+  const stat = lstatSync13(attempt);
   if (stat.isSymbolicLink() || !stat.isDirectory() || !samePath3(realpathSync7(attempt), attempt)) {
     throw new Error("Transaction attempt directory was replaced.");
   }
@@ -14490,7 +14515,7 @@ function acquireTransactionStateLock({
     descriptor = openLock();
   } catch (error) {
     if (error.code === "EEXIST") {
-      const stat = lstatSync12(path);
+      const stat = lstatSync13(path);
       let owner;
       try {
         owner = JSON.parse(readFileSync8(path, "utf8"));
@@ -14555,7 +14580,7 @@ function acquireTransactionStateLock({
   return { path, token, operation, attemptDirectory };
 }
 function releaseTransactionStateLock(lock) {
-  const stat = lstatSync12(lock.path);
+  const stat = lstatSync13(lock.path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error("Transaction-state lock was replaced.");
   }
@@ -14832,7 +14857,7 @@ function recoverCommitOutcome({
   });
 }
 function validateTreeNoLinks(root, path = root) {
-  const stat = lstatSync12(path);
+  const stat = lstatSync13(path);
   if (stat.isSymbolicLink()) {
     throw new Error(`Cleanup refuses a link or reparse target: ${path}`);
   }
@@ -14846,7 +14871,7 @@ function validateTreeNoLinks(root, path = root) {
   }
 }
 function cleanupIdentity(path) {
-  const stat = lstatSync12(path, { bigint: true });
+  const stat = lstatSync13(path, { bigint: true });
   return {
     device: String(stat.dev),
     inode: String(stat.ino),
@@ -14879,7 +14904,7 @@ function removeOwnedTarget(attempt, path, removeOperation) {
   if (!sameCleanupIdentity(before, after)) {
     throw new Error(`Cleanup target changed before deletion: ${path}`);
   }
-  const directory = lstatSync12(path).isDirectory();
+  const directory = lstatSync13(path).isDirectory();
   removeWithRetry(
     path,
     directory ? { recursive: true } : void 0,
@@ -15045,7 +15070,7 @@ __export(runCheckWorkflow_exports, {
   runCheckWorkflowCommand: () => runCheckWorkflowCommand
 });
 import { createHash as createHash16 } from "node:crypto";
-import { lstatSync as lstatSync13, realpathSync as realpathSync8 } from "node:fs";
+import { lstatSync as lstatSync14, realpathSync as realpathSync8 } from "node:fs";
 import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve18 } from "node:path";
 function fail8(code, message, options) {
   throw new CheckWorkflowError(code, message, options);
@@ -15087,7 +15112,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
     fail8("CHECK_CONTEXT_INVALID", error.message);
   }
   const candidate = resolve18(repositoryRoot2, requestedDirectory);
-  const stat = lstatSync13(candidate);
+  const stat = lstatSync14(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail8(
       "CHECK_CONTEXT_INVALID",
@@ -15727,7 +15752,7 @@ import {
   closeSync as closeSync12,
   constants as fsConstants9,
   fstatSync as fstatSync9,
-  lstatSync as lstatSync14,
+  lstatSync as lstatSync15,
   openSync as openSync12,
   readFileSync as readFileSync9,
   realpathSync as realpathSync9
@@ -15857,7 +15882,7 @@ function readBoundSegment({
   }
   let initial;
   try {
-    initial = lstatSync14(expectedPath, { bigint: true });
+    initial = lstatSync15(expectedPath, { bigint: true });
   } catch (error) {
     fail9(
       "CHECK_DETAIL_UNAVAILABLE",
@@ -15887,7 +15912,7 @@ function readBoundSegment({
     const before = fstatSync9(descriptor, { bigint: true });
     const bytes = readFileSync9(descriptor);
     const after = fstatSync9(descriptor, { bigint: true });
-    const final = lstatSync14(expectedPath, { bigint: true });
+    const final = lstatSync15(expectedPath, { bigint: true });
     if (!before.isFile() || !after.isFile() || final.isSymbolicLink() || !final.isFile() || !sameIdentity2(identity(initial), identity(before)) || !sameIdentity2(identity(before), identity(after)) || !sameIdentity2(identity(after), identity(final)) || bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
       fail9(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
@@ -16222,7 +16247,7 @@ import {
   closeSync as closeSync13,
   existsSync as existsSync16,
   fsyncSync as fsyncSync9,
-  lstatSync as lstatSync15,
+  lstatSync as lstatSync16,
   mkdirSync as mkdirSync10,
   openSync as openSync13,
   readFileSync as readFileSync10,
@@ -16239,7 +16264,7 @@ function assertContained4(parent, child) {
   }
 }
 function ensureDirectory4(path, label) {
-  const stat = lstatSync15(path);
+  const stat = lstatSync16(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
@@ -16661,7 +16686,7 @@ import {
   closeSync as closeSync14,
   constants as fsConstants10,
   fsyncSync as fsyncSync10,
-  lstatSync as lstatSync16,
+  lstatSync as lstatSync17,
   openSync as openSync14,
   readFileSync as readFileSync11,
   renameSync as renameSync5,
@@ -16920,7 +16945,7 @@ function atomicWrite(path, bytes) {
 }
 function lstatSafe(path) {
   try {
-    return lstatSync16(path);
+    return lstatSync17(path);
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
@@ -17672,7 +17697,7 @@ import {
   constants as fsConstants11,
   existsSync as existsSync17,
   fsyncSync as fsyncSync11,
-  lstatSync as lstatSync17,
+  lstatSync as lstatSync18,
   mkdirSync as mkdirSync11,
   openSync as openSync15,
   readFileSync as readFileSync12,
@@ -17719,7 +17744,7 @@ function detailEntry(entry, ordinal) {
   };
 }
 function directoryIdentity(path) {
-  const stat = lstatSync17(path, { bigint: true });
+  const stat = lstatSync18(path, { bigint: true });
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail11(
       "DETAIL_STATE_REPLACED",
@@ -17738,7 +17763,7 @@ function validDirectoryIdentity(identity2) {
   );
 }
 function assertRegularFile(path, label) {
-  const stat = lstatSync17(path);
+  const stat = lstatSync18(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     fail11("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
   }
@@ -18348,7 +18373,7 @@ import {
   closeSync as closeSync16,
   constants as fsConstants12,
   fsyncSync as fsyncSync12,
-  lstatSync as lstatSync18,
+  lstatSync as lstatSync19,
   openSync as openSync16,
   readFileSync as readFileSync13,
   renameSync as renameSync7,
@@ -18385,7 +18410,7 @@ function atomicWrite2(path, bytes) {
     closeSync16(descriptor);
   }
   try {
-    const current = lstatSync18(path);
+    const current = lstatSync19(path);
     if (current.isSymbolicLink() || !current.isFile()) {
       fail12("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
     }
@@ -18487,7 +18512,7 @@ function assertPublicationAllowed(transaction) {
 function readPersistedReport(transaction) {
   let stat;
   try {
-    stat = lstatSync18(transaction.report.jsonPath);
+    stat = lstatSync19(transaction.report.jsonPath);
   } catch (error) {
     fail12(
       "REPORT_ARTIFACT_MISMATCH",
@@ -18517,7 +18542,7 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
     return false;
   }
   try {
-    const textStat = lstatSync18(transaction.report.textPath);
+    const textStat = lstatSync19(transaction.report.textPath);
     return !textStat.isSymbolicLink() && textStat.isFile() && sha25610(readFileSync13(transaction.report.textPath)) === transaction.report.textSha256;
   } catch (error) {
     if (error.code === "ENOENT") {
@@ -20355,7 +20380,7 @@ __export(finalizeMessageWorkflow_exports, {
 });
 import {
   existsSync as existsSync18,
-  lstatSync as lstatSync19,
+  lstatSync as lstatSync20,
   readFileSync as readFileSync14,
   realpathSync as realpathSync11,
   writeFileSync as writeFileSync14
@@ -20394,7 +20419,7 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync19(absolute);
+  const stat = lstatSync20(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     fail14(
       "MESSAGE_ARTIFACT_REPLACED",

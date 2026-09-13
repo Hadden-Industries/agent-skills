@@ -1,6 +1,9 @@
 // Snapshot-domain policies retained after the public low-level CLI cutover.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync, utimesSync } from "node:fs";
+import { join } from "node:path";
+import { createSnapshot } from "../../src/committing-to-git/snapshot/createSnapshot.js";
 
 import {
   MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES,
@@ -16,6 +19,41 @@ import {
   git,
   writeRepositoryFile,
 } from "./harness.mjs";
+
+test("temporary index preserves native detection of same-size racy edits", (t) => {
+  const fixture = createRepositoryFixture(t, "racy-index-copy-");
+  git(["config", "core.trustctime", "false"], fixture.repo);
+  git(["config", "core.checkStat", "minimal"], fixture.repo);
+  const file = join(fixture.repo, "same-size.txt");
+  const index = join(fixture.repo, ".git", "index");
+  const timestamp = 1700000000;
+  writeRepositoryFile(fixture.repo, "same-size.txt", "before\n");
+  utimesSync(file, timestamp, timestamp);
+  commitAll(fixture.repo);
+  utimesSync(index, timestamp, timestamp);
+  writeRepositoryFile(fixture.repo, "same-size.txt", "after!\n");
+  utimesSync(file, timestamp, timestamp);
+  const originalIndex = readFileSync(index);
+  const nativeDiff = git(["diff", "--name-only"], fixture.repo, {
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
+  assert.equal(nativeDiff.stdout, "same-size.txt\n");
+  const { snapshot } = createSnapshot({
+    root: fixture.repo,
+    mode: "actual",
+    scope: "paths",
+    scopePaths: ["same-size.txt"],
+    outputPath: join(fixture.scratch, "snapshot.json"),
+    deferIndexInstallation: true,
+  });
+  assert.equal(snapshot.changeUnitCount, 1);
+  assert.equal(
+    git(["rev-parse", `${snapshot.indexTreeOid}:same-size.txt`], fixture.repo)
+      .stdout,
+    git(["hash-object", "same-size.txt"], fixture.repo).stdout,
+  );
+  assert.deepEqual(readFileSync(index), originalIndex);
+});
 
 test("rename candidate policy honors its exact pair budget without overflow", () => {
   assert.equal(MAXIMUM_SIMILARITY_CANDIDATE_PAIRS, 40_000);

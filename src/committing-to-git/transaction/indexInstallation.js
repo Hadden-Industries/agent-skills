@@ -5,6 +5,7 @@ import {
   existsSync,
   fstatSync,
   fsyncSync,
+  futimesSync,
   lstatSync,
   openSync,
   readFileSync,
@@ -119,6 +120,7 @@ function readStableRegularFile(path, { allowAbsent = false } = {}) {
 
     return {
       bytes,
+      modifiedTimeNanoseconds: fstatSync(descriptor, { bigint: true }).mtimeNs,
       identity: {
         state: "file",
         byteCount: bytes.length,
@@ -456,6 +458,7 @@ function performJournaledReplacement({
   journal,
   journalPath,
   preparedBytes,
+  preparedModifiedTimeNanoseconds,
   failureInjector,
 }) {
   const lockPath = `${journal.indexPath}.lock`;
@@ -470,6 +473,17 @@ function performJournaledReplacement({
     );
     lockOwned = true;
     writeFileSync(lockDescriptor, preparedBytes);
+    // Byte-only publication must retain Git's racy-clean timestamp boundary.
+    const timestamp = Number(preparedModifiedTimeNanoseconds / 1000000000n);
+    futimesSync(lockDescriptor, timestamp, timestamp);
+    if (
+      fstatSync(lockDescriptor, { bigint: true }).mtimeNs >
+      preparedModifiedTimeNanoseconds
+    ) {
+      throw new Error(
+        "Installed index timestamp could not preserve native Git freshness.",
+      );
+    }
     fsyncSync(lockDescriptor);
     closeSync(lockDescriptor);
     lockDescriptor = undefined;
@@ -581,6 +595,7 @@ export function resumePreparedIndexInstallation({ root, transactionPath }) {
     journal,
     journalPath,
     preparedBytes: prepared.bytes,
+    preparedModifiedTimeNanoseconds: prepared.modifiedTimeNanoseconds,
     failureInjector: () => {},
   });
 }
@@ -646,6 +661,8 @@ export function installPreparedIndex({
     journal,
     journalPath: invocation.journalPath,
     preparedBytes: invocation.stablePrepared.bytes,
+    preparedModifiedTimeNanoseconds:
+      invocation.stablePrepared.modifiedTimeNanoseconds,
     failureInjector,
   });
 }
