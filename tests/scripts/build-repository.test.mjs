@@ -15,8 +15,10 @@ test("repository build composes scoped validation and artifact checks", async ()
     evaluationFileReferencesValidated: 0,
     evaluationSuitesValidated: 1,
     markdownFilesValidated: 10,
+    packagesChecked: 0,
     skillFilesValidated: 1,
     staleArtifacts: [],
+    stalePackages: [],
   });
 });
 
@@ -24,7 +26,9 @@ test("repository build preserves full-repository validation counts", async () =>
   const result = await buildRepository({ checkOnly: true });
 
   assert.deepEqual(result.staleArtifacts, []);
+  assert.deepEqual(result.stalePackages, []);
   assert.equal(result.artifactsChecked, 1);
+  assert.equal(result.packagesChecked, 1);
   assert.equal(result.deployableSkillsValidated, 4);
   assert.equal(result.evaluationSuitesValidated, 4);
   assert.equal(result.evaluationFileReferencesValidated, 5);

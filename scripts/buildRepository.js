@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { buildPluginPackages } from "./buildPluginPackages.js";
 import { buildSkillArtifacts } from "./buildSkillArtifacts.js";
 import { validateSkillRepository } from "./validateSkillRepository.js";
 
@@ -23,8 +24,20 @@ export async function buildRepository({
     repositoryRoot,
     skillNames,
   });
+  // Host plugin packages copy the skill directory, including the generated
+  // executable above, so they are synchronised after the artifacts.
+  const packages = buildPluginPackages({
+    checkOnly,
+    repositoryRoot,
+    skillNames,
+  });
 
-  return { ...validation, ...artifacts };
+  return {
+    ...validation,
+    ...artifacts,
+    ...packages,
+    staleArtifacts: [...artifacts.staleArtifacts, ...packages.stalePackages],
+  };
 }
 
 if (

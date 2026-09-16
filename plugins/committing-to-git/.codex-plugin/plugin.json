@@ -1,0 +1,22 @@
+{
+  "name": "committing-to-git",
+  "description": "Prepare commit messages, create signed commits, verify results and publish authorized commits.",
+  "author": {
+    "name": "Hadden Industries Ltd"
+  },
+  "license": "MPL-2.0",
+  "repository": "https://github.com/Hadden-Industries/agent-skills",
+  "version": "0.1.0-dev.gc30fedee02422d29",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Committing to Git",
+    "shortDescription": "Prepare and verify authorized signed Git commits.",
+    "developerName": "Hadden Industries Ltd",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Prepare a commit for my changes."
+    ],
+    "longDescription": "Prepare commit messages, create signed commits, verify results and publish authorized commits."
+  }
+}
