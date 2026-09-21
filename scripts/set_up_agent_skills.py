@@ -75,6 +75,19 @@ AGENT_SKILL_ROOTS = {
 SHARED_REFERENCE = "../_shared"
 VENDORED_SHARED_REFERENCE = "references/_shared"
 
+BROOKS_REVIEW_SKILL = "brooks-review"
+BROOKS_REVIEW_SOURCE = "hyhmrright/brooks-lint"
+BROOKS_REVIEW_OPENAI_YAML = """interface:
+  display_name: "Brooks Review"
+  short_description: "Maintainability and design-decay review"
+  default_prompt: >
+    Use $brooks-review as a separate maintainability-focused review of the
+    scope I explicitly provide.
+
+policy:
+  allow_implicit_invocation: false
+"""
+
 
 def lf_git_environment() -> dict[str, str]:
     """
@@ -204,6 +217,7 @@ def ensure_generated_roots_are_safe(repo: Path, roots: tuple[Path, ...]) -> None
     """
     Require generated roots to be untracked and ignored before rebuilding them.
     """
+    repo = repo.resolve()
     for root in roots:
         relative = root.relative_to(repo).as_posix()
 
@@ -233,6 +247,7 @@ def ensure_generated_roots_are_safe(repo: Path, roots: tuple[Path, ...]) -> None
 
 
 def remove_generated_root(repo: Path, root: Path) -> None:
+    repo = repo.resolve()
     root = root.resolve(strict=False)
 
     try:
@@ -256,6 +271,7 @@ def remove_generated_root(repo: Path, root: Path) -> None:
 
 
 def reset_generated_roots(repo: Path, roots: tuple[Path, ...]) -> None:
+    repo = repo.resolve()
     print("\n== Reset generated Agent Skill activation roots ==")
 
     for root in roots:
@@ -390,6 +406,7 @@ def unique_installed_skill_dirs(
     skill_name: str,
     agents: tuple[str, ...],
 ) -> tuple[Path, ...]:
+    repo = repo.resolve()
     directories: list[Path] = []
 
     for root in selected_roots(repo, agents):
@@ -411,6 +428,58 @@ def unique_installed_skill_dirs(
             directories.append(resolved)
 
     return tuple(directories)
+
+
+def configure_brooks_review_invocation_policy(
+    repo: Path,
+    skills: dict[str, dict[str, Any]],
+    agents: tuple[str, ...],
+) -> tuple[Path, ...]:
+    """Make the upstream Brooks Review skill explicit-only for Codex."""
+    entry = skills.get(BROOKS_REVIEW_SKILL)
+
+    if entry is None or entry.get("source") != BROOKS_REVIEW_SOURCE:
+        return ()
+
+    configured: list[Path] = []
+
+    for skill_dir in unique_installed_skill_dirs(
+        repo,
+        BROOKS_REVIEW_SKILL,
+        agents,
+    ):
+        metadata = skill_dir / "agents" / "openai.yaml"
+        resolved_metadata = metadata.resolve(strict=False)
+
+        try:
+            resolved_metadata.relative_to(skill_dir)
+        except ValueError as exc:
+            raise SetupError(
+                "Refusing to configure Brooks Review metadata outside its "
+                f"installed skill directory:\n  {resolved_metadata}"
+            ) from exc
+
+        if metadata.is_symlink():
+            raise SetupError(
+                "Refusing to replace symlinked Brooks Review metadata:\n"
+                f"  {metadata}"
+            )
+
+        if metadata.exists() and not metadata.is_file():
+            raise SetupError(
+                "Brooks Review metadata path is not a regular file:\n"
+                f"  {metadata}"
+            )
+
+        metadata.parent.mkdir(parents=True, exist_ok=True)
+        metadata.write_text(
+            BROOKS_REVIEW_OPENAI_YAML,
+            encoding="utf-8",
+            newline="\n",
+        )
+        configured.append(metadata)
+
+    return tuple(configured)
 
 
 def clone_url_for_entry(
@@ -696,6 +765,7 @@ def repair_non_self_contained_skills(
     lock_before_sync: dict[str, Any],
     agents: tuple[str, ...],
 ) -> None:
+    repo = repo.resolve()
     skills: dict[str, dict[str, Any]] = lock_before_sync["skills"]
 
     candidates: list[str] = []
@@ -755,6 +825,7 @@ def verify_final_state(
     declared_skills: set[str],
     agents: tuple[str, ...],
 ) -> None:
+    repo = repo.resolve()
     print("\n== Verify generated Agent Skills ==")
 
     for root in selected_roots(repo, agents):
@@ -809,6 +880,7 @@ def ensure_agent_skills(repo: Path, agents: tuple[str, ...]) -> set[str]:
     Returns the declared skill names, so a caller sequencing several setup steps
     can report them without re-reading the lock.
     """
+    repo = repo.resolve()
     require_python_version()
     require_command("git")
     npx = require_command("npx")
@@ -840,6 +912,23 @@ def ensure_agent_skills(repo: Path, agents: tuple[str, ...]) -> set[str]:
     verify_lock_skill_set_unchanged(repo, declared_skills)
 
     repair_non_self_contained_skills(repo, lock_before, agents)
+
+    print("\n== Codex skill invocation policies ==")
+    configured_metadata = configure_brooks_review_invocation_policy(
+        repo,
+        lock_before["skills"],
+        agents,
+    )
+
+    if configured_metadata:
+        for metadata in configured_metadata:
+            print(
+                "  brooks-review: disabled implicit invocation in "
+                f"{metadata.relative_to(repo)}"
+            )
+    else:
+        print("No repository-specific invocation policies required.")
+
     verify_final_state(repo, declared_skills, agents)
 
     if lock_path.read_bytes() != raw_before:

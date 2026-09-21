@@ -39,7 +39,7 @@
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/committing-to-git/SKILL.md",
-      "computedHash": "cbb67b02a9cecd8a5076cf2cb5b3d9aaf86dea74ada48f548d1b4c8016f76e0f"
+      "computedHash": "95a1e79e950557a0d522a52b9029d1af7fdf97fd3dde97d4d0ed2f587a78c1cf"
     },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
@@ -98,7 +98,7 @@
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/skill-check/SKILL.md",
-      "computedHash": "79ebc44c0b6a9389082c45c10bcd8fc6650b3979704768a606157a2146b3a6af"
+      "computedHash": "1409f27d5a30a4a4b3ffcf13fa29aa166ac970ad70bd26311e07a2783f0ce7ca"
     },
     "skill-creator": {
       "source": "anthropics/skills",
@@ -113,13 +113,6 @@
       "sourceType": "github",
       "skillPath": "skills/test-driven-development/SKILL.md",
       "computedHash": "a4126a9c5f17be3c228aa9e5755898ade283448b86099f56f40852e8c14532be"
-    },
-    "verification-before-completion": {
-      "source": "obra/superpowers",
-      "ref": "main",
-      "sourceType": "github",
-      "skillPath": "skills/verification-before-completion/SKILL.md",
-      "computedHash": "b529822bdac4b197b180fe12225cff86b930b65910435103c10622df7f041651"
     },
     "writing-for-agents": {
       "source": "mattpocock/skills",
