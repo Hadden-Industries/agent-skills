@@ -8,15 +8,6 @@
 - Before requesting approval, identify the exact file and setting, explain the behavioral and pipeline impact, and propose the smallest change.
 - If a task appears to require a configuration change, stop and request approval instead of inferring permission.
 
-# Command Execution
-
-- Execute shell commands individually, one command per execution action.
-- Do not use command chaining, pipelines, background operators, or command substitution (`;`, `&&`, `||`, `|`, `&`, `$()`, or backticks). The host environment rejects compound commands.
-- Inspect each command's exit status and output before executing a dependent command.
-
-# File Editing Guidance
-- Use native file-reading, searching, and targeted-editing tools for ordinary source-file operations. Do not use shell commands, ad-hoc scripts, or Git restoration commands as substitutes for targeted file editing when an appropriate native tool is available.
-
 # Skill Authoring
 
 ## ASCII-Only Canonical Skill Files
@@ -35,7 +26,7 @@
 
 ## Local Workspace Commits & Pushing
 
-- For any request to draft a commit message or commit current workspace changes, you MUST load and follow the `committing-to-git` skill.
+- For any request to draft a commit message or commit current workspace changes, you MUST load and follow the `committing-to-git` skill. Unless specified otherwise, use the template for a per-file detailed commit message when drafting a commit message.
 
 - **Explicit User Authorization**:
   - Creating a commit requires explicit user authorization.
@@ -58,10 +49,3 @@ Treat all existing working-tree changes as user-owned and potentially valuable.
 # GitHub Platform Guidance
 
 - Avoid executing destructive Git operations (such as force-pushing to protected branches or deleting remote branches) without explicit, case-by-case approval.
-
-## GitHub MCP Server
-
-- Prefer the GitHub MCP Server for GitHub platform operations, such as managing issues, pull requests, remote branches, repository metadata, and GitHub-hosted searches. Use local repository tools and Git for operations involving the current working tree, index, local branches, commits, or repository state.
-
-- **MCP Unavailability**: If the GitHub MCP Server is unavailable for GitHub platform operations, diagnose the cause first using non-destructive inspection. Do not modify configuration or connections without the approval required by the Configuration Safety rules. If the issue cannot be resolved without such changes, notify me before falling back to the Git CLI (`git`) or GitHub CLI (`gh`).
-- Before creating or modifying pull requests, issues, or remote branches through GitHub, use the MCP tools to verify the relevant remote repository state to prevent merge conflicts or duplicate work.
