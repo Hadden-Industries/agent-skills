@@ -57,8 +57,13 @@ jobs:
       - name: Check formatting, lint, and generated artifacts
         run: npm run build:check 2>&1 | tee "$VERIFICATION_OUTPUT/build-check.txt"
 
-      - name: Run committing-to-git tests on Linux
-        run: node --test --test-reporter=tap 'tests/committing-to-git/**/*.test.mjs' 2>&1 | tee "$VERIFICATION_OUTPUT/tests.tap"
+      - name: Run committing-to-git and native adapter tests on Linux
+        run: |
+          node --test --test-reporter=tap \
+            'tests/committing-to-git/**/*.test.mjs' \
+            tests/scripts/evaluation-path-metadata.test.mjs \
+            tests/scripts/evaluation-homes.test.mjs \
+            2>&1 | tee "$VERIFICATION_OUTPUT/tests.tap"
 
       - name: Retain verification output
         if: always()
