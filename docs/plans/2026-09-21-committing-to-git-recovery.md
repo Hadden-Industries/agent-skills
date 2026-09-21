@@ -401,8 +401,10 @@ Add these concrete contract checks to SLICE-001/004 and final conformance testin
   and distinct completed/blocked/unknown outcomes. All-command migration does not
   justify inventing missing transaction facts to fill a uniform envelope.
 
-Before implementation, complete the producer/consumer inventory and concrete wire
-contract. Implementation assurance then requires packaged conformance tests,
+Before migrating producers, complete the producer/consumer inventory and agree one
+concrete provisional wire contract under DEC-014. Finalize it only after the complete
+migration and verification; no backward-compatibility support is required at either
+stage. Implementation assurance requires packaged conformance tests,
 independent review, relevant security assessment, and actual single-host behavioral
 evidence. Research supports the design direction; it does not replace those checks.
 
@@ -463,7 +465,7 @@ CLI path with the shared contract before migrating other operations. Add a publi
 `references/diagnostics.md` explaining the common semantics; link it from applicable
 skill/help entry points without replacing domain-specific recovery references.
 
-Before implementation, produce a finite inventory covering all producers and
+Before migrating producers, produce a finite inventory covering all producers and
 consumers, reserved fields, code families, state/disposition meanings, size bounds,
 and exit/stream behavior. Record the direct-cutover mapping and test oracles in
 this dossier. Shared-module names are predictions, not an instruction to create
@@ -562,6 +564,72 @@ and first recovery journey establish the shared contract and public-only fixture
 Slices 2-7 are conceptually separable,
 but share CLI/error semantics and tests; do not assign concurrent writes without
 settled ownership. No parallel agents are required by this plan.
+
+DEC-014 (accepted review revision): distinguish a provisional design baseline from
+the final release contract. Before SLICE-001 migrates producers, specify the exact
+result shape, required/optional fields, absent/null/unknown meanings, typed detail
+categories, bounds, disposition constraints, stream protocol, and exit mapping.
+Include representative success, rejection, known-commit-with-later-failure, unknown
+mutation, warning, and internal-failure examples. Choose a single authoritative
+contract representation and its consuming validator; do not maintain a schema and
+a hand-written shadow grammar. If JSON Schema is selected, qualify an appropriate
+existing validator rather than implementing the schema language. The review's
+illustrative schema is not adopted: it omits operation state, permits unbounded
+details, lacks conditional constraints, and represents commands as shell strings.
+
+The provisional contract can change as migration reveals better semantics. Update
+the definition, migrated producers, controlled consumers, references, and affected
+tests together; do not preserve earlier draft shapes with aliases, fallback readers,
+dual-version modes, or adapters. Changes within accepted intent do not require a
+new approval simply because a draft field changes. Reopen owner decisions only
+for changed scope, safety requirements, configuration, or other explicit gates.
+Finalize and identify the actual contract after all commands migrate and the exact
+candidate passes required checks/reviews. Freeze that candidate for reproducible
+assurance; any later repair creates a new candidate and refreshes affected evidence.
+Finalization is a release identity, not a promise to support older versions.
+
+DEC-015 (accepted review revision): a completed JSON-mode invocation emits exactly
+one bounded result JSON value on stdout, followed by LF, on success or failure.
+Text mode emits the equivalent human-readable result on stdout. Nonzero exit status
+signals non-success. Stderr is reserved for ancillary bounded/sanitized diagnostics;
+consumers never need to parse it to obtain required result facts. Subprocess, Git,
+hook, and progress output must not contaminate the result stream. Help/version are
+explicit non-workflow responses. Check stdout and stderr separately in packaged
+tests, including failed operations. If writing output itself fails, preserve the
+durable operation outcome and do not replay a mutation to reproduce its output.
+This is the selected CLI protocol, not a claimed universal POSIX requirement.
+
+Define the provisional exit mapping with the full operation-state contract. Cover
+success/advisory warning, known rejection, invalid input, unmet prerequisite,
+known completed mutation with a later failure, unknown mutation, and internal error.
+The review's six numeric constants are not adopted: an internal error may coexist
+with known or uncertain mutation state. Define precedence so generic exception
+classification never hides that state. Exact numbers are selected once for all
+commands and controlled callers; legacy numbers need not be retained.
+
+DEC-016 (accepted review revision): migrate each producer and its tests together.
+Add shared diagnostic assertion mechanics to the existing test harness, keeping
+expected codes, dispositions, and mutation facts independently authored. A completed
+slice passes its focused and impacted regressions; update shared assertions and all
+affected consumers in the same work increment. Tests for not-yet-migrated commands
+continue to exercise their current implementation until its slice, then are replaced.
+Do not skip tests, weaken assertions, leave a persistent unexplained red suite, or
+introduce a runtime compatibility layer to make intermediate work pass. If a shared
+change makes slices inseparable, combine that work increment rather than bypassing
+checks. No intermediate mixed-contract artifact is released.
+
+DEC-017 (accepted review revision): preserve underlying failures internally with
+native Error cause chaining where wrapping is useful. Public diagnostics remain
+bounded, sanitized projections; do not expose causes/stacks automatically or default
+all failures to correct-input. Handle arbitrary thrown values and unsafe/cyclic
+cause data without losing the owning operation's mutation state. Cause retention
+does not itself guarantee a complete stack history or authorize new logging/storage.
+
+The native parser qualification in SLICE-000 must explicitly reject duplicate
+singleton flags, missing/empty child commands, and child operands on commands that
+do not accept them. Native strict parsing alone does not enforce those rules:
+the reviewed snippet allows last-value-wins singleton repetition. Keep actual
+repeated options and opaque child argv supported through the shared definition.
 
 Use the current package build path, then run the slice's focused Node tests. The
 proposed package suite command is
@@ -662,6 +730,18 @@ retention needs are satisfied and the specific cleanup is authorized. Preserve
 all pre-existing working-tree changes and artifacts.
 
 ## Re-planning triggers and pending decisions
+
+### Validation report disposition
+
+The 2026-09-21 validation report informs DEC-014 through DEC-017. Its unconditional
+delivery verdict is not execution evidence. Its schema, exit constants, parser
+snippet, and stderr-on-error proposal are not copied as implementation instructions.
+Current failed-check output already includes receipt IDs and an approval action;
+structured validation already exposes pointers and shape details. Reproduce residual
+journey gaps instead of assuming those capabilities are missing. ASCII-only policy
+applies to canonical SKILL.md files, not every reference. Existing skill limits of
+1,500 words and 12 KiB remain enforced by their repository tests. Native parsing
+still requires qualification; zero new dependencies is not evidence of correctness.
 
 ### Accepted DRY decisions
 
