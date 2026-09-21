@@ -66,11 +66,11 @@ async function localPathMetadata(target) {
         schemaVersion: 1,
         exists: false,
         fullPath: absolute,
-        isContainer: false,
-        attributes: [],
-        drive: {
-          root: parse(absolute).root,
-          driveType: "Fixed",
+        isDirectory: false,
+        redirected: false,
+        volume: {
+          identity: parse(absolute).root,
+          kind: "local",
         },
       };
     }
@@ -81,15 +81,11 @@ async function localPathMetadata(target) {
     schemaVersion: 1,
     exists: true,
     fullPath: absolute,
-    isContainer: stats.isDirectory(),
-    attributes: stats.isSymbolicLink()
-      ? ["ReparsePoint"]
-      : stats.isDirectory()
-        ? ["Directory"]
-        : [],
-    drive: {
-      root: parse(absolute).root,
-      driveType: "Fixed",
+    isDirectory: stats.isDirectory(),
+    redirected: stats.isSymbolicLink(),
+    volume: {
+      identity: parse(absolute).root,
+      kind: "local",
     },
   };
 }
@@ -435,11 +431,14 @@ test("rejects UNC, drive-relative, network, and cross-volume roots before mutati
       testDependencies: createTestDependencies({
         pathMetadata: async (target) => ({
           ...(await localPathMetadata(target)),
-          drive: { root: parse(resolve(target)).root, driveType: "Network" },
+          volume: {
+            identity: parse(resolve(target)).root,
+            kind: "unsupported",
+          },
         }),
       }),
     }),
-    /fixed drive/u,
+    /supported local storage/u,
   );
   assert.equal(await pathExists(root), false);
 
@@ -454,9 +453,10 @@ test("rejects UNC, drive-relative, network, and cross-volume roots before mutati
           observations += 1;
           return {
             ...metadata,
-            drive: {
-              root: observations === 1 ? metadata.drive.root : "Z:\\",
-              driveType: "Fixed",
+            volume: {
+              identity:
+                observations === 1 ? metadata.volume.identity : "other-volume",
+              kind: "local",
             },
           };
         },
@@ -601,7 +601,7 @@ test(
 
 test(
   "the production backend rejects unsupported platforms before mutation",
-  { skip: process.platform === "win32" },
+  { skip: ["win32", "linux"].includes(process.platform) },
   async (t) => {
     const { root } = await createTestRoot(t);
 
@@ -614,13 +614,24 @@ test(
 );
 
 test(
-  "the production Windows backend completes one streamed home lifecycle",
-  { skip: process.platform !== "win32", timeout: 10_000 },
+  "the native backend completes one home lifecycle",
+  { skip: !["win32", "linux"].includes(process.platform), timeout: 10_000 },
   async (t) => {
     const { root } = await createTestRoot(t);
     const initialized = await initializeEvaluationHomes({ root });
 
     assert.equal(initialized.valid, true);
+    const home = initialized.roles.find(
+      ({ role }) => role === "preflight",
+    ).path;
+    const credentialFixture = '{"fixture":"not-a-real-credential"}\n';
+    await writeFile(join(home, "auth.json"), credentialFixture, {
+      mode: 0o600,
+    });
+    if (process.platform === "linux") {
+      assert.equal((await lstat(root)).mode % 0o1000, 0o700);
+      assert.equal((await lstat(home)).mode % 0o1000, 0o700);
+    }
     const result = await withEvaluationHome(
       {
         root,
@@ -636,6 +647,14 @@ test(
     assert.deepEqual(inspected.liveLeases, []);
     assert.deepEqual(inspected.quarantines, []);
     assert.equal(inspected.completedHistory.length, 1);
+    assert.equal(
+      await readFile(join(home, "auth.json"), "utf8"),
+      credentialFixture,
+    );
+    if (process.platform === "linux") {
+      assert.equal((await lstat(home)).mode % 0o1000, 0o700);
+      assert.equal((await lstat(join(home, "auth.json"))).mode % 0o1000, 0o600);
+    }
   },
 );
 

@@ -19,9 +19,7 @@ import {
   sep,
   win32,
 } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { openWindowsPathMetadataProbe } from "./windows-path-metadata.js";
+import { openEvaluationPathMetadata } from "./evaluation-path-metadata.js";
 
 export const EVALUATION_HOME_ROLES = Object.freeze(["preflight", "execution"]);
 
@@ -60,17 +58,14 @@ const HOME_MARKER_KEYS = Object.freeze([
   "stablePath",
 ]);
 const PATH_METADATA_KEYS = Object.freeze([
-  "attributes",
-  "drive",
   "exists",
   "fullPath",
-  "isContainer",
+  "isDirectory",
+  "redirected",
   "schemaVersion",
+  "volume",
 ]);
-const DRIVE_METADATA_KEYS = Object.freeze(["driveType", "root"]);
-const WINDOWS_PROBE_PATH = fileURLToPath(
-  new URL("./windows-path-probe.ps1", import.meta.url),
-);
+const VOLUME_METADATA_KEYS = Object.freeze(["identity", "kind"]);
 
 function fail(code, message, details = undefined) {
   const error = new Error(`${code}: ${message}`);
@@ -204,17 +199,7 @@ async function withPathMetadataDependencies(root, testDependencies, operation) {
   if (testDependencies !== undefined) {
     return operation(validateTestDependencies(root, testDependencies));
   }
-  if (process.platform !== "win32") {
-    fail(
-      "unsupported-platform",
-      "the production evaluation-home backend is Windows-only",
-    );
-  }
-
-  const probe = openWindowsPathMetadataProbe({
-    executable: "powershell.exe",
-    scriptPath: WINDOWS_PROBE_PATH,
-  });
+  const probe = openEvaluationPathMetadata();
   const dependencies = {
     clock: () => new Date().toISOString(),
     failAfterPhase: null,
@@ -319,26 +304,19 @@ function assertProbeShape(metadata, target) {
     metadata.schemaVersion !== SCHEMA_VERSION ||
     typeof metadata.exists !== "boolean" ||
     typeof metadata.fullPath !== "string" ||
-    typeof metadata.isContainer !== "boolean" ||
-    !Array.isArray(metadata.attributes) ||
-    metadata.attributes.some((value) => typeof value !== "string") ||
-    metadata.drive === null ||
-    typeof metadata.drive !== "object" ||
-    Array.isArray(metadata.drive) ||
-    !arraysEqual(Object.keys(metadata.drive).sort(), DRIVE_METADATA_KEYS) ||
-    typeof metadata.drive.root !== "string" ||
-    typeof metadata.drive.driveType !== "string"
+    typeof metadata.isDirectory !== "boolean" ||
+    typeof metadata.redirected !== "boolean" ||
+    metadata.volume === null ||
+    typeof metadata.volume !== "object" ||
+    Array.isArray(metadata.volume) ||
+    !arraysEqual(Object.keys(metadata.volume).sort(), VOLUME_METADATA_KEYS) ||
+    typeof metadata.volume.identity !== "string" ||
+    metadata.volume.identity.length === 0 ||
+    !["local", "unsupported"].includes(metadata.volume.kind)
   ) {
     fail("invalid-path-metadata", `metadata for ${target} is malformed`);
   }
-  const sortedAttributes = [...metadata.attributes].sort();
-  if (!arraysEqual(metadata.attributes, sortedAttributes)) {
-    fail("invalid-path-metadata", `attributes for ${target} are not sorted`);
-  }
-  if (
-    !metadata.exists &&
-    (metadata.isContainer || metadata.attributes.length > 0)
-  ) {
+  if (!metadata.exists && (metadata.isDirectory || metadata.redirected)) {
     fail(
       "invalid-path-metadata",
       `missing-path metadata for ${target} claims existing attributes`,
@@ -364,7 +342,7 @@ async function probeExistingChain(target, dependencies) {
     }
     if (
       nodeMetadata !== null &&
-      metadata.isContainer !== nodeMetadata.isDirectory()
+      metadata.isDirectory !== nodeMetadata.isDirectory()
     ) {
       fail(
         "path-identity-mismatch",
@@ -377,29 +355,26 @@ async function probeExistingChain(target, dependencies) {
         `platform metadata returned a different resolved identity for ${ancestor}`,
       );
     }
-    if (metadata.drive.driveType !== "Fixed") {
-      fail("unsupported-drive", `${ancestor} is not on a fixed drive`);
+    if (metadata.volume.kind !== "local") {
+      fail(
+        "unsupported-drive",
+        `${ancestor} is not on supported local storage`,
+      );
     }
 
-    const volume =
-      process.platform === "win32"
-        ? win32.normalize(metadata.drive.root).toLowerCase()
-        : resolve(metadata.drive.root);
+    const volume = metadata.volume.identity;
     if (expectedVolume === null) {
       expectedVolume = volume;
     } else if (expectedVolume !== volume) {
       fail("cross-volume-path", `${ancestor} changed volume identity`);
     }
-    if (
-      nodeMetadata?.isSymbolicLink() ||
-      metadata.attributes.includes("ReparsePoint")
-    ) {
+    if (nodeMetadata?.isSymbolicLink() || metadata.redirected) {
       fail("reparse-point", `${ancestor} is a reparse point`);
     }
     if (
       nodeMetadata !== null &&
       index < ancestors.length - 1 &&
-      (!nodeMetadata.isDirectory() || !metadata.isContainer)
+      (!nodeMetadata.isDirectory() || !metadata.isDirectory)
     ) {
       fail("not-a-directory", `${ancestor} is not a directory`);
     }
@@ -534,8 +509,8 @@ async function listDirectChildren(target, dependencies, root) {
       children.push({
         name: entry.name,
         path,
-        isContainer: probed.metadata.isContainer,
-        attributes: [...probed.metadata.attributes],
+        isDirectory: probed.metadata.isDirectory,
+        redirected: probed.metadata.redirected,
       });
     }
   } finally {
@@ -622,10 +597,7 @@ async function inspectEvaluationHomesWithDependencies(
       quarantines: [],
       completedHistory: [],
       containment: { valid: true },
-      volume: {
-        root: rootProbe.metadata.drive.root,
-        driveType: rootProbe.metadata.drive.driveType,
-      },
+      volume: { ...rootProbe.metadata.volume },
       reparsePoints: [],
       problems: [{ code: "root-missing", path: normalizedRoot }],
       valid: false,
@@ -749,10 +721,7 @@ async function inspectEvaluationHomesWithDependencies(
     quarantines: quarantine.entries,
     completedHistory: history.entries,
     containment: { valid: true },
-    volume: {
-      root: rootProbe.metadata.drive.root,
-      driveType: rootProbe.metadata.drive.driveType,
-    },
+    volume: { ...rootProbe.metadata.volume },
     reparsePoints: [],
     problems,
     valid: problems.length === 0,
@@ -766,7 +735,7 @@ async function createMarkedHome(
   rootNonce,
   dependencies,
 ) {
-  await mkdir(target);
+  await mkdir(target, { mode: 0o700 });
   const marker = {
     schemaVersion: SCHEMA_VERSION,
     manager: MANAGER_ID,
@@ -864,11 +833,11 @@ async function initializeEvaluationHomesWithDependencies(
     );
   }
 
-  await mkdir(staging);
+  await mkdir(staging, { mode: 0o700 });
   try {
-    await mkdir(join(staging, LEASES_NAME));
-    await mkdir(join(staging, QUARANTINE_NAME));
-    await mkdir(join(staging, HISTORY_NAME));
+    await mkdir(join(staging, LEASES_NAME), { mode: 0o700 });
+    await mkdir(join(staging, QUARANTINE_NAME), { mode: 0o700 });
+    await mkdir(join(staging, HISTORY_NAME), { mode: 0o700 });
     await createMarkedHome(
       join(staging, "preflight"),
       join(normalizedRoot, "preflight"),
@@ -1657,7 +1626,7 @@ async function withEvaluationHomeDependencies(
   const leasePath = join(rootState.paths.leases, `${role}.lock`);
 
   try {
-    await mkdir(leasePath);
+    await mkdir(leasePath, { mode: 0o700 });
   } catch (error) {
     if (error?.code === "EEXIST") {
       fail("lease-contended", `the ${role} role already has a live lease`);

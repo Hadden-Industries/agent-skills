@@ -138,7 +138,7 @@ test("workflow check derives a failed receipt from the actual child exit", async
   const result = runCheck(fixture, transactionPath, [
     process.execPath,
     "-e",
-    "process.stderr.write('check-failed-evidence'); process.exit(7)",
+    "process.stderr.write('check-failed-evidence'); process.exitCode = 7",
   ]);
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
@@ -335,7 +335,7 @@ test("workflow check bounds diagnostics and retained segments while hashing comp
   const result = runCheck(fixture, transactionPath, [
     process.execPath,
     "-e",
-    "process.stderr.write('H'.repeat(300000) + 'T'.repeat(300000)); process.exit(6)",
+    "process.stderr.write('H'.repeat(300000) + 'T'.repeat(300000)); process.exitCode = 6",
   ]);
   const attempt = readTransaction(transactionPath).checkAttempts[0];
 
@@ -362,7 +362,7 @@ test("workflow check-detail pages one bounded transaction-owned output segment",
   runCheck(fixture, transactionPath, [
     process.execPath,
     "-e",
-    "process.stderr.write('detail-evidence-'.repeat(3000)); process.exit(8)",
+    "process.stderr.write('detail-evidence-'.repeat(3000)); process.exitCode = 8",
   ]);
   const first = runCheckDetail(fixture, transactionPath, [
     "--receipt",
@@ -431,7 +431,7 @@ test("workflow check-detail detects replaced and unavailable retained segments",
   runCheck(fixture, transactionPath, [
     process.execPath,
     "-e",
-    "process.stderr.write('original-detail'); process.exit(9)",
+    "process.stderr.write('original-detail'); process.exitCode = 9",
   ]);
   let attempt = readTransaction(transactionPath).checkAttempts[0];
 
@@ -459,7 +459,7 @@ test("workflow check-detail detects replaced and unavailable retained segments",
   runCheck(second.fixture, second.transactionPath, [
     process.execPath,
     "-e",
-    "process.stderr.write('temporary-detail'); process.exit(10)",
+    "process.stderr.write('temporary-detail'); process.exitCode = 10",
   ]);
   attempt = readTransaction(second.transactionPath).checkAttempts[0];
   unlinkSync(attempt.output.stderr.headPath);
