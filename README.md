@@ -29,6 +29,7 @@ The repository follows one core rule:
 The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
 
 - the public CLI is organized around `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
+- a [shared diagnostic contract](./skills/committing-to-git/references/diagnostics.md) gives failures stable codes, explicit next actions, and required recovery inputs across command routes, including failed-check acknowledgement, evidence-plan reuse, message validation, and uncertain transaction outcomes;
 - a targeted exact-path diff can establish a small dependency, integrity-hash, lock-entry, or metadata-scalar change without extended ceremony; concise preparation then returns complete bounded evidence inline;
 - extended preparation creates hash-bound packets only for unresolved uncertainty, and `workflow review-next` returns one complete verified packet plus an opaque replay-safe cursor until the helper records a catalog-bound receipt;
 - evidence depth and presentation depth are independent: a reviewed change may use a concise checked subject, while an already understood change may use a structured body when that adds durable information;
@@ -62,6 +63,14 @@ To install only one skill, for example `defining-concepts`, run:
 ```bash
 npx skills add Hadden-Industries/agent-skills --skill defining-concepts
 ```
+
+To install only `committing-to-git`, run:
+
+```bash
+npx skills add Hadden-Industries/agent-skills --skill committing-to-git
+```
+
+These commands install from the default branch and prompt for target agents. Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target. For the current `committing-to-git` release, its release-tag-pinned installation command, archive, and qualification evidence, see the [release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271).
 
 Each complete `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets therefore live with the skill. Maintainer evals are deliberately separate: prompts, fixtures, cost profiles, retained results, and evaluation programs under [`evals/<name>/`](./evals/README.md) test the deployable content but are not installed with it.
 
@@ -1441,6 +1450,8 @@ publish, or report a different state. The suite validates representative
 cross-route payloads; exact Git-tree, path, signature, report, and publication
 invariants; transactional staging failure behavior; CLI help and exit semantics;
 and agreement between validator issue codes and schema enums.
+
+The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with Node 24. It records the tested commit and tool versions and retains build and TAP output. See [workflow runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/committing-to-git-linux.yml) for results and [native evaluation platform boundaries](./docs/evaluation-platform-boundaries.md) for supported storage, credential handling, and platform limitations. Deterministic Linux verification does not establish additional agent-host behavioral coverage.
 
 The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. Published generated skill artifacts have no third-party runtime dependency. Run `npm run build` after changing maintainer source under `src/`. Its prebuild gate checks formatting and lint before regenerating artifacts. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, one-physical-line prose in canonical `SKILL.md` and reference Markdown, and committed artifact currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
