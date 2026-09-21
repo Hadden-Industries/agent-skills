@@ -277,7 +277,7 @@ test("unknown publication observes once, requires resolution, and links one fres
   );
 });
 
-test("known server rejection returns to reported without changing the remote ref", async (t) => {
+test("known rejection preserves the remote ref and permits a new destination without retry binding", async (t) => {
   const fixture = createRepositoryFixture(t, "workflow-publication-rejected-");
   const remote = join(fixture.base, "remote.git");
 
@@ -325,6 +325,38 @@ test("known server rejection returns to reported without changing the remote ref
     transaction.publicationAttempts.at(-1).completion.outcome,
     "known-rejection",
   );
+
+  // A reported rejection starts a new attempt, not an uncertainty retry.
+  await assert.rejects(
+    publishWorkflow({
+      transactionPath: reported.transactionPath,
+      remote: "origin",
+      destination: "refs/heads/fix-docs",
+      retryAfterAttempt: transaction.publicationAttempts.at(-1).attemptId,
+    }),
+    (error) => error.code === "PUBLICATION_RETRY_UNEXPECTED",
+  );
+  const retargeted = await publishWorkflow({
+    transactionPath: reported.transactionPath,
+    remote: "origin",
+    destination: "refs/heads/fix-docs",
+  });
+
+  assert.equal(retargeted.exitCode, 0, JSON.stringify(retargeted));
+  assert.equal(
+    git(["rev-parse", "refs/heads/fix-docs"], remote).stdout.trim(),
+    reported.commitOid,
+  );
+  assert.equal(
+    git(["rev-parse", "refs/heads/review"], remote).stdout.trim(),
+    divergentOid,
+  );
+  const attempts = readTransaction(
+    reported.transactionPath,
+  ).publicationAttempts;
+
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[1].retryOf, null);
 });
 
 test("transport failure remains unknown and never launches an automatic retry", async (t) => {

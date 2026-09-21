@@ -129,7 +129,9 @@ evidence, policy, and mutation inputs cannot be reconstructed or overridden.
     "workflow extend",
     `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
 
-Extends one unchanged concise snapshot. Evidence uncertainty consumes only the
+Extends one unchanged route: concise, phase: evidence-ready snapshot only.
+Already-extended transactions follow their returned nextAction instead.
+Evidence uncertainty consumes only the
 fixed evidence-plan-input.json. Semantic structure carries existing evidence
 forward without accepting or reading a new plan.
 `,
@@ -159,8 +161,11 @@ message state.
     `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
 
 Checks the exact fixed transaction-local message-input.txt and records those
-unchanged bytes as the latest canonical concise message revision. The input is
-consumed only after durable success. Arbitrary message-file paths are rejected.
+unchanged bytes as the latest canonical message revision. With nextAction:
+author-message, accepts a concise subject or extended multi-section message
+when semanticStructureRequired is false. With nextAction: author-content,
+use message finalize instead. The input is consumed only after durable success.
+Arbitrary message-file paths are rejected.
 `,
   ],
   [
@@ -238,6 +243,8 @@ starts a new observation.
 After separate push authorization, publishes only the exact reported commit.
 Every attempt is journaled; no failed or unknown publication is retried
 automatically.
+A known rejection with phase: reported permits a separately authorized new
+attempt, including another destination, without --retry-after-attempt.
 
 Exit status:
   0  Push success was witnessed or a matching remote OID was observed.
@@ -265,6 +272,121 @@ Pending or unknown mutations are never removed.
 `,
   ],
 ]);
+
+const COMMAND_OPTIONS = new Map([
+  [
+    "workflow prepare",
+    `  --mode <actual|draft>  Required. Actual may install the index; draft does not.
+  --scope <staged|full|paths>  Required. Select staged, all, or literal path changes.
+  --evidence <reuse|message|review>  Uniform evidence policy; pair with --basis.
+  --basis <kind>  Uniform provenance: authored-current-task, read-current-task,
+    task-lineage, user-grounded, generated-derived, or unknown-preexisting.
+    Reuse excludes user-grounded and unknown-preexisting.
+  --evidence-plan <file>  JSON schemaVersion 1 groups; alternative to evidence/basis.
+  --path <path>  Repeatable exact repository-relative path; no globs.
+  --path-prefix <prefix/>  Repeatable literal directory prefix ending in /.
+  --exclude-path <path>  Repeatable exact exclusion within included scope.
+  --exclude-path-prefix <prefix/>  Repeatable directory exclusion within scope.
+  --scope-file <file>  JSON schemaVersion 2 selectors instead of inline selectors.
+    Selectors require scope paths, at least one inclusion, and / separators.
+    Include both sides of renames. Full and staged accept no selectors.
+  --allowed-type <type>  Repeatable unique lowercase commit type (maximum 64).
+    Tokens match [a-z][a-z0-9-]{0,31}; default: no supplied type restriction.
+  --verification <required|advisory|skipped>  Signature policy; default: required.
+`,
+  ],
+  [
+    "workflow extend",
+    `  --reason <evidence-uncertainty|semantic-structure-required>  Required.
+    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic
+    structure retains evidence and supplies content.json for message finalize.
+`,
+  ],
+  [
+    "workflow review-next",
+    `  --cursor <opaque-cursor>  Returned nextCursor; default: cursorless delivery.
+    Start cursorless, then use reviewProgress.nextCursor while reviewRequired.
+`,
+  ],
+  [
+    "workflow check",
+    `  --label <description>  Check label; default: Repository check.
+  --working-directory <directory>  Repository-relative directory; default: .
+  --timeout-ms <milliseconds>  Integer 1..86400000; default: no helper timeout.
+  --retry-after-attempt <receipt-id>  Bind a recovered check retry; default: none.
+  -- <executable> [arguments...]  Required direct child command, without a shell.
+`,
+  ],
+  [
+    "workflow check-detail",
+    `  --receipt <receipt-id>  Required helper-owned check receipt.
+  --stream <stdout|stderr>  Required retained output stream.
+  --segment <head|tail>  Required retained output segment.
+  --offset <bytes>  Nonnegative integer byte offset; default: 0.
+`,
+  ],
+  [
+    "workflow commit",
+    `  --message <subject>  Exact transport-safe subject without LF; the helper
+    appends LF. Default: checked/finalized revision. Not a body or message file.
+  --verification <required|advisory|skipped>  Default: recorded policy.
+  --acknowledge-failed-check <receipt-id>  Repeatable explicit acknowledgement
+    of each non-passing receipt; default: none. Requires user authorization.
+  --retain-review-artifacts  Boolean switch; default: false.
+  --retain-process-logs  Boolean switch; default: false.
+    Retain the named helper artifacts during post-commit compaction.
+`,
+  ],
+  [
+    "workflow verify",
+    `  --verification <required|advisory|skipped>  Default: recorded policy.
+    Required blocks publication on failure; advisory reports without blocking;
+    skipped records that signature verification was not performed.
+`,
+  ],
+  [
+    "workflow report-detail",
+    `  --cursor <cursor>  Opaque returned page cursor; default: cursorless replay.
+  --refresh  Boolean switch; default: false. Start a new workspace observation.
+    Cursor and refresh are mutually exclusive.
+`,
+  ],
+  [
+    "workflow publish",
+    `  --remote <name>  Required configured Git remote name, not a URL.
+  --destination <refs/heads/name>  Required full destination branch ref.
+  --retry-after-attempt <attempt-id>  Exact UUID of a resolved uncertain attempt;
+    default: none. Required only on the recovery retry route, never for a
+    reported known rejection. Retargeting requires separate push authorization.
+`,
+  ],
+  [
+    "workflow recover",
+    `  --resolution <confirmed-no-live-child>  Default: no liveness assertion.
+    Supply only after explicit confirmation that the child ended or host restarted.
+`,
+  ],
+  [
+    "workflow cleanup",
+    `  --purge  Boolean switch; default: false (compact safe artifacts).
+    Purge removes the eligible terminal transaction workspace completely.
+`,
+  ],
+]);
+
+function commandHelp(command) {
+  const transactionOption =
+    command === "workflow prepare"
+      ? ""
+      : "  --transaction <transaction.json>  Required opaque helper-returned path.\n";
+  return `${COMMAND_HELP.get(command)}
+Options:
+${transactionOption}${COMMAND_OPTIONS.get(command) ?? ""}  --format <json|text>  Output contract; default: json.
+  --help, -h  Show this help as the sole command argument; performs no workflow.
+Options are single-use unless marked repeatable. Value options take one value.
+Unspecified optional selectors, cursors, overrides, and retries are absent.
+`;
+}
 
 const HELP = `Commit workflow
 
@@ -374,7 +496,7 @@ export async function dispatchCommitWorkflow(
   }
 
   if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
-    stdout.write(COMMAND_HELP.get(command));
+    stdout.write(commandHelp(command));
     return 0;
   }
 

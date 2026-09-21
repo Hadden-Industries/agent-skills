@@ -683,7 +683,7 @@ test("structural diagnostics precede presentation-mode binding", (t) => {
   );
 });
 
-test("verified packet traversal enables a concise message after review", (t) => {
+test("verified packet traversal enables subject-only and detailed checked messages", (t) => {
   const fixture = createRepositoryFixture(t, "review-next-concise-");
   writeRepositoryFile(fixture.repo, "large.txt", "before\n");
   commitAll(fixture.repo);
@@ -816,6 +816,35 @@ test("verified packet traversal enables a concise message after review", (t) => 
     checkedResult.displayText,
     "fix(review): Preserve reviewed behavior\n",
   );
+
+  const detailedMessage = [
+    "fix(review): Preserve reviewed behavior",
+    "",
+    "Rationale:",
+    "  - Retain the reviewed changes in the large text fixture.",
+    "",
+    "User Experience Changes:",
+    "  - Preserve the reviewed text content.",
+    "",
+    "File Changes:",
+    "  1. `large.txt`",
+    "     - Replace the original text with the reviewed content.",
+    "",
+  ].join("\n");
+
+  writeFileSync(finalResult.messagePath, detailedMessage);
+  const detailed = runCommitWorkflow(
+    "message check",
+    ["--transaction", preparation.transaction],
+    fixture.repo,
+  );
+
+  assert.equal(detailed.status, 0, `${detailed.stderr}\n${detailed.stdout}`);
+  const detailedResult = JSON.parse(detailed.stdout);
+
+  assert.equal(detailedResult.status, "message-ready");
+  assert.equal(detailedResult.route, "extended");
+  assert.equal(detailedResult.displayText, detailedMessage);
 });
 
 test("review packet replay is idempotent and stale cursors do not advance", (t) => {

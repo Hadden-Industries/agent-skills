@@ -1,6 +1,6 @@
 # Message Format
 
-Read this reference after the extended route requests structured authorship, or when an unusual repository message policy conflicts with the supported format. It is not required for a concise subject-only message.
+Read this reference when authoring a body or file inventory through either authoring route, or when an unusual repository message policy conflicts with the supported format. It is not required for a concise subject-only message.
 
 ## Canonical text
 
@@ -26,12 +26,92 @@ The structured renderer supports `Rationale:`, `User Experience Changes:`, and `
 
 ## Detailed inventory
 
-For an agent-authored message with body sections or any requested `File Changes:` inventory, enter the structured finalizer even when the prepared route was concise. Fixed `content.json` is schema-version-3 semantic input only: the helper has already selected `mode` and supplied canonical evidence groups, while review receipt and recommendation state remain in the transaction. Change `authoringState`, fill the semantic placeholders, and do not add or delete helper fields merely to make finalization pass.
+For an agent-authored body or requested `File Changes:` inventory on `route: concise`, `phase: evidence-ready`, extend with `semantic-structure-required`. For an already-extended transaction, follow the returned authoring action without calling `workflow extend`: `author-message` permits the full multi-section message at `messagePath` followed by `message check` when `semanticStructureRequired` is false; a null `contentPath` is expected. `author-content` requires `message finalize`. Its fixed `content.json` is schema-version-3 semantic input only: the helper has selected `mode` and supplied evidence groups, while review receipt and recommendation state remain in the transaction. Change `authoringState`, fill semantic placeholders, and preserve helper-owned fields.
 
-Detailed inventory is allowed only below 50 change units and only when complete exact path coverage fits within the 32 KiB projected presentation budget. `File Changes:` has no count. Sort reversible path identities by raw Git bytes. Render an ordinary path as `` `src/parser.js` ``, a rename as `` `old.js` -> `new.js` ``, and an unsafe identity as `` `path-bytes-base64:<base64>` ``. Let `w` be the decimal width of the final item count, from one through four digits. Each title begins with two base spaces, a right-aligned `w`-wide ordinal, `. `, then the path identity. Its notes begin with `w + 4` spaces plus `- `; continuations begin with `w + 6` spaces. Derive width from the final list, never an estimate. Supply semantics and membership in fixed `content.json`; the renderer owns these mechanics and exhaustive coverage. A checked user-supplied exact message may be validated but never silently rewritten.
+Detailed inventory is allowed only below 50 change units and only when complete exact path coverage fits within the 32 KiB projected presentation budget. `File Changes:` has no count. Sort reversible path identities by raw Git bytes. Render an ordinary path as `` `src/parser.js` ``, a rename as `` `old.js` -> `new.js` ``, and an unsafe identity as `` `path-bytes-base64:<base64>` ``. Let `w` be the decimal width of the final item count, from one through four digits. Each title begins with two base spaces, a right-aligned `w`-wide ordinal, `. `, then the path identity. Its notes begin with `w + 4` spaces plus `- `; continuations begin with `w + 6` spaces. Derive width from the final list, never an estimate. On `author-content`, supply semantics and membership in fixed `content.json`; the renderer owns layout and exhaustive coverage. On `author-message`, write canonical text using the examples below. A checked user-supplied exact message may be validated but never silently rewritten.
+
+## Complete canonical examples
+
+Each block is a complete message, ending with exactly one LF. Use the selected paths and supported claims from your transaction, not these illustrative identities. On `author-message`, write text at the returned `messagePath` and run `message check --transaction <opaque-transaction>`. On `author-content`, these show the final output shape; author semantic input in `contentPath` and run `message finalize` instead.
+
+Subject only:
+
+```text
+fix(parser): Preserve quoted delimiters
+```
+
+Body without an inventory:
+
+```text
+fix(parser): Preserve quoted delimiters
+
+Rationale:
+  - Quoted delimiters belong to values rather than record boundaries.
+
+User Experience Changes:
+  - Imports preserve delimiter characters inside quoted fields.
+```
+
+Two selected paths, with five spaces before note bullets and seven before continuations:
+
+```text
+fix(parser): Preserve quoted delimiters
+
+Rationale:
+  - Quoted delimiters belong to values rather than record boundaries.
+
+User Experience Changes:
+  - Imports preserve delimiter characters inside quoted fields.
+
+File Changes:
+  1. `src/parser.js`
+     - Keep quoted delimiters in field values while preserving the
+       existing handling of unquoted separators.
+  2. `tests/parser.test.js`
+     - Cover quoted delimiters beside unquoted separators.
+```
+
+Ten selected paths: single-digit ordinals have three leading spaces, `10` has two; notes have six spaces before `- ` and continuations have eight. Every selected path appears once, in raw-byte order:
+
+```text
+fix(parser): Preserve quoted delimiters across import formats
+
+Rationale:
+  - Shared quote handling keeps each format consistent.
+
+User Experience Changes:
+  - Imports preserve quoted delimiters across supported formats.
+
+File Changes:
+   1. `src/csv.js`
+      - Preserve quoted commas while retaining the existing rules for
+        separators outside quoted values.
+   2. `src/fields.js`
+      - Keep quoted fields intact.
+   3. `src/import.js`
+      - Apply quote handling during import.
+   4. `src/parser.js`
+      - Track quoted field boundaries.
+   5. `src/quotes.js`
+      - Preserve escaped quote characters.
+   6. `src/records.js`
+      - Retain record boundaries outside quoted fields.
+   7. `src/tsv.js`
+      - Preserve quoted tab characters.
+   8. `tests/csv.test.js`
+      - Cover quoted commas.
+   9. `tests/parser.test.js`
+      - Cover quoted field boundaries.
+  10. `tests/tsv.test.js`
+      - Cover quoted tabs.
+```
+
+Wrap prose to at most 72 Unicode scalar values per line, counting indentation. Narrative continuations use four spaces; inventory continuations align with note text as above. Keep each path identity on one line, even when its title exceeds 72 characters. An indivisible token may also exceed the limit; ordinary prose that could wrap is rejected with `BODY_LINE_AVOIDABLY_OVERLONG`. The checker reports permitted presentation overruns rather than splitting identities. On `FILE_INVENTORY_FORMAT_INVALID`, check ordinal width, indentation, ordering, and exact selected-path coverage before submitting the same requested sections again.
 
 ## Structured bulk inventory
 
 Use structured bulk when an inventory is included at 50 or more units, or when projected detailed output exceeds 32 KiB. Build semantic domains in fixed `content.json`; each change unit belongs to exactly one counted domain. Shared rationales may support several domains, but domain membership cannot overlap. The finalizer derives each title as `<domain> (<count> file|files)`, applies the same dynamic ordinal layout, and verifies exhaustive membership. Do not type counts by hand, question a previously selected scope, or use structured bulk as a substitute for missing evidence.
+
+An existing `author-message` transaction cannot check a counted bulk inventory or extend into `author-content`. If a requested inventory exceeds the detailed limits in that state, report this unsupported authoring transition; retain the requested section rather than dropping it or repeatedly calling `workflow extend`.
 
 The finalizer may request a bounded evidence delta when a new claim lacks coverage. Traverse only that delta through `workflow review-next`, preserve unchanged coverage, update the same fixed content input, and invoke `message finalize` again.

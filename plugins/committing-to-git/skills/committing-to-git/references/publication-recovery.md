@@ -1,6 +1,18 @@
 # Publication Recovery
 
-Read this reference only after an unknown publication result, when a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation.
+Read this reference after a known rejection or unknown publication result, when retargeting or a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation.
+
+## Known rejection
+
+A durable Git rejection, such as a protected-branch hook rejection, returns `status: rejected`, `phase: reported`. The recorded commit remains available. Use these returned fields to distinguish rejection from an unknown transport outcome; remote error text alone does not establish the state.
+
+After separate push authorization for the exact OID, remote, and destination, publish the same transaction again. For an authorized feature branch instead of the rejected protected branch:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow publish --transaction <opaque-transaction> --remote origin --destination refs/heads/feature-name
+```
+
+This starts a new journaled attempt. Omit `--retry-after-attempt` for a `reported` transaction, whether the destination changes or stays the same; the helper rejects that flag here. It binds only retries on the resolved-uncertainty recovery route below. Do not create another commit or force push to evade branch protection. A known rejection grants no new push authority; obtain only the missing authorization if the alternate destination is not already covered. If the helper reports an unknown result instead, recover it before retrying or retargeting.
 
 ## Unknown result
 
