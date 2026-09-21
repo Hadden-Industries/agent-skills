@@ -13,3 +13,6 @@ __pycache__/
 # Local OpenAI Plugin Eval integration
 .agents/plugins/marketplace.json
 plugins/plugin-eval
+
+# Evaluation run outputs and raw evidence
+evals/*/results/
