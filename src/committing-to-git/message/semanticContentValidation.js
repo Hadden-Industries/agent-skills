@@ -1,3 +1,11 @@
+import {
+  ARRAY_SELECTOR_FIELDS,
+  SELECTOR_FIELDS,
+} from "../selection/selectionVocabulary.js";
+import {
+  EVIDENCE_POLICIES,
+  BASIS_KINDS,
+} from "../evidence/evidenceVocabulary.js";
 import { createHash } from "node:crypto";
 
 const DIAGNOSTIC_SAMPLE_LIMIT = 64;
@@ -11,26 +19,6 @@ const COMMON_FIELDS = Object.freeze([
   "sharedRationales",
   "userExperienceChanges",
   "mode",
-]);
-const SELECTION_FIELDS = Object.freeze([
-  "all",
-  "remaining",
-  "ids",
-  "destinationPaths",
-  "destinationPathPrefixes",
-  "sourcePaths",
-  "sourcePathPrefixes",
-  "kinds",
-]);
-const ARRAY_SELECTION_FIELDS = Object.freeze(SELECTION_FIELDS.slice(2));
-const EVIDENCE_POLICIES = Object.freeze(["reuse", "message", "review"]);
-const BASIS_KINDS = Object.freeze([
-  "authored-current-task",
-  "read-current-task",
-  "task-lineage",
-  "user-grounded",
-  "generated-derived",
-  "unknown-preexisting",
 ]);
 const OPTIONAL_DIAGNOSTIC_FIELDS = Object.freeze([
   "expectedType",
@@ -61,9 +49,7 @@ function boundedPointerToken(token) {
 }
 
 function childPointer(parent, token) {
-  const escaped = boundedPointerToken(token)
-    .replaceAll("~", "~0")
-    .replaceAll("/", "~1");
+  const escaped = String(token).replaceAll("~", "~0").replaceAll("/", "~1");
 
   return `${parent}/${escaped}`;
 }
@@ -75,7 +61,19 @@ function diagnosticCollector() {
 
   return {
     add(pointer, code, message, details = {}) {
-      const diagnostic = { pointer, code, message };
+      const pointerByteLength = Buffer.byteLength(pointer);
+      const diagnostic = {
+        pointer: pointerByteLength <= 4096 ? pointer : null,
+        ...(pointerByteLength <= 4096
+          ? {}
+          : {
+              pointerOmitted: true,
+              pointerByteLength,
+              pointerSha256: createHash("sha256").update(pointer).digest("hex"),
+            }),
+        code,
+        message,
+      };
 
       for (const field of OPTIONAL_DIAGNOSTIC_FIELDS) {
         if (details[field] !== undefined) {
@@ -213,7 +211,7 @@ function validateSelection(value, pointer, collector) {
     !validateObjectMembers(
       value,
       pointer,
-      { allowed: SELECTION_FIELDS },
+      { allowed: SELECTOR_FIELDS },
       collector,
     )
   ) {
@@ -239,7 +237,7 @@ function validateSelection(value, pointer, collector) {
     }
   }
 
-  for (const field of ARRAY_SELECTION_FIELDS) {
+  for (const field of ARRAY_SELECTOR_FIELDS) {
     if (!Object.hasOwn(value, field)) {
       continue;
     }
@@ -256,7 +254,7 @@ function validateSelection(value, pointer, collector) {
       pointer,
       "SELECTION_REQUIRED",
       "Semantic selection requires all, remaining, or one nonempty semantic selector field.",
-      { allowedFields: SELECTION_FIELDS },
+      { allowedFields: SELECTOR_FIELDS },
     );
   } else if (
     selectedFields.length > 1 &&
@@ -264,9 +262,9 @@ function validateSelection(value, pointer, collector) {
   ) {
     collector.add(
       pointer,
-      "SELECTION_FIELDS_CONFLICT",
+      "SELECTOR_FIELDS_CONFLICT",
       "Selectors all and remaining are each exclusive of every other selector field.",
-      { allowedFields: SELECTION_FIELDS },
+      { allowedFields: SELECTOR_FIELDS },
     );
   }
 }

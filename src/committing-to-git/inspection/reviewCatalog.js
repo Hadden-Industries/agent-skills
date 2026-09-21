@@ -1,3 +1,13 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import {
+  EVIDENCE_POLICIES,
+  validateEvidenceBasis,
+} from "../evidence/evidenceVocabulary.js";
+import {
+  normalizeSelection,
+  resolveSelection,
+  changeUnitPathBytes,
+} from "../selection/changeSelection.js";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -33,37 +43,12 @@ import {
 import { readOnlyGitText, streamGit } from "../git/gitRepository.js";
 import { formatGitAlternatePaths } from "../snapshot/createSnapshot.js";
 
-const EVIDENCE_POLICIES = new Set(["reuse", "message", "review"]);
-const BASIS_KINDS = new Set([
-  "authored-current-task",
-  "read-current-task",
-  "task-lineage",
-  "user-grounded",
-  "generated-derived",
-  "unknown-preexisting",
-]);
-const REUSE_BASIS_KINDS = new Set([
-  "authored-current-task",
-  "read-current-task",
-  "task-lineage",
-  "generated-derived",
-]);
-const ARRAY_SELECTOR_FIELDS = [
-  "ids",
-  "destinationPaths",
-  "destinationPathPrefixes",
-  "sourcePaths",
-  "sourcePathPrefixes",
-  "kinds",
-];
-const SELECTOR_FIELDS = new Set(["all", "remaining", ...ARRAY_SELECTOR_FIELDS]);
 const PACKET_PREFIXES = Object.freeze({
   "scope-synopsis": "S",
   "exact-inventory": "I",
   "text-patch": "P",
   "deleted-content": "D",
 });
-const MAXIMUM_BASIS_NOTE_BYTES = 512;
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -94,204 +79,19 @@ function digestCatalog(catalog) {
   return sha256Bytes(stableJsonBytes(canonicalCatalogPayload(catalog)));
 }
 
-function pathBytes(unit, direction) {
-  const encoded = unit[`${direction}PathBytesBase64`];
-
-  if (typeof encoded === "string") {
-    return Buffer.from(encoded, "base64");
-  }
-
-  const text = unit[`${direction}Path`];
-  return typeof text === "string" ? Buffer.from(text, "utf8") : null;
-}
-
-function assertRepositoryPath(value, { prefix, label }) {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.includes("\0") ||
-    value.includes("\\") ||
-    value.startsWith("/") ||
-    prefix !== value.endsWith("/")
-  ) {
-    throw new Error(`${label} is not a canonical repository-relative path.`);
-  }
-
-  const components = value.split("/");
-  const meaningful = prefix ? components.slice(0, -1) : components;
-
-  if (
-    meaningful.some(
-      (component) =>
-        component.length === 0 || component === "." || component === "..",
-    )
-  ) {
-    throw new Error(`${label} contains an invalid path component.`);
-  }
-}
-
 function normalizedSelection(selection) {
-  if (!isPlainObject(selection)) {
-    throw new Error("Evidence selection must be an object.");
-  }
-
-  const unknown = Object.keys(selection).find(
-    (field) => !SELECTOR_FIELDS.has(field),
-  );
-
-  if (unknown) {
-    throw new Error(`Unknown evidence selector field ${unknown}.`);
-  }
-
-  const all = selection.all === true;
-  const remaining = selection.remaining === true;
-
-  if (
-    ("all" in selection && typeof selection.all !== "boolean") ||
-    ("remaining" in selection && typeof selection.remaining !== "boolean")
-  ) {
-    throw new Error("Evidence all and remaining selectors must be booleans.");
-  }
-
-  const populatedArrayFields = ARRAY_SELECTOR_FIELDS.filter(
-    (field) => Array.isArray(selection[field]) && selection[field].length > 0,
-  );
-
-  for (const field of ARRAY_SELECTOR_FIELDS) {
-    const values = selection[field];
-
-    if (values === undefined) {
-      continue;
-    }
-
-    if (
-      !Array.isArray(values) ||
-      values.some((value) => typeof value !== "string" || value.length === 0)
-    ) {
-      throw new Error(`Evidence selector ${field} must be a string array.`);
-    }
-
-    if (new Set(values).size !== values.length) {
-      throw new Error(`Evidence selector ${field} contains duplicates.`);
-    }
-
-    if (field.endsWith("Paths")) {
-      values.forEach((value) =>
-        assertRepositoryPath(value, { prefix: false, label: field }),
-      );
-    } else if (field.endsWith("Prefixes")) {
-      values.forEach((value) =>
-        assertRepositoryPath(value, { prefix: true, label: field }),
-      );
-    }
-  }
-
-  if (
-    (all || remaining) &&
-    (all === remaining || populatedArrayFields.length > 0)
-  ) {
-    throw new Error(
-      "Evidence all and remaining selectors are exclusive of every other selector field.",
-    );
-  }
-
-  if (!all && !remaining && populatedArrayFields.length === 0) {
-    throw new Error("Evidence selection must contain a nonempty selector.");
-  }
-
-  if (all) {
-    return { all: true };
-  }
-
-  if (remaining) {
-    return { remaining: true };
-  }
-
+  const normalized = normalizeSelection(selection);
   return Object.fromEntries(
-    ARRAY_SELECTOR_FIELDS.filter((field) =>
-      populatedArrayFields.includes(field),
-    ).map((field) => {
-      const values = [...selection[field]].sort((left, right) =>
-        Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
-      );
-      return [field, values];
-    }),
+    Object.entries(normalized).map(([field, value]) => [
+      field,
+      Array.isArray(value)
+        ? [...value].sort((left, right) =>
+            Buffer.compare(Buffer.from(left), Buffer.from(right)),
+          )
+        : value,
+    ]),
   );
 }
-
-function prefixMatches(path, prefix) {
-  return (
-    path !== null &&
-    path.length >= prefix.length &&
-    path.subarray(0, prefix.length).equals(prefix)
-  );
-}
-
-function matchesSelectorField(unit, field, values) {
-  switch (field) {
-    case "ids":
-      return values.includes(unit.id);
-    case "kinds":
-      return values.includes(unit.kind);
-    case "destinationPaths": {
-      const bytes = pathBytes(unit, "destination");
-      return values.some((value) => bytes?.equals(Buffer.from(value, "utf8")));
-    }
-    case "destinationPathPrefixes": {
-      const bytes = pathBytes(unit, "destination");
-      return values.some((value) =>
-        prefixMatches(bytes, Buffer.from(value, "utf8")),
-      );
-    }
-    case "sourcePaths": {
-      if (unit.kind !== "renamed") {
-        return false;
-      }
-      const bytes = pathBytes(unit, "source");
-      return values.some((value) => bytes?.equals(Buffer.from(value, "utf8")));
-    }
-    case "sourcePathPrefixes": {
-      if (unit.kind !== "renamed") {
-        return false;
-      }
-      const bytes = pathBytes(unit, "source");
-      return values.some((value) =>
-        prefixMatches(bytes, Buffer.from(value, "utf8")),
-      );
-    }
-    default:
-      throw new Error(`Unsupported selector field ${field}.`);
-  }
-}
-
-function resolveSelection(manifest, selection, assignedIds = new Set()) {
-  if (selection.all === true) {
-    return [...manifest.changeUnits];
-  }
-
-  if (selection.remaining === true) {
-    return manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
-  }
-
-  const matches = new Set();
-
-  for (const [field, values] of Object.entries(selection)) {
-    const fieldMatches = manifest.changeUnits.filter((unit) =>
-      matchesSelectorField(unit, field, values),
-    );
-
-    if (fieldMatches.length === 0) {
-      throw new Error(
-        `Evidence selector field ${field} matched no change units.`,
-      );
-    }
-
-    fieldMatches.forEach((unit) => matches.add(unit.id));
-  }
-
-  return manifest.changeUnits.filter(({ id }) => matches.has(id));
-}
-
 function ordinalForId(id) {
   const match = /^F([0-9]{6})$/u.exec(id);
 
@@ -326,36 +126,6 @@ function rangesForUnits(units) {
   return ranges.map(({ first, last }) => ({ first, last }));
 }
 
-function validateBasis(policy, basis) {
-  if (
-    !isPlainObject(basis) ||
-    !BASIS_KINDS.has(basis.kind) ||
-    !(basis.note === null || typeof basis.note === "string") ||
-    (typeof basis.note === "string" &&
-      Buffer.byteLength(basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES)
-  ) {
-    throw new Error("Evidence basis is invalid.");
-  }
-
-  if (policy === "reuse" && !REUSE_BASIS_KINDS.has(basis.kind)) {
-    throw new Error(
-      "Reuse evidence requires authored, read, generated, or specific task-lineage basis.",
-    );
-  }
-
-  if (
-    policy === "reuse" &&
-    basis.kind === "task-lineage" &&
-    (typeof basis.note !== "string" || basis.note.trim().length === 0)
-  ) {
-    throw new Error(
-      "Reuse task-lineage basis requires a specific nonempty note.",
-    );
-  }
-
-  return { kind: basis.kind, note: basis.note };
-}
-
 export function canonicalizeEvidencePlan({ manifest, groups }) {
   if (
     !manifest ||
@@ -363,37 +133,53 @@ export function canonicalizeEvidencePlan({ manifest, groups }) {
     manifest.changeUnitCount !== manifest.changeUnits.length ||
     manifest.changeUnitCount < 1
   ) {
-    throw new Error("Evidence planning requires one nonempty exact manifest.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
+      "Evidence planning requires one nonempty exact manifest.",
+    );
   }
 
   if (!Array.isArray(groups) || groups.length === 0 || groups.length > 4096) {
-    throw new Error("Evidence plan groups must be a bounded nonempty array.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
+      "Evidence plan groups must be a bounded nonempty array.",
+    );
   }
 
   const assignedIds = new Set();
   const canonicalGroups = groups.map((group, index) => {
-    if (!isPlainObject(group) || !EVIDENCE_POLICIES.has(group.policy)) {
-      throw new Error(`Evidence group ${index + 1} has an invalid policy.`);
+    if (!isPlainObject(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} has an invalid policy.`,
+      );
     }
 
     const selection = normalizedSelection(group.selection);
 
     if (selection.remaining === true && index !== groups.length - 1) {
-      throw new Error(
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
         "The remaining evidence selector is valid only in the final group.",
       );
     }
 
-    const units = resolveSelection(manifest, selection, assignedIds);
+    const units = resolveSelection(manifest, selection, { assignedIds });
 
     if (units.length === 0) {
-      throw new Error(`Evidence group ${index + 1} matched no change units.`);
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} matched no change units.`,
+      );
     }
 
     const overlap = units.find(({ id }) => assignedIds.has(id));
 
     if (overlap) {
-      throw new Error(`Evidence groups overlap at ${overlap.id}.`);
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence groups overlap at ${overlap.id}.`,
+      );
     }
 
     units.forEach(({ id }) => assignedIds.add(id));
@@ -401,7 +187,7 @@ export function canonicalizeEvidencePlan({ manifest, groups }) {
       id: `E${String(index + 1).padStart(6, "0")}`,
       selection,
       policy: group.policy,
-      basis: validateBasis(group.policy, group.basis),
+      basis: validateEvidenceBasis(group.policy, group.basis),
       changeUnitRanges: rangesForUnits(units),
       changeUnitCount: units.length,
     };
@@ -414,7 +200,8 @@ export function canonicalizeEvidencePlan({ manifest, groups }) {
   });
 
   if (assignedIds.size !== manifest.changeUnitCount) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
       `Evidence plan must be exhaustive; ${manifest.changeUnitCount - assignedIds.size} change units are omitted.`,
     );
   }
@@ -471,7 +258,7 @@ function changeUnitIdsForRanges(manifest, ranges) {
 
 function selectionUnits(manifest, selection) {
   const normalized = normalizedSelection(selection);
-  return resolveSelection(manifest, normalized, new Set());
+  return resolveSelection(manifest, normalized);
 }
 
 function nextPacketOrdinal(catalog, prefix) {
@@ -701,7 +488,7 @@ function unitsForGroup(manifest, group) {
 }
 
 function inventoryPath(unit, direction) {
-  const bytes = pathBytes(unit, direction);
+  const bytes = changeUnitPathBytes(unit, direction);
 
   return bytes === null
     ? null
@@ -1400,10 +1187,14 @@ function packetById(catalog, id) {
 }
 
 function failPacket(code, message) {
-  const error = new Error(message);
-
-  error.code = code;
-  throw error;
+  throw new WorkflowDiagnosticError(code, message, {
+    recovery: {
+      kind: "stop",
+      automatic: false,
+      requiredInputs: ["fresh evidence for a new reviewed snapshot"],
+      commands: [],
+    },
+  });
 }
 
 function readVerifiedPacket(outputDirectory, packet) {

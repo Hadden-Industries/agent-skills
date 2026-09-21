@@ -1,3 +1,13 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { presentationDiagnostics } from "../message/approvedMessage.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import {
+  createWorkflowResult,
+  createWorkflowWarning,
+} from "../diagnostics/diagnosticContract.js";
+
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { TextDecoder } from "node:util";
@@ -7,7 +17,6 @@ import {
   validateApprovedMessage,
 } from "../message/approvedMessage.js";
 import {
-  CanonicalMessageError,
   cleanupTransactionOwnedInput,
   readTransactionOwnedFile,
   replaceCanonicalMessage,
@@ -21,18 +30,8 @@ const MESSAGE_INPUT_NAME = "message-input.txt";
 const SNAPSHOT_NAME = "snapshot.json";
 const FORMATS = new Set(["json", "text"]);
 
-export class MessageWorkflowError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "MessageWorkflowError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new MessageWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -51,7 +50,7 @@ function decodeJson(bytes, label) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+    fail("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
   }
 }
 
@@ -135,21 +134,6 @@ export function assertMessageResultBudget(result) {
   return result;
 }
 
-function commonResult(transactionPath, route, status, phase) {
-  return {
-    schemaVersion: 1,
-    status,
-    phase,
-    terminalDisposition: null,
-    route,
-    transaction: resolve(transactionPath),
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-  };
-}
-
 function checkedResult({
   transactionPath,
   route,
@@ -157,15 +141,27 @@ function checkedResult({
   validation,
   warnings,
 }) {
-  return {
-    ...commonResult(transactionPath, route, "message-ready", "message-ready"),
-    messageSource: "checked-file",
-    messageRevision: canonical.messageRevision,
-    messageSha256: canonical.messageSha256,
-    presentationWarnings: validation.presentationWarnings,
-    ...(warnings.length === 0 ? {} : { cleanupWarnings: warnings }),
-    displayText: canonical.displayText,
-  };
+  return createWorkflowResult({
+    disposition: "succeeded",
+    status: "message-ready",
+    phase: "message-ready",
+    route,
+    transaction: resolve(transactionPath),
+    commitState: "absent",
+    publicationState: "not-requested",
+    warnings: [
+      ...warnings,
+      ...presentationDiagnostics(validation.presentationWarnings),
+    ],
+    data: {
+      terminalDisposition: null,
+      messageSource: "checked-file",
+      messageRevision: canonical.messageRevision,
+      messageSha256: canonical.messageSha256,
+      presentationWarnings: validation.presentationWarnings,
+      displayText: canonical.displayText,
+    },
+  });
 }
 
 function prospectiveCheckedResult({
@@ -186,12 +182,12 @@ function prospectiveCheckedResult({
     },
     validation,
     warnings: [
-      {
+      createWorkflowWarning({
         code: "MESSAGE_INPUT_CLEANUP_FAILED",
         message:
           "The fixed input was retained because cleanup could not prove safe same-object removal.",
-        path: inputPath,
-      },
+        details: [{ kind: "prerequisite", path: inputPath }],
+      }),
     ],
   });
 }
@@ -284,112 +280,32 @@ export function checkMessageWorkflow({
 }
 
 export function parseMessageWorkflowArguments(argv, command) {
-  const values = new Map();
+  const { values } = parseCommandArguments(`message ${command}`, argv);
 
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (!new Set(["--transaction", "--format"]).has(token)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown message ${command} flag ${token}.`);
-    }
-
-    if (value === undefined || value.length === 0) {
-      fail("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-
-    if (values.has(token)) {
-      fail("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-
-    values.set(token, value);
-  }
-
-  if (!values.has("--transaction")) {
+  if (!values.has("transaction")) {
     fail(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command}.`,
     );
   }
 
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
 
   if (!FORMATS.has(format)) {
     fail("INVALID_FORMAT", "--format must be json or text.");
   }
 
-  return { transactionPath: values.get("--transaction"), format };
-}
-
-export function messageErrorResult(error, transactionPath = null) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "evidence-required" : "invalid",
-    phase: error.details?.phase ?? null,
-    terminalDisposition: null,
-    transaction:
-      error.details?.transaction ??
-      (typeof transactionPath === "string" ? resolve(transactionPath) : null),
-    route: error.details?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details?.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...Object.fromEntries(
-      Object.entries(error.details ?? {}).filter(
-        ([key]) =>
-          !new Set(["phase", "transaction", "route", "recoveryRequired"]).has(
-            key,
-          ),
-      ),
-    ),
-  };
-}
-
-export function asMessageWorkflowError(caught, fallbackCode) {
-  if (caught instanceof MessageWorkflowError) {
-    return caught;
-  }
-
-  if (
-    caught instanceof CanonicalMessageError ||
-    (typeof caught?.code === "string" && caught.code.length > 0)
-  ) {
-    return new MessageWorkflowError(caught.code, caught.message, {
-      exitCode: caught.exitCode ?? 2,
-      details: caught.details ?? {},
-    });
-  }
-
-  return new MessageWorkflowError(fallbackCode, caught.message);
+  return { transactionPath: values.get("transaction"), format };
 }
 
 export async function runCheckMessageCommand(
   argv,
   { stdout = process.stdout } = {},
 ) {
-  let options = null;
-
-  try {
-    options = parseMessageWorkflowArguments(argv, "check");
-    const result = checkMessageWorkflow(options);
-    stdout.write(
-      options.format === "text"
-        ? result.displayText
-        : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error = asMessageWorkflowError(caught, "MESSAGE_CHECK_FAILED");
-    const result = assertMessageResultBudget(
-      messageErrorResult(error, options?.transactionPath),
-    );
-
-    // Validation failures always remain one machine-readable JSON value even
-    // when a caller requested text for successful display.
-    stdout.write(`${JSON.stringify(result)}\n`);
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "check"),
+    execute: checkMessageWorkflow,
+    stdout,
+  });
 }

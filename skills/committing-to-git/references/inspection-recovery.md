@@ -2,6 +2,32 @@
 
 Read this reference only after `workflow prepare`, `workflow extend`, or `message finalize` reports unresolved inspection evidence, or after `workflow review-next` rejects a packet. Do not load it on the concise happy path.
 
+## Reusable evidence plans
+
+`EVIDENCE_BASIS_NOTE_REQUIRED` means `reuse` with `task-lineage` lacks a specific nonempty note. Supply an external UTF-8 JSON file with `--evidence-plan` instead of inline `--evidence` and `--basis`. The file is reusable and is not consumed. Keep the note within 512 UTF-8 bytes; it records provenance, not an invented claim of fresh inspection. The diagnostic includes this shape in `details[0].example`:
+
+```json
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "selection": { "all": true },
+      "policy": "reuse",
+      "basis": {
+        "kind": "task-lineage",
+        "note": "Replace this with the actual related task and why its evidence covers this selection."
+      }
+    }
+  ]
+}
+```
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode draft --scope full --evidence-plan <literal-plan-path>
+```
+
+Use mixed groups when provenance differs; they must cover the exact scope without overlap. Every explicit selector value must match, even when another value matches. Correct each value reported by `UNMATCHED_SELECTION_VALUES`; do not silently drop it. Alternatively, actually inspect the selected content and use `read-current-task` when that accurately describes the evidence. Switching agents or hosts alone does not invalidate retained evidence; validate its recorded subject and applicability.
+
 ## Packet traversal
 
 Use the transaction-bound reader, never raw queue or packet paths, on the normal path:

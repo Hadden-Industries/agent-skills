@@ -1,3 +1,16 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import {
+  createWorkflowResult,
+  validateWorkflowResult,
+  WORKFLOW_RESULT_FIELDS,
+} from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import {
+  observeTransactionFailure,
+  transactionDiagnosticState,
+} from "../transaction/transactionDiagnosticState.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -36,17 +49,8 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const SAFE_TERMINAL_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
 
-export class ReportDetailError extends Error {
-  constructor(code, message, exitCode = 2) {
-    super(message);
-    this.name = "ReportDetailError";
-    this.code = code;
-    this.exitCode = exitCode;
-  }
-}
-
-function fail(code, message, exitCode = 2) {
-  throw new ReportDetailError(code, message, exitCode);
+function fail(code, message, disposition = "invalid-input", cause) {
+  throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 
 function sha256(value) {
@@ -135,7 +139,12 @@ function readJson(path, label) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    fail("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
+    fail(
+      "DETAIL_STATE_INVALID",
+      `${label} is invalid.`,
+      "invalid-input",
+      error,
+    );
   }
 }
 
@@ -455,55 +464,37 @@ async function materializeObservation(transaction, active) {
   return completedActive;
 }
 
-function renderDetailPage(result) {
-  const lines = [
-    `Workspace detail observed ${result.observation.observedAt}`,
-    `Digest: ${result.observation.digest}`,
-    "",
-  ];
-
-  if (result.page.entries.length === 0) {
-    lines.push("Workspace is clean.");
-  } else {
-    for (const entry of result.page.entries) {
-      lines.push(
-        `${entry.ordinal + 1}. ${entry.category}: ${entry.path.display} (${entry.status})`,
-      );
-    }
-  }
-
-  if (result.nextCursor !== null) {
-    lines.push("", "More entries remain; continue with the returned cursor.");
-  }
-
-  return `${lines.join("\n")}\n`;
-}
-
-function boundedPageResult(transactionPath, active, page, requestCursor) {
+function boundedPageResult(
+  transactionPath,
+  transaction,
+  active,
+  page,
+  requestCursor,
+) {
   const nextPage = active.pages[page.index + 1] ?? null;
-  const result = {
-    schemaVersion: 1,
+  const result = createWorkflowResult({
+    disposition: "succeeded",
+    ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
     transaction: resolve(transactionPath),
-    startingReportDigest: active.startingReportDigest,
-    observation: {
-      observedAt: active.observedAt,
-      digest: active.observationDigest,
-      observedEntryCount: active.observedEntryCount,
-      exactAtReportTime: false,
+    data: {
+      commitOid: transaction.commit?.commitOid ?? null,
+      startingReportDigest: active.startingReportDigest,
+      observation: {
+        observedAt: active.observedAt,
+        digest: active.observationDigest,
+        observedEntryCount: active.observedEntryCount,
+        exactAtReportTime: false,
+      },
+      page: {
+        startOrdinal: page.startOrdinal,
+        endOrdinal: page.endOrdinal,
+        entries: page.entries,
+      },
+      nextCursor:
+        nextPage === null ? null : encodeCursor(active, nextPage.startOrdinal),
     },
-    page: {
-      startOrdinal: page.startOrdinal,
-      endOrdinal: page.endOrdinal,
-      entries: page.entries,
-    },
-    nextCursor:
-      nextPage === null ? null : encodeCursor(active, nextPage.startOrdinal),
-    displayText: "",
-    exitCode: 0,
-  };
-
-  result.displayText = renderDetailPage(result);
+  });
 
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
     fail(
@@ -574,15 +565,12 @@ function validReplayPath(path) {
 
 function validateCompletedResult(result, transactionPath) {
   const resultKeys = [
-    "schemaVersion",
-    "status",
-    "transaction",
+    ...WORKFLOW_RESULT_FIELDS,
+    "commitOid",
     "startingReportDigest",
     "observation",
     "page",
     "nextCursor",
-    "displayText",
-    "exitCode",
   ];
   const observationValid =
     hasExactKeys(result?.observation, [
@@ -629,16 +617,14 @@ function validateCompletedResult(result, transactionPath) {
 
   if (
     !hasExactKeys(result, resultKeys) ||
-    result.schemaVersion !== 1 ||
+    validateWorkflowResult(result).length !== 0 ||
     result.status !== "detail-complete" ||
     result.transaction !== resolve(transactionPath) ||
     !SHA256_PATTERN.test(result.startingReportDigest) ||
     !observationValid ||
     !pageBoundsValid ||
     result.nextCursor !== null ||
-    typeof result.displayText !== "string" ||
-    result.exitCode !== 0 ||
-    result.displayText !== renderDetailPage(result)
+    result.exitCode !== 0
   ) {
     fail("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
@@ -663,7 +649,7 @@ function replayCompletion(completed, cursor, transactionPath) {
     fail(
       "DETAIL_STATE_CONFLICT",
       "A completed detail observation is retained; use its final cursor or request --refresh.",
-      1,
+      "rejected",
     );
   }
 
@@ -692,7 +678,12 @@ export async function readWorkspaceDetailPage({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail("DETAIL_STATE_CONFLICT", error.message, 1);
+      fail(
+        "DETAIL_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        "rejected",
+        error,
+      );
     }
 
     throw error;
@@ -705,7 +696,7 @@ export async function readWorkspaceDetailPage({
       fail(
         "DETAIL_PHASE_INVALID",
         "Workspace detail requires a reported or published transaction.",
-        1,
+        "rejected",
       );
     }
 
@@ -756,7 +747,7 @@ export async function readWorkspaceDetailPage({
         fail(
           "DETAIL_STATE_CONFLICT",
           "A workspace detail observation is already active.",
-          1,
+          "rejected",
         );
       }
 
@@ -766,7 +757,7 @@ export async function readWorkspaceDetailPage({
         fail(
           "DETAIL_STATE_CONFLICT",
           "The workspace detail observation was interrupted before paging.",
-          1,
+          "rejected",
         );
       }
 
@@ -806,7 +797,13 @@ export async function readWorkspaceDetailPage({
     }
 
     const page = readPageForRequest(transaction, active, cursor);
-    const bounded = boundedPageResult(transactionPath, active, page, cursor);
+    const bounded = boundedPageResult(
+      transactionPath,
+      transaction,
+      active,
+      page,
+      cursor,
+    );
 
     if (bounded.final) {
       const completed = {
@@ -848,96 +845,29 @@ export async function reportDetailWorkflow(options) {
   return readWorkspaceDetailPage(options);
 }
 
-function parseFlags(argv) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-
-    if (!token?.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-
-    const name = token.slice(2);
-
-    if (values.has(name)) {
-      fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-
-    if (name === "refresh") {
-      values.set(name, true);
-      continue;
-    }
-
-    const value = argv[index + 1];
-
-    if (value === undefined || value.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-
-    values.set(name, value);
-    index += 1;
-  }
-
-  return values;
+function parseArguments(argv) {
+  const flags = parseCommandArguments("workflow report-detail", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    fail("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    cursor: flags.get("cursor") ?? null,
+    refresh: flags.get("refresh") === true,
+    format,
+  };
 }
-
-function commandOutput(result, format) {
-  return format === "text" ? result.displayText : `${JSON.stringify(result)}\n`;
-}
-
 export async function runReportDetailCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv);
-    const allowed = new Set(["transaction", "cursor", "refresh", "format"]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-
-    if (!new Set(["json", "text"]).has(format)) {
-      fail("INVALID_FORMAT", "--format must be json or text.");
-    }
-
-    const transactionPath = flags.get("transaction");
-
-    if (!transactionPath) {
-      fail("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-
-    const result = await reportDetailWorkflow({
-      transactionPath,
-      cursor: flags.get("cursor") ?? null,
-      refresh: flags.get("refresh") === true,
-    });
-
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof ReportDetailError
-        ? caught
-        : new ReportDetailError("DETAIL_WORKFLOW_FAILED", caught.message);
-    const result = {
-      schemaVersion: 1,
-      status: "invalid",
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode,
-      displayText: `Status: invalid\nCode: ${error.code}\nMessage: ${error.message}\n`,
-    };
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(commandOutput(result, format));
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: parseArguments,
+    execute: reportDetailWorkflow,
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }

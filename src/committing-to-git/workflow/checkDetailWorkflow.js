@@ -1,3 +1,9 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -17,18 +23,8 @@ export const CHECK_DETAIL_PAGE_BYTES = 16 * 1024;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const RECEIPT_ID_PATTERN = /^C[0-9]{6}$/u;
 
-class CheckDetailError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "CheckDetailError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new CheckDetailError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -104,41 +100,30 @@ function detailResult({
   pageSha256,
   content,
 }) {
-  const result = {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "check-detail",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
     publicationAllowed: transaction.report?.publicationAllowed ?? false,
     recoveryRequired: false,
-    receiptId,
-    stream,
-    segment,
-    offset,
-    nextOffset,
-    complete,
-    byteCount,
-    segmentByteCount,
-    pageSha256,
-    content,
-    exitCode: 0,
-  };
-
-  return {
-    ...result,
-    displayText: [
-      `Receipt: ${receiptId}`,
-      `Segment: ${stream}/${segment}`,
-      `Bytes: ${offset}-${nextOffset} of ${segmentByteCount}`,
-      `Complete: ${complete ? "yes" : "no"}`,
-      `Content (${content.encoding}, JSON string): ${JSON.stringify(content.value)}`,
-      "",
-    ].join("\n"),
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receiptId,
+      stream,
+      segment,
+      offset,
+      nextOffset,
+      complete,
+      byteCount,
+      segmentByteCount,
+      pageSha256,
+      content,
+    },
+  });
 }
 
 function readBoundSegment({
@@ -160,7 +145,7 @@ function readBoundSegment({
     fail(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -171,8 +156,8 @@ function readBoundSegment({
   } catch (error) {
     fail(
       "CHECK_DETAIL_UNAVAILABLE",
-      `The retained output segment is unavailable: ${error.code ?? error.message}.`,
-      { exitCode: 1 },
+      "The retained output segment is unavailable.",
+      { disposition: "rejected", cause: error },
     );
   }
 
@@ -184,7 +169,7 @@ function readBoundSegment({
     fail(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output segment was replaced or is not a regular file.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -196,8 +181,8 @@ function readBoundSegment({
   } catch (error) {
     fail(
       "CHECK_DETAIL_UNAVAILABLE",
-      `The retained output segment cannot be opened: ${error.code ?? error.message}.`,
-      { exitCode: 1 },
+      "The retained output segment cannot be opened.",
+      { disposition: "rejected", cause: error },
     );
   }
 
@@ -221,20 +206,20 @@ function readBoundSegment({
       fail(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
         "The retained output segment no longer matches its witnessed receipt.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
 
     return bytes;
   } catch (error) {
-    if (error instanceof CheckDetailError) {
+    if (error instanceof WorkflowDiagnosticError) {
       throw error;
     }
 
     fail(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
-      `The retained output segment changed while it was read: ${error.message}.`,
-      { exitCode: 1 },
+      "The retained output segment changed while it was read.",
+      { disposition: "rejected", cause: error },
     );
   } finally {
     closeSync(descriptor);
@@ -285,7 +270,7 @@ export function checkDetailWorkflow({
     fail(
       "CHECK_DETAIL_RECEIPT_NOT_FOUND",
       `Receipt ${receiptId} is not part of this transaction.`,
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -293,7 +278,7 @@ export function checkDetailWorkflow({
     fail(
       "CHECK_DETAIL_UNAVAILABLE",
       `Receipt ${receiptId} has no retained process output.`,
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -355,126 +340,37 @@ export function checkDetailWorkflow({
   });
 }
 
-function parseFlags(argv) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (
-      typeof token !== "string" ||
-      !token.startsWith("--") ||
-      typeof value !== "string"
-    ) {
-      fail(
-        "CHECK_DETAIL_ARGUMENTS_INVALID",
-        "workflow check-detail options require --name value pairs.",
-      );
-    }
-
-    const name = token.slice(2);
-
-    if (
-      !new Set([
-        "transaction",
-        "receipt",
-        "stream",
-        "segment",
-        "offset",
-        "format",
-      ]).has(name) ||
-      values.has(name)
-    ) {
-      fail(
-        "CHECK_DETAIL_ARGUMENTS_INVALID",
-        `Unknown or repeated workflow check-detail option: ${token}.`,
-      );
-    }
-
-    values.set(name, value);
-  }
-
-  return values;
-}
-
-function invalidResult(error, transactionPath) {
-  const result = {
-    schemaVersion: 1,
-    status: "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction:
-      typeof transactionPath === "string" ? resolve(transactionPath) : null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code ?? "CHECK_DETAIL_FAILED",
-    message: error.message,
-    ...error.details,
-    exitCode: error.exitCode ?? 2,
-  };
-
+function parseArguments(argv) {
+  const flags = parseCommandArguments("workflow check-detail", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail(
+      "CHECK_DETAIL_FORMAT_INVALID",
+      "Check detail output format must be json or text.",
+    );
+  const transactionPath = flags.get("transaction");
+  if (typeof transactionPath !== "string")
+    fail(
+      "CHECK_DETAIL_TRANSACTION_REQUIRED",
+      "workflow check-detail requires --transaction <transaction.json>.",
+    );
   return {
-    ...result,
-    displayText: `Status: invalid\nCode: ${result.code}\nMessage: ${result.message}\n`,
+    transactionPath,
+    format,
+    receiptId: flags.get("receipt") ?? null,
+    stream: flags.get("stream") ?? null,
+    segment: flags.get("segment") ?? null,
+    offset: Number(flags.get("offset") ?? "0"),
   };
 }
-
-export function runCheckDetailCommand(
+export async function runCheckDetailCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let flags = null;
-
-  try {
-    flags = parseFlags(argv);
-    const format = flags.get("format") ?? "json";
-
-    if (!new Set(["json", "text"]).has(format)) {
-      fail(
-        "CHECK_DETAIL_FORMAT_INVALID",
-        "Check detail output format must be json or text.",
-      );
-    }
-
-    const transactionPath = flags.get("transaction");
-
-    if (typeof transactionPath !== "string") {
-      fail(
-        "CHECK_DETAIL_TRANSACTION_REQUIRED",
-        "workflow check-detail requires --transaction <transaction.json>.",
-      );
-    }
-
-    const offsetText = flags.get("offset") ?? "0";
-    const offset = Number(offsetText);
-    const result = checkDetailWorkflow({
-      transactionPath,
-      receiptId: flags.get("receipt") ?? null,
-      stream: flags.get("stream") ?? null,
-      segment: flags.get("segment") ?? null,
-      offset,
-    });
-
-    stdout.write(
-      format === "text" ? result.displayText : `${JSON.stringify(result)}\n`,
-    );
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof CheckDetailError
-        ? caught
-        : new CheckDetailError("CHECK_DETAIL_FAILED", caught.message);
-    const result = invalidResult(error, flags?.get("transaction") ?? null);
-    const format = flags?.get("format") ?? "json";
-
-    stderr.write(`${result.code}: ${result.message}\n`);
-    stdout.write(
-      format === "text" ? result.displayText : `${JSON.stringify(result)}\n`,
-    );
-    return result.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments,
+    execute: checkDetailWorkflow,
+    stdout,
+  });
 }

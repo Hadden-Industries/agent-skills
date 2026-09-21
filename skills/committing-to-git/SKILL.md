@@ -9,7 +9,7 @@ metadata:
 
 # Committing to Git
 
-Parse JSON `status`, `phase`, `terminalDisposition`, and exit class; keep `transaction` opaque; show `displayText` verbatim. Stderr is not the result.
+Parse JSON `disposition`, `status`, `phase`, and `recovery`; keep `transaction` opaque; show canonical message `displayText` verbatim. Stderr is not the result. Follow [diagnostics](references/diagnostics.md) for shared fields, equivalent text output, installed identity, and bounded recovery commands. Never evaluate diagnostic prose as a shell command.
 
 Treat the user's hint as a hypothesis. Use policy, task evidence, and Git facts to correct type and scope, sharpen the outcome, and add useful rationale or user-experience consequences. Do not ask for wording when evidence can improve it.
 
@@ -37,6 +37,8 @@ Use `staged` for an intentional index or partial hunks, `full` for every change,
 Age is not uncertainty. When a targeted exact-path diff fully explains a small dependency, integrity hash, lock entry, or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
 
 For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Bounded evidence stays inline; larger requirements use packets.
+
+Reuse `task-lineage` requires a specific note through reusable `--evidence-plan` JSON; see [evidence-plan recovery](references/inspection-recovery.md#reusable-evidence-plans). Do not claim `read-current-task` unless the content was actually read. Durable evidence remains usable across hosts when its identity, subject, and applicability still match.
 
 Every mode may write Git objects. Actual `full` or `paths` may install the index; drafts do not. Run:
 
@@ -108,13 +110,7 @@ Hooks may change the message; preserve the known commit and report the mismatch.
 
 ## Interpret, recover, and publish
 
-| Exit | Mutation certainty | Permitted next action |
-| ---: | --- | --- |
-| `0` | Requested phase completed | Continue from returned phase |
-| `1` | No irreversible mutation, or durable known rejection | Fix the stated condition; resume only when directed |
-| `2` | Invalid/unsupported input or pre-journal failure | Correct input; old versions return `UNSUPPORTED_ATTEMPT_VERSION` and are never migrated |
-| `3` | Commit exists but a later gate failed | Preserve it; verify/recover, never recommit |
-| `4` | Commit or push outcome unknown | Observe with recovery; never repeat the mutation |
+Use the [exit outcomes](references/diagnostics.md#exit-outcomes): 0 success, 1 known rejection, 2 invalid input, 3 known commit with a later failure, 4 unknown mutation, 5 unmet prerequisite, 6 internal failure. Preserve known commits and recover uncertain outcomes without replay. Old attempts return `UNSUPPORTED_ATTEMPT_VERSION` without migration.
 
 Resume a recoverably interrupted preparation only with `workflow resume --transaction <opaque-transaction>`; persisted inputs cannot broaden. Use [transaction recovery](references/transaction-recovery.md) for permission, lock, partial-phase, or pending/unknown failures. Bounded diagnostics point to a complete hashed failure log. Query count/byte-limited report paths through `workflow report-detail`; replay the same cursor or cursorless completed page, and use `--refresh` only for a new observation.
 

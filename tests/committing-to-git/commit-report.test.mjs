@@ -1,3 +1,4 @@
+import { WorkflowDiagnosticError } from "../../src/committing-to-git/diagnostics/workflowDiagnosticError.js";
 // Post-commit fact collection and human-readable reporting.
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -737,7 +738,7 @@ test("multipage workspace detail uses bound cursors and replays the final reques
     );
   }
 
-  const { ReportDetailError, reportDetailWorkflow } =
+  const { reportDetailWorkflow } =
     await import("../../src/committing-to-git/workflow/reportDetailWorkflow.js");
   const first = await reportDetailWorkflow({ transactionPath });
 
@@ -748,7 +749,7 @@ test("multipage workspace detail uses bound cursors and replays the final reques
   await assert.rejects(
     reportDetailWorkflow({ transactionPath }),
     (error) =>
-      error instanceof ReportDetailError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "DETAIL_STATE_CONFLICT",
   );
   await assert.rejects(
@@ -757,7 +758,7 @@ test("multipage workspace detail uses bound cursors and replays the final reques
       cursor: `${first.nextCursor.slice(0, -1)}x`,
     }),
     (error) =>
-      error instanceof ReportDetailError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "DETAIL_CURSOR_INVALID",
   );
   const otherFixture = createRepositoryFixture(
@@ -773,7 +774,7 @@ test("multipage workspace detail uses bound cursors and replays the final reques
         cursor: first.nextCursor,
       }),
       (error) =>
-        error instanceof ReportDetailError &&
+        error instanceof WorkflowDiagnosticError &&
         error.code === "DETAIL_CURSOR_INVALID",
     );
   }
@@ -787,7 +788,8 @@ test("multipage workspace detail uses bound cursors and replays the final reques
   });
 
   assert.equal(publication.exitCode, 0, JSON.stringify(publication));
-  assert.equal(publication.publicationState, "succeeded");
+  assert.equal(publication.publicationState, "published");
+  assert.equal(publication.publication.status, "succeeded");
 
   let requestCursor = first.nextCursor;
   let page = first;

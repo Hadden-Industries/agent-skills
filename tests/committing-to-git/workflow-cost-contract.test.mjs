@@ -358,9 +358,18 @@ test("every transaction route rejects the previous version without migration", (
     "message check",
     "message finalize",
   ]) {
+    const requiredArguments = {
+      "workflow extend": ["--reason", "semantic-structure-required"],
+      "workflow publish": [
+        "--remote",
+        "origin",
+        "--destination",
+        "refs/heads/example",
+      ],
+    };
     const result = runCommitWorkflow(
       command,
-      ["--transaction", transactionPath],
+      ["--transaction", transactionPath, ...(requiredArguments[command] ?? [])],
       fixture.repo,
     );
     const output = JSON.parse(result.stdout);

@@ -1,3 +1,12 @@
+import { parseCommandArguments } from "../cli/commandArguments.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import {
+  observeTransactionFailure,
+  transactionDiagnosticState,
+} from "../transaction/transactionDiagnosticState.js";
+
 import { resolve } from "node:path";
 
 import { recoverCanonicalMessageReplacement } from "../message/canonicalMessageState.js";
@@ -8,7 +17,6 @@ import {
 } from "../transaction/transactionRecovery.js";
 import { readTransaction } from "../transaction/transactionWorkspace.js";
 import {
-  CommitWorkflowError,
   completeRecordedCommit,
   readRecordedReport,
 } from "./createCommitWorkflow.js";
@@ -18,8 +26,8 @@ import { recoverCheckAttempt } from "./runCheckWorkflow.js";
 
 const RESOLUTIONS = new Set([null, "confirmed-no-live-child"]);
 
-function invalid(code, message, exitCode = 2) {
-  throw new CommitWorkflowError(code, message, { exitCode });
+function invalid(code, message) {
+  throw new WorkflowDiagnosticError(code, message);
 }
 
 export async function recoverTransactionWorkflow({
@@ -72,25 +80,47 @@ export async function recoverTransactionWorkflow({
         retainReviewArtifacts,
         retainProcessLogs,
       });
-    } catch (error) {
-      const current = readTransaction(transactionPath);
+    } catch {
+      let current = transaction;
+      try {
+        current = readTransaction(transactionPath);
+      } catch {
+        // The completed observation remains true if later journal I/O fails.
+      }
 
-      return {
-        schemaVersion: 1,
+      return createWorkflowResult({
+        disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        terminalDisposition: current.terminalDisposition,
         transaction: resolve(transactionPath),
         route: current.route,
         commitState: "created",
-        commitOid: current.commit.commitOid,
         publicationState: "not-requested",
         publicationAllowed: false,
         recoveryRequired: true,
-        code: error.code ?? "COMMIT_CONTINUATION_FAILED",
-        message: error.message,
-        exitCode: 3,
-      };
+        code: "COMMIT_CONTINUATION_FAILED",
+        message:
+          "The commit exists, but verification or reporting could not finish. Inspect the retained transaction before continuing.",
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: [],
+          commands: [
+            {
+              arguments: [
+                "workflow",
+                "recover",
+                "--transaction",
+                resolve(transactionPath),
+              ],
+            },
+          ],
+        },
+        data: {
+          commitOid: recovery.commitOid,
+          terminalDisposition: current.terminalDisposition,
+        },
+      });
     }
   }
 
@@ -114,27 +144,15 @@ export async function recoverTransactionWorkflow({
       transaction.phase,
     )
   ) {
-    const publicationState =
-      transaction.phase === "published"
-        ? transaction.publicationAttempts.at(-1)?.status === "succeeded"
-          ? "succeeded"
-          : "observed-matching"
-        : "not-requested";
-
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
+      disposition: "succeeded",
       status: transaction.status,
-      phase: transaction.phase,
-      terminalDisposition: transaction.terminalDisposition,
-      transaction: resolve(transactionPath),
-      route: transaction.route,
-      commitState: transaction.commit?.commitOid ? "created" : "absent",
-      commitOid: transaction.commit?.commitOid ?? null,
-      publicationState,
-      publicationAllowed: transaction.report?.publicationAllowed ?? false,
-      recoveryRequired: false,
-      exitCode: transaction.phase === "stopped" ? 1 : 0,
-    };
+      ...transactionDiagnosticState(transaction, transactionPath),
+      data: {
+        commitOid: transaction.commit?.commitOid ?? null,
+        terminalDisposition: transaction.terminalDisposition,
+      },
+    });
   }
 
   invalid(
@@ -144,145 +162,43 @@ export async function recoverTransactionWorkflow({
   );
 }
 
-function parseFlags(argv, booleanFlags = new Set()) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-
-    if (!token?.startsWith("--")) {
-      invalid(
-        "INVALID_ARGUMENT",
-        `Unexpected argument ${JSON.stringify(token)}.`,
-      );
-    }
-
-    const name = token.slice(2);
-
-    if (values.has(name)) {
-      invalid("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-
-    if (booleanFlags.has(name)) {
-      values.set(name, true);
-      continue;
-    }
-
-    const value = argv[index + 1];
-
-    if (value === undefined || value.startsWith("--")) {
-      invalid("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-
-    values.set(name, value);
-    index += 1;
-  }
-
-  return values;
+function parseArguments(argv, command) {
+  const flags = parseCommandArguments(command, argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    invalid("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    invalid("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    format,
+    resolution: flags.get("resolution") ?? null,
+    purge: flags.get("purge") === true,
+  };
 }
-
-function output(result, format) {
-  return format === "text"
-    ? (result.displayText ??
-        `Status: ${result.status}\nCode: ${result.code ?? "none"}\n`)
-    : `${JSON.stringify(result)}\n`;
-}
-
 export async function runRecoverTransactionCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv);
-    const allowed = new Set(["transaction", "resolution", "format"]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        invalid("UNKNOWN_ARGUMENT", `Unknown workflow recover flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-    const transactionPath = flags.get("transaction");
-
-    if (!transactionPath) {
-      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-
-    const result = await recoverTransactionWorkflow({
-      transactionPath,
-      resolution: flags.get("resolution") ?? null,
-    });
-
-    stdout.write(output(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof CommitWorkflowError
-        ? caught
-        : new CommitWorkflowError("RECOVERY_WORKFLOW_FAILED", caught.message);
-    const result = {
-      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode,
-    };
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(output(result, format));
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments(arguments_, "workflow recover"),
+    execute: recoverTransactionWorkflow,
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }
-
-export function runCleanupTransactionCommand(
+export async function runCleanupTransactionCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv, new Set(["purge"]));
-    const allowed = new Set(["transaction", "purge", "format"]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        invalid("UNKNOWN_ARGUMENT", `Unknown workflow cleanup flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-    const transactionPath = flags.get("transaction");
-
-    if (!transactionPath) {
-      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-
-    const result = flags.get("purge")
-      ? purgeTransaction({ transactionPath })
-      : compactTerminalTransaction({ transactionPath });
-
-    stdout.write(output({ ...result, exitCode: 0 }, format));
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof CommitWorkflowError
-        ? caught
-        : new CommitWorkflowError("CLEANUP_WORKFLOW_FAILED", caught.message);
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      output(
-        {
-          status: "invalid",
-          code: error.code,
-          message: error.message,
-          exitCode: 2,
-        },
-        format,
-      ),
-    );
-    return 2;
-  }
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments(arguments_, "workflow cleanup"),
+    execute: (options) =>
+      options.purge
+        ? purgeTransaction(options)
+        : compactTerminalTransaction(options),
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }

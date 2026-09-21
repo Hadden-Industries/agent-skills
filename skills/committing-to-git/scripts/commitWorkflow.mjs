@@ -49,6 +49,1107 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/committing-to-git/diagnostics/diagnosticContract.js
+function ownData(value, key) {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && "value" in descriptor ? descriptor.value : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function boundedText(value, maximumBytes = MAXIMUM_DIAGNOSTIC_TEXT_BYTES) {
+  if (typeof value !== "string") return null;
+  const safe = value.replace(
+    new RegExp("\\p{Cc}", "gu"),
+    (character) => ["\n", "	"].includes(character) ? character : "?"
+  );
+  if (Buffer.byteLength(safe) <= maximumBytes) return safe;
+  let end = maximumBytes - 3;
+  const bytes = Buffer.from(safe);
+  while (bytes[end] >= 128 && bytes[end] < 192) end -= 1;
+  return `${bytes.subarray(0, end).toString("utf8")}...`;
+}
+function projectDetails(value, budget = { nodes: 512 }, ancestors = /* @__PURE__ */ new Set(), depth = 0) {
+  if (--budget.nodes < 0 || depth > 8) return "[omitted: diagnostic limit]";
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return boundedText(value);
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "object") return "[omitted: unsupported value]";
+  if (ancestors.has(value)) return "[omitted: cycle]";
+  ancestors.add(value);
+  const projected = Array.isArray(value) ? [] : /* @__PURE__ */ Object.create(null);
+  try {
+    const entries = Object.entries(
+      Object.getOwnPropertyDescriptors(value)
+    ).filter(([key, descriptor]) => key !== "length" && descriptor.enumerable);
+    for (const [key, descriptor] of entries.slice(0, 64)) {
+      if (key === "length" && Array.isArray(value)) continue;
+      if (!descriptor.enumerable || !("value" in descriptor)) continue;
+      if ([
+        "__proto__",
+        "constructor",
+        "prototype",
+        "stack",
+        "cause",
+        "toJSON"
+      ].includes(key))
+        continue;
+      projected[boundedText(key, 256)] = key === "pointer" && typeof descriptor.value === "string" && Buffer.byteLength(descriptor.value) <= 4096 ? descriptor.value : projectDetails(descriptor.value, budget, ancestors, depth + 1);
+    }
+    if (entries.length > 64) {
+      const omission = { omittedPropertyCount: entries.length - 64 };
+      if (Array.isArray(projected)) projected.push(omission);
+      else projected.diagnosticOmission = omission;
+    }
+  } catch {
+    return "[omitted: uninspectable value]";
+  } finally {
+    ancestors.delete(value);
+  }
+  return projected;
+}
+function validRecovery(value) {
+  return value !== null && typeof value === "object" && RECOVERY_KINDS.has(value.kind) && value.automatic === false && Array.isArray(value.requiredInputs) && value.requiredInputs.length <= 32 && value.requiredInputs.every(
+    (input) => typeof input === "string" && Buffer.byteLength(input) <= 4096
+  ) && Array.isArray(value.commands) && value.commands.length <= 8 && (value.kind !== "human-decision" || value.commands.length === 0) && value.commands.every(
+    (command) => command !== null && typeof command === "object" && Object.keys(command).length === 1 && Array.isArray(command.arguments) && command.arguments.length > 0 && command.arguments.length <= 128 && command.arguments.every(
+      (argument) => typeof argument === "string" && !argument.includes("\0") && Buffer.byteLength(argument) <= 4096
+    )
+  );
+}
+function projectRecovery(value) {
+  if (value === null) return null;
+  function copyArray(array, maximum, copy) {
+    const length = ownData(array, "length");
+    if (!Array.isArray(array) || !Number.isSafeInteger(length) || length > maximum)
+      throw new TypeError("Invalid recovery collection.");
+    return Array.from(
+      { length },
+      (_, index) => copy(ownData(array, String(index)))
+    );
+  }
+  function exactOperand(operand) {
+    if (typeof operand !== "string" || operand.includes("\0") || Buffer.byteLength(operand) > 4096)
+      throw new TypeError("Invalid recovery operand.");
+    return operand;
+  }
+  const result = {
+    kind: ownData(value, "kind"),
+    automatic: ownData(value, "automatic"),
+    requiredInputs: copyArray(
+      ownData(value, "requiredInputs"),
+      32,
+      exactOperand
+    ),
+    commands: copyArray(ownData(value, "commands"), 8, (command) => ({
+      arguments: copyArray(ownData(command, "arguments"), 128, exactOperand)
+    }))
+  };
+  if (!validRecovery(result)) throw new TypeError("Invalid recovery guidance.");
+  return result;
+}
+function validWarning(value) {
+  return value !== null && typeof value === "object" && value.domain === "committing-to-git" && value.severity === "warning" && typeof value.code === "string" && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value.code) && typeof value.message === "string" && Buffer.byteLength(value.message) <= MAXIMUM_DIAGNOSTIC_TEXT_BYTES && validRecovery(value.recovery) && RESULT_FIELDS.documentation(value.documentation) && RESULT_FIELDS.details(value.details);
+}
+function createWorkflowWarning({
+  code,
+  message,
+  details = [],
+  documentation = "references/diagnostics.md",
+  recovery = {
+    kind: "none",
+    automatic: false,
+    requiredInputs: [],
+    commands: []
+  }
+}) {
+  const warning2 = {
+    domain: "committing-to-git",
+    severity: "warning",
+    code,
+    message: boundedText(message),
+    details: boundedDetails(details),
+    documentation,
+    recovery: projectRecovery(recovery)
+  };
+  if (!validWarning(warning2)) throw new TypeError("Invalid workflow warning.");
+  return warning2;
+}
+function validateWorkflowResult(result) {
+  const failures = [];
+  const plain = Object.fromEntries(
+    WORKFLOW_RESULT_FIELDS.map((name) => [name, ownData(result, name)])
+  );
+  result = plain;
+  for (const [name, accepts] of Object.entries(RESULT_FIELDS)) {
+    let accepted = false;
+    try {
+      accepted = accepts(result[name], result);
+    } catch {
+    }
+    if (!accepted) failures.push(name);
+  }
+  if (result.disposition === "outcome-unknown" && !result.recoveryRequired)
+    failures.push("recoveryRequired");
+  if (result.disposition === "completed-with-failure" && result.commitState !== "created")
+    failures.push("commitState");
+  if (result.publicationAllowed && result.commitState !== "created")
+    failures.push("publicationAllowed");
+  if (result.disposition !== "succeeded" && result.code === null)
+    failures.push("code");
+  return failures;
+}
+function createWorkflowResult({
+  disposition,
+  status,
+  code = null,
+  message = null,
+  transaction = null,
+  phase = null,
+  route = null,
+  commitState = "unknown",
+  publicationState = "unknown",
+  publicationAllowed = false,
+  recoveryRequired = false,
+  recovery = {
+    kind: "none",
+    requiredInputs: [],
+    commands: [],
+    automatic: false
+  },
+  documentation = "references/diagnostics.md",
+  details = [],
+  warnings = [],
+  data = {}
+}) {
+  const result = {
+    ...Object.fromEntries(
+      Object.entries(Object.getOwnPropertyDescriptors(data)).filter(
+        ([, descriptor]) => descriptor.enumerable && "value" in descriptor
+      ).map(([key, descriptor]) => [key, descriptor.value]).filter(
+        ([key]) => !Object.hasOwn(RESULT_FIELDS, key) && key !== "toJSON"
+      )
+    ),
+    schemaVersion: DIAGNOSTIC_CONTRACT_VERSION,
+    domain: "committing-to-git",
+    severity: disposition !== "succeeded" ? "error" : warnings.length > 0 ? "warning" : "info",
+    disposition,
+    exitCode: DISPOSITION_EXIT_CODES[disposition],
+    status,
+    code,
+    message: boundedText(message),
+    transaction,
+    phase,
+    route,
+    commitState,
+    publicationState,
+    publicationAllowed,
+    recoveryRequired,
+    recovery: projectRecovery(recovery),
+    documentation,
+    details: boundedDetails(details),
+    warnings: boundedWarnings(warnings)
+  };
+  const failures = validateWorkflowResult(result);
+  if (failures.length)
+    throw new TypeError(
+      `Invalid workflow result fields: ${failures.join(", ")}.`
+    );
+  return result;
+}
+function boundedDetails(details) {
+  if (!Array.isArray(details))
+    return [
+      { kind: "internal", diagnosticOmission: "Malformed detail collection" }
+    ];
+  const projected = projectDetails(
+    details.slice(0, details.length > 32 ? 31 : 32)
+  );
+  if (details.length > 32)
+    projected.push({ kind: "limit", omittedDetailCount: details.length - 31 });
+  return projected.map(
+    (detail) => detail !== null && typeof detail === "object" && DETAIL_KINDS.has(detail.kind) ? detail : { kind: "internal", diagnosticOmission: "Malformed detail" }
+  );
+}
+function boundedWarnings(warnings) {
+  if (!Array.isArray(warnings))
+    throw new TypeError("Malformed warning collection.");
+  const projected = warnings.slice(0, warnings.length > 32 ? 31 : 32).map(
+    (warning2) => createWorkflowWarning({
+      code: ownData(warning2, "code"),
+      message: ownData(warning2, "message"),
+      details: ownData(warning2, "details"),
+      documentation: ownData(warning2, "documentation"),
+      recovery: ownData(warning2, "recovery")
+    })
+  );
+  if (warnings.length > 32)
+    projected.push(
+      createWorkflowWarning({
+        code: "WARNING_DETAILS_OMITTED",
+        message: "Additional advisory diagnostics exceeded the response sample limit.",
+        details: [{ kind: "limit", omittedWarningCount: warnings.length - 31 }]
+      })
+    );
+  return projected;
+}
+function encodeResult(result, format) {
+  return format === "text" ? Object.entries(result).map(
+    ([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`
+  ).join("\n") + "\n" : `${JSON.stringify(result)}
+`;
+}
+function encodeWorkflowResult(result, format = "json") {
+  try {
+    const failures = validateWorkflowResult(result);
+    if (failures.length) throw new TypeError("Invalid result.");
+    const output = encodeResult(result, format);
+    if (Buffer.byteLength(output) > MAXIMUM_RESULT_BYTES)
+      throw new RangeError("Result budget exceeded.");
+    return { result, output };
+  } catch {
+    const fallback = createDiagnosticFallback(result);
+    return { result: fallback, output: encodeResult(fallback, format) };
+  }
+}
+function createDiagnosticFallback(result, code = "RESULT_ENCODING_FAILED") {
+  const observed = Object.fromEntries(
+    [
+      "commitState",
+      "publicationState",
+      "disposition",
+      "transaction",
+      "commitOid",
+      "recoveryRequired"
+    ].map((key) => [key, ownData(result, key)])
+  );
+  const commitState = COMMIT_STATES.has(observed.commitState) ? observed.commitState : "unknown";
+  const unknownOutcome = observed.disposition === "outcome-unknown";
+  return createWorkflowResult({
+    disposition: unknownOutcome ? "outcome-unknown" : commitState === "created" ? "completed-with-failure" : "internal-failure",
+    status: "failed",
+    code,
+    message: "The operation result could not be represented safely. Inspect retained transaction evidence; do not replay the mutation.",
+    transaction: typeof observed.transaction === "string" && Buffer.byteLength(observed.transaction) <= 4096 ? observed.transaction : null,
+    commitState,
+    publicationState: PUBLICATION_STATES.has(observed.publicationState) ? observed.publicationState : "unknown",
+    recoveryRequired: unknownOutcome || observed.recoveryRequired === true,
+    recovery: {
+      kind: "inspect-state",
+      automatic: false,
+      requiredInputs: ["retained transaction evidence"],
+      commands: []
+    },
+    data: {
+      commitOid: typeof observed.commitOid === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(observed.commitOid) ? observed.commitOid : null
+    }
+  });
+}
+var DIAGNOSTIC_CONTRACT_VERSION, MAXIMUM_RESULT_BYTES, MAXIMUM_DIAGNOSTIC_TEXT_BYTES, DISPOSITION_EXIT_CODES, COMMIT_STATES, PUBLICATION_STATES, RECOVERY_KINDS, DETAIL_KINDS, RESULT_FIELDS, WORKFLOW_RESULT_FIELDS;
+var init_diagnosticContract = __esm({
+  "src/committing-to-git/diagnostics/diagnosticContract.js"() {
+    DIAGNOSTIC_CONTRACT_VERSION = 2;
+    MAXIMUM_RESULT_BYTES = 192 * 1024;
+    MAXIMUM_DIAGNOSTIC_TEXT_BYTES = 4096;
+    DISPOSITION_EXIT_CODES = Object.freeze({
+      succeeded: 0,
+      rejected: 1,
+      "invalid-input": 2,
+      "completed-with-failure": 3,
+      "outcome-unknown": 4,
+      "unmet-prerequisite": 5,
+      "internal-failure": 6
+    });
+    COMMIT_STATES = /* @__PURE__ */ new Set(["absent", "created", "unknown"]);
+    PUBLICATION_STATES = /* @__PURE__ */ new Set([
+      "not-requested",
+      "blocked",
+      "published",
+      "rejected",
+      "unknown"
+    ]);
+    RECOVERY_KINDS = /* @__PURE__ */ new Set([
+      "none",
+      "correct-input",
+      "satisfy-prerequisite",
+      "human-decision",
+      "inspect-state",
+      "continue",
+      "stop"
+    ]);
+    DETAIL_KINDS = /* @__PURE__ */ new Set(["input", "prerequisite", "limit", "internal"]);
+    RESULT_FIELDS = {
+      schemaVersion: (value) => value === DIAGNOSTIC_CONTRACT_VERSION,
+      domain: (value) => value === "committing-to-git",
+      severity: (value, result) => value === (result.disposition !== "succeeded" ? "error" : result.warnings.length > 0 ? "warning" : "info"),
+      disposition: (value) => Object.hasOwn(DISPOSITION_EXIT_CODES, value),
+      exitCode: (value, result) => value === DISPOSITION_EXIT_CODES[result.disposition],
+      status: (value) => typeof value === "string" && /^[a-z][a-z-]{0,63}$/u.test(value),
+      code: (value) => value === null || typeof value === "string" && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value),
+      message: (value) => value === null || typeof value === "string" && Buffer.byteLength(value) <= MAXIMUM_DIAGNOSTIC_TEXT_BYTES,
+      transaction: (value) => value === null || typeof value === "string" && Buffer.byteLength(value) <= 4096,
+      phase: (value) => value === null || typeof value === "string",
+      route: (value) => value === null || ["concise", "extended"].includes(value),
+      commitState: (value) => COMMIT_STATES.has(value),
+      publicationState: (value) => PUBLICATION_STATES.has(value),
+      publicationAllowed: (value) => typeof value === "boolean",
+      recoveryRequired: (value) => typeof value === "boolean",
+      recovery: validRecovery,
+      documentation: (value) => typeof value === "string" && /^references\/[a-z-]+\.md(?:#[a-z-]+)?$/u.test(value),
+      details: (value) => Array.isArray(value) && value.length <= 32 && value.every(
+        (detail) => detail !== null && typeof detail === "object" && DETAIL_KINDS.has(detail.kind)
+      ),
+      warnings: (value) => Array.isArray(value) && value.length <= 32 && value.every(validWarning)
+    };
+    WORKFLOW_RESULT_FIELDS = Object.freeze(Object.keys(RESULT_FIELDS));
+  }
+});
+
+// src/committing-to-git/diagnostics/workflowDiagnosticError.js
+function workflowFailureResult(caught, { transaction = null, state = {} } = {}) {
+  const failure = expectedDiagnostics.has(caught) ? caught : new WorkflowDiagnosticError(
+    "INTERNAL_FAILURE",
+    "The operation failed unexpectedly. Inspect retained transaction evidence before another mutation.",
+    { disposition: "internal-failure", cause: caught }
+  );
+  const observed = Object.fromEntries(
+    STATE_FIELDS.map((key) => [
+      key,
+      ownData(ownData(failure, "state"), key) ?? ownData(state, key)
+    ]).filter(([, value]) => value !== void 0)
+  );
+  const disposition = ownData(failure, "disposition") === "internal-failure" && observed.recoveryRequired === true && (observed.commitState === "unknown" || observed.publicationState === "unknown") ? "outcome-unknown" : observed.commitState === "created" && ownData(failure, "disposition") === "internal-failure" ? "completed-with-failure" : ownData(failure, "disposition");
+  const projected = projectDetails(ownData(failure, "details"));
+  try {
+    return createWorkflowResult({
+      disposition,
+      status: "failed",
+      code: ownData(failure, "code"),
+      message: ownData(failure, "message"),
+      transaction,
+      ...observed,
+      recoveryRequired: observed.recoveryRequired === true || disposition === "outcome-unknown",
+      data: { commitOid: observed.commitOid ?? null },
+      recovery: projectRecovery(ownData(failure, "recovery")) ?? {
+        kind: disposition === "invalid-input" ? "correct-input" : "inspect-state",
+        automatic: false,
+        requiredInputs: [],
+        commands: []
+      },
+      documentation: ownData(failure, "documentation"),
+      details: [
+        {
+          ...projected !== null && typeof projected === "object" && !Array.isArray(projected) ? projected : { diagnosticDetail: projected },
+          kind: ownData(failure, "detailKind") ?? (disposition === "invalid-input" ? "input" : disposition === "internal-failure" ? "internal" : "prerequisite")
+        }
+      ]
+    });
+  } catch {
+    return createDiagnosticFallback(
+      {
+        ...observed,
+        transaction: observed.transaction ?? transaction,
+        disposition
+      },
+      "DIAGNOSTIC_NORMALIZATION_FAILED"
+    );
+  }
+}
+var expectedDiagnostics, STATE_FIELDS, WorkflowDiagnosticError;
+var init_workflowDiagnosticError = __esm({
+  "src/committing-to-git/diagnostics/workflowDiagnosticError.js"() {
+    init_diagnosticContract();
+    expectedDiagnostics = /* @__PURE__ */ new WeakSet();
+    STATE_FIELDS = [
+      "transaction",
+      "phase",
+      "route",
+      "commitState",
+      "commitOid",
+      "publicationState",
+      "publicationAllowed",
+      "recoveryRequired"
+    ];
+    WorkflowDiagnosticError = class extends Error {
+      constructor(code, message, {
+        disposition = "invalid-input",
+        details = {},
+        state = {},
+        recovery = null,
+        documentation = "references/diagnostics.md",
+        detailKind = null,
+        cause
+      } = {}) {
+        super(message, cause === void 0 ? void 0 : { cause });
+        this.name = "WorkflowDiagnosticError";
+        this.code = code;
+        this.disposition = disposition;
+        this.exitCode = DISPOSITION_EXIT_CODES[disposition];
+        this.details = details;
+        this.state = state;
+        this.recovery = recovery;
+        this.documentation = documentation;
+        this.detailKind = detailKind;
+        expectedDiagnostics.add(this);
+      }
+    };
+  }
+});
+
+// src/committing-to-git/evidence/evidenceVocabulary.js
+function validateEvidenceBasis(policy, basis) {
+  if (!EVIDENCE_POLICIES.includes(policy) || basis === null || typeof basis !== "object" || !BASIS_KINDS.includes(basis.kind) || !(basis.note === null || typeof basis.note === "string")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_BASIS",
+      "Evidence policy or basis is invalid."
+    );
+  }
+  if (typeof basis.note === "string" && Buffer.byteLength(basis.note) > MAXIMUM_BASIS_NOTE_BYTES) {
+    throw new WorkflowDiagnosticError(
+      "EVIDENCE_BASIS_NOTE_TOO_LARGE",
+      "The provenance note exceeds the supported UTF-8 byte limit.",
+      {
+        detailKind: "limit",
+        details: {
+          observedBytes: Buffer.byteLength(basis.note),
+          maximumBytes: MAXIMUM_BASIS_NOTE_BYTES
+        },
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: ["a shorter truthful provenance note"],
+          commands: []
+        }
+      }
+    );
+  }
+  if (policy === "reuse" && !BASIS_DEFINITIONS[basis.kind].reusable) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_BASIS",
+      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
+    );
+  }
+  if (policy === "reuse" && BASIS_DEFINITIONS[basis.kind].requiresReuseNote && (typeof basis.note !== "string" || basis.note.trim().length === 0)) {
+    throw new WorkflowDiagnosticError(
+      "EVIDENCE_BASIS_NOTE_REQUIRED",
+      "Reuse task-lineage basis requires a specific nonempty note. Supply the note through --evidence-plan instead of inline --evidence and --basis.",
+      {
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: [
+            "evidence-plan JSON with a truthful task-lineage note"
+          ],
+          commands: []
+        },
+        details: {
+          maximumNoteBytes: MAXIMUM_BASIS_NOTE_BYTES,
+          example: {
+            schemaVersion: 1,
+            groups: [
+              {
+                selection: { all: true },
+                policy: "reuse",
+                basis: {
+                  kind: "task-lineage",
+                  note: "Describe the actual related task and why its evidence applies."
+                }
+              }
+            ]
+          }
+        }
+      }
+    );
+  }
+  return { kind: basis.kind, note: basis.note };
+}
+var EVIDENCE_POLICIES, BASIS_DEFINITIONS, BASIS_KINDS, REUSE_BASIS_KINDS, MAXIMUM_BASIS_NOTE_BYTES;
+var init_evidenceVocabulary = __esm({
+  "src/committing-to-git/evidence/evidenceVocabulary.js"() {
+    init_workflowDiagnosticError();
+    EVIDENCE_POLICIES = Object.freeze(["reuse", "message", "review"]);
+    BASIS_DEFINITIONS = Object.freeze({
+      "authored-current-task": { reusable: true },
+      "read-current-task": { reusable: true },
+      "task-lineage": { reusable: true, requiresReuseNote: true },
+      "user-grounded": { reusable: false },
+      "generated-derived": { reusable: true },
+      "unknown-preexisting": { reusable: false }
+    });
+    BASIS_KINDS = Object.freeze(Object.keys(BASIS_DEFINITIONS));
+    REUSE_BASIS_KINDS = Object.freeze(
+      BASIS_KINDS.filter((kind) => BASIS_DEFINITIONS[kind].reusable)
+    );
+    MAXIMUM_BASIS_NOTE_BYTES = 512;
+  }
+});
+
+// src/committing-to-git/cli/commandArguments.js
+import { parseArgs } from "node:util";
+function commandOptions(command) {
+  return {
+    ...COMMAND_ARGUMENTS[command],
+    ...command === "workflow prepare" ? {} : {
+      transaction: {
+        ...stringOption,
+        description: "<transaction.json>  Required opaque helper-returned path."
+      }
+    },
+    format: {
+      ...stringOption,
+      description: "<json|text>  Output contract; default: json."
+    }
+  };
+}
+function parseCommandArguments(command, argv) {
+  const options = commandOptions(command);
+  const recovery = {
+    kind: "correct-input",
+    automatic: false,
+    requiredInputs: ["valid helper arguments"],
+    commands: [{ arguments: [...command.split(" "), "--help"] }]
+  };
+  const separator = argv.indexOf("--");
+  const acceptsChild = command === "workflow check";
+  if (!acceptsChild && separator >= 0) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_ARGUMENT",
+      `${command} does not accept a child-command separator.`,
+      { recovery }
+    );
+  }
+  const args = acceptsChild && separator >= 0 ? argv.slice(0, separator) : argv;
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args,
+      options,
+      strict: true,
+      allowPositionals: false,
+      tokens: true
+    });
+  } catch (cause) {
+    throw new WorkflowDiagnosticError(
+      cause.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" ? "UNKNOWN_ARGUMENT" : "INVALID_ARGUMENT",
+      `Invalid arguments for ${command}. Follow the command's option definitions and supply every required value.`,
+      { cause, recovery, details: { parserCode: cause.code } }
+    );
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const token of parsed.tokens) {
+    if (token.kind !== "option") continue;
+    if (seen.has(token.name) && !options[token.name].multiple) {
+      throw new WorkflowDiagnosticError(
+        "DUPLICATE_ARGUMENT",
+        `--${token.name} may be supplied only once.`,
+        { recovery }
+      );
+    }
+    if (token.value === "") {
+      throw new WorkflowDiagnosticError(
+        "INVALID_ARGUMENT",
+        `--${token.name} requires a non-empty value.`,
+        { recovery }
+      );
+    }
+    seen.add(token.name);
+  }
+  return {
+    values: new Map(Object.entries(parsed.values)),
+    childArguments: acceptsChild && separator >= 0 ? argv.slice(separator + 1) : []
+  };
+}
+var stringOption, repeatedOption, booleanOption, COMMAND_ARGUMENTS;
+var init_commandArguments = __esm({
+  "src/committing-to-git/cli/commandArguments.js"() {
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    stringOption = { type: "string" };
+    repeatedOption = { type: "string", multiple: true };
+    booleanOption = { type: "boolean" };
+    COMMAND_ARGUMENTS = {
+      "workflow prepare": {
+        mode: {
+          ...stringOption,
+          description: "<actual|draft>  Required. Actual may install the index; draft does not."
+        },
+        scope: {
+          ...stringOption,
+          description: "<staged|full|paths>  Required. Select staged, all, or literal path changes."
+        },
+        evidence: {
+          ...stringOption,
+          description: `<${EVIDENCE_POLICIES.join("|")}>  Uniform evidence policy; pair with --basis.`
+        },
+        basis: {
+          ...stringOption,
+          description: `<kind>  Uniform provenance: ${BASIS_KINDS.join(", ")}.
+    Reuse accepts ${REUSE_BASIS_KINDS.join(", ")}.`
+        },
+        "evidence-plan": {
+          ...stringOption,
+          description: "<file>  JSON schemaVersion 1 groups; alternative to evidence/basis."
+        },
+        "scope-file": {
+          ...stringOption,
+          description: "<file>  JSON schemaVersion 2 selectors instead of inline selectors.\n    Selectors require scope paths, at least one inclusion, and / separators.\n    Include both sides of renames. Full and staged accept no selectors."
+        },
+        path: {
+          ...repeatedOption,
+          description: "<path>  Repeatable exact repository-relative path; no globs."
+        },
+        "path-prefix": {
+          ...repeatedOption,
+          description: "<prefix/>  Repeatable literal directory prefix ending in /."
+        },
+        "exclude-path": {
+          ...repeatedOption,
+          description: "<path>  Repeatable exact exclusion within included scope."
+        },
+        "exclude-path-prefix": {
+          ...repeatedOption,
+          description: "<prefix/>  Repeatable directory exclusion within scope."
+        },
+        "allowed-type": {
+          ...repeatedOption,
+          description: "<type>  Repeatable unique lowercase commit type (maximum 64).\n    Tokens match [a-z][a-z0-9-]{0,31}; default: no supplied type restriction."
+        },
+        verification: {
+          ...stringOption,
+          description: "<required|advisory|skipped>  Signature policy; default: required."
+        }
+      },
+      "workflow resume": {},
+      "workflow extend": {
+        reason: {
+          ...stringOption,
+          description: "<evidence-uncertainty|semantic-structure-required>  Required.\n    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic\n    structure retains evidence and supplies content.json for message finalize."
+        }
+      },
+      "workflow review-next": {
+        cursor: {
+          ...stringOption,
+          description: "<opaque-cursor>  Returned nextCursor; default: cursorless delivery.\n    Start cursorless, then use reviewProgress.nextCursor while reviewRequired."
+        }
+      },
+      "workflow promote": {},
+      "message check": {},
+      "message finalize": {},
+      "workflow check": {
+        label: {
+          ...stringOption,
+          description: "<description>  Check label; default: Repository check."
+        },
+        "working-directory": {
+          ...stringOption,
+          description: "<directory>  Repository-relative directory; default: ."
+        },
+        "timeout-ms": {
+          ...stringOption,
+          description: "<milliseconds>  Integer 1..86400000; default: no helper timeout."
+        },
+        "retry-after-attempt": {
+          ...stringOption,
+          description: "<receipt-id>  Bind a recovered check retry; default: none."
+        }
+      },
+      "workflow check-detail": {
+        receipt: {
+          ...stringOption,
+          description: "<receipt-id>  Required helper-owned check receipt."
+        },
+        stream: {
+          ...stringOption,
+          description: "<stdout|stderr>  Required retained output stream."
+        },
+        segment: {
+          ...stringOption,
+          description: "<head|tail>  Required retained output segment."
+        },
+        offset: {
+          ...stringOption,
+          description: "<bytes>  Nonnegative integer byte offset; default: 0."
+        }
+      },
+      "workflow commit": {
+        message: {
+          ...stringOption,
+          description: "<subject>  Exact transport-safe subject without LF; the helper\n    appends LF. Default: checked/finalized revision. Not a body or message file."
+        },
+        verification: {
+          ...stringOption,
+          description: "<required|advisory|skipped>  Default: recorded policy."
+        },
+        "acknowledge-failed-check": {
+          ...repeatedOption,
+          description: "<receipt-id>  Repeatable explicit acknowledgement\n    of each non-passing receipt; default: none. Requires user authorization."
+        },
+        "retain-review-artifacts": {
+          ...booleanOption,
+          description: "Boolean switch; default: false."
+        },
+        "retain-process-logs": {
+          ...booleanOption,
+          description: "Boolean switch; default: false.\n    Retain the named helper artifacts during post-commit compaction."
+        }
+      },
+      "workflow verify": {
+        verification: {
+          ...stringOption,
+          description: "<required|advisory|skipped>  Default: recorded policy.\n    Required blocks publication on failure; advisory reports without blocking;\n    skipped records that signature verification was not performed."
+        }
+      },
+      "workflow report-detail": {
+        cursor: {
+          ...stringOption,
+          description: "<cursor>  Opaque returned page cursor; default: cursorless replay."
+        },
+        refresh: {
+          ...booleanOption,
+          description: "Boolean switch; default: false. Start a new workspace observation.\n    Cursor and refresh are mutually exclusive."
+        }
+      },
+      "workflow publish": {
+        remote: {
+          ...stringOption,
+          description: "<name>  Required configured Git remote name, not a URL."
+        },
+        destination: {
+          ...stringOption,
+          description: "<refs/heads/name>  Required full destination branch ref."
+        },
+        "retry-after-attempt": {
+          ...stringOption,
+          description: "<attempt-id>  Exact UUID of a resolved uncertain attempt;\n    default: none. Required only on the recovery retry route, never for a\n    reported known rejection. Retargeting requires separate push authorization."
+        }
+      },
+      "workflow recover": {
+        resolution: {
+          ...stringOption,
+          description: "<confirmed-no-live-child>  Default: no liveness assertion.\n    Supply only after explicit confirmation that the child ended or host restarted."
+        }
+      },
+      "workflow cleanup": {
+        purge: {
+          ...booleanOption,
+          description: "Boolean switch; default: false (compact safe artifacts).\n    Purge removes the eligible terminal transaction workspace completely."
+        }
+      }
+    };
+  }
+});
+
+// src/committing-to-git/cli/commandExecution.js
+import { Writable } from "node:stream";
+async function writeWorkflowOutput(stdout, encoded) {
+  try {
+    if (stdout instanceof Writable) {
+      await new Promise((resolve30, reject) => {
+        const onError = (error) => reject(error);
+        stdout.once("error", onError);
+        stdout.write(encoded.output, (error) => {
+          if (error) reject(error);
+          else {
+            stdout.removeListener("error", onError);
+            resolve30();
+          }
+        });
+      });
+    } else {
+      stdout.write(encoded.output);
+    }
+  } catch (cause) {
+    throw new WorkflowOutputError(encoded.result, cause);
+  }
+}
+function requestedOutputFormat(arguments_) {
+  const separator = arguments_.indexOf("--");
+  const helperArguments = separator < 0 ? arguments_ : arguments_.slice(0, separator);
+  let format = "json";
+  for (let index = 0; index < helperArguments.length; index += 1) {
+    const argument = helperArguments[index];
+    if (argument === "--format") format = helperArguments[index + 1];
+    else if (argument.startsWith("--format=")) format = argument.slice(9);
+  }
+  return format === "text" ? "text" : "json";
+}
+async function executeCommand(arguments_, { parse, execute, failureState = () => ({}), stdout = process.stdout }) {
+  let options;
+  let result;
+  try {
+    options = parse(arguments_);
+    result = await execute(options);
+  } catch (caught) {
+    result = workflowFailureResult(caught, {
+      transaction: options?.transactionPath ?? null,
+      state: failureState(options)
+    });
+  }
+  const encoded = encodeWorkflowResult(
+    result,
+    options?.format ?? requestedOutputFormat(arguments_)
+  );
+  await writeWorkflowOutput(stdout, encoded);
+  return encoded.result.exitCode;
+}
+var WorkflowOutputError;
+var init_commandExecution = __esm({
+  "src/committing-to-git/cli/commandExecution.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    WorkflowOutputError = class extends Error {
+      constructor(result, cause) {
+        super(
+          "Workflow output delivery failed; inspect retained state before another mutation.",
+          { cause }
+        );
+        this.name = "WorkflowOutputError";
+        this.exitCode = result.disposition === "outcome-unknown" ? 4 : result.commitState === "created" ? 3 : 6;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/selection/selectionVocabulary.js
+var ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS;
+var init_selectionVocabulary = __esm({
+  "src/committing-to-git/selection/selectionVocabulary.js"() {
+    ARRAY_SELECTOR_FIELDS = Object.freeze([
+      "ids",
+      "destinationPaths",
+      "destinationPathPrefixes",
+      "sourcePaths",
+      "sourcePathPrefixes",
+      "kinds"
+    ]);
+    SELECTOR_FIELDS = Object.freeze([
+      "all",
+      "remaining",
+      ...ARRAY_SELECTOR_FIELDS
+    ]);
+  }
+});
+
+// src/committing-to-git/selection/changeSelection.js
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertChangeManifest(manifest) {
+  if (!isPlainObject(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
+    throw new Error(
+      "Semantic selection requires one nonempty exact change manifest."
+    );
+  }
+  const ids = manifest.changeUnits.map(({ id }) => id);
+  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error("Manifest change-unit IDs must be unique and canonical.");
+  }
+}
+function changeUnitPathBytes(unit, direction) {
+  const encoded = unit[`${direction}PathBytesBase64`];
+  if (typeof encoded === "string") {
+    return Buffer.from(encoded, "base64");
+  }
+  const path = unit[`${direction}Path`];
+  return typeof path === "string" ? Buffer.from(path, "utf8") : null;
+}
+function assertRepositoryPath(value, { prefix, field }) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
+    );
+  }
+  if (prefix && !value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
+    );
+  }
+  if (!prefix && value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
+    );
+  }
+  const components = value.split("/");
+  const meaningful = prefix ? components.slice(0, -1) : components;
+  if (meaningful.some(
+    (component) => component.length === 0 || component === "." || component === ".."
+  )) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
+    );
+  }
+}
+function normalizeSelection(selection) {
+  if (!isPlainObject(selection)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection must be an object."
+    );
+  }
+  const unknown = Object.keys(selection).find(
+    (field) => !SELECTOR_FIELDS.includes(field)
+  );
+  if (unknown) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Unknown change selector field ${unknown}.`
+    );
+  }
+  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selector all and remaining values must be booleans."
+    );
+  }
+  const all = selection.all === true;
+  const remaining = selection.remaining === true;
+  const populated = [];
+  const normalized = {};
+  for (const field of ARRAY_SELECTOR_FIELDS) {
+    const values = selection[field];
+    if (values === void 0) {
+      continue;
+    }
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} must be a string array.`
+      );
+    }
+    if (new Set(values).size !== values.length) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} contains duplicate values.`
+      );
+    }
+    if (field.endsWith("Paths")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: false, field })
+      );
+    } else if (field.endsWith("Prefixes")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: true, field })
+      );
+    }
+    if (values.length > 0) {
+      populated.push(field);
+      normalized[field] = [...values];
+    }
+  }
+  if ((all || remaining) && (all === remaining || populated.length > 0)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selectors all and remaining are each exclusive of every other selector field."
+    );
+  }
+  if (!all && !remaining && populated.length === 0) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection requires one nonempty selector."
+    );
+  }
+  if (all) {
+    return { all: true };
+  }
+  if (remaining) {
+    return { remaining: true };
+  }
+  return normalized;
+}
+function unitMatchesValue(unit, field, value) {
+  if (field === "ids") {
+    return unit.id === value;
+  }
+  if (field === "kinds") {
+    return unit.kind === value;
+  }
+  const source = field.startsWith("source");
+  if (source && unit.kind !== "renamed") {
+    return false;
+  }
+  const bytes = changeUnitPathBytes(unit, source ? "source" : "destination");
+  if (bytes === null) {
+    return false;
+  }
+  const expected = Buffer.from(value, "utf8");
+  return field.endsWith("Prefixes") ? bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected) : bytes.equals(expected);
+}
+function resolveSelection(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
+  assertChangeManifest(manifest);
+  if (!(assignedIds instanceof Set)) {
+    throw new Error("Selection assignedIds must be a Set.");
+  }
+  const normalized = normalizeSelection(selection);
+  if (normalized.all === true) {
+    return [...manifest.changeUnits];
+  }
+  if (normalized.remaining === true) {
+    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
+    if (units.length === 0) {
+      throw new WorkflowDiagnosticError(
+        "EMPTY_SELECTION",
+        "The remaining selector matched no change units. Remove the empty group or correct its preceding selections.",
+        { details: { selection: { remaining: true }, matchedCount: 0 } }
+      );
+    }
+    return units;
+  }
+  const matchedIds = /* @__PURE__ */ new Set();
+  let unmatchedCount = 0;
+  const unmatchedValues = [];
+  for (const [field, values] of Object.entries(normalized)) {
+    for (const value of values) {
+      const matches = manifest.changeUnits.filter(
+        (unit) => unitMatchesValue(unit, field, value)
+      );
+      if (matches.length === 0) {
+        unmatchedCount += 1;
+        if (unmatchedValues.length < 32) {
+          unmatchedValues.push(
+            Buffer.byteLength(value) <= 256 ? { field, value } : {
+              field,
+              index: values.indexOf(value),
+              valueByteLength: Buffer.byteLength(value)
+            }
+          );
+        }
+      }
+      matches.forEach(({ id }) => matchedIds.add(id));
+    }
+  }
+  if (unmatchedCount > 0) {
+    throw new WorkflowDiagnosticError(
+      "UNMATCHED_SELECTION_VALUES",
+      `${unmatchedCount} explicit selector value(s) matched no change units.`,
+      {
+        details: {
+          unmatchedCount,
+          unmatchedValues,
+          omittedCount: unmatchedCount - unmatchedValues.length
+        },
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: ["selectors matching the current manifest"],
+          commands: []
+        }
+      }
+    );
+  }
+  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
+}
+var init_changeSelection = __esm({
+  "src/committing-to-git/selection/changeSelection.js"() {
+    init_selectionVocabulary();
+    init_workflowDiagnosticError();
+  }
+});
+
 // src/committing-to-git/git/gitRepository.js
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -838,13 +1939,13 @@ import {
   unlinkSync
 } from "node:fs";
 import { dirname, resolve as resolve2 } from "node:path";
-function validatedPathBytes(pathBytes3) {
-  if (!Buffer.isBuffer(pathBytes3) || pathBytes3.length === 0 || pathBytes3.includes(0)) {
+function validatedPathBytes(pathBytes) {
+  if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
     throw new Error(
       "Projected-index entries require a nonempty raw path Buffer without NUL bytes."
     );
   }
-  return pathBytes3;
+  return pathBytes;
 }
 function validatedEntry(entry) {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !INDEX_MODES.has(entry.mode) || !FULL_OBJECT_ID2.test(entry.oid)) {
@@ -2204,21 +3305,21 @@ function validateOutputChannel(channel, label, expectedPaths) {
     }
   }
 }
-function validateOutput(output2, attempt, transaction) {
-  if (output2 === null) {
+function validateOutput(output, attempt, transaction) {
+  if (output === null) {
     return;
   }
   assertExactKeys(
-    output2,
+    output,
     ["schemaVersion", "stdout", "stderr"],
     "Check output"
   );
-  if (output2.schemaVersion !== 1) {
+  if (output.schemaVersion !== 1) {
     throw new Error("Check output schemaVersion must be 1.");
   }
   const directory = join2(resolve3(transaction.attemptDirectory), "process-logs");
   for (const channel of ["stdout", "stderr"]) {
-    validateOutputChannel(output2[channel], `Check ${channel} output`, {
+    validateOutputChannel(output[channel], `Check ${channel} output`, {
       head: join2(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
       tail: join2(directory, `check-${attempt.receiptId}-${channel}-tail.bin`)
     });
@@ -3039,10 +4140,13 @@ function validatePublicationAttempt(attempt) {
   }
 }
 function validateTransaction(transaction) {
-  assertExactKeys2(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
-  if (transaction.schemaVersion !== 4) {
-    throw new Error("Transaction schemaVersion must be 4.");
+  if (transaction?.schemaVersion !== 4) {
+    throw new WorkflowDiagnosticError(
+      "UNSUPPORTED_ATTEMPT_VERSION",
+      "Transaction schemaVersion must be 4; attempts are never migrated in place."
+    );
   }
+  assertExactKeys2(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
   if (!PHASES.has(transaction.phase)) {
     throw new Error(
       `Unknown transaction phase ${JSON.stringify(transaction.phase)}.`
@@ -3501,13 +4605,13 @@ function updateTransaction(transactionPath, expectedPhase, nextState) {
   replaceJsonAtomically(absoluteTransactionPath, candidate);
   return readTransaction(absoluteTransactionPath);
 }
-var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, MAXIMUM_BASIS_NOTE_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN2, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, REVIEW_PACKET_ID_PATTERN, REVIEW_CURSOR_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
+var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN2, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, REVIEW_PACKET_ID_PATTERN, REVIEW_CURSOR_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
 var init_transactionWorkspace = __esm({
   "src/committing-to-git/transaction/transactionWorkspace.js"() {
+    init_workflowDiagnosticError();
     init_checkReceipt();
     MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
     MAXIMUM_INITIAL_JSON_INPUT_BYTES = 8 * 1024 * 1024;
-    MAXIMUM_BASIS_NOTE_BYTES = 512;
     TRANSACTION_FILE = "transaction.json";
     MAXIMUM_ALLOCATION_ATTEMPTS = 16;
     MAXIMUM_WINDOWS_RENAME_ATTEMPTS = 4;
@@ -5177,7 +6281,7 @@ import {
   unlinkSync as unlinkSync3
 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute6, join as join6, relative as relative3, resolve as resolve7, sep } from "node:path";
-function isPlainObject(value) {
+function isPlainObject2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function canonicalCatalogPayload(catalog) {
@@ -5199,149 +6303,16 @@ function withCatalogIdentity(catalog, catalogPath) {
 function digestCatalog(catalog) {
   return sha256Bytes(stableJsonBytes(canonicalCatalogPayload(catalog)));
 }
-function pathBytes(unit, direction) {
-  const encoded = unit[`${direction}PathBytesBase64`];
-  if (typeof encoded === "string") {
-    return Buffer.from(encoded, "base64");
-  }
-  const text = unit[`${direction}Path`];
-  return typeof text === "string" ? Buffer.from(text, "utf8") : null;
-}
-function assertRepositoryPath(value, { prefix, label }) {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/") || prefix !== value.endsWith("/")) {
-    throw new Error(`${label} is not a canonical repository-relative path.`);
-  }
-  const components = value.split("/");
-  const meaningful = prefix ? components.slice(0, -1) : components;
-  if (meaningful.some(
-    (component) => component.length === 0 || component === "." || component === ".."
-  )) {
-    throw new Error(`${label} contains an invalid path component.`);
-  }
-}
 function normalizedSelection(selection) {
-  if (!isPlainObject(selection)) {
-    throw new Error("Evidence selection must be an object.");
-  }
-  const unknown = Object.keys(selection).find(
-    (field) => !SELECTOR_FIELDS.has(field)
-  );
-  if (unknown) {
-    throw new Error(`Unknown evidence selector field ${unknown}.`);
-  }
-  const all = selection.all === true;
-  const remaining = selection.remaining === true;
-  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
-    throw new Error("Evidence all and remaining selectors must be booleans.");
-  }
-  const populatedArrayFields = ARRAY_SELECTOR_FIELDS.filter(
-    (field) => Array.isArray(selection[field]) && selection[field].length > 0
-  );
-  for (const field of ARRAY_SELECTOR_FIELDS) {
-    const values = selection[field];
-    if (values === void 0) {
-      continue;
-    }
-    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
-      throw new Error(`Evidence selector ${field} must be a string array.`);
-    }
-    if (new Set(values).size !== values.length) {
-      throw new Error(`Evidence selector ${field} contains duplicates.`);
-    }
-    if (field.endsWith("Paths")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: false, label: field })
-      );
-    } else if (field.endsWith("Prefixes")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: true, label: field })
-      );
-    }
-  }
-  if ((all || remaining) && (all === remaining || populatedArrayFields.length > 0)) {
-    throw new Error(
-      "Evidence all and remaining selectors are exclusive of every other selector field."
-    );
-  }
-  if (!all && !remaining && populatedArrayFields.length === 0) {
-    throw new Error("Evidence selection must contain a nonempty selector.");
-  }
-  if (all) {
-    return { all: true };
-  }
-  if (remaining) {
-    return { remaining: true };
-  }
+  const normalized = normalizeSelection(selection);
   return Object.fromEntries(
-    ARRAY_SELECTOR_FIELDS.filter(
-      (field) => populatedArrayFields.includes(field)
-    ).map((field) => {
-      const values = [...selection[field]].sort(
-        (left, right) => Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"))
-      );
-      return [field, values];
-    })
+    Object.entries(normalized).map(([field, value]) => [
+      field,
+      Array.isArray(value) ? [...value].sort(
+        (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
+      ) : value
+    ])
   );
-}
-function prefixMatches(path, prefix) {
-  return path !== null && path.length >= prefix.length && path.subarray(0, prefix.length).equals(prefix);
-}
-function matchesSelectorField(unit, field, values) {
-  switch (field) {
-    case "ids":
-      return values.includes(unit.id);
-    case "kinds":
-      return values.includes(unit.kind);
-    case "destinationPaths": {
-      const bytes = pathBytes(unit, "destination");
-      return values.some((value) => bytes?.equals(Buffer.from(value, "utf8")));
-    }
-    case "destinationPathPrefixes": {
-      const bytes = pathBytes(unit, "destination");
-      return values.some(
-        (value) => prefixMatches(bytes, Buffer.from(value, "utf8"))
-      );
-    }
-    case "sourcePaths": {
-      if (unit.kind !== "renamed") {
-        return false;
-      }
-      const bytes = pathBytes(unit, "source");
-      return values.some((value) => bytes?.equals(Buffer.from(value, "utf8")));
-    }
-    case "sourcePathPrefixes": {
-      if (unit.kind !== "renamed") {
-        return false;
-      }
-      const bytes = pathBytes(unit, "source");
-      return values.some(
-        (value) => prefixMatches(bytes, Buffer.from(value, "utf8"))
-      );
-    }
-    default:
-      throw new Error(`Unsupported selector field ${field}.`);
-  }
-}
-function resolveSelection(manifest, selection, assignedIds = /* @__PURE__ */ new Set()) {
-  if (selection.all === true) {
-    return [...manifest.changeUnits];
-  }
-  if (selection.remaining === true) {
-    return manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
-  }
-  const matches = /* @__PURE__ */ new Set();
-  for (const [field, values] of Object.entries(selection)) {
-    const fieldMatches = manifest.changeUnits.filter(
-      (unit) => matchesSelectorField(unit, field, values)
-    );
-    if (fieldMatches.length === 0) {
-      throw new Error(
-        `Evidence selector field ${field} matched no change units.`
-      );
-    }
-    fieldMatches.forEach((unit) => matches.add(unit.id));
-  }
-  return manifest.changeUnits.filter(({ id }) => matches.has(id));
 }
 function ordinalForId(id) {
   const match = /^F([0-9]{6})$/u.exec(id);
@@ -5368,54 +6339,54 @@ function rangesForUnits(units) {
   }
   return ranges.map(({ first, last }) => ({ first, last }));
 }
-function validateBasis(policy, basis) {
-  if (!isPlainObject(basis) || !BASIS_KINDS.has(basis.kind) || !(basis.note === null || typeof basis.note === "string") || typeof basis.note === "string" && Buffer.byteLength(basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES2) {
-    throw new Error("Evidence basis is invalid.");
-  }
-  if (policy === "reuse" && !REUSE_BASIS_KINDS.has(basis.kind)) {
-    throw new Error(
-      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
-    );
-  }
-  if (policy === "reuse" && basis.kind === "task-lineage" && (typeof basis.note !== "string" || basis.note.trim().length === 0)) {
-    throw new Error(
-      "Reuse task-lineage basis requires a specific nonempty note."
-    );
-  }
-  return { kind: basis.kind, note: basis.note };
-}
 function canonicalizeEvidencePlan({ manifest, groups }) {
   if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
-    throw new Error("Evidence planning requires one nonempty exact manifest.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
+      "Evidence planning requires one nonempty exact manifest."
+    );
   }
   if (!Array.isArray(groups) || groups.length === 0 || groups.length > 4096) {
-    throw new Error("Evidence plan groups must be a bounded nonempty array.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
+      "Evidence plan groups must be a bounded nonempty array."
+    );
   }
   const assignedIds = /* @__PURE__ */ new Set();
   const canonicalGroups = groups.map((group, index) => {
-    if (!isPlainObject(group) || !EVIDENCE_POLICIES.has(group.policy)) {
-      throw new Error(`Evidence group ${index + 1} has an invalid policy.`);
+    if (!isPlainObject2(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} has an invalid policy.`
+      );
     }
     const selection = normalizedSelection(group.selection);
     if (selection.remaining === true && index !== groups.length - 1) {
-      throw new Error(
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
         "The remaining evidence selector is valid only in the final group."
       );
     }
-    const units = resolveSelection(manifest, selection, assignedIds);
+    const units = resolveSelection(manifest, selection, { assignedIds });
     if (units.length === 0) {
-      throw new Error(`Evidence group ${index + 1} matched no change units.`);
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence group ${index + 1} matched no change units.`
+      );
     }
     const overlap = units.find(({ id }) => assignedIds.has(id));
     if (overlap) {
-      throw new Error(`Evidence groups overlap at ${overlap.id}.`);
+      throw new WorkflowDiagnosticError(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence groups overlap at ${overlap.id}.`
+      );
     }
     units.forEach(({ id }) => assignedIds.add(id));
     const canonicalGroup = {
       id: `E${String(index + 1).padStart(6, "0")}`,
       selection,
       policy: group.policy,
-      basis: validateBasis(group.policy, group.basis),
+      basis: validateEvidenceBasis(group.policy, group.basis),
       changeUnitRanges: rangesForUnits(units),
       changeUnitCount: units.length
     };
@@ -5426,7 +6397,8 @@ function canonicalizeEvidencePlan({ manifest, groups }) {
     return canonicalGroup;
   });
   if (assignedIds.size !== manifest.changeUnitCount) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "INVALID_EVIDENCE_PLAN",
       `Evidence plan must be exhaustive; ${manifest.changeUnitCount - assignedIds.size} change units are omitted.`
     );
   }
@@ -5661,7 +6633,7 @@ function unitsForGroup(manifest, group) {
   return manifest.changeUnits.filter(({ id }) => ids.has(id));
 }
 function inventoryPath(unit, direction) {
-  const bytes = pathBytes(unit, direction);
+  const bytes = changeUnitPathBytes(unit, direction);
   return bytes === null ? null : safeBoundedText(bytes, `${direction}-path-bytes`);
 }
 function* inventoryChunks(units) {
@@ -5976,9 +6948,14 @@ function packetById(catalog, id) {
   return packet;
 }
 function failPacket(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  throw error;
+  throw new WorkflowDiagnosticError(code, message, {
+    recovery: {
+      kind: "stop",
+      automatic: false,
+      requiredInputs: ["fresh evidence for a new reviewed snapshot"],
+      commands: []
+    }
+  });
 }
 function readVerifiedPacket(outputDirectory, packet) {
   const path = resolve7(outputDirectory, packet.artifact);
@@ -6051,7 +7028,7 @@ function assertReceipt(receipt, catalog) {
     "requiredPacketsReviewed",
     "additionalPacketIds"
   ].sort();
-  if (!isPlainObject(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
+  if (!isPlainObject2(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
     throw new Error(
       "Review receipt does not bind the current catalog and evidence plan."
     );
@@ -6468,251 +7445,76 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
   };
   return { catalog: persisted, evidenceDelta };
 }
-var EVIDENCE_POLICIES, BASIS_KINDS, REUSE_BASIS_KINDS, ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS, PACKET_PREFIXES, MAXIMUM_BASIS_NOTE_BYTES2;
+var PACKET_PREFIXES;
 var init_reviewCatalog = __esm({
   "src/committing-to-git/inspection/reviewCatalog.js"() {
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    init_changeSelection();
     init_inlineEvidenceCapsule();
     init_streamingPacketWriter();
     init_gitRepository();
     init_createSnapshot();
-    EVIDENCE_POLICIES = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
-    BASIS_KINDS = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "user-grounded",
-      "generated-derived",
-      "unknown-preexisting"
-    ]);
-    REUSE_BASIS_KINDS = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "generated-derived"
-    ]);
-    ARRAY_SELECTOR_FIELDS = [
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ];
-    SELECTOR_FIELDS = /* @__PURE__ */ new Set(["all", "remaining", ...ARRAY_SELECTOR_FIELDS]);
     PACKET_PREFIXES = Object.freeze({
       "scope-synopsis": "S",
       "exact-inventory": "I",
       "text-patch": "P",
       "deleted-content": "D"
     });
-    MAXIMUM_BASIS_NOTE_BYTES2 = 512;
   }
 });
 
 // src/committing-to-git/message/changeSelection.js
 import { Buffer as Buffer2 } from "node:buffer";
-function isPlainObject2(value) {
+function isPlainObject3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function assertManifest(manifest) {
-  if (!isPlainObject2(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
-    throw new Error(
-      "Semantic selection requires one nonempty exact change manifest."
-    );
-  }
-  const ids = manifest.changeUnits.map(({ id }) => id);
-  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
-    throw new Error("Manifest change-unit IDs must be unique and canonical.");
-  }
-}
-function pathBytes2(unit, direction) {
-  const encoded = unit[`${direction}PathBytesBase64`];
-  if (typeof encoded === "string") {
-    return Buffer2.from(encoded, "base64");
-  }
-  const path = unit[`${direction}Path`];
-  return typeof path === "string" ? Buffer2.from(path, "utf8") : null;
-}
-function assertRepositoryPath2(value, { prefix, field }) {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
-    throw new Error(
-      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
-    );
-  }
-  if (prefix && !value.endsWith("/")) {
-    throw new Error(
-      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
-    );
-  }
-  if (!prefix && value.endsWith("/")) {
-    throw new Error(
-      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
-    );
-  }
-  const components = value.split("/");
-  const meaningful = prefix ? components.slice(0, -1) : components;
-  if (meaningful.some(
-    (component) => component.length === 0 || component === "." || component === ".."
-  )) {
-    throw new Error(
-      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
-    );
-  }
-}
-function normalizeSelection(selection) {
-  if (!isPlainObject2(selection)) {
-    throw new Error("Change selection must be an object.");
-  }
-  const unknown = Object.keys(selection).find(
-    (field) => !SELECTOR_FIELDS2.has(field)
-  );
-  if (unknown) {
-    throw new Error(`Unknown change selector field ${unknown}.`);
-  }
-  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
-    throw new Error("Selector all and remaining values must be booleans.");
-  }
-  const all = selection.all === true;
-  const remaining = selection.remaining === true;
-  const populated = [];
-  const normalized = {};
-  for (const field of ARRAY_SELECTOR_FIELDS2) {
-    const values = selection[field];
-    if (values === void 0) {
-      continue;
-    }
-    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
-      throw new Error(`Selector ${field} must be a string array.`);
-    }
-    if (new Set(values).size !== values.length) {
-      throw new Error(`Selector ${field} contains duplicate values.`);
-    }
-    if (field.endsWith("Paths")) {
-      values.forEach(
-        (value) => assertRepositoryPath2(value, { prefix: false, field })
-      );
-    } else if (field.endsWith("Prefixes")) {
-      values.forEach(
-        (value) => assertRepositoryPath2(value, { prefix: true, field })
-      );
-    }
-    if (values.length > 0) {
-      populated.push(field);
-      normalized[field] = [...values];
-    }
-  }
-  if ((all || remaining) && (all === remaining || populated.length > 0)) {
-    throw new Error(
-      "Selectors all and remaining are each exclusive of every other selector field."
-    );
-  }
-  if (!all && !remaining && populated.length === 0) {
-    throw new Error("Change selection requires one nonempty selector.");
-  }
-  if (all) {
-    return { all: true };
-  }
-  if (remaining) {
-    return { remaining: true };
-  }
-  return normalized;
-}
-function unitMatchesValue(unit, field, value) {
-  if (field === "ids") {
-    return unit.id === value;
-  }
-  if (field === "kinds") {
-    return unit.kind === value;
-  }
-  const source = field.startsWith("source");
-  if (source && unit.kind !== "renamed") {
-    return false;
-  }
-  const bytes = pathBytes2(unit, source ? "source" : "destination");
-  if (bytes === null) {
-    return false;
-  }
-  const expected = Buffer2.from(value, "utf8");
-  return field.endsWith("Prefixes") ? bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected) : bytes.equals(expected);
-}
-function resolveSelection2(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
-  assertManifest(manifest);
-  if (!(assignedIds instanceof Set)) {
-    throw new Error("Selection assignedIds must be a Set.");
-  }
-  const normalized = normalizeSelection(selection);
-  if (normalized.all === true) {
-    return [...manifest.changeUnits];
-  }
-  if (normalized.remaining === true) {
-    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
-    if (units.length === 0) {
-      throw new Error("The remaining selector matched no change units.");
-    }
-    return units;
-  }
-  const matchedIds = /* @__PURE__ */ new Set();
-  for (const [field, values] of Object.entries(normalized)) {
-    for (const value of values) {
-      const matches = manifest.changeUnits.filter(
-        (unit) => unitMatchesValue(unit, field, value)
-      );
-      if (matches.length === 0) {
-        throw new Error(
-          `Selector field ${field} value ${JSON.stringify(value)} matched no change units.`
-        );
-      }
-      matches.forEach(({ id }) => matchedIds.add(id));
-    }
-  }
-  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
 }
 function validateReasons(reasons, label) {
   if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
     (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
   )) {
-    throw new Error(`${label} requires one or more canonical reasons.`);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} requires one or more canonical reasons.`
+    );
   }
   if (new Set(reasons).size !== reasons.length) {
-    throw new Error(`${label} contains duplicate reasons.`);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} contains duplicate reasons.`
+    );
   }
   return [...reasons];
 }
-function validateBasis2(policy, basis) {
-  if (!EVIDENCE_POLICIES2.has(policy) || !isPlainObject2(basis) || !BASIS_KINDS2.has(basis.kind) || !(basis.note === null || typeof basis.note === "string") || typeof basis.note === "string" && Buffer2.byteLength(basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES3) {
-    throw new Error("Evidence policy or basis is invalid.");
-  }
-  if (policy === "reuse" && !REUSE_BASIS_KINDS2.has(basis.kind)) {
-    throw new Error(
-      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
-    );
-  }
-  if (policy === "reuse" && basis.kind === "task-lineage" && (typeof basis.note !== "string" || basis.note.trim().length === 0)) {
-    throw new Error(
-      "Reuse task-lineage basis requires a specific nonempty note."
-    );
-  }
-  return { kind: basis.kind, note: basis.note };
-}
 function resolvePartition(manifest, groups, { label, validateGroup }) {
   if (!Array.isArray(groups) || groups.length === 0) {
-    throw new Error(`${label} groups must be a nonempty array.`);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} groups must be a nonempty array.`
+    );
   }
   const assignedIds = /* @__PURE__ */ new Set();
   const resolved = groups.map((group, index) => {
-    if (!isPlainObject2(group)) {
-      throw new Error(`${label} group ${index + 1} must be an object.`);
+    if (!isPlainObject3(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} group ${index + 1} must be an object.`
+      );
     }
     const selection = normalizeSelection(group.selection);
     if (selection.remaining === true && index !== groups.length - 1) {
-      throw new Error(
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
         `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
       );
     }
-    const units = resolveSelection2(manifest, selection, { assignedIds });
+    const units = resolveSelection(manifest, selection, { assignedIds });
     const overlap = units.find(({ id }) => assignedIds.has(id));
     if (overlap) {
-      throw new Error(`${label} groups overlap at ${overlap.id}.`);
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} groups overlap at ${overlap.id}.`
+      );
     }
     units.forEach(({ id }) => assignedIds.add(id));
     return {
@@ -6723,7 +7525,8 @@ function resolvePartition(manifest, groups, { label, validateGroup }) {
   });
   if (assignedIds.size !== manifest.changeUnitCount) {
     const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
       `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
     );
   }
@@ -6734,20 +7537,27 @@ function resolveOverlappingGroups(manifest, groups, label) {
     return [];
   }
   if (!Array.isArray(groups)) {
-    throw new Error(`${label} must be an array.`);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} must be an array.`
+    );
   }
   const previouslyMatched = /* @__PURE__ */ new Set();
   return groups.map((group, index) => {
-    if (!isPlainObject2(group)) {
-      throw new Error(`${label} entry ${index + 1} must be an object.`);
+    if (!isPlainObject3(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} entry ${index + 1} must be an object.`
+      );
     }
     const selection = normalizeSelection(group.selection);
     if (selection.remaining === true && index !== groups.length - 1) {
-      throw new Error(
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
         `The remaining selector is permitted only in the final ${label} entry.`
       );
     }
-    const units = resolveSelection2(manifest, selection, {
+    const units = resolveSelection(manifest, selection, {
       assignedIds: previouslyMatched
     });
     units.forEach(({ id }) => previouslyMatched.add(id));
@@ -6759,19 +7569,25 @@ function resolveOverlappingGroups(manifest, groups, label) {
   });
 }
 function resolveSemanticCoverage(manifest, content) {
-  assertManifest(manifest);
-  if (!isPlainObject2(content)) {
-    throw new Error("Semantic message content must be an object.");
+  assertChangeManifest(manifest);
+  if (!isPlainObject3(content)) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message content must be an object."
+    );
   }
   const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
     label: "Evidence",
     validateGroup(group, index) {
-      if (!EVIDENCE_POLICIES2.has(group.policy)) {
-        throw new Error(`Evidence group ${index + 1} has an invalid policy.`);
+      if (!EVIDENCE_POLICIES.includes(group.policy)) {
+        throw new WorkflowDiagnosticError(
+          "SEMANTIC_COVERAGE_INVALID",
+          `Evidence group ${index + 1} has an invalid policy.`
+        );
       }
       return {
         policy: group.policy,
-        basis: validateBasis2(group.policy, group.basis)
+        basis: validateEvidenceBasis(group.policy, group.basis)
       };
     }
   });
@@ -6791,7 +7607,10 @@ function resolveSemanticCoverage(manifest, content) {
       label: "Domain",
       validateGroup(group, index) {
         if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
-          throw new Error(`Domain group ${index + 1} has an invalid title.`);
+          throw new WorkflowDiagnosticError(
+            "SEMANTIC_COVERAGE_INVALID",
+            `Domain group ${index + 1} has an invalid title.`
+          );
         }
         return {
           title: group.title,
@@ -6800,9 +7619,15 @@ function resolveSemanticCoverage(manifest, content) {
       }
     }).resolved;
   } else if (content.mode !== "detailed") {
-    throw new Error("Semantic message mode must be detailed or bulk.");
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message mode must be detailed or bulk."
+    );
   } else if (content.domains !== void 0 && content.domains.length > 0) {
-    throw new Error("Detailed semantic content cannot contain bulk domains.");
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Detailed semantic content cannot contain bulk domains."
+    );
   }
   return {
     coveredIds: evidenceCoverage.assignedIds,
@@ -6814,15 +7639,15 @@ function resolveSemanticCoverage(manifest, content) {
 }
 function compareChangeUnitsByRawPath(left, right) {
   const destination = Buffer2.compare(
-    pathBytes2(left, "destination") ?? Buffer2.alloc(0),
-    pathBytes2(right, "destination") ?? Buffer2.alloc(0)
+    changeUnitPathBytes(left, "destination") ?? Buffer2.alloc(0),
+    changeUnitPathBytes(right, "destination") ?? Buffer2.alloc(0)
   );
   if (destination !== 0) {
     return destination;
   }
   const source = Buffer2.compare(
-    pathBytes2(left, "source") ?? Buffer2.alloc(0),
-    pathBytes2(right, "source") ?? Buffer2.alloc(0)
+    changeUnitPathBytes(left, "source") ?? Buffer2.alloc(0),
+    changeUnitPathBytes(right, "source") ?? Buffer2.alloc(0)
   );
   if (source !== 0) {
     return source;
@@ -6846,11 +7671,13 @@ function formatMessagePath(rawPathBytes) {
   return `\`path-bytes-base64:${bytes.toString("base64")}\``;
 }
 function formatChangeUnitPath(unit) {
-  const destination = formatMessagePath(pathBytes2(unit, "destination"));
+  const destination = formatMessagePath(
+    changeUnitPathBytes(unit, "destination")
+  );
   if (unit.kind !== "renamed") {
     return destination;
   }
-  const source = pathBytes2(unit, "source");
+  const source = changeUnitPathBytes(unit, "source");
   if (source === null) {
     throw new Error(`Rename ${unit.id} has no recorded source path.`);
   }
@@ -6866,35 +7693,13 @@ function selectMessagePresentation({
   }
   return changeUnitCount >= 50 || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
 }
-var MAXIMUM_CANONICAL_MESSAGE_BYTES, ARRAY_SELECTOR_FIELDS2, SELECTOR_FIELDS2, EVIDENCE_POLICIES2, BASIS_KINDS2, REUSE_BASIS_KINDS2, MAXIMUM_BASIS_NOTE_BYTES3, PROHIBITED_RENDERED_PATH_CHARACTER;
-var init_changeSelection = __esm({
+var MAXIMUM_CANONICAL_MESSAGE_BYTES, PROHIBITED_RENDERED_PATH_CHARACTER;
+var init_changeSelection2 = __esm({
   "src/committing-to-git/message/changeSelection.js"() {
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    init_changeSelection();
     MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
-    ARRAY_SELECTOR_FIELDS2 = Object.freeze([
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
-    SELECTOR_FIELDS2 = /* @__PURE__ */ new Set(["all", "remaining", ...ARRAY_SELECTOR_FIELDS2]);
-    EVIDENCE_POLICIES2 = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
-    BASIS_KINDS2 = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "user-grounded",
-      "generated-derived",
-      "unknown-preexisting"
-    ]);
-    REUSE_BASIS_KINDS2 = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "generated-derived"
-    ]);
-    MAXIMUM_BASIS_NOTE_BYTES3 = 512;
     PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
   }
 });
@@ -6903,7 +7708,7 @@ var init_changeSelection = __esm({
 import { createHash as createHash7 } from "node:crypto";
 import { Buffer as Buffer3 } from "node:buffer";
 function fail(code, message, details = {}) {
-  throw new ApprovedMessageError(code, message, details);
+  throw new WorkflowDiagnosticError(code, message, { details });
 }
 function scalarLength(value) {
   return [...value].length;
@@ -7322,6 +8127,16 @@ function presentationWarnings(lines) {
     sha256: sha25612
   };
 }
+function presentationDiagnostics(summary) {
+  return summary.count === 0 ? [] : [
+    createWorkflowWarning({
+      code: "MESSAGE_PRESENTATION_LIMIT",
+      message: "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
+      documentation: "references/message-format.md",
+      details: [{ kind: "limit", ...summary }]
+    })
+  ];
+}
 function canUseDirectSubjectTransport(subject) {
   if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
     return false;
@@ -7415,11 +8230,13 @@ function validateApprovedMessage({
     presentationWarnings: warnings
   };
 }
-var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN, ApprovedMessageError;
+var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN;
 var init_approvedMessage = __esm({
   "src/committing-to-git/message/approvedMessage.js"() {
-    init_changeSelection();
-    init_changeSelection();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_changeSelection2();
+    init_changeSelection2();
     MAXIMUM_SUBJECT_SCALARS = 72;
     MAXIMUM_BODY_LINE_SCALARS = 72;
     MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
@@ -7432,14 +8249,6 @@ var init_approvedMessage = __esm({
       "File Changes:"
     ]);
     PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
-    ApprovedMessageError = class extends Error {
-      constructor(code, message, details = {}) {
-        super(message);
-        this.name = "ApprovedMessageError";
-        this.code = code;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -7450,7 +8259,8 @@ function isCanonicalNarrative(value) {
 }
 function wrapNarrative(text, firstPrefix, continuationPrefix) {
   if (!isCanonicalNarrative(text)) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
       "Structured message narrative must be trimmed, nonempty, and free of control or format characters."
     );
   }
@@ -7531,18 +8341,18 @@ function assertEvidencePlanBinding(content, evidencePlan) {
   const authored = content.evidenceGroups.map(normalizedGroup);
   const current = evidencePlan.groups.map(normalizedGroup);
   if (JSON.stringify(authored) !== JSON.stringify(current)) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "EVIDENCE_PLAN_MISMATCH",
       "Structured content evidence groups do not match the current evidence plan."
     );
   }
 }
 function assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt) {
   if (!content || content.schemaVersion !== 3) {
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      "INCOMPLETE_SEMANTIC_CONTENT",
       "Only complete schema-version-3 semantic content can be rendered."
     );
-    error.code = "INCOMPLETE_SEMANTIC_CONTENT";
-    throw error;
   }
   if (content.authoringState !== "complete") {
     const missing = [];
@@ -7555,24 +8365,24 @@ function assertCompleteContent(content, reviewCatalog, evidencePlan, reviewRecei
     if (content.mode === "bulk" && (content.domains?.length ?? 0) === 0) {
       missing.push("bulk domains");
     }
-    const error = new Error(
-      missing.length > 0 ? `Draft semantic content is missing: ${missing.join(", ")}.` : "Set authoringState to complete after reviewing every semantic decision."
+    throw new WorkflowDiagnosticError(
+      missing.length > 0 ? "MISSING_SEMANTIC_DECISIONS" : "INCOMPLETE_SEMANTIC_CONTENT",
+      missing.length > 0 ? `Draft semantic content is missing: ${missing.join(", ")}.` : "Set authoringState to complete after reviewing every semantic decision.",
+      { details: { missing } }
     );
-    error.code = missing.length > 0 ? "MISSING_SEMANTIC_DECISIONS" : "INCOMPLETE_SEMANTIC_CONTENT";
-    error.details = { missing };
-    throw error;
   }
   if (content.subject === null || typeof content.subject !== "object") {
-    const error = new Error("Complete semantic content requires a subject.");
-    error.code = "MISSING_SUBJECT_DECISION";
-    throw error;
+    throw new WorkflowDiagnosticError(
+      "MISSING_SUBJECT_DECISION",
+      "Complete semantic content requires a subject."
+    );
   }
   if (!reviewReceipt || reviewReceipt.requiredPacketsReviewed !== true || reviewReceipt.catalogSha256 !== reviewCatalog?.catalogSha256 || reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
-    const error = new Error(
-      "Complete semantic content requires a current reviewed receipt."
+    throw new WorkflowDiagnosticError(
+      "CURRENT_REVIEW_RECEIPT_REQUIRED",
+      "Complete semantic content requires a current reviewed receipt.",
+      { disposition: "unmet-prerequisite" }
     );
-    error.code = "CURRENT_REVIEW_RECEIPT_REQUIRED";
-    throw error;
   }
   assertEvidencePlanBinding(content, evidencePlan);
 }
@@ -7581,8 +8391,9 @@ function notesByUnit(coverage, sharedReasonSet) {
   for (const group of coverage.fileNotes) {
     for (const reason of group.reasons) {
       if (sharedReasonSet.has(reason)) {
-        throw new Error(
-          `File note ${JSON.stringify(reason)} duplicates a shared rationale.`
+        throw new WorkflowDiagnosticError(
+          "DUPLICATE_MESSAGE_REASON",
+          "A file note duplicates a shared rationale. Remove the repeated reason without changing its meaning."
         );
       }
       for (const unit of group.units) {
@@ -7598,11 +8409,10 @@ function notesByUnit(coverage, sharedReasonSet) {
 }
 function renderDetailedV2(manifest, coverage, sharedReasonSet) {
   if (manifest.changeUnitCount >= BULK_FILE_THRESHOLD) {
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
       "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains."
     );
-    error.code = "STRUCTURED_BULK_FINALIZATION_REQUIRED";
-    throw error;
   }
   const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
   const notes = notesByUnit(coverage, sharedReasonSet);
@@ -7656,7 +8466,10 @@ function renderCommitMessage({
   const sharedReasonSet = new Set(sharedReasons);
   const userExperience = content.userExperienceChanges ?? [];
   if (!Array.isArray(userExperience)) {
-    throw new Error("User experience changes must be an array.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
+      "User experience changes must be an array."
+    );
   }
   const subject = `${content.subject.type}${content.subject.scope === null || content.subject.scope === void 0 ? "" : `(${content.subject.scope})`}: ${content.subject.description}`;
   const sections = [[subject]];
@@ -7677,13 +8490,16 @@ function renderCommitMessage({
   const displayText = joinSections(sections);
   const bytes = Buffer4.from(displayText, "utf8");
   if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    throw new ApprovedMessageError(
+    throw new WorkflowDiagnosticError(
       "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
       `Rendered message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
       {
-        byteCount: bytes.length,
-        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-        remedy: content.mode === "detailed" ? "Select structured bulk mode without changing scope." : "Shorten prose or combine truthful domains without changing scope."
+        detailKind: "limit",
+        details: {
+          byteCount: bytes.length,
+          maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+          remedy: content.mode === "detailed" ? "Select structured bulk mode without changing scope." : "Shorten prose or combine truthful domains without changing scope."
+        }
       }
     );
   }
@@ -7747,8 +8563,9 @@ function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
 var BULK_FILE_THRESHOLD;
 var init_commitMessageRenderer = __esm({
   "src/committing-to-git/message/commitMessageRenderer.js"() {
+    init_workflowDiagnosticError();
     init_approvedMessage();
-    init_changeSelection();
+    init_changeSelection2();
     BULK_FILE_THRESHOLD = 50;
   }
 });
@@ -7774,7 +8591,7 @@ import {
 import { dirname as dirname7, isAbsolute as isAbsolute7, join as join7, relative as relative4, resolve as resolve8, sep as sep2 } from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
 function fail2(code, message, options) {
-  throw new CanonicalMessageError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha256(bytes) {
   return createHash8("sha256").update(bytes).digest("hex");
@@ -7927,7 +8744,11 @@ function readTransactionOwnedFile({
   };
 }
 function warning(code, message, path) {
-  return { code, message, path };
+  return createWorkflowWarning({
+    code,
+    message,
+    details: [{ kind: "prerequisite", path }]
+  });
 }
 function cleanupTransactionOwnedInput({
   path,
@@ -8565,9 +9386,11 @@ function replaceCanonicalMessage({
   failureInjector("after-remnant-cleanup");
   return steadyCanonicalMessage(transaction, messageDirectory);
 }
-var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES2, SHA256_PATTERN3, STRICT_UTF8_DECODER3, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2, CanonicalMessageError;
+var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES2, SHA256_PATTERN3, STRICT_UTF8_DECODER3, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2;
 var init_canonicalMessageState = __esm({
   "src/committing-to-git/message/canonicalMessageState.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
     init_approvedMessage();
     init_transactionWorkspace();
     MESSAGE_DIRECTORY_NAME = "message";
@@ -8589,15 +9412,6 @@ var init_canonicalMessageState = __esm({
       "checked-file",
       "finalized-extended"
     ]);
-    CanonicalMessageError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "CanonicalMessageError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -8655,7 +9469,7 @@ function normalizeTrustSourceProbe(result) {
   }
   return { state: result.state, errorCode: result.errorCode };
 }
-function describeSshTrustSourceFailure(trustSource) {
+function signatureTrustDiagnostic(trustSource, { verificationPolicy, state = {} }) {
   if (trustSource === null || typeof trustSource !== "object" || trustSource.state === "readable") {
     throw new Error(
       "SSH trust-source failure description requires an unavailable source."
@@ -8680,13 +9494,30 @@ function describeSshTrustSourceFailure(trustSource) {
     "invalid-file-type": "Required SSH verification configured an allowed-signers path that is not a readable regular file.",
     "probe-error": "Required SSH verification could not inspect Git's configured allowed-signers file."
   };
-  return {
-    message: messageByState[trustSource.state] ?? "Required SSH verification cannot use Git's configured allowed-signers file.",
-    action,
-    capability,
-    trustSource,
-    policyAlternatives: ["advisory", "skipped"]
-  };
+  return new WorkflowDiagnosticError(
+    "SIGNATURE_TRUST_ACCESS_REQUIRED",
+    messageByState[trustSource.state] ?? "Required SSH verification cannot use Git's configured allowed-signers file.",
+    {
+      disposition: "unmet-prerequisite",
+      state,
+      recovery: {
+        kind: "human-decision",
+        automatic: false,
+        requiredInputs: [
+          "readable configured verification trust source or an explicitly approved verification-policy change"
+        ],
+        commands: []
+      },
+      documentation: "references/signature-recovery.md",
+      details: {
+        action,
+        ...capability === null ? {} : { capability },
+        trustSource,
+        verificationPolicy,
+        policyAlternatives: ["advisory", "skipped"]
+      }
+    }
+  );
 }
 function inspectSignatureRequirements(root, {
   runConfig = (args) => runGitConfig(root, args),
@@ -8749,6 +9580,7 @@ function inspectSignatureRequirements(root, {
 var TRUST_SOURCE_STATES;
 var init_signaturePreflight = __esm({
   "src/committing-to-git/signature/signaturePreflight.js"() {
+    init_workflowDiagnosticError();
     TRUST_SOURCE_STATES = /* @__PURE__ */ new Set([
       "readable",
       "not-configured",
@@ -8796,7 +9628,7 @@ function semanticContentContract(mode) {
       example: ["Existing callers retain the same observable behavior"]
     },
     selection: {
-      allowedFields: [...SEMANTIC_SELECTION_FIELDS],
+      allowedFields: [...SELECTOR_FIELDS],
       exclusiveFields: ["all", "remaining"],
       exactDestinationExample: selectionExample(
         "destinationPaths",
@@ -8845,19 +9677,10 @@ function semanticContentContract(mode) {
     }
   };
 }
-var SEMANTIC_SELECTION_FIELDS, SUPPORTED_SECTIONS;
+var SUPPORTED_SECTIONS;
 var init_semanticContentContract = __esm({
   "src/committing-to-git/message/semanticContentContract.js"() {
-    SEMANTIC_SELECTION_FIELDS = Object.freeze([
-      "all",
-      "remaining",
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
+    init_selectionVocabulary();
     SUPPORTED_SECTIONS = Object.freeze([
       "Rationale",
       "User Experience Changes",
@@ -8868,6 +9691,42 @@ var init_semanticContentContract = __esm({
 
 // src/committing-to-git/workflow/authoringProgress.js
 import { resolve as resolve9 } from "node:path";
+function messageAuthoringRecovery(transaction, transactionPath) {
+  const handle = resolve9(transactionPath);
+  const concise = transaction.route === "concise" && transaction.phase === "evidence-ready";
+  const extended2 = transaction.route === "extended" && ["review-pending", "authoring-pending"].includes(transaction.phase);
+  if (!concise && !extended2) {
+    return {
+      details: { nextAction: "inspect-state" },
+      recovery: {
+        kind: "inspect-state",
+        automatic: false,
+        requiredInputs: [handle],
+        commands: []
+      }
+    };
+  }
+  const progress = concise ? {
+    nextAction: "author-message",
+    messagePath: resolve9(transaction.attemptDirectory, "message-input.txt"),
+    contentPath: null
+  } : authoringProgress(transaction);
+  const command = progress.nextAction === "review-next" ? ["workflow", "review-next"] : progress.nextAction === "author-content" ? ["message", "finalize"] : ["message", "check"];
+  const arguments_ = [...command, "--transaction", handle];
+  if (progress.nextAction === "review-next" && progress.reviewProgress.nextCursor !== null)
+    arguments_.push("--cursor", progress.reviewProgress.nextCursor);
+  return {
+    details: progress,
+    recovery: {
+      kind: progress.nextAction === "review-next" ? "satisfy-prerequisite" : "correct-input",
+      automatic: false,
+      requiredInputs: [
+        progress.contentPath ?? progress.messagePath ?? "review the delivered evidence"
+      ],
+      commands: [{ arguments: arguments_ }]
+    }
+  };
+}
 function authoringProgress(transaction) {
   if (transaction?.review === null || !Array.isArray(transaction?.review?.deliveryPacketIds)) {
     throw new Error("Authoring progress requires extended review state.");
@@ -8901,7 +9760,6 @@ var init_authoringProgress = __esm({
 // src/committing-to-git/workflow/prepareWorkflow.js
 var prepareWorkflow_exports = {};
 __export(prepareWorkflow_exports, {
-  PreparationError: () => PreparationError,
   acquireEvidence: () => acquireEvidence,
   assertNoGitStorageOverrides: () => assertNoGitStorageOverrides,
   cleanupEvidenceSpools: () => cleanupEvidenceSpools,
@@ -8931,7 +9789,7 @@ import {
 import { dirname as dirname8, resolve as resolve10 } from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
 function fail3(code, message, options) {
-  throw new PreparationError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function preflightVerificationPolicy({
   root,
@@ -8946,27 +9804,17 @@ function preflightVerificationPolicy({
   }
   const signaturePreflight = verificationPolicy === "skipped" ? { backend: null, trustSource: null } : signaturePreflightInspector(root);
   if (verificationPolicy === "required" && signaturePreflight.backend === "ssh" && signaturePreflight.trustSource?.state !== "readable") {
-    const failure = describeSshTrustSourceFailure(
-      signaturePreflight.trustSource
-    );
-    fail3("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
-      exitCode: 1,
-      details: {
-        ...failure.capability === null ? {} : { capability: failure.capability },
-        action: failure.action,
-        trustSource: failure.trustSource,
-        verificationPolicy,
-        policyAlternatives: failure.policyAlternatives
-      }
+    throw signatureTrustDiagnostic(signaturePreflight.trustSource, {
+      verificationPolicy
     });
   }
   return signaturePreflight;
 }
-function isPlainObject3(value) {
+function isPlainObject4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function assertExactKeys4(value, keys, label, code) {
-  if (!isPlainObject3(value)) {
+  if (!isPlainObject4(value)) {
     fail3(code, `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
@@ -9151,20 +9999,7 @@ function normalizeScopePayload(payload) {
   };
 }
 function normalizeEvidenceSelection(selection) {
-  if (!isPlainObject3(selection) || Object.keys(selection).length === 0) {
-    fail3(
-      "INVALID_EVIDENCE_PLAN",
-      "Evidence selection must be a non-empty object."
-    );
-  }
-  for (const key of Object.keys(selection)) {
-    if (!SELECTION_KEYS.has(key)) {
-      fail3(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection contains unknown member ${JSON.stringify(key)}.`
-      );
-    }
-  }
+  normalizeSelection(selection);
   if ("all" in selection && selection.all !== true) {
     fail3("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
   }
@@ -9175,7 +10010,7 @@ function normalizeEvidenceSelection(selection) {
     if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
       continue;
     }
-    if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    if (value.length === 0) {
       fail3(
         "INVALID_EVIDENCE_PLAN",
         `Evidence selection ${key} must be a non-empty string array.`
@@ -9213,34 +10048,10 @@ function normalizeEvidencePlan(payload) {
       `Evidence group ${index + 1} basis`,
       "INVALID_EVIDENCE_PLAN"
     );
-    if (!EVIDENCE_POLICIES3.has(group.policy)) {
-      fail3(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} policy is invalid.`
-      );
-    }
-    if (!BASIS_KINDS3.has(group.basis.kind)) {
-      fail3(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis is invalid.`
-      );
-    }
-    if (group.basis.note !== null && (typeof group.basis.note !== "string" || Buffer.byteLength(group.basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES)) {
-      fail3(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis note exceeds ${MAXIMUM_BASIS_NOTE_BYTES} UTF-8 bytes.`
-      );
-    }
-    if (group.policy === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(group.basis.kind)) {
-      fail3(
-        "INVALID_EVIDENCE_PLAN",
-        "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
-      );
-    }
     return {
       selection: normalizeEvidenceSelection(group.selection),
       policy: group.policy,
-      basis: { kind: group.basis.kind, note: group.basis.note }
+      basis: validateEvidenceBasis(group.policy, group.basis)
     };
   });
   const canonicalPlan = { schemaVersion: 1, groups };
@@ -9283,10 +10094,9 @@ function readBoundedJson(path, label) {
     try {
       return JSON.parse(text);
     } catch (error) {
-      fail3(
-        "INVALID_JSON_INPUT",
-        `${label} is not valid JSON: ${error.message}`
-      );
+      fail3("INVALID_JSON_INPUT", `${label} is not valid JSON.`, {
+        cause: error
+      });
     }
   } finally {
     closeSync8(descriptor);
@@ -9304,29 +10114,7 @@ function inlineScopePayload(values) {
   };
 }
 function parsePrepareArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (typeof token !== "string" || !token.startsWith("--")) {
-      fail3("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-    const name = token.slice(2);
-    if (!SINGLETON_FLAGS.has(name) && !REPEATABLE_FLAGS.has(name)) {
-      fail3("UNKNOWN_ARGUMENT", `Unknown workflow prepare flag --${name}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail3("INVALID_ARGUMENT", `--${name} requires a non-empty value.`);
-    }
-    if (SINGLETON_FLAGS.has(name)) {
-      if (values.has(name)) {
-        fail3("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-      }
-      values.set(name, value);
-    } else {
-      values.set(name, [...values.get(name) ?? [], value]);
-    }
-  }
+  const { values } = parseCommandArguments("workflow prepare", argv);
   const mode = values.get("mode");
   const scope = values.get("scope");
   const verificationPolicy = values.get("verification") ?? "required";
@@ -9361,19 +10149,19 @@ function parsePrepareArguments(argv) {
       "Supply --evidence and --basis together, or supply --evidence-plan."
     );
   }
-  if (evidence !== null && !EVIDENCE_POLICIES3.has(evidence)) {
+  if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
     fail3(
       "INVALID_EVIDENCE_POLICY",
       "--evidence must be reuse, message, or review."
     );
   }
-  if (basis !== null && !BASIS_KINDS3.has(basis)) {
+  if (basis !== null && !BASIS_KINDS.includes(basis)) {
     fail3(
       "INVALID_EVIDENCE_BASIS",
       "--basis is not a supported provenance kind."
     );
   }
-  if (evidence === "reuse" && (/* @__PURE__ */ new Set(["user-grounded", "unknown-preexisting"])).has(basis)) {
+  if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
     fail3(
       "INVALID_EVIDENCE_BASIS",
       "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
@@ -9783,7 +10571,7 @@ function assertPreallocationRepositoryState(root) {
     fail3(
       "UNRESOLVED_CONFLICTS",
       "Cannot prepare an ordinary commit while unresolved conflicts remain.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const operations = activeGitOperations(root);
@@ -9791,7 +10579,7 @@ function assertPreallocationRepositoryState(root) {
     fail3(
       "ACTIVE_GIT_OPERATION",
       `Cannot prepare an ordinary commit during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
 }
@@ -10208,31 +10996,33 @@ async function routePreparedEvidence({
   }
 }
 function successEnvelope(transaction, summary) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "prepared",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve10(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    scope: summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
-      extendedReason: transaction.review.extendedReason,
-      reviewQueue: transaction.review.queue,
-      structuredMessageMode: transaction.review.structuredMessageMode,
-      ...authoringProgress(transaction)
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      scope: summary,
+      initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
+        extendedReason: transaction.review.extendedReason,
+        reviewQueue: transaction.review.queue,
+        structuredMessageMode: transaction.review.structuredMessageMode,
+        ...authoringProgress(transaction)
+      }
     }
-  };
+  });
 }
 function interruptionError(error, transactionPath, summary) {
   let recovery = null;
@@ -10243,15 +11033,20 @@ function interruptionError(error, transactionPath, summary) {
     });
   } catch {
   }
-  return new PreparationError(
+  return new WorkflowDiagnosticError(
     "INDEX_INSTALLATION_INTERRUPTED",
-    `Prepared index installation did not finish: ${error.message}`,
+    "Prepared index installation did not finish. Inspect the retained recovery observation before resuming.",
     {
-      exitCode: 1,
-      details: {
+      disposition: "rejected",
+      cause: error,
+      state: {
         transaction: transactionPath,
         phase: "allocated",
-        recoveryRequired: true,
+        commitState: "absent",
+        publicationState: "not-requested",
+        recoveryRequired: true
+      },
+      details: {
         resumeAllowed: recovery?.resumeAllowed ?? true,
         recoveryStatus: recovery?.status ?? "not-started",
         scope: summary
@@ -10268,38 +11063,45 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
       status: "stopped",
       terminalDisposition: "no-commit-stopped"
     });
-    const stoppedError = new PreparationError(
+    const stoppedError = new WorkflowDiagnosticError(
       "PREPARATION_STOPPED",
-      `Preparation stopped before index installation: ${error.message}`,
+      "Preparation stopped before index installation. Inspect the retained transaction before starting new work.",
       {
-        exitCode: 1,
-        details: {
+        disposition: "rejected",
+        cause: error,
+        state: {
           transaction: transactionPath,
           phase: stopped.phase,
+          commitState: "absent",
+          publicationState: "not-requested"
+        },
+        details: {
           terminalDisposition: stopped.terminalDisposition,
-          recoveryRequired: false,
           scope: summary
         }
       }
     );
-    stoppedError.cause = error;
     return stoppedError;
   } catch (checkpointError) {
-    const interrupted = new PreparationError(
+    const interrupted = new WorkflowDiagnosticError(
       "PREPARATION_CHECKPOINT_INTERRUPTED",
-      `Preparation checkpoint could not be completed: ${checkpointError.message}`,
+      "Preparation checkpoint could not be completed. Inspect the retained transaction before resuming.",
       {
-        exitCode: 1,
-        details: {
+        disposition: "rejected",
+        cause: checkpointError,
+        state: {
           transaction: transactionPath,
           phase: "allocated",
-          recoveryRequired: true,
+          commitState: "absent",
+          publicationState: "not-requested",
+          recoveryRequired: true
+        },
+        details: {
           resumeAllowed: true,
           scope: summary
         }
       }
     );
-    interrupted.cause = checkpointError;
     return interrupted;
   }
 }
@@ -10363,7 +11165,7 @@ async function prepareWorkflow({
         "PREEXISTING_STAGED_CHANGES",
         "Actual path scope requires an initially clean staged index.",
         {
-          exitCode: 1,
+          disposition: "rejected",
           details: {
             stagedChangeUnitCount: candidates.staged.length,
             stagedSamples: candidates.staged.flatMap(({ paths }) => paths).sort(compareBuffers).slice(0, 5).map(safePathDisplay)
@@ -10383,7 +11185,7 @@ async function prepareWorkflow({
           "DRAFT_SCOPE_OVERLAPS_STAGED",
           "Draft path scope overlaps existing staged work.",
           {
-            exitCode: 1,
+            disposition: "rejected",
             details: {
               overlapSamples: overlap.slice(0, 5).map(safePathDisplay)
             }
@@ -10516,76 +11318,30 @@ async function prepareWorkflow({
   }
   return successEnvelope(completed, summary);
 }
-function errorEnvelope(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: error.details.terminalDisposition ?? null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...Object.fromEntries(
-      Object.entries(error.details).filter(
-        ([key]) => !(/* @__PURE__ */ new Set([
-          "phase",
-          "terminalDisposition",
-          "transaction",
-          "recoveryRequired"
-        ])).has(key)
-      )
-    )
-  };
-}
-function textResult(result) {
-  const lines = [`Status: ${result.status}`];
-  if (result.code) {
-    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
-  }
-  if (result.transaction) {
-    lines.push(`Transaction: ${result.transaction}`);
-  }
-  if (result.indexTreeOid) {
-    lines.push(`Index tree: ${result.indexTreeOid}`);
-  }
-  return `${lines.join("\n")}
-`;
-}
 async function runPrepareWorkflowCommand(argv, {
   cwd = process.cwd(),
   environment = process.env,
-  stdout = process.stdout,
-  stderr = process.stderr
+  stdout = process.stdout
 } = {}) {
-  let format = "json";
-  try {
-    const options = parsePrepareArguments(argv);
-    format = options.format;
-    const result = await prepareWorkflow({ options, cwd, environment });
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("PREPARATION_FAILED", caught.message);
-    const result = errorEnvelope(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: parsePrepareArguments,
+    execute: (options) => prepareWorkflow({ options, cwd, environment }),
+    failureState: () => ({
+      commitState: "absent",
+      publicationState: "not-requested"
+    }),
+    stdout
+  });
 }
-var STORAGE_OVERRIDE_NAMES, EVIDENCE_POLICIES3, BASIS_KINDS3, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, SINGLETON_FLAGS, REPEATABLE_FLAGS, INLINE_SELECTOR_FLAGS, SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS, SELECTION_KEYS, STRICT_UTF8_DECODER4, PreparationError;
+var STORAGE_OVERRIDE_NAMES, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, INLINE_SELECTOR_FLAGS, SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS, STRICT_UTF8_DECODER4;
 var init_prepareWorkflow = __esm({
   "src/committing-to-git/workflow/prepareWorkflow.js"() {
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_evidenceVocabulary();
+    init_changeSelection();
+    init_commandArguments();
     init_gitRepository();
     init_gitPath();
     init_projectedIndex();
@@ -10611,34 +11367,8 @@ var init_prepareWorkflow = __esm({
       "GIT_QUARANTINE_PATH",
       "GIT_NAMESPACE"
     ];
-    EVIDENCE_POLICIES3 = /* @__PURE__ */ new Set(["reuse", "message", "review"]);
-    BASIS_KINDS3 = /* @__PURE__ */ new Set([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "user-grounded",
-      "generated-derived",
-      "unknown-preexisting"
-    ]);
     VERIFICATION_POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
     TYPE_TOKEN_PATTERN2 = /^[a-z][a-z0-9-]{0,31}$/u;
-    SINGLETON_FLAGS = /* @__PURE__ */ new Set([
-      "mode",
-      "scope",
-      "evidence",
-      "basis",
-      "evidence-plan",
-      "scope-file",
-      "verification",
-      "format"
-    ]);
-    REPEATABLE_FLAGS = /* @__PURE__ */ new Set([
-      "allowed-type",
-      "path",
-      "path-prefix",
-      "exclude-path",
-      "exclude-path-prefix"
-    ]);
     INLINE_SELECTOR_FLAGS = [
       "path",
       "path-prefix",
@@ -10657,26 +11387,39 @@ var init_prepareWorkflow = __esm({
     EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
     GROUP_KEYS = ["selection", "policy", "basis"];
     BASIS_KEYS = ["kind", "note"];
-    SELECTION_KEYS = /* @__PURE__ */ new Set([
-      "all",
-      "remaining",
-      "ids",
-      "destinationPaths",
-      "sourcePaths",
-      "destinationPathPrefixes",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
     STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
-    PreparationError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "PreparationError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
+  }
+});
+
+// src/committing-to-git/transaction/transactionDiagnosticState.js
+import { resolve as resolve11 } from "node:path";
+function transactionDiagnosticState(transaction, transactionPath) {
+  const publication = transaction.publicationAttempts.at(-1);
+  return {
+    transaction: resolve11(transactionPath),
+    phase: transaction.phase,
+    route: transaction.route,
+    commitState: transaction.commit?.commitOid ? "created" : transaction.phase === "commit-pending" ? "unknown" : "absent",
+    commitOid: transaction.commit?.commitOid ?? null,
+    publicationState: publication === void 0 ? transaction.report?.publicationAllowed === false ? "blocked" : "not-requested" : ["succeeded", "observed-matching"].includes(publication.status) ? "published" : ["rejected", "blocked"].includes(publication.status) ? publication.status : "unknown",
+    publicationAllowed: transaction.report?.publicationAllowed ?? false,
+    recoveryRequired: ["commit-pending", "publication-pending"].includes(transaction.phase) || Boolean(transaction.snapshot?.promotion) && transaction.snapshot.promotion.status !== "installed"
+  };
+}
+function observeTransactionFailure(options) {
+  if (typeof options?.transactionPath !== "string") return {};
+  try {
+    return transactionDiagnosticState(
+      readTransaction(options.transactionPath),
+      options.transactionPath
+    );
+  } catch {
+    return {};
+  }
+}
+var init_transactionDiagnosticState = __esm({
+  "src/committing-to-git/transaction/transactionDiagnosticState.js"() {
+    init_transactionWorkspace();
   }
 });
 
@@ -10699,10 +11442,10 @@ import {
   unlinkSync as unlinkSync6,
   writeFileSync as writeFileSync8
 } from "node:fs";
-import { resolve as resolve11 } from "node:path";
+import { resolve as resolve12 } from "node:path";
 import { TextDecoder as TextDecoder6 } from "node:util";
-function fail4(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
+function fail4(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function readFixedEvidencePlan(path) {
   const initialPathStat = lstatSync8(path);
@@ -10740,7 +11483,8 @@ function readFixedEvidencePlan(path) {
     } catch (error) {
       fail4(
         "INVALID_EVIDENCE_PLAN_INPUT",
-        `The fixed evidence-plan input is invalid JSON: ${error.message}`
+        "The fixed evidence-plan input is invalid JSON.",
+        { cause: error }
       );
     }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.groups) || JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(["groups", "schemaVersion"])) {
@@ -10761,9 +11505,9 @@ function readExactSnapshot(transaction) {
       "SNAPSHOT_CHANGED",
       "The transaction snapshot changed after preparation.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
-          transaction: resolve11(
+          transaction: resolve12(
             transaction.snapshot.path,
             "..",
             "transaction.json"
@@ -10775,7 +11519,7 @@ function readExactSnapshot(transaction) {
   const manifest = JSON.parse(STRICT_UTF8_DECODER5.decode(bytes));
   if (manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount) {
     fail4("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
-      exitCode: 1
+      disposition: "rejected"
     });
   }
   return { ...manifest, manifestSha256: transaction.snapshot.sha256 };
@@ -10783,7 +11527,7 @@ function readExactSnapshot(transaction) {
 function assertUnchangedAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
     fail4("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
-      exitCode: 1
+      disposition: "rejected"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
@@ -10791,7 +11535,7 @@ function assertUnchangedAnchor(transaction, manifest) {
     fail4(
       "ACTIVE_GIT_OPERATION",
       `Review cannot be extended during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   if (!indexMatchesTree(
@@ -10803,7 +11547,7 @@ function assertUnchangedAnchor(transaction, manifest) {
       "INDEX_DRIFT",
       "The prepared index tree changed before review extension.",
       {
-        exitCode: 1
+        disposition: "rejected"
       }
     );
   }
@@ -10814,7 +11558,7 @@ function initialGroups(transaction) {
   );
 }
 function writeEvidencePlanRevision(transaction, evidencePlan) {
-  const path = resolve11(
+  const path = resolve12(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
@@ -10832,28 +11576,30 @@ function writeEvidencePlanRevision(transaction, evidencePlan) {
   return path;
 }
 function extensionResult(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: transaction.status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve11(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve12(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.review.evidencePlanSha256,
-    capsuleSha256: transaction.review.coveredCapsuleSha256,
-    extendedReason: transaction.review.extendedReason,
-    reviewQueue: transaction.review.queue,
-    structuredMessageMode: transaction.review.structuredMessageMode,
-    ...authoringProgress(transaction)
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.review.evidencePlanSha256,
+      capsuleSha256: transaction.review.coveredCapsuleSha256,
+      extendedReason: transaction.review.extendedReason,
+      reviewQueue: transaction.review.queue,
+      structuredMessageMode: transaction.review.structuredMessageMode,
+      ...authoringProgress(transaction)
+    }
+  });
 }
 async function extendReviewWorkflow({ transactionPath, reason }) {
   if (!EXTENSION_REASONS.has(reason)) {
@@ -10867,7 +11613,10 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
     fail4(
       "EXTENSION_NOT_ALLOWED",
       `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve11(transactionPath) } }
+      {
+        disposition: "rejected",
+        details: { transaction: resolve12(transactionPath) }
+      }
     );
   }
   const inputPath = getEvidencePlanInputPath(transactionPath);
@@ -10875,14 +11624,14 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
     fail4(
       "UNEXPECTED_EVIDENCE_PLAN_INPUT",
       "Semantic-structure extension forbids an evidence-plan input.",
-      { details: { transaction: resolve11(transactionPath) } }
+      { details: { transaction: resolve12(transactionPath) } }
     );
   }
   if (reason === "evidence-uncertainty" && !existsSync11(inputPath)) {
     fail4(
       "MISSING_EVIDENCE_PLAN_INPUT",
       "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
-      { details: { transaction: resolve11(transactionPath) } }
+      { details: { transaction: resolve12(transactionPath) } }
     );
   }
   const manifest = readExactSnapshot(transaction);
@@ -10890,7 +11639,7 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
   const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
   const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
   const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
-  const reviewDirectory = resolve11(transaction.attemptDirectory, "review");
+  const reviewDirectory = resolve12(transaction.attemptDirectory, "review");
   let records = [];
   try {
     if (reason === "evidence-uncertainty") {
@@ -10978,88 +11727,39 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
   }
 }
 function parseExtendReviewArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--reason", "--format"])).has(token)) {
-      fail4("UNKNOWN_ARGUMENT", `Unknown workflow extend flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail4("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail4("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction") || !values.has("--reason")) {
+  const { values } = parseCommandArguments("workflow extend", argv);
+  if (!values.has("transaction") || !values.has("reason")) {
     fail4(
       "MISSING_ARGUMENT",
       "--transaction and --reason are required for workflow extend."
     );
   }
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
     fail4("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
-    transactionPath: values.get("--transaction"),
-    reason: values.get("--reason"),
+    transactionPath: values.get("transaction"),
+    reason: values.get("reason"),
     format
   };
 }
-function errorResult(error) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code,
-    message: error.message
-  };
-}
-function textResult2(result) {
-  return [
-    `Status: ${result.status}`,
-    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
-    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
-    ...result.indexTreeOid ? [`Index tree: ${result.indexTreeOid}`] : [],
-    ""
-  ].join("\n");
-}
-async function runExtendReviewCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const options = parseExtendReviewArguments(argv);
-    format = options.format;
-    const result = await extendReviewWorkflow(options);
-    stdout.write(
-      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("EXTENSION_FAILED", caught.message);
-    const result = errorResult(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult2(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
+async function runExtendReviewCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseExtendReviewArguments,
+    execute: extendReviewWorkflow,
+    stdout
+  });
 }
 var STRICT_UTF8_DECODER5, EXTENSION_REASONS;
 var init_extendReviewWorkflow = __esm({
   "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_commandArguments();
     init_gitRepository();
     init_reviewCatalog();
     init_inlineEvidenceCapsule();
@@ -11086,10 +11786,10 @@ __export(reviewNextWorkflow_exports, {
 });
 import { createHash as createHash10 } from "node:crypto";
 import { lstatSync as lstatSync9, realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve12, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve13, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder7 } from "node:util";
 function fail5(code, message, options) {
-  throw new ReviewNextError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function isContained(parent, candidate) {
   const contained = relative5(parent, candidate);
@@ -11102,8 +11802,8 @@ function readCurrentCatalog(transaction) {
       "The transaction has no extended review state."
     );
   }
-  const reviewDirectory = resolve12(transaction.attemptDirectory, "review");
-  const catalogPath = resolve12(transaction.review.catalogPath);
+  const reviewDirectory = resolve13(transaction.attemptDirectory, "review");
+  const catalogPath = resolve13(transaction.review.catalogPath);
   if (!isContained(transaction.attemptDirectory, catalogPath) || !isContained(reviewDirectory, catalogPath)) {
     fail5(
       "REVIEW_CATALOG_ESCAPES_TRANSACTION",
@@ -11134,8 +11834,8 @@ function assertReviewNextTransaction(transaction, transactionPath) {
       "REVIEW_NEXT_NOT_ALLOWED",
       `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
-        exitCode: 1,
-        details: { transaction: resolve12(transactionPath) }
+        disposition: "unmet-prerequisite",
+        details: { transaction: resolve13(transactionPath) }
       }
     );
   }
@@ -11219,26 +11919,30 @@ function assertResultBudget(result) {
   return result;
 }
 function reviewResult({ transaction, transactionPath, packet, content }) {
-  return assertResultBudget({
-    schemaVersion: 1,
-    status: transaction.status,
-    phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve12(transactionPath),
-    route: transaction.route,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    packet: packet === null ? null : {
-      id: packet.id,
-      kind: packet.kind,
-      sha256: packet.sha256,
-      byteCount: packet.byteCount,
-      content
-    },
-    ...authoringProgress(transaction)
-  });
+  return assertResultBudget(
+    createWorkflowResult({
+      disposition: "succeeded",
+      status: transaction.status,
+      phase: transaction.phase,
+      transaction: resolve13(transactionPath),
+      route: transaction.route,
+      commitState: "absent",
+      publicationState: "not-requested",
+      publicationAllowed: false,
+      recoveryRequired: false,
+      data: {
+        terminalDisposition: transaction.terminalDisposition,
+        packet: packet === null ? null : {
+          id: packet.id,
+          kind: packet.kind,
+          sha256: packet.sha256,
+          byteCount: packet.byteCount,
+          content
+        },
+        ...authoringProgress(transaction)
+      }
+    })
+  );
 }
 function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
@@ -11327,124 +12031,45 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   });
 }
 function parseReviewNextArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--cursor", "--format"])).has(token)) {
-      fail5("UNKNOWN_ARGUMENT", `Unknown workflow review-next flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail5("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail5("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction")) {
+  const { values } = parseCommandArguments("workflow review-next", argv);
+  if (!values.has("transaction")) {
     fail5(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next."
     );
   }
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
   if (!FORMATS.has(format)) {
     fail5("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
-    transactionPath: values.get("--transaction"),
-    cursor: values.get("--cursor") ?? null,
+    transactionPath: values.get("transaction"),
+    cursor: values.get("cursor") ?? null,
     format
   };
 }
-function errorResult2(error, transactionPath = null) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details?.phase ?? null,
-    terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve12(transactionPath) : null),
-    route: error.details?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code,
-    message: error.message
-  };
+async function runReviewNextCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseReviewNextArguments,
+    execute: reviewNextWorkflow,
+    stdout
+  });
 }
-function textResult3(result) {
-  if (result.packet) {
-    return [
-      result.packet.content.replace(/\n$/u, ""),
-      "",
-      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
-      `Next cursor: ${result.reviewProgress.nextCursor ?? "complete"}`,
-      ""
-    ].join("\n");
-  }
-  if (result.reviewProgress?.complete) {
-    return [
-      `Status: ${result.status}`,
-      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
-      `Next action: ${result.nextAction}`,
-      `Input path: ${result.contentPath ?? result.messagePath}`,
-      ""
-    ].join("\n");
-  }
-  return [
-    `Status: ${result.status}`,
-    `Code: ${result.code}`,
-    `Message: ${result.message}`,
-    ""
-  ].join("\n");
-}
-async function runReviewNextCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let options = null;
-  try {
-    options = parseReviewNextArguments(argv);
-    const result = reviewNextWorkflow(options);
-    stdout.write(
-      options.format === "text" ? textResult3(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof ReviewNextError ? caught : new ReviewNextError(
-      caught.code ?? "REVIEW_NEXT_FAILED",
-      caught.message
-    );
-    const result = assertResultBudget(
-      errorResult2(error, options?.transactionPath)
-    );
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      options?.format === "text" ? textResult3(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
-}
-var FORMATS, MAXIMUM_REVIEW_RESULT_BYTES, STRICT_UTF8_DECODER6, ReviewNextError;
+var FORMATS, MAXIMUM_REVIEW_RESULT_BYTES, STRICT_UTF8_DECODER6;
 var init_reviewNextWorkflow = __esm({
   "src/committing-to-git/workflow/reviewNextWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_commandArguments();
     init_reviewCatalog();
     init_transactionWorkspace();
     init_authoringProgress();
     FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
     MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
     STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
-    ReviewNextError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "ReviewNextError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -11457,17 +12082,17 @@ __export(resumePreparationWorkflow_exports, {
 });
 import { createHash as createHash11 } from "node:crypto";
 import { existsSync as existsSync12, lstatSync as lstatSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync7 } from "node:fs";
-import { join as join8, relative as relative6, resolve as resolve13 } from "node:path";
-function fail6(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
+import { join as join8, relative as relative6, resolve as resolve14 } from "node:path";
+function fail6(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2563(bytes) {
   return createHash11("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve13(attemptDirectory, name);
+  const expected = resolve14(attemptDirectory, name);
   const relation = relative6(attemptDirectory, path);
-  if (resolve13(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+  if (resolve14(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
     fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} has an invalid recorded path.`
@@ -11505,10 +12130,9 @@ function validatePersistedSnapshot(transaction) {
   try {
     manifest = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    fail6(
-      "INVALID_TRANSACTION_ARTIFACT",
-      `snapshot.json is invalid JSON: ${error.message}`
-    );
+    fail6("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
+      cause: error
+    });
   }
   if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
     fail6(
@@ -11524,7 +12148,7 @@ function assertRepositoryResumePreconditions(transaction) {
     fail6(
       "ACTIVE_GIT_OPERATION",
       `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const conflicts = runReadOnlyGit(
@@ -11539,41 +12163,43 @@ function assertRepositoryResumePreconditions(transaction) {
     fail6(
       "UNRESOLVED_CONFLICTS",
       "Preparation cannot resume while unresolved conflicts remain.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
   if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
     fail6("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
-      exitCode: 1
+      disposition: "rejected"
     });
   }
 }
 function resultEnvelope(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve13(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve14(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    scope: transaction.scope.summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : transaction.route === "extended" ? {
-      extendedReason: transaction.review.extendedReason,
-      reviewQueue: transaction.review.queue,
-      ...authoringProgress(transaction)
-    } : {}
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      scope: transaction.scope.summary,
+      initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : transaction.route === "extended" ? {
+        extendedReason: transaction.review.extendedReason,
+        reviewQueue: transaction.review.queue,
+        ...authoringProgress(transaction)
+      } : {}
+    }
+  });
 }
 function assertSnapshotIndexState(transaction, manifest) {
   const snapshot = transaction.snapshot;
@@ -11583,7 +12209,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       fail6(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index changed before resume.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
     if (!indexMatchesTree(
@@ -11594,13 +12220,13 @@ function assertSnapshotIndexState(transaction, manifest) {
       fail6(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index no longer matches the snapshot tree.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
   }
   if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
     fail6("INDEX_DRIFT", "The real index changed after snapshot creation.", {
-      exitCode: 1
+      disposition: "rejected"
     });
   }
 }
@@ -11649,7 +12275,10 @@ async function resumePreparationWorkflow({ transactionPath }) {
     fail6(
       "RESUME_NOT_ALLOWED",
       `Preparation cannot resume from phase ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve13(transactionPath) } }
+      {
+        disposition: "rejected",
+        details: { transaction: resolve14(transactionPath) }
+      }
     );
   }
   const manifest = validatePersistedSnapshot(transaction);
@@ -11679,12 +12308,15 @@ async function resumePreparationWorkflow({ transactionPath }) {
     } catch (error) {
       fail6(
         "INDEX_INSTALLATION_INTERRUPTED",
-        `Prepared index installation resume failed: ${error.message}`,
+        "Prepared index installation resume failed. Inspect the retained transaction before another installation.",
         {
-          exitCode: 1,
-          details: {
-            transaction: resolve13(transactionPath),
+          disposition: "rejected",
+          cause: error,
+          state: {
+            transaction: resolve14(transactionPath),
             phase: "allocated",
+            commitState: "absent",
+            publicationState: "not-requested",
             recoveryRequired: true
           }
         }
@@ -11694,7 +12326,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
       fail6(
         "INDEX_INSTALLATION_MISMATCH",
         "Resumed index installation does not match the persisted snapshot.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
   }
@@ -11706,78 +12338,31 @@ async function resumePreparationWorkflow({ transactionPath }) {
   return finishEvidenceRouting({ transactionPath, transaction, manifest });
 }
 function parseResumeArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail6("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail6("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail6("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction")) {
+  const { values } = parseCommandArguments("workflow resume", argv);
+  if (!values.has("transaction")) {
     fail6("MISSING_TRANSACTION", "--transaction is required.");
   }
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
     fail6("INVALID_FORMAT", "--format must be json or text.");
   }
-  return { transactionPath: values.get("--transaction"), format };
+  return { transactionPath: values.get("transaction"), format };
 }
-function errorEnvelope2(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message
-  };
-}
-function textResult4(result) {
-  return [
-    `Status: ${result.status}`,
-    ...result.code ? [`Code: ${result.code}`, `Message: ${result.message}`] : [],
-    ...result.transaction ? [`Transaction: ${result.transaction}`] : [],
-    ""
-  ].join("\n");
-}
-async function runResumePreparationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const options = parseResumeArguments(argv);
-    format = options.format;
-    const result = await resumePreparationWorkflow(options);
-    stdout.write(
-      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PreparationError ? caught : new PreparationError("RESUME_FAILED", caught.message);
-    const result = errorEnvelope2(error);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult4(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
+async function runResumePreparationCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseResumeArguments,
+    execute: resumePreparationWorkflow,
+    stdout
+  });
 }
 var init_resumePreparationWorkflow = __esm({
   "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_commandArguments();
     init_gitRepository();
     init_indexInstallation();
     init_transactionWorkspace();
@@ -11789,24 +12374,23 @@ var init_resumePreparationWorkflow = __esm({
 // src/committing-to-git/workflow/promoteDraftWorkflow.js
 var promoteDraftWorkflow_exports = {};
 __export(promoteDraftWorkflow_exports, {
-  PromotionError: () => PromotionError,
   promoteDraftWorkflow: () => promoteDraftWorkflow,
   recoverDraftPromotion: () => recoverDraftPromotion,
   runPromoteDraftCommand: () => runPromoteDraftCommand
 });
 import { createHash as createHash12 } from "node:crypto";
 import { existsSync as existsSync13 } from "node:fs";
-import { isAbsolute as isAbsolute9, join as join9, resolve as resolve14 } from "node:path";
+import { isAbsolute as isAbsolute9, join as join9, resolve as resolve15 } from "node:path";
 import { TextDecoder as TextDecoder8 } from "node:util";
 function fail7(code, message, options) {
-  throw new PromotionError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2564(bytes) {
   return createHash12("sha256").update(bytes).digest("hex");
 }
 function samePath2(left, right) {
-  const normalizedLeft = resolve14(left);
-  const normalizedRight = resolve14(right);
+  const normalizedLeft = resolve15(left);
+  const normalizedRight = resolve15(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function sameValue(left, right) {
@@ -11814,7 +12398,7 @@ function sameValue(left, right) {
 }
 function realIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve14(isAbsolute9(gitPath) ? gitPath : join9(root, gitPath));
+  return resolve15(isAbsolute9(gitPath) ? gitPath : join9(root, gitPath));
 }
 function readDraftManifest(transactionPath, transaction) {
   const input = readTransactionOwnedFile({
@@ -11836,7 +12420,8 @@ function readDraftManifest(transactionPath, transaction) {
   } catch (error) {
     fail7(
       "SNAPSHOT_ARTIFACT_INVALID",
-      `The draft snapshot is not canonical UTF-8 JSON: ${error.message}`
+      "The draft snapshot is not canonical UTF-8 JSON.",
+      { cause: error }
     );
   }
   if (manifest?.schemaVersion !== 2 || manifest.workflowMode !== "draft" || manifest.sourceIndex !== "temporary" || !FULL_OID_PATTERN4.test(manifest.indexTreeOid ?? "") || !samePath2(manifest.repositoryRoot ?? "", transaction.repositoryRoot) || manifest.scopeKind !== transaction.scope?.kind || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !samePath2(
@@ -11876,10 +12461,9 @@ function recordedPaths(transaction) {
       return bytes;
     });
   } catch (error) {
-    fail7(
-      "DRAFT_SCOPE_INVALID",
-      `The recorded literal path scope is invalid: ${error.message}`
-    );
+    fail7("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
+      cause: error
+    });
   }
 }
 function stagedStatePresent(root) {
@@ -11909,7 +12493,7 @@ function assertDraftArtifacts(transaction, manifest) {
     fail7(
       "DRAFT_SNAPSHOT_DRIFT",
       "The attempt-local draft index or object tree no longer matches the reviewed snapshot.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
 }
@@ -11942,7 +12526,8 @@ function assertReviewedState(transactionPath, transaction) {
     } catch (error) {
       fail7(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
-        `The extended review catalog cannot be reused: ${error.message}`
+        "The extended review catalog cannot be reused.",
+        { cause: error }
       );
     }
     if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.manifestSha256 !== reviewedManifestSha256) {
@@ -11967,7 +12552,8 @@ function assertReviewedState(transactionPath, transaction) {
     } catch (error) {
       fail7(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
-        `The canonical message cannot be reused: ${error.message}`
+        "The canonical message cannot be reused.",
+        { cause: error }
       );
     }
     if (!sameValue(message.transactionState, transaction.message)) {
@@ -11986,7 +12572,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
       "PROMOTION_HEAD_DRIFT",
       "HEAD no longer matches the complete draft anchor.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedHeadAnchor: transaction.headAnchor,
           actualHeadAnchor: currentHeadAnchor
@@ -11999,7 +12585,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     fail7(
       "PROMOTION_UNRESOLVED_CONFLICTS",
       "Draft promotion is blocked while unresolved conflicts remain.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const operations = activeGitOperations(root);
@@ -12007,7 +12593,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     fail7(
       "PROMOTION_ACTIVE_GIT_OPERATION",
       `Draft promotion is blocked during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1, details: { activeOperations: operations } }
+      { disposition: "rejected", details: { activeOperations: operations } }
     );
   }
   const currentIndexIdentity = readIndexIdentity(realIndexPath(root));
@@ -12021,7 +12607,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
       "PROMOTION_BLOCKED_STAGED_STATE",
       "Path draft promotion requires the unrelated real staged state to be absent.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           promotionBlocker: transaction.scope.promotionBlocker ?? null
         }
@@ -12033,7 +12619,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
       "PROMOTION_STAGED_SOURCE_DRIFT",
       "The real staged index no longer has the draft's recorded source digest.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedSourceIndexIdentity: manifest.sourceIndexIdentity,
           actualSourceIndexIdentity: stagedSourceIdentity
@@ -12094,7 +12680,7 @@ function finalizePromotion({
     fail7(
       "PROMOTION_INSTALLATION_DRIFT",
       "The installed real index does not match the draft tree and head anchor.",
-      { exitCode: 1, details: { recoveryRequired: true } }
+      { disposition: "rejected", state: { recoveryRequired: true } }
     );
   }
   const installedIndexIdentity = readIndexIdentity(
@@ -12114,27 +12700,29 @@ function finalizePromotion({
   });
 }
 function successEnvelope2(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "promoted",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve14(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve15(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
-      reviewCatalogSha256: transaction.review?.catalogSha256 ?? null,
-      messageSha256: transaction.message?.sha256 ?? null,
-      ...transaction.phase === "authoring-pending" ? authoringProgress(transaction) : {}
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
+        reviewCatalogSha256: transaction.review?.catalogSha256 ?? null,
+        messageSha256: transaction.message?.sha256 ?? null,
+        ...transaction.phase === "authoring-pending" ? authoringProgress(transaction) : {}
+      }
     }
-  };
+  });
 }
 function assertPromotableTransaction(transaction) {
   if (transaction.mode !== "draft" || !PROMOTABLE_STATES.has(
@@ -12143,7 +12731,7 @@ function assertPromotableTransaction(transaction) {
     fail7(
       "PROMOTION_STATE_INVALID",
       "Only an active evidence-ready, authoring-pending, or message-ready draft can be promoted.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
 }
@@ -12160,14 +12748,14 @@ function persistRecoveryObservation({
   return updatePromotionRecord(transactionPath, transaction, { promotion });
 }
 function recoverDraftPromotion({ transactionPath }) {
-  const canonicalTransactionPath = resolve14(transactionPath);
+  const canonicalTransactionPath = resolve15(transactionPath);
   const transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   if (transaction.snapshot?.promotion === void 0 || transaction.snapshot.promotion === null) {
     fail7(
       "PROMOTION_RECOVERY_NOT_REQUIRED",
       "The draft transaction has no journaled promotion to recover.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const recovery = recoverIndexInstallation({
@@ -12179,22 +12767,31 @@ function recoverDraftPromotion({ transactionPath }) {
     transaction,
     recovery
   });
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "unmet-prerequisite",
+    code: "PROMOTION_RECOVERY_OBSERVED",
+    message: "Inspect the recorded index recovery observation before resuming promotion.",
     status: "recovery-observed",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: canonicalTransactionPath,
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: recovery.status === "ambiguous",
-    recoveryStatus: recovery.status,
-    resumeAllowed: recovery.resumeAllowed,
-    retryAllowed: recovery.resumeAllowed,
-    exitCode: 1
-  };
+    recovery: {
+      kind: "inspect-state",
+      automatic: false,
+      requiredInputs: ["confirmation of the recorded index state"],
+      commands: []
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      recoveryStatus: recovery.status,
+      resumeAllowed: recovery.resumeAllowed,
+      retryAllowed: recovery.resumeAllowed
+    }
+  });
 }
 function continuePreparedPromotion({
   transactionPath,
@@ -12216,7 +12813,7 @@ function continuePreparedPromotion({
     fail7(
       "PROMOTION_PREPARED_STATE_DRIFT",
       "The prepared promotion index no longer matches its recorded identity and tree.",
-      { exitCode: 1, details: { recoveryRequired: true } }
+      { disposition: "rejected", state: { recoveryRequired: true } }
     );
   }
   const journalExists = existsSync13(
@@ -12232,9 +12829,9 @@ function continuePreparedPromotion({
       "PROMOTION_RECOVERY_OBSERVED",
       "The interrupted index installation was observed without replay; retry promotion only from this recorded result.",
       {
-        exitCode: 1,
+        disposition: "rejected",
+        state: { recoveryRequired: recovery.status === "ambiguous" },
         details: {
-          recoveryRequired: recovery.status === "ambiguous",
           recoveryStatus: recovery.status,
           resumeAllowed: recovery.resumeAllowed,
           retryAllowed: recovery.resumeAllowed
@@ -12252,7 +12849,7 @@ function continuePreparedPromotion({
       fail7(
         "PROMOTION_INDEX_STATE_AMBIGUOUS",
         "The real index matches neither recorded side of the promotion installation.",
-        { exitCode: 1, details: { recoveryRequired: true } }
+        { disposition: "rejected", state: { recoveryRequired: true } }
       );
     }
     installation = resumePreparedIndexInstallation({
@@ -12283,19 +12880,22 @@ function continuePreparedPromotion({
         });
       } catch {
       }
-      const interrupted = new PromotionError(
+      const interrupted = new WorkflowDiagnosticError(
         "PROMOTION_INDEX_INSTALLATION_INTERRUPTED",
-        `Draft promotion index installation did not finish: ${error.message}`,
+        "Draft promotion index installation did not finish. Inspect the recovery observation before resuming.",
         {
-          exitCode: 1,
+          disposition: "rejected",
+          cause: error,
+          state: {
+            ...transactionDiagnosticState(transaction, transactionPath),
+            recoveryRequired: true
+          },
           details: {
-            recoveryRequired: true,
             recoveryStatus: recovery?.status ?? "not-started",
             resumeAllowed: recovery?.resumeAllowed ?? false
           }
         }
       );
-      interrupted.cause = error;
       throw interrupted;
     }
   }
@@ -12303,7 +12903,7 @@ function continuePreparedPromotion({
     fail7(
       "PROMOTION_INDEX_INSTALLATION_INCOMPLETE",
       "The journaled real-index installation is not complete.",
-      { exitCode: 1, details: { recoveryRequired: true } }
+      { disposition: "rejected", state: { recoveryRequired: true } }
     );
   }
   return finalizePromotion({
@@ -12320,29 +12920,18 @@ function promoteDraftWorkflow({
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
     fail7("TRANSACTION_REQUIRED", "A transaction path is required.");
   }
-  const canonicalTransactionPath = resolve14(transactionPath);
+  const canonicalTransactionPath = resolve15(transactionPath);
   let transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   const manifest = readDraftManifest(canonicalTransactionPath, transaction);
   assertDraftArtifacts(transaction, manifest);
   assertReviewedState(canonicalTransactionPath, transaction);
   assertRepositoryPreconditions2(transaction, manifest);
-  let signaturePreflight;
-  try {
-    signaturePreflight = preflightVerificationPolicy({
-      root: transaction.repositoryRoot,
-      verificationPolicy: transaction.verificationPolicy,
-      ...signaturePreflightInspector ? { signaturePreflightInspector } : {}
-    });
-  } catch (error) {
-    if (error instanceof PreparationError) {
-      throw new PromotionError(error.code, error.message, {
-        exitCode: error.exitCode,
-        details: error.details
-      });
-    }
-    throw error;
-  }
+  const signaturePreflight = preflightVerificationPolicy({
+    root: transaction.repositoryRoot,
+    verificationPolicy: transaction.verificationPolicy,
+    ...signaturePreflightInspector ? { signaturePreflightInspector } : {}
+  });
   const checked = assertRepositoryPreconditions2(transaction, manifest);
   if (transaction.snapshot.promotion) {
     const promoted2 = continuePreparedPromotion({
@@ -12360,7 +12949,7 @@ function promoteDraftWorkflow({
       fail7(
         "PROMOTION_STAGED_SOURCE_DRIFT",
         "The real staged tree no longer equals the draft tree.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
     assertRepositoryPreconditions2(transaction, manifest);
@@ -12405,12 +12994,11 @@ function promoteDraftWorkflow({
       preparedIndexPath
     });
   } catch (error) {
-    const drift = new PromotionError(
+    const drift = new WorkflowDiagnosticError(
       "PROMOTION_TREE_DRIFT",
-      `The current selected content cannot recreate the reviewed draft tree: ${error.message}`,
-      { exitCode: 1 }
+      "The current selected content cannot recreate the reviewed draft tree.",
+      { disposition: "rejected", cause: error }
     );
-    drift.cause = error;
     throw drift;
   }
   if (prepared.indexTreeOid !== manifest.indexTreeOid) {
@@ -12418,7 +13006,7 @@ function promoteDraftWorkflow({
       "PROMOTION_TREE_DRIFT",
       "The current selected content no longer recreates the reviewed draft tree.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedTreeOid: manifest.indexTreeOid,
           actualTreeOid: prepared.indexTreeOid
@@ -12434,7 +13022,7 @@ function promoteDraftWorkflow({
     fail7(
       "PROMOTION_INDEX_DRIFT",
       "The real index changed while the promotion tree was prepared.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const pendingPromotion = promotionRecord({
@@ -12459,26 +13047,7 @@ function promoteDraftWorkflow({
   return successEnvelope2(promoted);
 }
 function parseArguments(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token?.startsWith("--")) {
-      fail7("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-    const name = token.slice(2);
-    if (!(/* @__PURE__ */ new Set(["transaction", "format"])).has(name)) {
-      fail7("UNKNOWN_ARGUMENT", `Unknown workflow promote flag --${name}.`);
-    }
-    if (values.has(name)) {
-      fail7("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-    const value = argv[index + 1];
-    if (value === void 0 || value.startsWith("--")) {
-      fail7("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-    values.set(name, value);
-    index += 1;
-  }
+  const { values } = parseCommandArguments("workflow promote", argv);
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
     fail7("INVALID_FORMAT", "--format must be json or text.");
@@ -12488,82 +13057,22 @@ function parseArguments(argv) {
   }
   return { transactionPath: values.get("transaction"), format };
 }
-function errorEnvelope3(error, transactionPath = null) {
-  let transaction = null;
-  if (transactionPath !== null) {
-    try {
-      transaction = readTransaction(transactionPath);
-    } catch {
-    }
-  }
-  return {
-    schemaVersion: 1,
-    status: error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" ? "capability-required" : error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? transaction?.phase ?? null,
-    terminalDisposition: error.details.terminalDisposition ?? transaction?.terminalDisposition ?? null,
-    transaction: error.details.transaction ?? transactionPath,
-    route: transaction?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...transaction === null ? {} : { mode: transaction.mode },
-    ...Object.fromEntries(
-      Object.entries(error.details).filter(
-        ([key]) => !(/* @__PURE__ */ new Set([
-          "phase",
-          "terminalDisposition",
-          "transaction",
-          "recoveryRequired"
-        ])).has(key)
-      )
-    )
-  };
+async function runPromoteDraftCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments,
+    execute: promoteDraftWorkflow,
+    stdout
+  });
 }
-function textResult5(result) {
-  const lines = [`Status: ${result.status}`];
-  if (result.code) {
-    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
-  }
-  if (result.transaction) {
-    lines.push(`Transaction: ${result.transaction}`);
-  }
-  if (result.indexTreeOid) {
-    lines.push(`Index tree: ${result.indexTreeOid}`);
-  }
-  return `${lines.join("\n")}
-`;
-}
-function runPromoteDraftCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  let transactionPath = null;
-  try {
-    const options = parseArguments(argv);
-    format = options.format;
-    transactionPath = resolve14(options.transactionPath);
-    const result = promoteDraftWorkflow({ transactionPath });
-    stdout.write(
-      format === "text" ? textResult5(result) : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof PromotionError ? caught : new PromotionError("PROMOTION_FAILED", caught.message);
-    const result = errorEnvelope3(error, transactionPath);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      format === "text" ? textResult5(result) : `${JSON.stringify(result)}
-`
-    );
-    return error.exitCode;
-  }
-}
-var STRICT_UTF8_DECODER7, FULL_OID_PATTERN4, PROMOTABLE_STATES, PromotionError;
+var STRICT_UTF8_DECODER7, FULL_OID_PATTERN4, PROMOTABLE_STATES;
 var init_promoteDraftWorkflow = __esm({
   "src/committing-to-git/workflow/promoteDraftWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_commandArguments();
     init_gitRepository();
     init_inlineEvidenceCapsule();
     init_reviewCatalog();
@@ -12580,15 +13089,6 @@ var init_promoteDraftWorkflow = __esm({
       JSON.stringify(["authoring-pending", "authoring-pending"]),
       JSON.stringify(["message-ready", "message-ready"])
     ]);
-    PromotionError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "PromotionError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -12686,12 +13186,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve28, reject) {
+        return new Promise(function(resolve30, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve28(is);
+              resolve30(is);
             }
           });
         });
@@ -12757,27 +13257,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve28, reject) => {
+      const step = (i) => new Promise((resolve30, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve28(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve30(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve28(subStep(p, i, 0));
+        resolve30(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve28, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve30, reject) => {
         if (ii === pathExt.length)
-          return resolve28(step(i + 1));
+          return resolve30(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve28(p + ext);
+              return resolve30(p + ext);
           }
-          return resolve28(subStep(p, i, ii + 1));
+          return resolve30(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -13101,7 +13601,7 @@ import {
   realpathSync as realpathSync6,
   writeFileSync as writeFileSync9
 } from "node:fs";
-import { join as join10, relative as relative7, resolve as resolve15 } from "node:path";
+import { join as join10, relative as relative7, resolve as resolve16 } from "node:path";
 function assertContained2(parent, child) {
   const path = relative7(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -13113,12 +13613,12 @@ function ensureDirectory3(path, label) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync6(path) !== resolve15(path)) {
+  if (realpathSync6(path) !== resolve16(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function processLogDirectory(attemptDirectory) {
-  const normalizedAttempt = resolve15(attemptDirectory);
+  const normalizedAttempt = resolve16(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
   const directory = join10(normalizedAttempt, "process-logs");
   assertContained2(normalizedAttempt, directory);
@@ -13235,12 +13735,12 @@ function diagnosticForChannel(channel, capture, remaining) {
   pieces.push(tail);
   return Buffer.concat(pieces).subarray(0, remaining);
 }
-function failureDiagnostic(output2) {
+function failureDiagnostic(output) {
   const pieces = [];
   let remaining = CHECK_FAILURE_DIAGNOSTIC_BYTES;
   const channels = [
-    ["stderr", output2.stderr],
-    ["stdout", output2.stdout]
+    ["stderr", output.stderr],
+    ["stdout", output.stdout]
   ].filter(([, capture]) => capture.facts.totalByteCount > 0);
   for (const [index, [channel, capture]] of channels.entries()) {
     const channelBudget = Math.floor(remaining / (channels.length - index));
@@ -13304,7 +13804,7 @@ function captureCheckProcessOutput({
           "stderr",
           captures.stderr
         );
-        const output2 = {
+        const output = {
           schemaVersion: 1,
           stdout: stdout.facts,
           stderr: stderr.facts
@@ -13316,7 +13816,7 @@ function captureCheckProcessOutput({
           launchError,
           timedOut,
           outcome,
-          output: output2,
+          output,
           diagnostic: failureDiagnostic({ stdout, stderr })
         });
       } catch (error) {
@@ -13335,7 +13835,7 @@ var init_checkOutputCapture = __esm({
 
 // src/committing-to-git/checks/checkWorkspace.js
 import { lstatSync as lstatSync12 } from "node:fs";
-import { resolve as resolve16, sep as sep4 } from "node:path";
+import { resolve as resolve17, sep as sep4 } from "node:path";
 function rawPath(value, label) {
   if (typeof value !== "string") {
     throw new Error(`${label} must be a base64-encoded raw Git path.`);
@@ -13415,13 +13915,13 @@ function objectEnvironment(manifest) {
     } : {}
   };
 }
-function rawFilesystemPath(root, pathBytes3) {
-  const rootPrefix = Buffer.from(`${resolve16(root)}${sep4}`, "utf8");
-  return Buffer.concat([rootPrefix, pathBytes3]);
+function rawFilesystemPath(root, pathBytes) {
+  const rootPrefix = Buffer.from(`${resolve17(root)}${sep4}`, "utf8");
+  return Buffer.concat([rootPrefix, pathBytes]);
 }
-function pathIsAbsent(root, pathBytes3) {
+function pathIsAbsent(root, pathBytes) {
   try {
-    lstatSync12(rawFilesystemPath(root, pathBytes3));
+    lstatSync12(rawFilesystemPath(root, pathBytes));
     return false;
   } catch (error) {
     if (ABSENCE_ERRORS.has(error?.code)) {
@@ -13441,11 +13941,11 @@ function createDifferenceConsumer(selectedIdentities) {
         if (bytes[index] !== 0) {
           continue;
         }
-        const pathBytes3 = bytes.subarray(start, index);
-        if (pathBytes3.length === 0) {
+        const pathBytes = bytes.subarray(start, index);
+        if (pathBytes.length === 0) {
           throw new Error("Git emitted an empty diff-files path record.");
         }
-        if (!selectedIdentities.has(pathBytes3.toString("base64"))) {
+        if (!selectedIdentities.has(pathBytes.toString("base64"))) {
           throw new Error(
             "Projected workspace index emitted a path outside the selected subject."
           );
@@ -13514,7 +14014,7 @@ async function selectedWorktreeMatchesPreparedTree({
     presentMatches = !consumer.finish();
   }
   const absentMatches = subject.absent.every(
-    ([, pathBytes3]) => pathIsAbsent(root, pathBytes3)
+    ([, pathBytes]) => pathIsAbsent(root, pathBytes)
   );
   return {
     matches: presentMatches && absentMatches,
@@ -13957,13 +14457,13 @@ function statusEntries(field) {
   }
   const recordType = String.fromCharCode(field[0]);
   if (recordType === "?") {
-    const pathBytes4 = field.subarray(2);
+    const pathBytes2 = field.subarray(2);
     return [
       {
         category: "untracked",
         status: "untracked",
-        pathBytes: pathBytes4,
-        compactDirectory: pathBytes4.at(-1) === 47
+        pathBytes: pathBytes2,
+        compactDirectory: pathBytes2.at(-1) === 47
       }
     ];
   }
@@ -13981,13 +14481,13 @@ function statusEntries(field) {
     return [];
   }
   const xy = field.subarray(2, 4).toString("ascii");
-  const pathBytes3 = bytesAfterSpaces2(field, recordType === "2" ? 9 : 8);
+  const pathBytes = bytesAfterSpaces2(field, recordType === "2" ? 9 : 8);
   const entries = [];
   if (xy[0] !== ".") {
     entries.push({
       category: "staged",
       status: statusLabel(xy[0]),
-      pathBytes: pathBytes3,
+      pathBytes,
       compactDirectory: false
     });
   }
@@ -13995,7 +14495,7 @@ function statusEntries(field) {
     entries.push({
       category: "unstaged",
       status: statusLabel(xy[1]),
-      pathBytes: pathBytes3,
+      pathBytes,
       compactDirectory: false
     });
   }
@@ -14465,13 +14965,13 @@ import {
   unlinkSync as unlinkSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute10, join as join11, relative as relative8, resolve as resolve17 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute10, join as join11, relative as relative8, resolve as resolve18 } from "node:path";
 function sha2565(bytes) {
   return createHash15("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
-  const normalizedLeft = resolve17(left);
-  const normalizedRight = resolve17(right);
+  const normalizedLeft = resolve18(left);
+  const normalizedRight = resolve18(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function assertContained3(parent, child, { allowSame = false } = {}) {
@@ -14481,7 +14981,7 @@ function assertContained3(parent, child, { allowSame = false } = {}) {
   }
 }
 function validateAttemptDirectory(transaction) {
-  const attempt = resolve17(transaction.attemptDirectory);
+  const attempt = resolve18(transaction.attemptDirectory);
   if (!ATTEMPT_PATTERN.test(basename2(attempt))) {
     throw new Error(
       "Transaction attempt directory does not contain its UUID handle."
@@ -14713,21 +15213,39 @@ function assertRecordedChildInactive({
     throw new Error("An index lock contradicts the no-live-child assertion.");
   }
 }
-function resultEnvelope2(transaction, status, exitCode, details = {}) {
-  return {
-    schemaVersion: 1,
+function commitRecoveryResult(transaction, status, disposition, { code = null, ...data } = {}) {
+  const transactionPath = join11(
+    transaction.attemptDirectory,
+    "transaction.json"
+  );
+  return createWorkflowResult({
+    disposition,
+    code,
     status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: join11(transaction.attemptDirectory, "transaction.json"),
+    transaction: transactionPath,
     route: transaction.route,
-    commitState: transaction.commit?.commitOid === null || transaction.commit === null ? "absent" : "created",
+    commitState: transaction.commit?.commitOid ? "created" : disposition === "outcome-unknown" ? "unknown" : "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
-    recoveryRequired: exitCode === 4,
-    exitCode,
-    ...details
-  };
+    recoveryRequired: disposition === "outcome-unknown",
+    recovery: {
+      kind: disposition === "outcome-unknown" ? "inspect-state" : "none",
+      automatic: false,
+      requiredInputs: [],
+      commands: disposition === "outcome-unknown" ? [
+        {
+          arguments: [
+            "workflow",
+            "recover",
+            "--transaction",
+            transactionPath
+          ]
+        }
+      ] : []
+    },
+    data: { ...data, terminalDisposition: transaction.terminalDisposition }
+  });
 }
 function recoverCommitOutcome({
   transactionPath,
@@ -14774,10 +15292,15 @@ function recoverCommitOutcome({
       ...transaction,
       commit: { ...transaction.commit, recoveryObservations: observations }
     });
-    return resultEnvelope2(transaction, "outcome-unknown", 4, {
-      code: "COMMIT_REF_UNSTABLE",
-      observations
-    });
+    return commitRecoveryResult(
+      transaction,
+      "outcome-unknown",
+      "outcome-unknown",
+      {
+        code: "COMMIT_REF_UNSTABLE",
+        observations
+      }
+    );
   }
   const witnessedCreatedCommit = witnessCompletedChild && transaction.commit.launchState === "completed" && transaction.commit.completion?.exitCode === 0;
   if (candidate !== null && (candidate.structurallyMatches || witnessedCreatedCommit) && after.oid === candidateOid) {
@@ -14793,7 +15316,7 @@ function recoverCommitOutcome({
         recoveryObservations: observations
       }
     });
-    return resultEnvelope2(transaction, status, 0, {
+    return commitRecoveryResult(transaction, status, "succeeded", {
       commitOid: candidateOid,
       commit: {
         treeMatches: candidate.comparison.treeMatches,
@@ -14839,7 +15362,7 @@ function recoverCommitOutcome({
         recoveryObservations: observations
       }
     });
-    return resultEnvelope2(transaction, "stopped", 1, {
+    return commitRecoveryResult(transaction, "stopped", "rejected", {
       code: "COMMIT_NOT_CREATED",
       observations
     });
@@ -14851,10 +15374,15 @@ function recoverCommitOutcome({
       recoveryObservations: observations
     }
   });
-  return resultEnvelope2(transaction, "outcome-unknown", 4, {
-    code: candidate === null ? "COMMIT_OUTCOME_UNKNOWN" : "COMMIT_OUTCOME_AMBIGUOUS",
-    observations
-  });
+  return commitRecoveryResult(
+    transaction,
+    "outcome-unknown",
+    "outcome-unknown",
+    {
+      code: candidate === null ? "COMMIT_OUTCOME_UNKNOWN" : "COMMIT_OUTCOME_AMBIGUOUS",
+      observations
+    }
+  );
 }
 function validateTreeNoLinks(root, path = root) {
   const stat = lstatSync13(path);
@@ -14921,7 +15449,14 @@ function compactTerminalTransactionUnlocked({
   const transaction = readTransaction(transactionPath);
   const attempt = validateAttemptDirectory(transaction);
   if (!TERMINAL_PHASES.has(transaction.phase) || transaction.status === "outcome-unknown" || transaction.phase === "publication-pending") {
-    throw new Error("Cannot compact a pending or unknown transaction.");
+    throw new WorkflowDiagnosticError(
+      "CLEANUP_NOT_ALLOWED",
+      "Cannot compact a pending or unknown transaction.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
+    );
   }
   const names = [
     "preparation-index",
@@ -14949,27 +15484,30 @@ function compactTerminalTransactionUnlocked({
     names.push("process-logs");
   }
   const completed = [];
-  const failed = [];
+  const warnings = [];
   for (const name of names) {
     const path = join11(attempt, name);
     try {
       if (removeOwnedTarget(attempt, path, removeOperation)) {
         completed.push(path);
       }
-    } catch (error) {
-      failed.push({
-        path,
-        code: error.code ?? "CLEANUP_FAILED",
-        message: error.message
-      });
+    } catch {
+      warnings.push(
+        createWorkflowWarning({
+          code: "CLEANUP_TARGET_RETAINED",
+          message: "The helper-owned target was retained because safe removal could not be completed.",
+          details: [{ kind: "prerequisite", path }]
+        })
+      );
     }
   }
-  return {
-    schemaVersion: 1,
-    status: failed.length === 0 ? "cleaned" : "warning",
-    completed,
-    failed
-  };
+  return createWorkflowResult({
+    disposition: "succeeded",
+    status: "cleaned",
+    ...transactionDiagnosticState(transaction, transactionPath),
+    warnings,
+    data: { completed, commitOid: transaction.commit?.commitOid ?? null }
+  });
 }
 function compactTerminalTransaction(options) {
   const lock = acquireTransactionStateLock({
@@ -14986,7 +15524,14 @@ function purgeTransactionUnlocked({ transactionPath }) {
   let transaction = readTransaction(transactionPath);
   const attempt = validateAttemptDirectory(transaction);
   if (transaction.phase === "commit-pending" || transaction.phase === "publication-pending" || transaction.status === "outcome-unknown") {
-    throw new Error("Cannot purge a pending or unknown mutation.");
+    throw new WorkflowDiagnosticError(
+      "PURGE_NOT_ALLOWED",
+      "Cannot purge a pending or unknown mutation.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
+    );
   }
   if (PRECOMMIT_PHASES.has(transaction.phase)) {
     transaction = advanceTransaction(transactionPath, transaction.phase, {
@@ -14996,7 +15541,14 @@ function purgeTransactionUnlocked({ transactionPath }) {
       terminalDisposition: "abandoned"
     });
   } else if (!TERMINAL_PHASES.has(transaction.phase)) {
-    throw new Error("Transaction is not safe to purge.");
+    throw new WorkflowDiagnosticError(
+      "PURGE_NOT_ALLOWED",
+      "Transaction is not safe to purge.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
+    );
   }
   const capsule = Buffer.from(`${JSON.stringify(transaction)}
 `, "utf8");
@@ -15008,14 +15560,17 @@ function purgeTransactionUnlocked({ transactionPath }) {
     throw new Error("Transaction attempt changed before purge.");
   }
   removeWithRetry(attempt, { recursive: true });
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "purged",
-    formerPath,
-    finalCapsuleSha256: sha2565(capsule),
-    completed: [formerPath],
-    failed: []
-  };
+    ...transactionDiagnosticState(transaction, transactionPath),
+    data: {
+      commitOid: transaction.commit?.commitOid ?? null,
+      formerPath,
+      finalCapsuleSha256: sha2565(capsule),
+      completed: [formerPath]
+    }
+  });
 }
 function purgeTransaction(options) {
   const lock = acquireTransactionStateLock({
@@ -15036,6 +15591,9 @@ function purgeTransaction(options) {
 var FULL_OID_PATTERN5, ATTEMPT_PATTERN, PRECOMMIT_PHASES, TERMINAL_PHASES, WINDOWS_RETRY_CODES;
 var init_transactionRecovery = __esm({
   "src/committing-to-git/transaction/transactionRecovery.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
     init_gitRepository();
     init_canonicalMessageState();
     init_commitReport();
@@ -15064,16 +15622,15 @@ var init_transactionRecovery = __esm({
 // src/committing-to-git/workflow/runCheckWorkflow.js
 var runCheckWorkflow_exports = {};
 __export(runCheckWorkflow_exports, {
-  CheckWorkflowError: () => CheckWorkflowError,
   recoverCheckAttempt: () => recoverCheckAttempt,
   runCheckWorkflow: () => runCheckWorkflow,
   runCheckWorkflowCommand: () => runCheckWorkflowCommand
 });
 import { createHash as createHash16 } from "node:crypto";
 import { lstatSync as lstatSync14, realpathSync as realpathSync8 } from "node:fs";
-import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve18 } from "node:path";
+import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve19 } from "node:path";
 function fail8(code, message, options) {
-  throw new CheckWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2566(bytes) {
   return createHash16("sha256").update(bytes).digest("hex");
@@ -15086,7 +15643,7 @@ function readSnapshot(transactionPath, transaction) {
     label: "Recorded snapshot",
     allowPathReplacement: false
   });
-  if (resolve18(input.path) !== resolve18(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
+  if (resolve19(input.path) !== resolve19(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
     fail8(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
@@ -15095,10 +15652,9 @@ function readSnapshot(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER9.decode(input.bytes));
   } catch (error) {
-    fail8(
-      "SNAPSHOT_ARTIFACT_INVALID",
-      `Snapshot JSON is invalid: ${error.message}`
-    );
+    fail8("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+      cause: error
+    });
   }
 }
 function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
@@ -15109,9 +15665,13 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   try {
     validateCheckContext(context);
   } catch (error) {
-    fail8("CHECK_CONTEXT_INVALID", error.message);
+    fail8(
+      "CHECK_CONTEXT_INVALID",
+      "The check working directory must be a repository-relative directory.",
+      { cause: error }
+    );
   }
-  const candidate = resolve18(repositoryRoot2, requestedDirectory);
+  const candidate = resolve19(repositoryRoot2, requestedDirectory);
   const stat = lstatSync14(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail8(
@@ -15177,7 +15737,10 @@ function assertRetryContract(transaction, retryAfterAttempt) {
     fail8(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${latest.receiptId} has no durable outcome; confirm no child remains live before retrying.`,
-      { exitCode: 4, details: { receiptId: latest.receiptId } }
+      {
+        disposition: "outcome-unknown",
+        details: { receiptId: latest.receiptId }
+      }
     );
   }
   if (retryAfterAttempt === null) {
@@ -15202,25 +15765,34 @@ function checkRecoveryResult({
   status,
   code,
   recoveryRequired,
-  exitCode
+  disposition
 }) {
   const attempt = transaction.checkAttempts.at(-1);
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition,
     status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve18(transactionPath),
+    transaction: resolve19(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired,
     code,
-    receiptId: attempt.receiptId,
-    retryRequired: !recoveryRequired,
-    exitCode
-  };
+    recovery: {
+      kind: recoveryRequired ? "inspect-state" : "human-decision",
+      automatic: false,
+      requiredInputs: [
+        recoveryRequired ? "confirmation that the recorded child is inactive" : "explicit authorization to retry the recorded check"
+      ],
+      commands: []
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receiptId: attempt.receiptId,
+      retryRequired: !recoveryRequired
+    }
+  });
 }
 function recoverCheckAttempt({
   transactionPath,
@@ -15241,7 +15813,7 @@ function recoverCheckAttempt({
       status: "check-outcome-unknown",
       code: "CHECK_OUTCOME_UNKNOWN",
       recoveryRequired: true,
-      exitCode: 4
+      disposition: "outcome-unknown"
     });
   }
   if (resolution !== "confirmed-no-live-child") {
@@ -15260,9 +15832,10 @@ function recoverCheckAttempt({
   } catch (error) {
     fail8(
       "CHECK_CHILD_STILL_LIVE",
-      `The interrupted check cannot be resolved yet: ${error.message}`,
+      "The interrupted check cannot be resolved until the child is confirmed stopped.",
       {
-        exitCode: 4,
+        cause: error,
+        disposition: "outcome-unknown",
         details: { receiptId: attempt.receiptId, recoveryRequired: true }
       }
     );
@@ -15303,7 +15876,7 @@ function recoverCheckAttempt({
     status: "check-recovery-resolved",
     code: "CHECK_RETRY_REQUIRED",
     recoveryRequired: false,
-    exitCode: 1
+    disposition: "rejected"
   });
 }
 function completionOutcomeFacts(capture) {
@@ -15328,42 +15901,30 @@ function receiptSummary(attempt) {
     selectedScopeStable: attempt.workspace.before.matches && attempt.workspace.after?.matches === true
   };
 }
-function displayFor(result) {
-  const receipt = result.receipt;
-  const command = [
-    receipt.command.executable,
-    ...receipt.command.arguments.map((argument) => JSON.stringify(argument))
-  ].join(" ");
-  return [
-    `Status: ${result.status}`,
-    `Receipt: ${receipt.receiptId}`,
-    `Check: ${receipt.label}`,
-    `Command: ${command}`,
-    `Outcome: ${receipt.outcome}`,
-    `Exit: ${receipt.exitCode ?? receipt.signal ?? "unavailable"}`,
-    `Context: ${receipt.context}`,
-    `Selected scope stable: ${receipt.selectedScopeStable ? "yes" : "no"}`,
-    ""
-  ].join("\n");
-}
-function resultFor({ transactionPath, transaction, attempt, code, exitCode }) {
+function resultFor({
+  transactionPath,
+  transaction,
+  attempt,
+  code,
+  disposition
+}) {
   const receipt = receiptSummary(attempt);
-  const result = {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition,
     status: code === null ? "check-passed" : code === "CHECK_SCOPE_DRIFT" ? "stopped" : "check-failed",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve18(transactionPath),
+    transaction: resolve19(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
     code,
-    receipt,
-    exitCode
-  };
-  return { ...result, displayText: displayFor(result) };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receipt
+    }
+  });
 }
 async function runCheckWorkflow({
   transactionPath,
@@ -15380,7 +15941,11 @@ async function runCheckWorkflow({
   try {
     validateCheckCommand(command);
   } catch (error) {
-    fail8("CHECK_COMMAND_INVALID", error.message);
+    fail8(
+      "CHECK_COMMAND_INVALID",
+      "Supply one executable and an array of literal arguments, without a shell command string.",
+      { cause: error }
+    );
   }
   let transaction = readTransaction(transactionPath);
   if (!ACTIVE_CHECK_PHASES.has(transaction.phase)) {
@@ -15407,22 +15972,20 @@ async function runCheckWorkflow({
       status: "stopped",
       terminalDisposition: "no-commit-stopped"
     });
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
       status: "stopped",
       phase: stopped.phase,
-      terminalDisposition: stopped.terminalDisposition,
-      transaction: resolve18(transactionPath),
+      transaction: resolve19(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
       publicationAllowed: false,
       recoveryRequired: false,
       code: "CHECK_SCOPE_DRIFT",
-      receipt: null,
-      exitCode: 1,
-      displayText: "Status: stopped\nCode: CHECK_SCOPE_DRIFT\nThe selected worktree no longer matches the prepared tree.\n"
-    };
+      disposition: "rejected",
+      message: "The selected worktree no longer matches the prepared tree.",
+      data: { receipt: null, terminalDisposition: stopped.terminalDisposition }
+    });
   }
   const receiptId = nextReceiptId(transaction);
   const started = now();
@@ -15488,14 +16051,15 @@ async function runCheckWorkflow({
       },
       workspace: { ...current.workspace, after }
     }));
-    diagnosticWriter.write(`${error.message}
-`);
+    diagnosticWriter.write(
+      "CHECK_LAUNCH_FAILED: The check executable could not be launched; inspect the recorded receipt.\n"
+    );
     return resultFor({
       transactionPath,
       transaction,
       attempt: transaction.checkAttempts.at(-1),
       code: "CHECK_LAUNCH_FAILED",
-      exitCode: 1
+      disposition: "rejected"
     });
   }
   const capturePromise = captureCheckProcessOutput({
@@ -15540,9 +16104,33 @@ async function runCheckWorkflow({
   } catch (error) {
     fail8(
       "CHECK_OUTCOME_UNKNOWN",
-      `The check child may have run, but its terminal receipt could not be recorded: ${error.message}`,
+      "The check child may have run, but its terminal receipt could not be recorded. Inspect its journal before considering another execution.",
       {
-        exitCode: 4,
+        disposition: "outcome-unknown",
+        cause: error,
+        state: {
+          transaction: resolve19(transactionPath),
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState: "absent",
+          publicationState: "not-requested",
+          recoveryRequired: true
+        },
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: [],
+          commands: [
+            {
+              arguments: [
+                "workflow",
+                "recover",
+                "--transaction",
+                resolve19(transactionPath)
+              ]
+            }
+          ]
+        },
         details: { receiptId, recoveryRequired: true }
       }
     );
@@ -15563,7 +16151,7 @@ async function runCheckWorkflow({
       transaction,
       attempt: completed,
       code: "CHECK_SCOPE_DRIFT",
-      exitCode: 1
+      disposition: "rejected"
     });
   }
   if (completed.completion.outcome !== "passed") {
@@ -15581,7 +16169,7 @@ async function runCheckWorkflow({
       transaction,
       attempt: completed,
       code: codeByOutcome[completed.completion.outcome],
-      exitCode: 1
+      disposition: "rejected"
     });
   }
   return resultFor({
@@ -15589,45 +16177,22 @@ async function runCheckWorkflow({
     transaction,
     attempt: completed,
     code: null,
-    exitCode: 0
+    disposition: "succeeded"
   });
 }
 function parseArguments2(argv) {
-  const separator = argv.indexOf("--");
-  if (separator < 0 || separator === argv.length - 1) {
+  const { values: flags, childArguments: commandArguments } = parseCommandArguments("workflow check", argv);
+  if (!flags.has("transaction")) {
+    fail8(
+      "CHECK_TRANSACTION_REQUIRED",
+      "workflow check requires --transaction <transaction.json>."
+    );
+  }
+  if (commandArguments.length === 0 || commandArguments[0] === "") {
     fail8(
       "CHECK_COMMAND_REQUIRED",
       "workflow check requires -- followed by an executable and argument vector."
     );
-  }
-  const flagArguments = argv.slice(0, separator);
-  const commandArguments = argv.slice(separator + 1);
-  const allowed = /* @__PURE__ */ new Set([
-    "transaction",
-    "label",
-    "retry-after-attempt",
-    "working-directory",
-    "timeout-ms",
-    "format"
-  ]);
-  const flags = /* @__PURE__ */ new Map();
-  for (let index = 0; index < flagArguments.length; index += 2) {
-    const key = flagArguments[index];
-    const value = flagArguments[index + 1];
-    if (typeof key !== "string" || !key.startsWith("--") || typeof value !== "string") {
-      fail8(
-        "CHECK_ARGUMENTS_INVALID",
-        "workflow check options require --name value pairs before the command separator."
-      );
-    }
-    const name = key.slice(2);
-    if (!allowed.has(name) || flags.has(name)) {
-      fail8(
-        "CHECK_ARGUMENTS_INVALID",
-        `Unknown or repeated workflow check option: ${key}.`
-      );
-    }
-    flags.set(name, value);
   }
   const timeoutText = flags.get("timeout-ms") ?? null;
   const timeoutMilliseconds = timeoutText === null ? null : Number(timeoutText);
@@ -15654,65 +16219,22 @@ function parseArguments2(argv) {
     }
   };
 }
-function invalidResult(error, transactionPath) {
-  const result = {
-    schemaVersion: 1,
-    status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: typeof transactionPath === "string" ? resolve18(transactionPath) : null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.exitCode === 4,
-    code: error.code ?? "CHECK_WORKFLOW_FAILED",
-    message: error.message,
-    ...error.details,
-    exitCode: error.exitCode ?? 2
-  };
-  return {
-    ...result,
-    displayText: `Status: ${result.status}
-Code: ${result.code}
-Message: ${result.message}
-`
-  };
-}
 async function runCheckWorkflowCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let options = null;
-  try {
-    options = parseArguments2(argv);
-    if (typeof options.transactionPath !== "string") {
-      fail8(
-        "CHECK_TRANSACTION_REQUIRED",
-        "workflow check requires --transaction <transaction.json>."
-      );
-    }
-    const result = await runCheckWorkflow({
-      ...options,
-      diagnosticWriter: stderr
-    });
-    stdout.write(
-      options.format === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-    );
-    return result.exitCode;
-  } catch (error) {
-    const failure = error instanceof CheckWorkflowError ? error : new CheckWorkflowError("CHECK_WORKFLOW_FAILED", error.message);
-    const result = invalidResult(failure, options?.transactionPath ?? null);
-    stderr.write(`${result.code}: ${result.message}
-`);
-    stdout.write(
-      options?.format === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-    );
-    return result.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments2,
+    execute: (options) => runCheckWorkflow({ ...options, diagnosticWriter: stderr }),
+    stdout
+  });
 }
-var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER9, CheckWorkflowError;
+var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER9;
 var init_runCheckWorkflow = __esm({
   "src/committing-to-git/workflow/runCheckWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_commandArguments();
     import_cross_spawn = __toESM(require_cross_spawn(), 1);
     init_checkOutputCapture();
     init_checkWorkspace();
@@ -15728,15 +16250,6 @@ var init_runCheckWorkflow = __esm({
     ]);
     MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1e3;
     STRICT_UTF8_DECODER9 = new TextDecoder("utf-8", { fatal: true });
-    CheckWorkflowError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "CheckWorkflowError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -15757,9 +16270,9 @@ import {
   readFileSync as readFileSync9,
   realpathSync as realpathSync9
 } from "node:fs";
-import { join as join12, resolve as resolve19 } from "node:path";
+import { join as join12, resolve as resolve20 } from "node:path";
 function fail9(code, message, options) {
-  throw new CheckDetailError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2567(bytes) {
   return createHash17("sha256").update(bytes).digest("hex");
@@ -15824,40 +16337,30 @@ function detailResult({
   pageSha256,
   content
 }) {
-  const result = {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "check-detail",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve19(transactionPath),
+    transaction: resolve20(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
     publicationAllowed: transaction.report?.publicationAllowed ?? false,
     recoveryRequired: false,
-    receiptId,
-    stream,
-    segment,
-    offset,
-    nextOffset,
-    complete,
-    byteCount,
-    segmentByteCount,
-    pageSha256,
-    content,
-    exitCode: 0
-  };
-  return {
-    ...result,
-    displayText: [
-      `Receipt: ${receiptId}`,
-      `Segment: ${stream}/${segment}`,
-      `Bytes: ${offset}-${nextOffset} of ${segmentByteCount}`,
-      `Complete: ${complete ? "yes" : "no"}`,
-      `Content (${content.encoding}, JSON string): ${JSON.stringify(content.value)}`,
-      ""
-    ].join("\n")
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receiptId,
+      stream,
+      segment,
+      offset,
+      nextOffset,
+      complete,
+      byteCount,
+      segmentByteCount,
+      pageSha256,
+      content
+    }
+  });
 }
 function readBoundSegment({
   transaction,
@@ -15869,15 +16372,15 @@ function readBoundSegment({
   recordedSha256
 }) {
   const expectedPath = join12(
-    resolve19(transaction.attemptDirectory),
+    resolve20(transaction.attemptDirectory),
     "process-logs",
     `check-${receiptId}-${stream}-${segment}.bin`
   );
-  if (resolve19(recordedPath) !== expectedPath) {
+  if (resolve20(recordedPath) !== expectedPath) {
     fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   let initial;
@@ -15886,15 +16389,15 @@ function readBoundSegment({
   } catch (error) {
     fail9(
       "CHECK_DETAIL_UNAVAILABLE",
-      `The retained output segment is unavailable: ${error.code ?? error.message}.`,
-      { exitCode: 1 }
+      "The retained output segment is unavailable.",
+      { disposition: "rejected", cause: error }
     );
   }
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve19(expectedPath)) {
+  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve20(expectedPath)) {
     fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output segment was replaced or is not a regular file.",
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const noFollow = process.platform === "win32" ? 0 : fsConstants9.O_NOFOLLOW;
@@ -15904,8 +16407,8 @@ function readBoundSegment({
   } catch (error) {
     fail9(
       "CHECK_DETAIL_UNAVAILABLE",
-      `The retained output segment cannot be opened: ${error.code ?? error.message}.`,
-      { exitCode: 1 }
+      "The retained output segment cannot be opened.",
+      { disposition: "rejected", cause: error }
     );
   }
   try {
@@ -15917,18 +16420,18 @@ function readBoundSegment({
       fail9(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
         "The retained output segment no longer matches its witnessed receipt.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
     return bytes;
   } catch (error) {
-    if (error instanceof CheckDetailError) {
+    if (error instanceof WorkflowDiagnosticError) {
       throw error;
     }
     fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
-      `The retained output segment changed while it was read: ${error.message}.`,
-      { exitCode: 1 }
+      "The retained output segment changed while it was read.",
+      { disposition: "rejected", cause: error }
     );
   } finally {
     closeSync12(descriptor);
@@ -15973,14 +16476,14 @@ function checkDetailWorkflow({
     fail9(
       "CHECK_DETAIL_RECEIPT_NOT_FOUND",
       `Receipt ${receiptId} is not part of this transaction.`,
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   if (attempt.output === null) {
     fail9(
       "CHECK_DETAIL_UNAVAILABLE",
       `Receipt ${receiptId} has no retained process output.`,
-      { exitCode: 1 }
+      { disposition: "rejected" }
     );
   }
   const channel = attempt.output[stream];
@@ -16034,129 +16537,57 @@ function checkDetailWorkflow({
     content: contentFor(page)
   });
 }
-function parseFlags(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (typeof token !== "string" || !token.startsWith("--") || typeof value !== "string") {
-      fail9(
-        "CHECK_DETAIL_ARGUMENTS_INVALID",
-        "workflow check-detail options require --name value pairs."
-      );
-    }
-    const name = token.slice(2);
-    if (!(/* @__PURE__ */ new Set([
-      "transaction",
-      "receipt",
-      "stream",
-      "segment",
-      "offset",
-      "format"
-    ])).has(name) || values.has(name)) {
-      fail9(
-        "CHECK_DETAIL_ARGUMENTS_INVALID",
-        `Unknown or repeated workflow check-detail option: ${token}.`
-      );
-    }
-    values.set(name, value);
-  }
-  return values;
-}
-function invalidResult2(error, transactionPath) {
-  const result = {
-    schemaVersion: 1,
-    status: "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: typeof transactionPath === "string" ? resolve19(transactionPath) : null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code ?? "CHECK_DETAIL_FAILED",
-    message: error.message,
-    ...error.details,
-    exitCode: error.exitCode ?? 2
-  };
+function parseArguments3(argv) {
+  const flags = parseCommandArguments("workflow check-detail", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail9(
+      "CHECK_DETAIL_FORMAT_INVALID",
+      "Check detail output format must be json or text."
+    );
+  const transactionPath = flags.get("transaction");
+  if (typeof transactionPath !== "string")
+    fail9(
+      "CHECK_DETAIL_TRANSACTION_REQUIRED",
+      "workflow check-detail requires --transaction <transaction.json>."
+    );
   return {
-    ...result,
-    displayText: `Status: invalid
-Code: ${result.code}
-Message: ${result.message}
-`
+    transactionPath,
+    format,
+    receiptId: flags.get("receipt") ?? null,
+    stream: flags.get("stream") ?? null,
+    segment: flags.get("segment") ?? null,
+    offset: Number(flags.get("offset") ?? "0")
   };
 }
-function runCheckDetailCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let flags = null;
-  try {
-    flags = parseFlags(argv);
-    const format = flags.get("format") ?? "json";
-    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail9(
-        "CHECK_DETAIL_FORMAT_INVALID",
-        "Check detail output format must be json or text."
-      );
-    }
-    const transactionPath = flags.get("transaction");
-    if (typeof transactionPath !== "string") {
-      fail9(
-        "CHECK_DETAIL_TRANSACTION_REQUIRED",
-        "workflow check-detail requires --transaction <transaction.json>."
-      );
-    }
-    const offsetText = flags.get("offset") ?? "0";
-    const offset = Number(offsetText);
-    const result = checkDetailWorkflow({
-      transactionPath,
-      receiptId: flags.get("receipt") ?? null,
-      stream: flags.get("stream") ?? null,
-      segment: flags.get("segment") ?? null,
-      offset
-    });
-    stdout.write(
-      format === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-    );
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof CheckDetailError ? caught : new CheckDetailError("CHECK_DETAIL_FAILED", caught.message);
-    const result = invalidResult2(error, flags?.get("transaction") ?? null);
-    const format = flags?.get("format") ?? "json";
-    stderr.write(`${result.code}: ${result.message}
-`);
-    stdout.write(
-      format === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-    );
-    return result.exitCode;
-  }
+async function runCheckDetailCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments3,
+    execute: checkDetailWorkflow,
+    stdout
+  });
 }
-var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER10, RECEIPT_ID_PATTERN2, CheckDetailError;
+var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER10, RECEIPT_ID_PATTERN2;
 var init_checkDetailWorkflow = __esm({
   "src/committing-to-git/workflow/checkDetailWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_commandArguments();
     init_transactionWorkspace();
     CHECK_DETAIL_PAGE_BYTES = 16 * 1024;
     STRICT_UTF8_DECODER10 = new TextDecoder("utf-8", { fatal: true });
     RECEIPT_ID_PATTERN2 = /^C[0-9]{6}$/u;
-    CheckDetailError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "CheckDetailError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
 // src/committing-to-git/snapshot/verifySnapshot.js
-import { resolve as resolve20 } from "node:path";
+import { resolve as resolve21 } from "node:path";
 function samePath4(left, right) {
-  const normalizedLeft = resolve20(left);
-  const normalizedRight = resolve20(right);
+  const normalizedLeft = resolve21(left);
+  const normalizedRight = resolve21(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function manifestEnvironment2(manifest) {
@@ -16254,7 +16685,7 @@ import {
   realpathSync as realpathSync10,
   writeSync
 } from "node:fs";
-import { dirname as dirname9, join as join13, relative as relative10, resolve as resolve21 } from "node:path";
+import { dirname as dirname9, join as join13, relative as relative10, resolve as resolve22 } from "node:path";
 function assertContained4(parent, child) {
   const path = relative10(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -16268,12 +16699,12 @@ function ensureDirectory4(path, label) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync10(path) !== resolve21(path)) {
+  if (realpathSync10(path) !== resolve22(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function openTranscript(attemptDirectory, operation, instanceId) {
-  const normalizedAttempt = resolve21(attemptDirectory);
+  const normalizedAttempt = resolve22(attemptDirectory);
   ensureDirectory4(normalizedAttempt, "Transaction attempt directory");
   const directory = join13(normalizedAttempt, "process-logs");
   assertContained4(normalizedAttempt, directory);
@@ -16317,7 +16748,7 @@ function completionDigest(value) {
 }
 function captureGitProcessTranscript({
   transactionPath,
-  attemptDirectory = dirname9(resolve21(transactionPath)),
+  attemptDirectory = dirname9(resolve22(transactionPath)),
   operation,
   instanceId = null,
   child,
@@ -16340,8 +16771,8 @@ function captureGitProcessTranscript({
       "Git transcript capture requires one streaming child process."
     );
   }
-  const normalizedAttempt = resolve21(attemptDirectory);
-  const normalizedTransactionPath = resolve21(transactionPath);
+  const normalizedAttempt = resolve22(attemptDirectory);
+  const normalizedTransactionPath = resolve22(transactionPath);
   if (dirname9(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
@@ -16491,18 +16922,18 @@ function assertPolicy(policy, label) {
     throw new Error(`${label} must be required, advisory, or skipped.`);
   }
 }
-function sshIdentity(output2) {
+function sshIdentity(output) {
   const match = /Good "git" signature for (?<principal>.+?) with \S+ key (?<keyFingerprint>SHA256:\S+)/u.exec(
-    output2
+    output
   );
   return match ? {
     principal: match.groups.principal,
     keyFingerprint: match.groups.keyFingerprint
   } : null;
 }
-function openPgpIdentity(output2) {
-  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output2);
-  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output2);
+function openPgpIdentity(output) {
+  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output);
+  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output);
   if (!goodSignature || !validSignature) {
     return null;
   }
@@ -16535,18 +16966,18 @@ function identityMatchesBackend(backend, identity2) {
   }
   return false;
 }
-function trustStoreIsUnreadable(output2) {
-  return /allowed[ -]?(?:signers|keys)|allowedSignersFile/iu.test(output2) && /permission denied|access is denied|could not open|cannot open|unable to open|no such file|not found/iu.test(
-    output2
+function trustStoreIsUnreadable(output) {
+  return /allowed[ -]?(?:signers|keys)|allowedSignersFile/iu.test(output) && /permission denied|access is denied|could not open|cannot open|unable to open|no such file|not found/iu.test(
+    output
   );
 }
 function classifySignatureVerification(result, { backend = null, timestamp = (/* @__PURE__ */ new Date()).toISOString() } = {}) {
   const stdout = Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8");
   const stderr = Buffer.from(result.stderr ?? Buffer.alloc(0)).toString("utf8");
-  const output2 = `${stdout}
+  const output = `${stdout}
 ${stderr}`.trim();
-  const observedSshIdentity = sshIdentity(output2);
-  const observedOpenPgpIdentity = openPgpIdentity(output2);
+  const observedSshIdentity = sshIdentity(output);
+  const observedOpenPgpIdentity = openPgpIdentity(output);
   const observedBackend = observedSshIdentity ? "ssh" : observedOpenPgpIdentity ? "openpgp" : backend;
   const identity2 = observedSshIdentity ?? observedOpenPgpIdentity;
   if (result.status === 0 && identity2 !== null) {
@@ -16558,7 +16989,7 @@ ${stderr}`.trim();
       timestamp
     };
   }
-  const unavailable = trustStoreIsUnreadable(output2);
+  const unavailable = trustStoreIsUnreadable(output);
   return {
     status: unavailable ? "unavailable" : "failed",
     reason: unavailable ? "trust-store-unreadable" : "verification-failed",
@@ -16671,7 +17102,6 @@ var init_commitSignature = __esm({
 // src/committing-to-git/workflow/createCommitWorkflow.js
 var createCommitWorkflow_exports = {};
 __export(createCommitWorkflow_exports, {
-  CommitWorkflowError: () => CommitWorkflowError,
   MAXIMUM_COMMIT_RESULT_BYTES: () => MAXIMUM_COMMIT_RESULT_BYTES,
   completeRecordedCommit: () => completeRecordedCommit,
   createCommitWorkflow: () => createCommitWorkflow,
@@ -16692,10 +17122,10 @@ import {
   renameSync as renameSync5,
   writeFileSync as writeFileSync11
 } from "node:fs";
-import { dirname as dirname10, join as join14, resolve as resolve22 } from "node:path";
+import { dirname as dirname10, join as join14, resolve as resolve23 } from "node:path";
 import { TextDecoder as TextDecoder10 } from "node:util";
 function fail10(code, message, options) {
-  throw new CommitWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2568(bytes) {
   return createHash19("sha256").update(bytes).digest("hex");
@@ -16723,7 +17153,7 @@ function readSnapshot2(transactionPath, transaction) {
     label: "Recorded snapshot",
     allowPathReplacement: false
   });
-  if (resolve22(input.path) !== resolve22(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
+  if (resolve23(input.path) !== resolve23(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
     fail10(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
@@ -16732,33 +17162,37 @@ function readSnapshot2(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER11.decode(input.bytes));
   } catch (error) {
-    fail10(
-      "SNAPSHOT_ARTIFACT_INVALID",
-      `Snapshot JSON is invalid: ${error.message}`
-    );
+    fail10("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+      cause: error
+    });
   }
 }
 function directMessage(transactionPath, transaction, manifest, approvedSubject) {
   if (typeof approvedSubject !== "string" || !canUseDirectSubjectTransport(approvedSubject)) {
     fail10(
       "MESSAGE_REQUIRES_CHECKED_FILE",
-      "This message must be supplied through the fixed message-input.txt check route."
+      "This message must be supplied through the fixed message-input.txt check route.",
+      {
+        state: {
+          transaction: resolve23(transactionPath),
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState: "absent",
+          publicationState: "not-requested"
+        },
+        ...messageAuthoringRecovery(transaction, transactionPath)
+      }
     );
   }
   const bytes = Buffer.from(`${approvedSubject}
 `, "utf8");
-  let validation;
-  try {
-    validation = validateApprovedMessage({
-      manifest,
-      route: "concise",
-      bytes,
-      repositoryTypePolicy: transaction.repositoryTypePolicy,
-      messageSource: "approved-subject"
-    });
-  } catch (error) {
-    fail10(error.code ?? "MESSAGE_INVALID", error.message);
-  }
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "concise",
+    bytes,
+    repositoryTypePolicy: transaction.repositoryTypePolicy,
+    messageSource: "approved-subject"
+  });
   return replaceCanonicalMessage({
     transactionPath,
     bytes,
@@ -16797,7 +17231,12 @@ function selectCanonicalMessage({
   }
   fail10(
     "COMMIT_PHASE_INVALID",
-    `Transaction phase ${transaction.phase} cannot create a commit.`
+    `Transaction phase ${transaction.phase} cannot create a commit.`,
+    {
+      disposition: "unmet-prerequisite",
+      state: transactionDiagnosticState(transaction, transactionPath),
+      ...messageAuthoringRecovery(transaction, transactionPath)
+    }
   );
 }
 function preflightCommitVerification({
@@ -16819,32 +17258,14 @@ function preflightCommitVerification({
     });
   }
   if (finalPolicy === "required" && transaction.signaturePreflight?.backend === "ssh" && transaction.signaturePreflight.trustSource?.state !== "readable") {
-    const failure = describeSshTrustSourceFailure(
-      transaction.signaturePreflight.trustSource
-    );
-    fail10("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
-      exitCode: 1,
-      details: {
-        status: "capability-required",
-        phase: transaction.phase,
-        terminalDisposition: transaction.terminalDisposition,
-        transaction: resolve22(transactionPath),
-        route: transaction.route,
-        commitState: "absent",
-        publicationState: "not-requested",
-        publicationAllowed: false,
-        recoveryRequired: false,
-        ...failure.capability === null ? {} : { capability: failure.capability },
-        action: failure.action,
-        trustSource: failure.trustSource,
-        verificationPolicy: finalPolicy,
-        policyAlternatives: failure.policyAlternatives
-      }
+    throw signatureTrustDiagnostic(transaction.signaturePreflight.trustSource, {
+      verificationPolicy: finalPolicy,
+      state: transactionDiagnosticState(transaction, transactionPath)
     });
   }
   return transaction;
 }
-function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
+function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailedCheckIds) {
   const readiness = analyzeCheckCommitReadiness(
     transaction.checkAttempts,
     acknowledgedFailedCheckIds
@@ -16854,7 +17275,7 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
       "CHECK_RECOVERY_REQUIRED",
       `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
       {
-        exitCode: 4,
+        disposition: "outcome-unknown",
         details: {
           receiptIds: readiness.activeAttemptIds,
           recoveryRequired: true
@@ -16866,7 +17287,10 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
     fail10(
       "CHECK_RETRY_REQUIRED",
       `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
-      { exitCode: 1, details: { receiptIds: readiness.retryRequiredIds } }
+      {
+        disposition: "unmet-prerequisite",
+        details: { receiptIds: readiness.retryRequiredIds }
+      }
     );
   }
   if (readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
@@ -16885,11 +17309,32 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
   if (readiness.missingAcknowledgementIds.length > 0) {
     fail10(
       "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
-      `Exact commit authorization must acknowledge non-passing check ${readiness.missingAcknowledgementIds.join(", ")}.`,
+      "Exact commit authorization must acknowledge every non-passing receipt. Review the listed receipt IDs; retain explicitly approved acknowledgement arguments to reveal any remaining IDs on the next invocation.",
       {
-        exitCode: 1,
+        disposition: "unmet-prerequisite",
+        state: {
+          transaction: transactionPath,
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState: transaction.commit === null ? "absent" : transaction.commit.commitOid ? "created" : "unknown",
+          publicationState: "not-requested"
+        },
+        recovery: {
+          kind: "human-decision",
+          automatic: false,
+          requiredInputs: [
+            "exact commit authorization",
+            "explicit acknowledgement of every listed non-passing receipt ID"
+          ],
+          commands: []
+        },
         details: {
-          receiptIds: readiness.missingAcknowledgementIds,
+          receiptIds: readiness.missingAcknowledgementIds.slice(0, 32),
+          missingReceiptCount: readiness.missingAcknowledgementIds.length,
+          omittedReceiptCount: Math.max(
+            0,
+            readiness.missingAcknowledgementIds.length - 32
+          ),
           action: "request-exact-commit-and-failed-check-approval"
         }
       }
@@ -16978,24 +17423,54 @@ function verificationAttemptFor({
     }
   );
 }
+function verificationDiagnostics(verification) {
+  const effectiveVerification = verification.attempts[verification.effectiveAttempt];
+  return verification.finalPolicy === "advisory" && effectiveVerification.status !== "verified" ? [
+    createWorkflowWarning({
+      code: "SIGNATURE_VERIFICATION_ADVISORY",
+      message: "The commit is signed, but signature trust was not verified under the advisory policy.",
+      documentation: "references/signature-recovery.md",
+      details: [
+        {
+          kind: "prerequisite",
+          policy: verification.finalPolicy,
+          status: effectiveVerification.status
+        }
+      ]
+    })
+  ] : [];
+}
 function reportResult(transactionPath, transaction, report, displayText, exitCode, cleanup) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: exitCode === 0 ? "succeeded" : "completed-with-failure",
+    code: exitCode === 0 ? null : "COMMIT_POLICY_BLOCKED",
+    message: exitCode === 0 ? null : "The commit exists, but comparison or signature policy blocks publication.",
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve22(transactionPath),
+    transaction: resolve23(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
     publicationState: report.publication.status === "blocked" ? "blocked" : "not-requested",
     publicationAllowed: transaction.report.publicationAllowed,
     recoveryRequired: false,
-    report,
-    displayText,
-    cleanup,
-    exitCode
-  };
+    warnings: [
+      ...cleanup?.warnings ?? [],
+      ...verificationDiagnostics(report.verification)
+    ],
+    recovery: {
+      kind: exitCode === 0 ? "none" : "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands: []
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      report,
+      displayText,
+      cleanup
+    }
+  });
 }
 function readRecordedReport(transactionPath) {
   const transaction = readTransaction(transactionPath);
@@ -17031,7 +17506,10 @@ async function completeRecordedCommit({
     fail10(
       "COMMIT_NOT_READY_FOR_REPORT",
       "A matching recorded commit is required before verification and reporting.",
-      { exitCode: 3 }
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
     );
   }
   const finalPolicy = verificationPolicyOverride ?? transaction.verification?.finalPolicy ?? transaction.verificationPolicy;
@@ -17083,7 +17561,7 @@ async function completeRecordedCommit({
   let displayText = renderCommitReport(report);
   if (Buffer.byteLength(
     JSON.stringify({
-      transaction: resolve22(transactionPath),
+      transaction: resolve23(transactionPath),
       report,
       displayText
     })
@@ -17100,7 +17578,10 @@ async function completeRecordedCommit({
     fail10(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The commit exists, but its final result exceeds the bounded report budget.",
-      { exitCode: 3 }
+      {
+        disposition: "completed-with-failure",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
     );
   }
   failureInjector("during-report-writing");
@@ -17134,19 +17615,22 @@ async function completeRecordedCommit({
       retainReviewArtifacts,
       retainProcessLogs
     });
-  } catch (error) {
-    cleanup = {
-      schemaVersion: 1,
-      status: "warning",
-      completed: [],
-      failed: [
-        {
-          path: transaction.attemptDirectory,
-          code: error.code ?? "COMPACTION_FAILED",
-          message: error.message
-        }
-      ]
-    };
+  } catch {
+    cleanup = createWorkflowResult({
+      disposition: "succeeded",
+      status: "cleaned",
+      ...transactionDiagnosticState(transaction, transactionPath),
+      warnings: [
+        createWorkflowWarning({
+          code: "COMPACTION_INCOMPLETE",
+          message: "The commit report is retained, but optional artifact compaction could not finish.",
+          details: [
+            { kind: "prerequisite", path: transaction.attemptDirectory }
+          ]
+        })
+      ],
+      data: { completed: [] }
+    });
   }
   let result = reportResult(
     transactionPath,
@@ -17187,29 +17671,69 @@ async function completeRecordedCommit({
     fail10(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The complete serialized commit result exceeds the bounded report budget.",
-      { exitCode: 3 }
+      { disposition: "completed-with-failure" }
     );
   }
   return result;
 }
-function incompleteKnownCommitResult(transactionPath, error, recovery) {
+function incompleteKnownCommitResult(transactionPath, recovery) {
   const transaction = readTransaction(transactionPath);
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "completed-with-failure",
     status: "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve22(transactionPath),
+    transaction: resolve23(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null,
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: true,
     code: "COMMIT_CONTINUATION_REQUIRED",
-    message: error.message,
-    exitCode: 3
-  };
+    message: "The commit exists; its verification or report needs recovery from the recorded transaction.",
+    recovery: {
+      kind: "continue",
+      automatic: false,
+      requiredInputs: [],
+      commands: [
+        {
+          arguments: ["workflow", "recover", "--transaction", transactionPath]
+        }
+      ]
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null
+    }
+  });
+}
+function uncertainCommitResult(transactionPath, transaction) {
+  const knownCommit = Boolean(transaction.commit?.commitOid);
+  return createWorkflowResult({
+    disposition: knownCommit ? "completed-with-failure" : "outcome-unknown",
+    status: knownCommit ? "commit-blocked" : "outcome-unknown",
+    phase: transaction.phase,
+    transaction: resolve23(transactionPath),
+    route: transaction.route,
+    commitState: transaction.commit?.commitOid ? "created" : "unknown",
+    publicationState: "not-requested",
+    recoveryRequired: true,
+    code: "COMMIT_RECOVERY_FAILED",
+    message: knownCommit ? "The commit was created, but subsequent recovery failed. Inspect the retained transaction; do not recreate the commit." : "Commit outcome recovery failed. Inspect the retained transaction before any further mutation.",
+    recovery: {
+      kind: "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands: [
+        {
+          arguments: ["workflow", "recover", "--transaction", transactionPath]
+        }
+      ]
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit?.commitOid ?? null
+    }
+  });
 }
 async function createCommitWorkflow({
   transactionPath,
@@ -17235,6 +17759,7 @@ async function createCommitWorkflow({
     );
   }
   const canonicalFailedCheckAcknowledgements = authorizeCheckReceipts(
+    transactionPath,
     transaction,
     acknowledgedFailedCheckIds
   );
@@ -17273,21 +17798,29 @@ async function createCommitWorkflow({
       status: "stopped",
       terminalDisposition: "no-commit-stopped"
     });
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
+      disposition: "rejected",
       status: "stopped",
       phase: stopped.phase,
-      terminalDisposition: stopped.terminalDisposition,
-      transaction: resolve22(transactionPath),
+      transaction: resolve23(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
       publicationAllowed: false,
       recoveryRequired: false,
       code: "SNAPSHOT_DRIFT",
-      snapshotVerification,
-      exitCode: 1
-    };
+      message: "The selected snapshot changed; review the drift before preparing another transaction.",
+      recovery: {
+        kind: "inspect-state",
+        automatic: false,
+        requiredInputs: [],
+        commands: []
+      },
+      data: {
+        terminalDisposition: stopped.terminalDisposition,
+        snapshotVerification
+      }
+    });
   }
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
   const commit = {
@@ -17408,32 +17941,23 @@ async function createCommitWorkflow({
       signatureVerifier,
       failureInjector
     });
-  } catch (error) {
-    const current = readTransaction(transactionPath);
+  } catch {
+    let current;
+    try {
+      current = readTransaction(transactionPath);
+    } catch {
+      return uncertainCommitResult(transactionPath, transaction);
+    }
     if (current.phase === "reported") {
       return readRecordedReport(transactionPath);
     }
     let recovery;
     try {
       recovery = recoverCommitOutcome({ transactionPath });
-    } catch (recoveryError) {
-      return {
-        schemaVersion: 1,
-        status: "outcome-unknown",
-        phase: current.phase,
-        terminalDisposition: current.terminalDisposition,
-        transaction: resolve22(transactionPath),
-        route: current.route,
-        commitState: current.commit?.commitOid ? "created" : "unknown",
-        publicationState: "not-requested",
-        publicationAllowed: false,
-        recoveryRequired: true,
-        code: "COMMIT_RECOVERY_FAILED",
-        message: `${error.message}; recovery failed: ${recoveryError.message}`,
-        exitCode: 4
-      };
+    } catch {
+      return uncertainCommitResult(transactionPath, current);
     }
-    return recovery.status === "matching-commit-observed" ? incompleteKnownCommitResult(transactionPath, error, recovery) : recovery;
+    return recovery.status === "matching-commit-observed" ? incompleteKnownCommitResult(transactionPath, recovery) : recovery;
   }
 }
 function retrySignatureVerificationWorkflow({
@@ -17446,7 +17970,7 @@ function retrySignatureVerificationWorkflow({
     fail10(
       "VERIFICATION_RETRY_NOT_ALLOWED",
       "Verification retry requires one already reported commit.",
-      { exitCode: 3 }
+      { disposition: "unmet-prerequisite" }
     );
   }
   const previous = transaction.verification;
@@ -17485,169 +18009,77 @@ function retrySignatureVerificationWorkflow({
     }
   });
   const effective = verification.attempts[verification.effectiveAttempt];
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: publicationAllowed ? "succeeded" : "completed-with-failure",
+    code: publicationAllowed ? null : "SIGNATURE_VERIFICATION_BLOCKED",
+    message: publicationAllowed ? null : "Signature verification policy blocks publication of the recorded commit.",
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve22(transactionPath),
+    transaction: resolve23(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
-    publicationState: "not-requested",
+    publicationState: transactionDiagnosticState(transaction, transactionPath).publicationState,
     publicationAllowed,
+    warnings: verificationDiagnostics(verification),
     recoveryRequired: false,
-    verification,
-    displayText: `Verification for ${transaction.commit.commitOid}: ${effective.status}${effective.reason ? ` (${effective.reason})` : ""}
-`,
-    exitCode: publicationAllowed ? 0 : 3
+    recovery: {
+      kind: publicationAllowed ? "none" : "satisfy-prerequisite",
+      automatic: false,
+      requiredInputs: publicationAllowed ? [] : ["signature verification capability or authorized policy decision"],
+      commands: []
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      verification,
+      displayText: `Verification for ${transaction.commit.commitOid}: ${effective.status}${effective.reason ? ` (${effective.reason})` : ""}
+`
+    }
+  });
+}
+function parseArguments4(argv, command) {
+  const flags = parseCommandArguments(command, argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail10("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    fail10("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    format,
+    approvedSubject: flags.get("message") ?? null,
+    acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
+    retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
+    retainProcessLogs: flags.get("retain-process-logs") === true,
+    verificationPolicyOverride: flags.get("verification") ?? null
   };
 }
-function parseFlags2(argv, repeatable = /* @__PURE__ */ new Set()) {
-  const values = /* @__PURE__ */ new Map();
-  const booleans = /* @__PURE__ */ new Set(["retain-review-artifacts", "retain-process-logs"]);
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token?.startsWith("--")) {
-      fail10("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-    const name = token.slice(2);
-    if (values.has(name) && !repeatable.has(name)) {
-      fail10("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-    if (booleans.has(name)) {
-      values.set(name, true);
-      continue;
-    }
-    const value = argv[index + 1];
-    if (value === void 0 || value.startsWith("--")) {
-      fail10("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-    if (repeatable.has(name)) {
-      values.set(name, [...values.get(name) ?? [], value]);
-    } else {
-      values.set(name, value);
-    }
-    index += 1;
-  }
-  return values;
-}
-function commandOutput(result, format) {
-  return format === "text" ? result.displayText ?? `Status: ${result.status}
-Code: ${result.code ?? "none"}
-` : `${JSON.stringify(result)}
-`;
-}
 async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags2(argv, /* @__PURE__ */ new Set(["acknowledge-failed-check"]));
-    const allowed = /* @__PURE__ */ new Set([
-      "transaction",
-      "message",
-      "verification",
-      "acknowledge-failed-check",
-      "retain-review-artifacts",
-      "retain-process-logs",
-      "format"
-    ]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail10("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail10("INVALID_FORMAT", "--format must be json or text.");
-    }
-    const transactionPath = flags.get("transaction");
-    if (!transactionPath) {
-      fail10("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-    const result = await createCommitWorkflow({
-      transactionPath,
-      approvedSubject: flags.get("message") ?? null,
-      acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
-      retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
-      retainProcessLogs: flags.get("retain-process-logs") === true,
-      verificationPolicyOverride: flags.get("verification") ?? null
-    });
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("COMMIT_WORKFLOW_FAILED", caught.message);
-    const result = {
-      schemaVersion: 1,
-      status: "invalid",
-      phase: null,
-      terminalDisposition: null,
-      transaction: null,
-      route: null,
-      commitState: "absent",
-      publicationState: "not-requested",
-      publicationAllowed: false,
-      recoveryRequired: false,
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode,
-      ...error.details
-    };
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(commandOutput(result, format));
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments4(arguments_, "workflow commit"),
+    execute: (options) => createCommitWorkflow({ ...options, diagnosticWriter: stderr }),
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
-async function runRetryVerificationCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags2(argv);
-    const allowed = /* @__PURE__ */ new Set(["transaction", "verification", "format"]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail10("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail10("INVALID_FORMAT", "--format must be json or text.");
-    }
-    const transactionPath = flags.get("transaction");
-    if (!transactionPath) {
-      fail10("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-    const result = retrySignatureVerificationWorkflow({
-      transactionPath,
-      verificationPolicyOverride: flags.get("verification") ?? null
-    });
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError(
-      "VERIFICATION_WORKFLOW_FAILED",
-      caught.message,
-      {
-        exitCode: 3
-      }
-    );
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      commandOutput(
-        {
-          status: "commit-blocked",
-          code: error.code,
-          message: error.message
-        },
-        format
-      )
-    );
-    return error.exitCode;
-  }
+async function runRetryVerificationCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments4(arguments_, "workflow verify"),
+    execute: retrySignatureVerificationWorkflow,
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
-var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER11, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2, CommitWorkflowError;
+var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER11, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2;
 var init_createCommitWorkflow = __esm({
   "src/committing-to-git/workflow/createCommitWorkflow.js"() {
+    init_commandExecution();
+    init_authoringProgress();
+    init_commandArguments();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_transactionDiagnosticState();
     init_checkReceipt();
     init_verifySnapshot();
     init_gitProcessTranscript();
@@ -17671,22 +18103,12 @@ var init_createCommitWorkflow = __esm({
       "GIT_QUARANTINE_PATH",
       "GIT_NAMESPACE"
     ];
-    CommitWorkflowError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "CommitWorkflowError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
 // src/committing-to-git/workflow/reportDetailWorkflow.js
 var reportDetailWorkflow_exports = {};
 __export(reportDetailWorkflow_exports, {
-  ReportDetailError: () => ReportDetailError,
   readWorkspaceDetailPage: () => readWorkspaceDetailPage,
   reportDetailWorkflow: () => reportDetailWorkflow,
   runReportDetailCommand: () => runReportDetailCommand
@@ -17706,10 +18128,10 @@ import {
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join15, resolve as resolve23 } from "node:path";
+import { join as join15, resolve as resolve24 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
-function fail11(code, message, exitCode = 2) {
-  throw new ReportDetailError(code, message, exitCode);
+function fail11(code, message, disposition = "invalid-input", cause) {
+  throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 function sha2569(value) {
   return createHash20("sha256").update(value).digest("hex");
@@ -17773,7 +18195,12 @@ function readJson(path, label) {
   try {
     return JSON.parse(readFileSync12(path, "utf8"));
   } catch (error) {
-    fail11("DETAIL_STATE_INVALID", `${label} is invalid: ${error.message}`);
+    fail11(
+      "DETAIL_STATE_INVALID",
+      `${label} is invalid.`,
+      "invalid-input",
+      error
+    );
   }
 }
 function validateReadyActive(transactionPath, active) {
@@ -17803,7 +18230,7 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve23(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve24(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
     fail11("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
@@ -17991,50 +18418,30 @@ async function materializeObservation(transaction, active) {
   replaceJson2(join15(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
   return completedActive;
 }
-function renderDetailPage(result) {
-  const lines = [
-    `Workspace detail observed ${result.observation.observedAt}`,
-    `Digest: ${result.observation.digest}`,
-    ""
-  ];
-  if (result.page.entries.length === 0) {
-    lines.push("Workspace is clean.");
-  } else {
-    for (const entry of result.page.entries) {
-      lines.push(
-        `${entry.ordinal + 1}. ${entry.category}: ${entry.path.display} (${entry.status})`
-      );
-    }
-  }
-  if (result.nextCursor !== null) {
-    lines.push("", "More entries remain; continue with the returned cursor.");
-  }
-  return `${lines.join("\n")}
-`;
-}
-function boundedPageResult(transactionPath, active, page, requestCursor) {
+function boundedPageResult(transactionPath, transaction, active, page, requestCursor) {
   const nextPage = active.pages[page.index + 1] ?? null;
-  const result = {
-    schemaVersion: 1,
+  const result = createWorkflowResult({
+    disposition: "succeeded",
+    ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve23(transactionPath),
-    startingReportDigest: active.startingReportDigest,
-    observation: {
-      observedAt: active.observedAt,
-      digest: active.observationDigest,
-      observedEntryCount: active.observedEntryCount,
-      exactAtReportTime: false
-    },
-    page: {
-      startOrdinal: page.startOrdinal,
-      endOrdinal: page.endOrdinal,
-      entries: page.entries
-    },
-    nextCursor: nextPage === null ? null : encodeCursor(active, nextPage.startOrdinal),
-    displayText: "",
-    exitCode: 0
-  };
-  result.displayText = renderDetailPage(result);
+    transaction: resolve24(transactionPath),
+    data: {
+      commitOid: transaction.commit?.commitOid ?? null,
+      startingReportDigest: active.startingReportDigest,
+      observation: {
+        observedAt: active.observedAt,
+        digest: active.observationDigest,
+        observedEntryCount: active.observedEntryCount,
+        exactAtReportTime: false
+      },
+      page: {
+        startOrdinal: page.startOrdinal,
+        endOrdinal: page.endOrdinal,
+        entries: page.entries
+      },
+      nextCursor: nextPage === null ? null : encodeCursor(active, nextPage.startOrdinal)
+    }
+  });
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
     fail11(
       "DETAIL_RESULT_BUDGET_EXCEEDED",
@@ -18075,15 +18482,12 @@ function validReplayPath(path) {
 }
 function validateCompletedResult(result, transactionPath) {
   const resultKeys = [
-    "schemaVersion",
-    "status",
-    "transaction",
+    ...WORKFLOW_RESULT_FIELDS,
+    "commitOid",
     "startingReportDigest",
     "observation",
     "page",
-    "nextCursor",
-    "displayText",
-    "exitCode"
+    "nextCursor"
   ];
   const observationValid = hasExactKeys3(result?.observation, [
     "observedAt",
@@ -18097,7 +18501,7 @@ function validateCompletedResult(result, transactionPath) {
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || result.schemaVersion !== 1 || result.status !== "detail-complete" || result.transaction !== resolve23(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || typeof result.displayText !== "string" || result.exitCode !== 0 || result.displayText !== renderDetailPage(result)) {
+  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve24(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
     fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
@@ -18112,7 +18516,7 @@ function replayCompletion(completed, cursor, transactionPath) {
     fail11(
       "DETAIL_STATE_CONFLICT",
       "A completed detail observation is retained; use its final cursor or request --refresh.",
-      1
+      "rejected"
     );
   }
   return completed.result;
@@ -18138,7 +18542,12 @@ async function readWorkspaceDetailPage({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail11("DETAIL_STATE_CONFLICT", error.message, 1);
+      fail11(
+        "DETAIL_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        "rejected",
+        error
+      );
     }
     throw error;
   }
@@ -18148,7 +18557,7 @@ async function readWorkspaceDetailPage({
       fail11(
         "DETAIL_PHASE_INVALID",
         "Workspace detail requires a reported or published transaction.",
-        1
+        "rejected"
       );
     }
     const activePath = join15(transaction.attemptDirectory, ACTIVE_NAME);
@@ -18185,7 +18594,7 @@ async function readWorkspaceDetailPage({
         fail11(
           "DETAIL_STATE_CONFLICT",
           "A workspace detail observation is already active.",
-          1
+          "rejected"
         );
       }
       active = readJson(activePath, "Active workspace detail journal");
@@ -18193,7 +18602,7 @@ async function readWorkspaceDetailPage({
         fail11(
           "DETAIL_STATE_CONFLICT",
           "The workspace detail observation was interrupted before paging.",
-          1
+          "rejected"
         );
       }
       active = validateReadyActive(transactionPath, active);
@@ -18208,7 +18617,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve23(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve24(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -18226,7 +18635,13 @@ async function readWorkspaceDetailPage({
       active = validateReadyActive(transactionPath, active);
     }
     const page = readPageForRequest(transaction, active, cursor);
-    const bounded = boundedPageResult(transactionPath, active, page, cursor);
+    const bounded = boundedPageResult(
+      transactionPath,
+      transaction,
+      active,
+      page,
+      cursor
+    );
     if (bounded.final) {
       const completed = {
         schemaVersion: 1,
@@ -18261,81 +18676,37 @@ async function readWorkspaceDetailPage({
 async function reportDetailWorkflow(options) {
   return readWorkspaceDetailPage(options);
 }
-function parseFlags3(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token?.startsWith("--")) {
-      fail11("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-    const name = token.slice(2);
-    if (values.has(name)) {
-      fail11("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-    if (name === "refresh") {
-      values.set(name, true);
-      continue;
-    }
-    const value = argv[index + 1];
-    if (value === void 0 || value.startsWith("--")) {
-      fail11("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-    values.set(name, value);
-    index += 1;
-  }
-  return values;
+function parseArguments5(argv) {
+  const flags = parseCommandArguments("workflow report-detail", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail11("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    fail11("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    cursor: flags.get("cursor") ?? null,
+    refresh: flags.get("refresh") === true,
+    format
+  };
 }
-function commandOutput2(result, format) {
-  return format === "text" ? result.displayText : `${JSON.stringify(result)}
-`;
+async function runReportDetailCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: parseArguments5,
+    execute: reportDetailWorkflow,
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
-async function runReportDetailCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags3(argv);
-    const allowed = /* @__PURE__ */ new Set(["transaction", "cursor", "refresh", "format"]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail11("UNKNOWN_ARGUMENT", `Unknown report-detail flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail11("INVALID_FORMAT", "--format must be json or text.");
-    }
-    const transactionPath = flags.get("transaction");
-    if (!transactionPath) {
-      fail11("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-    const result = await reportDetailWorkflow({
-      transactionPath,
-      cursor: flags.get("cursor") ?? null,
-      refresh: flags.get("refresh") === true
-    });
-    stdout.write(commandOutput2(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof ReportDetailError ? caught : new ReportDetailError("DETAIL_WORKFLOW_FAILED", caught.message);
-    const result = {
-      schemaVersion: 1,
-      status: "invalid",
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode,
-      displayText: `Status: invalid
-Code: ${error.code}
-Message: ${error.message}
-`
-    };
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(commandOutput2(result, format));
-    return error.exitCode;
-  }
-}
-var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER12, SAFE_TERMINAL_TEXT2, ReportDetailError;
+var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER12, SAFE_TERMINAL_TEXT2;
 var init_reportDetailWorkflow = __esm({
   "src/committing-to-git/workflow/reportDetailWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_transactionDiagnosticState();
+    init_commandArguments();
     init_commitReport();
     init_transactionRecovery();
     init_transactionWorkspace();
@@ -18347,21 +18718,12 @@ var init_reportDetailWorkflow = __esm({
     SHA256_PATTERN4 = /^[0-9a-f]{64}$/u;
     STRICT_UTF8_DECODER12 = new TextDecoder11("utf-8", { fatal: true });
     SAFE_TERMINAL_TEXT2 = /^[^\p{Cc}\p{Cf}]*$/u;
-    ReportDetailError = class extends Error {
-      constructor(code, message, exitCode = 2) {
-        super(message);
-        this.name = "ReportDetailError";
-        this.code = code;
-        this.exitCode = exitCode;
-      }
-    };
   }
 });
 
 // src/committing-to-git/workflow/publishWorkflow.js
 var publishWorkflow_exports = {};
 __export(publishWorkflow_exports, {
-  PublishWorkflowError: () => PublishWorkflowError,
   observePublicationDestination: () => observePublicationDestination,
   publishWorkflow: () => publishWorkflow,
   recoverPublicationOutcome: () => recoverPublicationOutcome,
@@ -18379,9 +18741,9 @@ import {
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname11, join as join16, resolve as resolve24 } from "node:path";
+import { dirname as dirname11, join as join16, resolve as resolve25 } from "node:path";
 function fail12(code, message, options) {
-  throw new PublishWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25610(bytes) {
   return createHash21("sha256").update(bytes).digest("hex");
@@ -18459,7 +18821,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
     fail12(
       "PUBLICATION_ATTEMPT_STALE",
       "Only the latest publication attempt may acquire new journal facts.",
-      { exitCode: 4 }
+      { disposition: "outcome-unknown" }
     );
   }
   const attempts = transaction.publicationAttempts.map(
@@ -18505,7 +18867,13 @@ function assertPublicationAllowed(transaction) {
     fail12(
       "PUBLICATION_BLOCKED",
       "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
-      { exitCode: 3 }
+      {
+        disposition: transaction.commit?.commitOid ? "completed-with-failure" : "unmet-prerequisite",
+        state: transactionDiagnosticState(
+          transaction,
+          resolve25(transaction.attemptDirectory, "transaction.json")
+        )
+      }
     );
   }
 }
@@ -18516,15 +18884,15 @@ function readPersistedReport(transaction) {
   } catch (error) {
     fail12(
       "REPORT_ARTIFACT_MISMATCH",
-      `The persisted report cannot be inspected: ${error.message}`,
-      { exitCode: 3 }
+      "The persisted report cannot be inspected.",
+      { disposition: "unmet-prerequisite", cause: error }
     );
   }
   if (stat.isSymbolicLink() || !stat.isFile()) {
     fail12(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report path was replaced or is not regular.",
-      { exitCode: 3 }
+      { disposition: "unmet-prerequisite" }
     );
   }
   const bytes = readFileSync13(transaction.report.jsonPath);
@@ -18532,7 +18900,7 @@ function readPersistedReport(transaction) {
     fail12(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report no longer matches its transaction digest.",
-      { exitCode: 3 }
+      { disposition: "unmet-prerequisite" }
     );
   }
   return JSON.parse(bytes.toString("utf8"));
@@ -18570,25 +18938,44 @@ function publicationArtifact(attempt, status = attempt.status) {
   };
 }
 function resultModel(transactionPath, transaction, publication, report, text) {
-  const publicationState = publication.status === "succeeded" ? "succeeded" : publication.status === "observed-matching" ? "observed-matching" : publication.status === "rejected" ? "rejected" : publication.status === "blocked" ? "blocked" : "unknown";
-  const exitCode = publicationState === "succeeded" || publicationState === "observed-matching" ? 0 : publicationState === "rejected" ? 1 : publicationState === "blocked" ? 3 : 4;
-  return {
-    schemaVersion: 1,
-    status: exitCode === 0 ? "published" : exitCode === 1 ? "rejected" : exitCode === 3 ? "commit-blocked" : "outcome-unknown",
+  const publicationState = ["succeeded", "observed-matching"].includes(
+    publication.status
+  ) ? "published" : publication.status === "rejected" ? "rejected" : publication.status === "blocked" ? "blocked" : "unknown";
+  const disposition = publicationState === "published" ? "succeeded" : publicationState === "unknown" ? "outcome-unknown" : publicationState === "rejected" ? "rejected" : "completed-with-failure";
+  return createWorkflowResult({
+    disposition,
+    status: publicationState === "unknown" ? "outcome-unknown" : publicationState,
+    code: disposition === "succeeded" ? null : publicationState === "unknown" ? "PUBLICATION_OUTCOME_UNKNOWN" : publicationState === "blocked" ? "PUBLICATION_BLOCKED" : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
     publicationState,
     publicationAllowed: transaction.report.publicationAllowed,
-    recoveryRequired: exitCode === 4,
-    publication,
-    report,
-    displayText: text,
-    exitCode
-  };
+    recoveryRequired: publicationState === "unknown",
+    recovery: {
+      kind: disposition === "succeeded" ? "none" : "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands: publicationState === "unknown" ? [
+        {
+          arguments: [
+            "workflow",
+            "recover",
+            "--transaction",
+            resolve25(transactionPath)
+          ]
+        }
+      ] : []
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      publication,
+      report,
+      displayText: text
+    }
+  });
 }
 function boundedAugmentedModel(transactionPath, transaction, publication) {
   const prior = readPersistedReport(transaction);
@@ -18619,7 +19006,10 @@ function boundedAugmentedModel(transactionPath, transaction, publication) {
     fail12(
       "PUBLICATION_RESULT_BUDGET_EXCEEDED",
       "Publication result exceeds the serialized report budget.",
-      { exitCode: publication.status === "unknown" ? 4 : 3 }
+      {
+        disposition: publication.status === "unknown" ? "outcome-unknown" : "completed-with-failure",
+        state: transactionDiagnosticState(transaction, transactionPath)
+      }
     );
   }
   return { report, displayText, result };
@@ -18764,7 +19154,7 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
     fail12(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The retry token does not bind the latest resolved unknown publication attempt.",
-      { exitCode: 4 }
+      { disposition: "outcome-unknown" }
     );
   }
   try {
@@ -18775,8 +19165,8 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
   } catch (error) {
     fail12(
       "PUBLICATION_RETRY_NOT_PERMITTED",
-      `The resolved publication child state no longer permits retry: ${error.message}`,
-      { exitCode: 4 }
+      "The resolved publication child state no longer permits retry. Inspect its liveness before continuing.",
+      { disposition: "outcome-unknown", cause: error }
     );
   }
   return prior;
@@ -18801,19 +19191,28 @@ async function publishWorkflow({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail12("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 1 });
+      fail12(
+        "PUBLICATION_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        {
+          cause: error,
+          disposition: "rejected"
+        }
+      );
     }
     throw error;
   }
   let journaledAttemptId = null;
+  let transaction = null;
+  let witnessedOutcome = null;
   try {
-    let transaction = readTransaction(transactionPath);
+    transaction = readTransaction(transactionPath);
     if (transaction.phase === "published") {
       if (retryAfterAttempt !== null) {
         fail12(
           "PUBLICATION_RETRY_NOT_PERMITTED",
           "A historical retry token cannot be reused after publication completed.",
-          { exitCode: 4 }
+          { disposition: "outcome-unknown" }
         );
       }
       const attempt2 = latestAttempt(transaction);
@@ -18837,7 +19236,7 @@ async function publishWorkflow({
       fail12(
         "PUBLICATION_RECOVERY_REQUIRED",
         "A pending publication must be recovered and explicitly resolved before retry.",
-        { exitCode: 4 }
+        { disposition: "outcome-unknown" }
       );
     }
     if (retryAfterAttempt !== null && transaction.phase === "reported") {
@@ -18930,6 +19329,7 @@ async function publishWorkflow({
       );
     }
     const pushOutcome = classifyPushCompletion(transcript, destination);
+    witnessedOutcome = pushOutcome;
     updateAttempt(transactionPath, attempt.attemptId, (current) => ({
       ...current,
       launchState: "completed",
@@ -18955,42 +19355,73 @@ async function publishWorkflow({
       "push-transport-outcome-unknown"
     );
   } catch (error) {
-    if (journaledAttemptId === null || error instanceof PublishWorkflowError) {
+    if (journaledAttemptId === null) {
       throw error;
     }
-    const transaction = readTransaction(transactionPath);
-    const attempt = latestAttempt(transaction);
-    if (attempt?.attemptId !== journaledAttemptId) {
-      throw error;
-    }
-    if (attempt.launchState === "not-started") {
-      return finalizeAttempt(
-        transactionPath,
-        attempt.attemptId,
-        "rejected",
-        "not-launched"
-      );
-    }
-    if (attempt.launchState === "completed") {
-      if (attempt.completion?.outcome === "witnessed-success") {
-        return finalizeAttempt(transactionPath, attempt.attemptId, "succeeded");
+    try {
+      transaction = readTransaction(transactionPath);
+      const attempt = latestAttempt(transaction);
+      if (attempt?.attemptId !== journaledAttemptId) {
+        throw error;
       }
-      if ((/* @__PURE__ */ new Set(["known-rejection", "not-launched"])).has(
-        attempt.completion?.outcome
-      )) {
+      if (attempt.launchState === "not-started") {
         return finalizeAttempt(
           transactionPath,
           attempt.attemptId,
           "rejected",
-          attempt.completion.outcome === "not-launched" ? "not-launched" : "git-push-rejected"
+          "not-launched"
         );
       }
+      if (attempt.launchState === "completed") {
+        if (attempt.completion?.outcome === "witnessed-success") {
+          return finalizeAttempt(
+            transactionPath,
+            attempt.attemptId,
+            "succeeded"
+          );
+        }
+        if ((/* @__PURE__ */ new Set(["known-rejection", "not-launched"])).has(
+          attempt.completion?.outcome
+        )) {
+          return finalizeAttempt(
+            transactionPath,
+            attempt.attemptId,
+            "rejected",
+            attempt.completion.outcome === "not-launched" ? "not-launched" : "git-push-rejected"
+          );
+        }
+      }
+      return persistUnknownAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "publication-result-unavailable"
+      );
+    } catch {
+      const publicationState = witnessedOutcome === "witnessed-success" ? "published" : witnessedOutcome === "known-rejection" ? "rejected" : "unknown";
+      return createWorkflowResult({
+        disposition: publicationState === "unknown" ? "outcome-unknown" : "completed-with-failure",
+        status: "publication-report-incomplete",
+        code: "PUBLICATION_RESULT_UNAVAILABLE",
+        message: "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
+        transaction: resolve25(transactionPath),
+        phase: "publication-pending",
+        route: transaction.route,
+        commitState: "created",
+        publicationState,
+        recoveryRequired: true,
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: ["retained transaction and publication evidence"],
+          commands: []
+        },
+        data: {
+          commitOid: transaction.commit.commitOid,
+          attemptId: journaledAttemptId,
+          witnessedOutcome
+        }
+      });
     }
-    return persistUnknownAttempt(
-      transactionPath,
-      attempt.attemptId,
-      error.message
-    );
   } finally {
     releaseTransactionStateLock(lock);
   }
@@ -19100,7 +19531,7 @@ async function recoverPublicationOutcome({
     fail12(
       "PUBLICATION_RESOLUTION_INVALID",
       "Publication recovery accepts only confirmed-no-live-child.",
-      { exitCode: 4 }
+      { disposition: "outcome-unknown" }
     );
   }
   let lock;
@@ -19111,7 +19542,14 @@ async function recoverPublicationOutcome({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail12("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 4 });
+      fail12(
+        "PUBLICATION_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        {
+          cause: error,
+          disposition: "outcome-unknown"
+        }
+      );
     }
     throw error;
   }
@@ -19121,7 +19559,7 @@ async function recoverPublicationOutcome({
       fail12(
         "PUBLICATION_RECOVERY_NOT_REQUIRED",
         "Publication recovery requires the pending publication phase.",
-        { exitCode: 1 }
+        { disposition: "rejected" }
       );
     }
     let attempt = latestAttempt(transaction);
@@ -19165,10 +19603,10 @@ async function recoverPublicationOutcome({
           attempt.remote,
           attempt.destination
         );
-      } catch (error) {
+      } catch {
         observation = interruptedObservation(
           attempt.observation,
-          `remote-query-failed:${error.message}`
+          "remote-query-failed"
         );
       }
       transaction = updateAttempt(
@@ -19209,8 +19647,8 @@ async function recoverPublicationOutcome({
       } catch (error) {
         fail12(
           "PUBLICATION_RESOLUTION_CONTRADICTED",
-          `No-live-child confirmation is contradicted: ${error.message}`,
-          { exitCode: 4 }
+          "The child may still be live; the no-live-child confirmation cannot resolve this attempt.",
+          { disposition: "outcome-unknown", cause: error }
         );
       }
       transaction = updateAttempt(
@@ -19237,89 +19675,39 @@ async function recoverPublicationOutcome({
     releaseTransactionStateLock(lock);
   }
 }
-function parseFlags4(argv) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token?.startsWith("--")) {
-      fail12("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-    const name = token.slice(2);
-    const value = argv[index + 1];
-    if (values.has(name)) {
-      fail12("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-    if (value === void 0 || value.startsWith("--")) {
-      fail12("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-    values.set(name, value);
-    index += 1;
+function parseArguments6(argv) {
+  const flags = parseCommandArguments("workflow publish", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail12("INVALID_FORMAT", "--format must be json or text.");
+  for (const required of ["transaction", "remote", "destination"]) {
+    if (!flags.get(required))
+      fail12("INVALID_ARGUMENT", `--${required} is required.`);
   }
-  return values;
+  return {
+    transactionPath: flags.get("transaction"),
+    remote: flags.get("remote"),
+    destination: flags.get("destination"),
+    retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
+    format
+  };
 }
-function commandOutput3(result, format) {
-  return format === "text" ? result.displayText : `${JSON.stringify(result)}
-`;
+async function runPublishCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: parseArguments6,
+    execute: publishWorkflow,
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
-async function runPublishCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags4(argv);
-    const allowed = /* @__PURE__ */ new Set([
-      "transaction",
-      "remote",
-      "destination",
-      "retry-after-attempt",
-      "format"
-    ]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail12("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-      fail12("INVALID_FORMAT", "--format must be json or text.");
-    }
-    for (const required of ["transaction", "remote", "destination"]) {
-      if (!flags.get(required)) {
-        fail12("INVALID_ARGUMENT", `--${required} is required.`);
-      }
-    }
-    const result = await publishWorkflow({
-      transactionPath: flags.get("transaction"),
-      remote: flags.get("remote"),
-      destination: flags.get("destination"),
-      retryAfterAttempt: flags.get("retry-after-attempt") ?? null
-    });
-    stdout.write(commandOutput3(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof PublishWorkflowError ? caught : new PublishWorkflowError(
-      "PUBLICATION_WORKFLOW_FAILED",
-      caught.message
-    );
-    const result = {
-      schemaVersion: 1,
-      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-      code: error.code,
-      message: error.message,
-      displayText: `Status: ${error.exitCode === 4 ? "outcome-unknown" : "invalid"}
-Code: ${error.code}
-Message: ${error.message}
-`,
-      exitCode: error.exitCode,
-      ...error.details
-    };
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(commandOutput3(result, format));
-    return error.exitCode;
-  }
-}
-var FULL_OID_PATTERN7, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES, PublishWorkflowError;
+var FULL_OID_PATTERN7, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES;
 var init_publishWorkflow = __esm({
   "src/committing-to-git/workflow/publishWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_transactionDiagnosticState();
+    init_commandArguments();
     init_gitProcessTranscript();
     init_gitRepository();
     init_commitReport();
@@ -19330,15 +19718,6 @@ var init_publishWorkflow = __esm({
     REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
     MAXIMUM_REMOTE_OBSERVATION_BYTES = 64 * 1024;
     MAXIMUM_PUSH_CLASSIFICATION_BYTES = 64 * 1024;
-    PublishWorkflowError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "PublishWorkflowError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
@@ -19349,9 +19728,9 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve25 } from "node:path";
-function invalid(code, message, exitCode = 2) {
-  throw new CommitWorkflowError(code, message, { exitCode });
+import { resolve as resolve26 } from "node:path";
+function invalid(code, message) {
+  throw new WorkflowDiagnosticError(code, message);
 }
 async function recoverTransactionWorkflow({
   transactionPath,
@@ -19392,24 +19771,44 @@ async function recoverTransactionWorkflow({
         retainReviewArtifacts,
         retainProcessLogs
       });
-    } catch (error) {
-      const current = readTransaction(transactionPath);
-      return {
-        schemaVersion: 1,
+    } catch {
+      let current = transaction;
+      try {
+        current = readTransaction(transactionPath);
+      } catch {
+      }
+      return createWorkflowResult({
+        disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        terminalDisposition: current.terminalDisposition,
-        transaction: resolve25(transactionPath),
+        transaction: resolve26(transactionPath),
         route: current.route,
         commitState: "created",
-        commitOid: current.commit.commitOid,
         publicationState: "not-requested",
         publicationAllowed: false,
         recoveryRequired: true,
-        code: error.code ?? "COMMIT_CONTINUATION_FAILED",
-        message: error.message,
-        exitCode: 3
-      };
+        code: "COMMIT_CONTINUATION_FAILED",
+        message: "The commit exists, but verification or reporting could not finish. Inspect the retained transaction before continuing.",
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: [],
+          commands: [
+            {
+              arguments: [
+                "workflow",
+                "recover",
+                "--transaction",
+                resolve26(transactionPath)
+              ]
+            }
+          ]
+        },
+        data: {
+          commitOid: recovery.commitOid,
+          terminalDisposition: current.terminalDisposition
+        }
+      });
     }
   }
   const checkRecovery = recoverCheckAttempt({
@@ -19425,21 +19824,15 @@ async function recoverTransactionWorkflow({
   if ((/* @__PURE__ */ new Set(["stopped", "abandoned", "superseded", "published"])).has(
     transaction.phase
   )) {
-    const publicationState = transaction.phase === "published" ? transaction.publicationAttempts.at(-1)?.status === "succeeded" ? "succeeded" : "observed-matching" : "not-requested";
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
+      disposition: "succeeded",
       status: transaction.status,
-      phase: transaction.phase,
-      terminalDisposition: transaction.terminalDisposition,
-      transaction: resolve25(transactionPath),
-      route: transaction.route,
-      commitState: transaction.commit?.commitOid ? "created" : "absent",
-      commitOid: transaction.commit?.commitOid ?? null,
-      publicationState,
-      publicationAllowed: transaction.report?.publicationAllowed ?? false,
-      recoveryRequired: false,
-      exitCode: transaction.phase === "stopped" ? 1 : 0
-    };
+      ...transactionDiagnosticState(transaction, transactionPath),
+      data: {
+        commitOid: transaction.commit?.commitOid ?? null,
+        terminalDisposition: transaction.terminalDisposition
+      }
+    });
   }
   invalid(
     "RECOVERY_NOT_REQUIRED",
@@ -19447,113 +19840,45 @@ async function recoverTransactionWorkflow({
     1
   );
 }
-function parseFlags5(argv, booleanFlags = /* @__PURE__ */ new Set()) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token?.startsWith("--")) {
-      invalid(
-        "INVALID_ARGUMENT",
-        `Unexpected argument ${JSON.stringify(token)}.`
-      );
-    }
-    const name = token.slice(2);
-    if (values.has(name)) {
-      invalid("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-    if (booleanFlags.has(name)) {
-      values.set(name, true);
-      continue;
-    }
-    const value = argv[index + 1];
-    if (value === void 0 || value.startsWith("--")) {
-      invalid("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-    values.set(name, value);
-    index += 1;
-  }
-  return values;
+function parseArguments7(argv, command) {
+  const flags = parseCommandArguments(command, argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    invalid("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    invalid("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    format,
+    resolution: flags.get("resolution") ?? null,
+    purge: flags.get("purge") === true
+  };
 }
-function output(result, format) {
-  return format === "text" ? result.displayText ?? `Status: ${result.status}
-Code: ${result.code ?? "none"}
-` : `${JSON.stringify(result)}
-`;
+async function runRecoverTransactionCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments7(arguments_, "workflow recover"),
+    execute: recoverTransactionWorkflow,
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
-async function runRecoverTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags5(argv);
-    const allowed = /* @__PURE__ */ new Set(["transaction", "resolution", "format"]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        invalid("UNKNOWN_ARGUMENT", `Unknown workflow recover flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    const transactionPath = flags.get("transaction");
-    if (!transactionPath) {
-      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-    const result = await recoverTransactionWorkflow({
-      transactionPath,
-      resolution: flags.get("resolution") ?? null
-    });
-    stdout.write(output(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("RECOVERY_WORKFLOW_FAILED", caught.message);
-    const result = {
-      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode
-    };
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(output(result, format));
-    return error.exitCode;
-  }
-}
-function runCleanupTransactionCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let format = "json";
-  try {
-    const flags = parseFlags5(argv, /* @__PURE__ */ new Set(["purge"]));
-    const allowed = /* @__PURE__ */ new Set(["transaction", "purge", "format"]);
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        invalid("UNKNOWN_ARGUMENT", `Unknown workflow cleanup flag --${name}.`);
-      }
-    }
-    format = flags.get("format") ?? "json";
-    const transactionPath = flags.get("transaction");
-    if (!transactionPath) {
-      invalid("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-    const result = flags.get("purge") ? purgeTransaction({ transactionPath }) : compactTerminalTransaction({ transactionPath });
-    stdout.write(output({ ...result, exitCode: 0 }, format));
-    return 0;
-  } catch (caught) {
-    const error = caught instanceof CommitWorkflowError ? caught : new CommitWorkflowError("CLEANUP_WORKFLOW_FAILED", caught.message);
-    stderr.write(`${error.code}: ${error.message}
-`);
-    stdout.write(
-      output(
-        {
-          status: "invalid",
-          code: error.code,
-          message: error.message,
-          exitCode: 2
-        },
-        format
-      )
-    );
-    return 2;
-  }
+async function runCleanupTransactionCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments7(arguments_, "workflow cleanup"),
+    execute: (options) => options.purge ? purgeTransaction(options) : compactTerminalTransaction(options),
+    failureState: observeTransactionFailure,
+    stdout
+  });
 }
 var RESOLUTIONS;
 var init_recoverTransactionWorkflow = __esm({
   "src/committing-to-git/workflow/recoverTransactionWorkflow.js"() {
+    init_commandArguments();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_transactionDiagnosticState();
     init_canonicalMessageState();
     init_transactionRecovery();
     init_transactionWorkspace();
@@ -19569,20 +19894,17 @@ var init_recoverTransactionWorkflow = __esm({
 var checkMessageWorkflow_exports = {};
 __export(checkMessageWorkflow_exports, {
   MAXIMUM_MESSAGE_RESULT_BYTES: () => MAXIMUM_MESSAGE_RESULT_BYTES,
-  MessageWorkflowError: () => MessageWorkflowError,
-  asMessageWorkflowError: () => asMessageWorkflowError,
   assertMessageResultBudget: () => assertMessageResultBudget,
   checkMessageWorkflow: () => checkMessageWorkflow,
-  messageErrorResult: () => messageErrorResult,
   parseMessageWorkflowArguments: () => parseMessageWorkflowArguments,
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
 import { createHash as createHash22 } from "node:crypto";
-import { resolve as resolve26 } from "node:path";
+import { resolve as resolve27 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
 function fail13(code, message, options) {
-  throw new MessageWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
   return createHash22("sha256").update(bytes).digest("hex");
@@ -19597,7 +19919,7 @@ function decodeJson(bytes, label) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail13("INVALID_JSON_INPUT", `${label} is invalid JSON: ${error.message}`);
+    fail13("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
   }
 }
 function sameHeadAnchor(manifest, headAnchor) {
@@ -19615,8 +19937,8 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve26(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve26(transaction.snapshot?.path ?? "") !== expectedPath) {
+  const expectedPath = resolve27(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve27(transaction.snapshot?.path ?? "") !== expectedPath) {
     fail13(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
@@ -19629,7 +19951,7 @@ function readExactRecordedSnapshot(transactionPath) {
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve26(manifest.repositoryRoot) !== resolve26(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+  if (resolve27(manifest.repositoryRoot) !== resolve27(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
     fail13(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
@@ -19656,20 +19978,6 @@ function assertMessageResultBudget(result) {
   }
   return result;
 }
-function commonResult(transactionPath, route, status, phase) {
-  return {
-    schemaVersion: 1,
-    status,
-    phase,
-    terminalDisposition: null,
-    route,
-    transaction: resolve26(transactionPath),
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false
-  };
-}
 function checkedResult({
   transactionPath,
   route,
@@ -19677,15 +19985,27 @@ function checkedResult({
   validation,
   warnings
 }) {
-  return {
-    ...commonResult(transactionPath, route, "message-ready", "message-ready"),
-    messageSource: "checked-file",
-    messageRevision: canonical.messageRevision,
-    messageSha256: canonical.messageSha256,
-    presentationWarnings: validation.presentationWarnings,
-    ...warnings.length === 0 ? {} : { cleanupWarnings: warnings },
-    displayText: canonical.displayText
-  };
+  return createWorkflowResult({
+    disposition: "succeeded",
+    status: "message-ready",
+    phase: "message-ready",
+    route,
+    transaction: resolve27(transactionPath),
+    commitState: "absent",
+    publicationState: "not-requested",
+    warnings: [
+      ...warnings,
+      ...presentationDiagnostics(validation.presentationWarnings)
+    ],
+    data: {
+      terminalDisposition: null,
+      messageSource: "checked-file",
+      messageRevision: canonical.messageRevision,
+      messageSha256: canonical.messageSha256,
+      presentationWarnings: validation.presentationWarnings,
+      displayText: canonical.displayText
+    }
+  });
 }
 function prospectiveCheckedResult({
   transactionPath,
@@ -19705,11 +20025,11 @@ function prospectiveCheckedResult({
     },
     validation,
     warnings: [
-      {
+      createWorkflowWarning({
         code: "MESSAGE_INPUT_CLEANUP_FAILED",
         message: "The fixed input was retained because cleanup could not prove safe same-object removal.",
-        path: inputPath
-      }
+        details: [{ kind: "prerequisite", path: inputPath }]
+      })
     ]
   });
 }
@@ -19721,7 +20041,7 @@ function assertCheckTransaction(transaction, transactionPath) {
     fail13(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve26(transactionPath) } }
+      { details: { transaction: resolve27(transactionPath) } }
     );
   }
 }
@@ -19783,91 +20103,36 @@ function checkMessageWorkflow({
   return assertMessageResultBudget(result);
 }
 function parseMessageWorkflowArguments(argv, command) {
-  const values = /* @__PURE__ */ new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-    if (!(/* @__PURE__ */ new Set(["--transaction", "--format"])).has(token)) {
-      fail13("UNKNOWN_ARGUMENT", `Unknown message ${command} flag ${token}.`);
-    }
-    if (value === void 0 || value.length === 0) {
-      fail13("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-    if (values.has(token)) {
-      fail13("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-    values.set(token, value);
-  }
-  if (!values.has("--transaction")) {
+  const { values } = parseCommandArguments(`message ${command}`, argv);
+  if (!values.has("transaction")) {
     fail13(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command}.`
     );
   }
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
   if (!FORMATS2.has(format)) {
     fail13("INVALID_FORMAT", "--format must be json or text.");
   }
-  return { transactionPath: values.get("--transaction"), format };
-}
-function messageErrorResult(error, transactionPath = null) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "evidence-required" : "invalid",
-    phase: error.details?.phase ?? null,
-    terminalDisposition: null,
-    transaction: error.details?.transaction ?? (typeof transactionPath === "string" ? resolve26(transactionPath) : null),
-    route: error.details?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details?.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...Object.fromEntries(
-      Object.entries(error.details ?? {}).filter(
-        ([key]) => !(/* @__PURE__ */ new Set(["phase", "transaction", "route", "recoveryRequired"])).has(
-          key
-        )
-      )
-    )
-  };
-}
-function asMessageWorkflowError(caught, fallbackCode) {
-  if (caught instanceof MessageWorkflowError) {
-    return caught;
-  }
-  if (caught instanceof CanonicalMessageError || typeof caught?.code === "string" && caught.code.length > 0) {
-    return new MessageWorkflowError(caught.code, caught.message, {
-      exitCode: caught.exitCode ?? 2,
-      details: caught.details ?? {}
-    });
-  }
-  return new MessageWorkflowError(fallbackCode, caught.message);
+  return { transactionPath: values.get("transaction"), format };
 }
 async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
-  let options = null;
-  try {
-    options = parseMessageWorkflowArguments(argv, "check");
-    const result = checkMessageWorkflow(options);
-    stdout.write(
-      options.format === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-    );
-    return 0;
-  } catch (caught) {
-    const error = asMessageWorkflowError(caught, "MESSAGE_CHECK_FAILED");
-    const result = assertMessageResultBudget(
-      messageErrorResult(error, options?.transactionPath)
-    );
-    stdout.write(`${JSON.stringify(result)}
-`);
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "check"),
+    execute: checkMessageWorkflow,
+    stdout
+  });
 }
-var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER13, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS2, MessageWorkflowError;
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER13, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS2;
 var init_checkMessageWorkflow = __esm({
   "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_workflowDiagnosticError();
+    init_approvedMessage();
+    init_commandArguments();
+    init_commandExecution();
+    init_diagnosticContract();
     init_approvedMessage();
     init_canonicalMessageState();
     init_transactionWorkspace();
@@ -19876,21 +20141,12 @@ var init_checkMessageWorkflow = __esm({
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
     FORMATS2 = /* @__PURE__ */ new Set(["json", "text"]);
-    MessageWorkflowError = class extends Error {
-      constructor(code, message, { exitCode = 2, details = {} } = {}) {
-        super(message);
-        this.name = "MessageWorkflowError";
-        this.code = code;
-        this.exitCode = exitCode;
-        this.details = details;
-      }
-    };
   }
 });
 
 // src/committing-to-git/message/semanticContentValidation.js
 import { createHash as createHash23 } from "node:crypto";
-function isPlainObject4(value) {
+function isPlainObject5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function boundedPointerToken(token) {
@@ -19902,7 +20158,7 @@ function boundedPointerToken(token) {
   return `field-sha256:${digest}`;
 }
 function childPointer(parent, token) {
-  const escaped = boundedPointerToken(token).replaceAll("~", "~0").replaceAll("/", "~1");
+  const escaped = String(token).replaceAll("~", "~0").replaceAll("/", "~1");
   return `${parent}/${escaped}`;
 }
 function diagnosticCollector() {
@@ -19911,7 +20167,17 @@ function diagnosticCollector() {
   let count = 0;
   return {
     add(pointer, code, message, details = {}) {
-      const diagnostic = { pointer, code, message };
+      const pointerByteLength = Buffer.byteLength(pointer);
+      const diagnostic = {
+        pointer: pointerByteLength <= 4096 ? pointer : null,
+        ...pointerByteLength <= 4096 ? {} : {
+          pointerOmitted: true,
+          pointerByteLength,
+          pointerSha256: createHash23("sha256").update(pointer).digest("hex")
+        },
+        code,
+        message
+      };
       for (const field of OPTIONAL_DIAGNOSTIC_FIELDS) {
         if (details[field] !== void 0) {
           diagnostic[field] = Array.isArray(details[field]) ? [...details[field]] : details[field];
@@ -19938,7 +20204,7 @@ function diagnosticCollector() {
   };
 }
 function validateObjectMembers(value, pointer, { required = [], allowed }, collector) {
-  if (!isPlainObject4(value)) {
+  if (!isPlainObject5(value)) {
     collector.add(pointer, "EXPECTED_OBJECT", "Value must be an object.", {
       expectedType: "object"
     });
@@ -20017,7 +20283,7 @@ function validateSelection(value, pointer, collector) {
   if (!validateObjectMembers(
     value,
     pointer,
-    { allowed: SELECTION_FIELDS },
+    { allowed: SELECTOR_FIELDS },
     collector
   )) {
     return;
@@ -20038,7 +20304,7 @@ function validateSelection(value, pointer, collector) {
       selectedFields.push(field);
     }
   }
-  for (const field of ARRAY_SELECTION_FIELDS) {
+  for (const field of ARRAY_SELECTOR_FIELDS) {
     if (!Object.hasOwn(value, field)) {
       continue;
     }
@@ -20052,14 +20318,14 @@ function validateSelection(value, pointer, collector) {
       pointer,
       "SELECTION_REQUIRED",
       "Semantic selection requires all, remaining, or one nonempty semantic selector field.",
-      { allowedFields: SELECTION_FIELDS }
+      { allowedFields: SELECTOR_FIELDS }
     );
   } else if (selectedFields.length > 1 && (selectedFields.includes("all") || selectedFields.includes("remaining"))) {
     collector.add(
       pointer,
-      "SELECTION_FIELDS_CONFLICT",
+      "SELECTOR_FIELDS_CONFLICT",
       "Selectors all and remaining are each exclusive of every other selector field.",
-      { allowedFields: SELECTION_FIELDS }
+      { allowedFields: SELECTOR_FIELDS }
     );
   }
 }
@@ -20098,7 +20364,7 @@ function validateSubject2(value, pointer, collector) {
     );
   }
 }
-function validateBasis3(value, pointer, collector) {
+function validateBasis(value, pointer, collector) {
   const fields = ["kind", "note"];
   if (!validateObjectMembers(
     value,
@@ -20108,12 +20374,12 @@ function validateBasis3(value, pointer, collector) {
   )) {
     return;
   }
-  if (Object.hasOwn(value, "kind") && !BASIS_KINDS4.includes(value.kind)) {
+  if (Object.hasOwn(value, "kind") && !BASIS_KINDS.includes(value.kind)) {
     collector.add(
       childPointer(pointer, "kind"),
       "VALUE_NOT_ALLOWED",
       "Evidence basis kind is not supported.",
-      { allowedValues: BASIS_KINDS4 }
+      { allowedValues: BASIS_KINDS }
     );
   }
   if (Object.hasOwn(value, "note")) {
@@ -20154,16 +20420,16 @@ function validateEvidenceGroups(value, pointer, collector) {
         collector
       );
     }
-    if (Object.hasOwn(group, "policy") && !EVIDENCE_POLICIES4.includes(group.policy)) {
+    if (Object.hasOwn(group, "policy") && !EVIDENCE_POLICIES.includes(group.policy)) {
       collector.add(
         childPointer(entryPointer, "policy"),
         "VALUE_NOT_ALLOWED",
         "Evidence policy is not supported.",
-        { allowedValues: EVIDENCE_POLICIES4 }
+        { allowedValues: EVIDENCE_POLICIES }
       );
     }
     if (Object.hasOwn(group, "basis")) {
-      validateBasis3(
+      validateBasis(
         group.basis,
         childPointer(entryPointer, "basis"),
         collector
@@ -20245,7 +20511,7 @@ function validateUserExperienceChanges(value, pointer, collector) {
 }
 function validateCompleteSemanticContent(value) {
   const collector = diagnosticCollector();
-  if (!isPlainObject4(value)) {
+  if (!isPlainObject5(value)) {
     collector.add(
       "",
       "EXPECTED_OBJECT",
@@ -20326,9 +20592,11 @@ function validateCompleteSemanticContent(value) {
   }
   return collector.result();
 }
-var DIAGNOSTIC_SAMPLE_LIMIT, MAXIMUM_POINTER_TOKEN_BYTES, SUBJECT_FIELDS, COMMON_FIELDS, SELECTION_FIELDS, ARRAY_SELECTION_FIELDS, EVIDENCE_POLICIES4, BASIS_KINDS4, OPTIONAL_DIAGNOSTIC_FIELDS, TYPE_TOKEN_PATTERN3;
+var DIAGNOSTIC_SAMPLE_LIMIT, MAXIMUM_POINTER_TOKEN_BYTES, SUBJECT_FIELDS, COMMON_FIELDS, OPTIONAL_DIAGNOSTIC_FIELDS, TYPE_TOKEN_PATTERN3;
 var init_semanticContentValidation = __esm({
   "src/committing-to-git/message/semanticContentValidation.js"() {
+    init_selectionVocabulary();
+    init_evidenceVocabulary();
     DIAGNOSTIC_SAMPLE_LIMIT = 64;
     MAXIMUM_POINTER_TOKEN_BYTES = 256;
     SUBJECT_FIELDS = Object.freeze(["type", "scope", "description"]);
@@ -20340,26 +20608,6 @@ var init_semanticContentValidation = __esm({
       "sharedRationales",
       "userExperienceChanges",
       "mode"
-    ]);
-    SELECTION_FIELDS = Object.freeze([
-      "all",
-      "remaining",
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
-    ARRAY_SELECTION_FIELDS = Object.freeze(SELECTION_FIELDS.slice(2));
-    EVIDENCE_POLICIES4 = Object.freeze(["reuse", "message", "review"]);
-    BASIS_KINDS4 = Object.freeze([
-      "authored-current-task",
-      "read-current-task",
-      "task-lineage",
-      "user-grounded",
-      "generated-derived",
-      "unknown-preexisting"
     ]);
     OPTIONAL_DIAGNOSTIC_FIELDS = Object.freeze([
       "expectedType",
@@ -20385,10 +20633,10 @@ import {
   realpathSync as realpathSync11,
   writeFileSync as writeFileSync14
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute12, join as join17, relative as relative11, resolve as resolve27, sep as sep5 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute12, join as join17, relative as relative11, resolve as resolve28, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
-function fail14(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new MessageWorkflowError(code, message, { exitCode, details });
+function fail14(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 function decodeContent(bytes) {
   let text;
@@ -20400,14 +20648,13 @@ function decodeContent(bytes) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail14(
-      "INVALID_MESSAGE_CONTENT",
-      `The fixed content.json is invalid JSON: ${error.message}`
-    );
+    fail14("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
+      cause: error
+    });
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve27(path);
+  const absolute = resolve28(path);
   const contained = relative11(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute12(contained)) {
     fail14(
@@ -20441,7 +20688,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve27(transactionPath),
+          transaction: resolve28(transactionPath),
           route: transaction.route
         }
       }
@@ -20453,7 +20700,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve27(transactionPath),
+          transaction: resolve28(transactionPath),
           route: transaction.route
         }
       }
@@ -20461,7 +20708,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog2(transaction) {
-  const expectedReviewDirectory = resolve27(
+  const expectedReviewDirectory = resolve28(
     transaction.attemptDirectory,
     "review"
   );
@@ -20503,10 +20750,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   try {
     stored = JSON.parse(STRICT_UTF8_DECODER14.decode(opened.bytes));
   } catch (error) {
-    fail14(
-      "INVALID_EVIDENCE_PLAN",
-      `Current evidence plan is invalid JSON: ${error.message}`
-    );
+    fail14("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
+      cause: error
+    });
   }
   const canonical = canonicalizeEvidencePlan({
     manifest,
@@ -20535,16 +20781,15 @@ function receiptCoverage(transaction, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail14(
-      "REVIEW_RECEIPT_INVALID",
-      `Review receipt is invalid: ${error.message}`
-    );
+    fail14("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+      cause: error
+    });
   }
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
     fail14("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
-      exitCode: 1
+      disposition: "unmet-prerequisite"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
@@ -20552,7 +20797,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     fail14(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 }
+      { disposition: "unmet-prerequisite" }
     );
   }
   if (!indexMatchesTree(
@@ -20564,7 +20809,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
-        exitCode: 1
+        disposition: "unmet-prerequisite"
       }
     );
   }
@@ -20648,25 +20893,44 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     updateTransaction(transactionPath, "review-pending", next);
   }
   const firstPage = evidenceDelta.queue?.firstPage ?? null;
-  const result = {
-    schemaVersion: 1,
+  const result = createWorkflowResult({
+    disposition: "unmet-prerequisite",
+    code: "REVIEW_EVIDENCE_REQUIRED",
+    message: "Review the newly required evidence before finalizing the message.",
     status: "evidence-required",
     phase: "review-pending",
-    terminalDisposition: null,
     route: "extended",
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    canonical: false,
-    evidenceDelta: {
-      newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage: firstPage === null ? null : resolve27(transaction.attemptDirectory, firstPage.artifact),
-      firstQueuePageSha256: firstPage?.sha256 ?? null
+    recovery: {
+      kind: "satisfy-prerequisite",
+      automatic: false,
+      requiredInputs: ["review of newly required evidence"],
+      commands: [
+        {
+          arguments: [
+            "workflow",
+            "review-next",
+            "--transaction",
+            resolve28(transactionPath)
+          ]
+        }
+      ]
     },
-    displayText: null
-  };
+    data: {
+      terminalDisposition: null,
+      canonical: false,
+      evidenceDelta: {
+        newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
+        firstQueuePage: firstPage === null ? null : resolve28(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePageSha256: firstPage?.sha256 ?? null
+      },
+      displayText: null
+    }
+  });
   return assertMessageResultBudget(result);
 }
 function validationSummary(validation) {
@@ -20678,25 +20942,28 @@ function validationSummary(validation) {
   };
 }
 function finalizedResult({ transactionPath, rendered, canonical }) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "message-ready",
     phase: "message-ready",
-    terminalDisposition: null,
     route: "extended",
-    transaction: resolve27(transactionPath),
+    warnings: presentationDiagnostics(rendered.presentationWarnings),
+    transaction: resolve28(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    canonical: true,
-    messageSource: "finalized-extended",
-    messageRevision: canonical.messageRevision,
-    presentationWarnings: rendered.presentationWarnings,
-    messageSha256: canonical.messageSha256,
-    validation: validationSummary(rendered.validation),
-    displayText: canonical.displayText
-  };
+    data: {
+      terminalDisposition: null,
+      canonical: true,
+      messageSource: "finalized-extended",
+      messageRevision: canonical.messageRevision,
+      presentationWarnings: rendered.presentationWarnings,
+      messageSha256: canonical.messageSha256,
+      validation: validationSummary(rendered.validation),
+      displayText: canonical.displayText
+    }
+  });
 }
 async function finalizeMessageWorkflow({
   transactionPath,
@@ -20721,7 +20988,28 @@ async function finalizeMessageWorkflow({
     fail14(
       "INVALID_MESSAGE_CONTENT",
       `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
-      { details: { diagnostics: structural.diagnostics } }
+      {
+        details: {
+          diagnostics: structural.diagnostics,
+          ...authoringProgress(transaction)
+        },
+        documentation: "references/message-format.md",
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: [resolve28(transaction.attemptDirectory, CONTENT_NAME)],
+          commands: [
+            {
+              arguments: [
+                "message",
+                "finalize",
+                "--transaction",
+                resolve28(transactionPath)
+              ]
+            }
+          ]
+        }
+      }
     );
   }
   if (content.mode !== transaction.review.structuredMessageMode) {
@@ -20829,10 +21117,9 @@ async function finalizeMessageWorkflow({
         receipt
       });
     } catch (error) {
-      fail14(
-        "REVIEW_RECEIPT_INVALID",
-        `Review receipt is invalid: ${error.message}`
-      );
+      fail14("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+        cause: error
+      });
     }
     normalized.evidenceGroups = canonicalContentGroups(recordedPlan);
   }
@@ -20878,30 +21165,17 @@ async function finalizeMessageWorkflow({
   );
 }
 async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {}) {
-  let options = null;
-  try {
-    options = parseMessageWorkflowArguments(argv, "finalize");
-    const result = await finalizeMessageWorkflow(options);
-    if (options.format === "text" && result.displayText !== null) {
-      stdout.write(result.displayText);
-    } else {
-      stdout.write(`${JSON.stringify(result)}
-`);
-    }
-    return result.status === "evidence-required" ? 1 : 0;
-  } catch (caught) {
-    const error = asMessageWorkflowError(caught, "MESSAGE_FINALIZE_FAILED");
-    const result = assertMessageResultBudget(
-      messageErrorResult(error, options?.transactionPath)
-    );
-    stdout.write(`${JSON.stringify(result)}
-`);
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "finalize"),
+    execute: finalizeMessageWorkflow,
+    stdout
+  });
 }
 var CONTENT_NAME, STRICT_UTF8_DECODER14;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
+    init_transactionDiagnosticState();
     init_gitRepository();
     init_reviewCatalog();
     init_inlineEvidenceCapsule();
@@ -20912,12 +21186,23 @@ var init_finalizeMessageWorkflow = __esm({
     init_transactionWorkspace();
     init_prepareWorkflow();
     init_checkMessageWorkflow();
+    init_workflowDiagnosticError();
+    init_approvedMessage();
+    init_diagnosticContract();
+    init_commandExecution();
+    init_authoringProgress();
     CONTENT_NAME = "content.json";
     STRICT_UTF8_DECODER14 = new TextDecoder13("utf-8", { fatal: true });
   }
 });
 
 // src/committing-to-git/cli/commitWorkflow.js
+init_commandArguments();
+init_commandExecution();
+init_diagnosticContract();
+import { pathToFileURL } from "node:url";
+import { resolve as resolve29 } from "node:path";
+import { createHash as createHash24 } from "node:crypto";
 import { readFileSync as readFileSync15 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
@@ -21023,31 +21308,20 @@ var COMMANDS = /* @__PURE__ */ new Map([
 var COMMAND_HELP = /* @__PURE__ */ new Map([
   [
     "workflow prepare",
-    `Usage: commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> (--evidence <reuse|message|review> --basis <kind> | --evidence-plan <file>) [options]
-
-Allocates one helper-owned transaction, validates literal scope and evidence
+    `Allocates one helper-owned transaction, validates literal scope and evidence
 policy, and records the exact snapshot. Path scope accepts literal repeatable
 selectors or one --scope-file. JSON is the default output format.
-
-Exit status:
-  0  Preparation reached evidence-ready, review-pending, or authoring-pending.
-  1  Repository state stopped safely or preparation is resumable.
-  2  Input, policy, capability, selector, or execution failure.
 `
   ],
   [
     "workflow resume",
-    `Usage: commitWorkflow.mjs workflow resume --transaction <transaction.json> [--format <json|text>]
-
-Continues only a reversible preparation from its persisted inputs. Scope,
+    `Continues only a reversible preparation from its persisted inputs. Scope,
 evidence, policy, and mutation inputs cannot be reconstructed or overridden.
 `
   ],
   [
     "workflow extend",
-    `Usage: commitWorkflow.mjs workflow extend --transaction <transaction.json> --reason <evidence-uncertainty|semantic-structure-required> [--format <json|text>]
-
-Extends one unchanged route: concise, phase: evidence-ready snapshot only.
+    `Extends one unchanged route: concise, phase: evidence-ready snapshot only.
 Already-extended transactions follow their returned nextAction instead.
 Evidence uncertainty consumes only the
 fixed evidence-plan-input.json. Semantic structure carries existing evidence
@@ -21056,9 +21330,7 @@ forward without accepting or reading a new plan.
   ],
   [
     "workflow review-next",
-    `Usage: commitWorkflow.mjs workflow review-next --transaction <transaction.json> [--cursor <opaque-cursor>] [--format <json|text>]
-
-Returns exactly one complete, bounded, digest-verified review packet from the
+    `Returns exactly one complete, bounded, digest-verified review packet from the
 current transaction. The helper advances only through its returned opaque
 cursor, safely replays the latest delivery, and records review completion.
 A completed zero-packet review returns packet null and its authoring action
@@ -21067,18 +21339,14 @@ idempotently without changing the transaction.
   ],
   [
     "workflow promote",
-    `Usage: commitWorkflow.mjs workflow promote --transaction <transaction.json> [--format <json|text>]
-
-Promotes an unchanged draft after complete head, tree, scope, and staged-state
+    `Promotes an unchanged draft after complete head, tree, scope, and staged-state
 comparison. It installs only the exact recorded tree and preserves review and
 message state.
 `
   ],
   [
     "message check",
-    `Usage: commitWorkflow.mjs message check --transaction <transaction.json> [--format <json|text>]
-
-Checks the exact fixed transaction-local message-input.txt and records those
+    `Checks the exact fixed transaction-local message-input.txt and records those
 unchanged bytes as the latest canonical message revision. With nextAction:
 author-message, accepts a concise subject or extended multi-section message
 when semanticStructureRequired is false. With nextAction: author-content,
@@ -21088,221 +21356,90 @@ Arbitrary message-file paths are rejected.
   ],
   [
     "message finalize",
-    `Usage: commitWorkflow.mjs message finalize --transaction <transaction.json> [--format <json|text>]
-
-Finalizes only the fixed transaction-local content.json for an extended
+    `Finalizes only the fixed transaction-local content.json for an extended
 transaction. Newly required evidence returns as a bounded delta queue.
 `
   ],
   [
     "workflow check",
-    `Usage: commitWorkflow.mjs workflow check --transaction <transaction.json> [--label <description>] [--working-directory <repository-relative-directory>] [--timeout-ms <milliseconds>] [--retry-after-attempt <receipt-id>] [--format <json|text>] -- <executable> [arguments...]
-
-Runs one executable directly, without a shell, in the current worktree. The
+    `Runs one executable directly, without a shell, in the current worktree. The
 helper records the actual child outcome, bounded output evidence, and selected
 scope stability in the transaction. Success output remains private; bounded
 diagnostics are shown only when the check does not pass.
-
-Exit status:
-  0  The child passed and the selected scope remained stable.
-  1  The child did not pass or the selected scope changed.
-  2  Input, policy, capability, or pre-launch execution failure.
-  4  The child outcome is unknown and requires recovery.
 `
   ],
   [
     "workflow check-detail",
-    `Usage: commitWorkflow.mjs workflow check-detail --transaction <transaction.json> --receipt <receipt-id> --stream <stdout|stderr> --segment <head|tail> [--offset <bytes>] [--format <json|text>]
-
-Returns one bounded page from a retained helper-owned check-output segment.
+    `Returns one bounded page from a retained helper-owned check-output segment.
 The command accepts no arbitrary path and verifies the segment's recorded size
 and digest before returning UTF-8 or base64 content.
 `
   ],
   [
     "workflow commit",
-    `Usage: commitWorkflow.mjs workflow commit --transaction <transaction.json> [--message <subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...] [--retain-review-artifacts] [--retain-process-logs] [--format <json|text>]
-
-After exact commit authorization, creates at most one signed commit from the
+    `After exact commit authorization, creates at most one signed commit from the
 recorded tree and approved bytes, consumes only helper-witnessed check
 receipts, verifies the exact OID, and records one bounded report. Every
 non-passing receipt requires exact acknowledgement. An unknown outcome
 requires recovery and is never replayed.
-
-Exit status:
-  0  Matching commit and policy-permitted report completed.
-  1  Git durably did not create a commit or repository state stopped safely.
-  2  Input or pre-journal failure.
-  3  A known commit is blocked by comparison, verification, or reporting.
-  4  Commit outcome is unknown and requires recovery.
 `
   ],
   [
     "workflow verify",
-    `Usage: commitWorkflow.mjs workflow verify --transaction <transaction.json> [--verification <required|advisory|skipped>] [--format <json|text>]
-
-Retries or reclassifies signature verification only for the exact recorded
+    `Retries or reclassifies signature verification only for the exact recorded
 commit OID. It never creates or replaces a commit.
 `
   ],
   [
     "workflow report-detail",
-    `Usage: commitWorkflow.mjs workflow report-detail --transaction <transaction.json> [--cursor <cursor> | --refresh] [--format <json|text>]
-
-Returns one bounded page of a durable workspace observation. A completed page,
+    `Returns one bounded page of a durable workspace observation. A completed page,
 including a cursorless one-page result, replays until --refresh explicitly
 starts a new observation.
 `
   ],
   [
     "workflow publish",
-    `Usage: commitWorkflow.mjs workflow publish --transaction <transaction.json> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <attempt-id>] [--format <json|text>]
-
-After separate push authorization, publishes only the exact reported commit.
+    `After separate push authorization, publishes only the exact reported commit.
 Every attempt is journaled; no failed or unknown publication is retried
 automatically.
 A known rejection with phase: reported permits a separately authorized new
 attempt, including another destination, without --retry-after-attempt.
-
-Exit status:
-  0  Push success was witnessed or a matching remote OID was observed.
-  1  Git reported a known rejection.
-  2  Input or pre-journal failure.
-  3  Commit comparison or verification policy blocks publication.
-  4  Remote outcome is unknown and requires recovery.
 `
   ],
   [
     "workflow recover",
-    `Usage: commitWorkflow.mjs workflow recover --transaction <transaction.json> [--resolution <confirmed-no-live-child>] [--format <json|text>]
-
-Observes only the exact journaled transaction and never replays commit or push.
+    `Observes only the exact journaled transaction and never replays commit or push.
 The exceptional resolution requires explicit confirmation that the relevant
 Git, signing, and hook process ended or that the host restarted.
 `
   ],
   [
     "workflow cleanup",
-    `Usage: commitWorkflow.mjs workflow cleanup --transaction <transaction.json> [--purge] [--format <json|text>]
-
-Compacts only known-safe helper-owned artifacts beneath the exact transaction.
+    `Compacts only known-safe helper-owned artifacts beneath the exact transaction.
 Pending or unknown mutations are never removed.
 `
   ]
 ]);
-var COMMAND_OPTIONS = /* @__PURE__ */ new Map([
-  [
-    "workflow prepare",
-    `  --mode <actual|draft>  Required. Actual may install the index; draft does not.
-  --scope <staged|full|paths>  Required. Select staged, all, or literal path changes.
-  --evidence <reuse|message|review>  Uniform evidence policy; pair with --basis.
-  --basis <kind>  Uniform provenance: authored-current-task, read-current-task,
-    task-lineage, user-grounded, generated-derived, or unknown-preexisting.
-    Reuse excludes user-grounded and unknown-preexisting.
-  --evidence-plan <file>  JSON schemaVersion 1 groups; alternative to evidence/basis.
-  --path <path>  Repeatable exact repository-relative path; no globs.
-  --path-prefix <prefix/>  Repeatable literal directory prefix ending in /.
-  --exclude-path <path>  Repeatable exact exclusion within included scope.
-  --exclude-path-prefix <prefix/>  Repeatable directory exclusion within scope.
-  --scope-file <file>  JSON schemaVersion 2 selectors instead of inline selectors.
-    Selectors require scope paths, at least one inclusion, and / separators.
-    Include both sides of renames. Full and staged accept no selectors.
-  --allowed-type <type>  Repeatable unique lowercase commit type (maximum 64).
-    Tokens match [a-z][a-z0-9-]{0,31}; default: no supplied type restriction.
-  --verification <required|advisory|skipped>  Signature policy; default: required.
-`
-  ],
-  [
-    "workflow extend",
-    `  --reason <evidence-uncertainty|semantic-structure-required>  Required.
-    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic
-    structure retains evidence and supplies content.json for message finalize.
-`
-  ],
-  [
-    "workflow review-next",
-    `  --cursor <opaque-cursor>  Returned nextCursor; default: cursorless delivery.
-    Start cursorless, then use reviewProgress.nextCursor while reviewRequired.
-`
-  ],
-  [
-    "workflow check",
-    `  --label <description>  Check label; default: Repository check.
-  --working-directory <directory>  Repository-relative directory; default: .
-  --timeout-ms <milliseconds>  Integer 1..86400000; default: no helper timeout.
-  --retry-after-attempt <receipt-id>  Bind a recovered check retry; default: none.
-  -- <executable> [arguments...]  Required direct child command, without a shell.
-`
-  ],
-  [
-    "workflow check-detail",
-    `  --receipt <receipt-id>  Required helper-owned check receipt.
-  --stream <stdout|stderr>  Required retained output stream.
-  --segment <head|tail>  Required retained output segment.
-  --offset <bytes>  Nonnegative integer byte offset; default: 0.
-`
-  ],
-  [
-    "workflow commit",
-    `  --message <subject>  Exact transport-safe subject without LF; the helper
-    appends LF. Default: checked/finalized revision. Not a body or message file.
-  --verification <required|advisory|skipped>  Default: recorded policy.
-  --acknowledge-failed-check <receipt-id>  Repeatable explicit acknowledgement
-    of each non-passing receipt; default: none. Requires user authorization.
-  --retain-review-artifacts  Boolean switch; default: false.
-  --retain-process-logs  Boolean switch; default: false.
-    Retain the named helper artifacts during post-commit compaction.
-`
-  ],
-  [
-    "workflow verify",
-    `  --verification <required|advisory|skipped>  Default: recorded policy.
-    Required blocks publication on failure; advisory reports without blocking;
-    skipped records that signature verification was not performed.
-`
-  ],
-  [
-    "workflow report-detail",
-    `  --cursor <cursor>  Opaque returned page cursor; default: cursorless replay.
-  --refresh  Boolean switch; default: false. Start a new workspace observation.
-    Cursor and refresh are mutually exclusive.
-`
-  ],
-  [
-    "workflow publish",
-    `  --remote <name>  Required configured Git remote name, not a URL.
-  --destination <refs/heads/name>  Required full destination branch ref.
-  --retry-after-attempt <attempt-id>  Exact UUID of a resolved uncertain attempt;
-    default: none. Required only on the recovery retry route, never for a
-    reported known rejection. Retargeting requires separate push authorization.
-`
-  ],
-  [
-    "workflow recover",
-    `  --resolution <confirmed-no-live-child>  Default: no liveness assertion.
-    Supply only after explicit confirmation that the child ended or host restarted.
-`
-  ],
-  [
-    "workflow cleanup",
-    `  --purge  Boolean switch; default: false (compact safe artifacts).
-    Purge removes the eligible terminal transaction workspace completely.
-`
-  ]
-]);
 function commandHelp(command) {
-  const transactionOption = command === "workflow prepare" ? "" : "  --transaction <transaction.json>  Required opaque helper-returned path.\n";
-  return `${COMMAND_HELP.get(command)}
+  const options = Object.entries(commandOptions(command)).map(([name, option]) => `  --${name} ${option.description ?? ""}`).join("\n");
+  return `Usage: commitWorkflow.mjs ${command} [options]${command === "workflow check" ? " -- <executable> [arguments...]" : ""}
+
+${COMMAND_HELP.get(command)}
 Options:
-${transactionOption}${COMMAND_OPTIONS.get(command) ?? ""}  --format <json|text>  Output contract; default: json.
+${options}
   --help, -h  Show this help as the sole command argument; performs no workflow.
 Options are single-use unless marked repeatable. Value options take one value.
 Unspecified optional selectors, cursors, overrides, and retries are absent.
+
+Exit status:
+${Object.entries(DISPOSITION_EXIT_CODES).map(([disposition, code]) => `  ${code}  ${disposition}`).join("\n")}
+See references/diagnostics.md for state, recovery, and stream semantics.
 `;
 }
 var HELP = `Commit workflow
 
 Usage:
+  commitWorkflow.mjs --version
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]
@@ -21322,83 +21459,55 @@ Usage:
 JSON is the default machine contract. --format text is for direct human use.
 Run a command with --help to inspect its options.
 `;
-function requestedOutputFormat(args) {
-  const index = args.lastIndexOf("--format");
-  return index >= 0 && args[index + 1] === "text" ? "text" : "json";
-}
-function invalidResult3(code, message, details = {}) {
-  const displayText = `Status: invalid
-Code: ${code}
-Message: ${message}
-`;
-  return {
-    schemaVersion: 1,
-    status: "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code,
-    message,
-    ...details,
-    displayText
-  };
-}
-function writeInvalidResult(result, args, stdout, stderr) {
-  stderr.write(`${result.code}: ${result.message}
-`);
-  stdout.write(
-    requestedOutputFormat(args) === "text" ? result.displayText : `${JSON.stringify(result)}
-`
-  );
-}
-function unsupportedAttemptResult(args) {
-  const index = args.indexOf("--transaction");
-  if (index < 0 || typeof args[index + 1] !== "string") {
-    return null;
-  }
-  try {
-    const payload = JSON.parse(readFileSync15(args[index + 1], "utf8"));
-    if (payload?.schemaVersion !== 4) {
-      return invalidResult3(
-        "UNSUPPORTED_ATTEMPT_VERSION",
-        `Transaction schemaVersion ${JSON.stringify(payload?.schemaVersion)} is unsupported; attempts are never migrated in place.`,
-        { transaction: args[index + 1] }
-      );
-    }
-  } catch {
-  }
-  return null;
+async function writeInvalidResult(result, args, stdout) {
+  const encoded = encodeWorkflowResult(result, requestedOutputFormat(args));
+  await writeWorkflowOutput(stdout, encoded);
+  return encoded.result.exitCode;
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  if (args.length === 1 && args[0] === "--version") {
+    const digest = createHash24("sha256").update(readFileSync15(new URL(import.meta.url))).digest("hex");
+    await writeWorkflowOutput(stdout, {
+      result: { disposition: "succeeded", commitState: "unknown" },
+      output: `${JSON.stringify({
+        implementation: { algorithm: "sha256", digest },
+        diagnosticContractVersion: DIAGNOSTIC_CONTRACT_VERSION
+      })}
+`
+    });
+    return 0;
+  }
   if (args.length === 1 && ["-h", "--help"].includes(args[0])) {
-    stdout.write(HELP);
+    await writeWorkflowOutput(stdout, {
+      result: { disposition: "succeeded", commitState: "unknown" },
+      output: HELP
+    });
     return 0;
   }
   const command = args.slice(0, 2).join(" ");
   const route = COMMANDS.get(command);
   if (!route) {
     const label = command || "(none)";
-    const result = invalidResult3(
-      "UNKNOWN_COMMAND",
-      `Unknown command: ${label}. Run commitWorkflow.mjs --help for usage.`,
-      { command: label }
-    );
-    writeInvalidResult(result, args, stdout, stderr);
-    return 2;
+    const result = createWorkflowResult({
+      disposition: "invalid-input",
+      status: "invalid",
+      code: "UNKNOWN_COMMAND",
+      message: `Unknown command: ${label}. Run commitWorkflow.mjs --help for usage.`,
+      recovery: {
+        kind: "correct-input",
+        requiredInputs: [],
+        commands: [{ arguments: ["--help"] }],
+        automatic: false
+      }
+    });
+    return writeInvalidResult(result, args, stdout);
   }
   if (args.length === 3 && ["-h", "--help"].includes(args[2])) {
-    stdout.write(commandHelp(command));
+    await writeWorkflowOutput(stdout, {
+      result: { disposition: "succeeded", commitState: "unknown" },
+      output: commandHelp(command)
+    });
     return 0;
-  }
-  const unsupported = unsupportedAttemptResult(args.slice(2));
-  if (unsupported) {
-    writeInvalidResult(unsupported, args, stdout, stderr);
-    return 2;
   }
   const [loadCommand, handlerName] = route;
   const commandModule = await loadCommand();
@@ -21407,13 +21516,34 @@ async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = 
 async function runCommitWorkflowCli(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   try {
     return await dispatchCommitWorkflow(args, { stdout, stderr });
-  } catch (error) {
-    const result = invalidResult3("COMMAND_DISPATCH_FAILED", error.message);
-    writeInvalidResult(result, args, stdout, stderr);
-    return 2;
+  } catch (caught) {
+    if (caught instanceof WorkflowOutputError) {
+      try {
+        stderr.write(
+          "OUTPUT_DELIVERY_FAILED: Inspect retained transaction evidence; do not replay the mutation.\n"
+        );
+      } catch {
+      }
+      return caught.exitCode;
+    }
+    const result = createWorkflowResult({
+      disposition: "internal-failure",
+      status: "failed",
+      code: "COMMAND_DISPATCH_FAILED",
+      message: "The command could not complete its response. Inspect the transaction state before attempting another mutation.",
+      recovery: {
+        kind: "inspect-state",
+        requiredInputs: ["transaction handle, if one was returned"],
+        commands: [],
+        automatic: false
+      }
+    });
+    return writeInvalidResult(result, args, stdout);
   }
 }
-process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));
+if (process.argv[1] && pathToFileURL(resolve29(process.argv[1])).href === import.meta.url) {
+  process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));
+}
 export {
   dispatchCommitWorkflow,
   runCommitWorkflowCli

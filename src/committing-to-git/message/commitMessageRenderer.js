@@ -1,7 +1,7 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { Buffer } from "node:buffer";
 
 import {
-  ApprovedMessageError,
   MAXIMUM_BODY_LINE_SCALARS,
   MAXIMUM_CANONICAL_MESSAGE_BYTES,
   validateApprovedMessage,
@@ -28,7 +28,8 @@ function isCanonicalNarrative(value) {
 
 function wrapNarrative(text, firstPrefix, continuationPrefix) {
   if (!isCanonicalNarrative(text)) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
       "Structured message narrative must be trimmed, nonempty, and free of control or format characters.",
     );
   }
@@ -143,7 +144,8 @@ function assertEvidencePlanBinding(content, evidencePlan) {
   const current = evidencePlan.groups.map(normalizedGroup);
 
   if (JSON.stringify(authored) !== JSON.stringify(current)) {
-    throw new Error(
+    throw new WorkflowDiagnosticError(
+      "EVIDENCE_PLAN_MISMATCH",
       "Structured content evidence groups do not match the current evidence plan.",
     );
   }
@@ -156,11 +158,10 @@ function assertCompleteContent(
   reviewReceipt,
 ) {
   if (!content || content.schemaVersion !== 3) {
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      "INCOMPLETE_SEMANTIC_CONTENT",
       "Only complete schema-version-3 semantic content can be rendered.",
     );
-    error.code = "INCOMPLETE_SEMANTIC_CONTENT";
-    throw error;
   }
 
   if (content.authoringState !== "complete") {
@@ -178,23 +179,22 @@ function assertCompleteContent(
       missing.push("bulk domains");
     }
 
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      missing.length > 0
+        ? "MISSING_SEMANTIC_DECISIONS"
+        : "INCOMPLETE_SEMANTIC_CONTENT",
       missing.length > 0
         ? `Draft semantic content is missing: ${missing.join(", ")}.`
         : "Set authoringState to complete after reviewing every semantic decision.",
+      { details: { missing } },
     );
-    error.code =
-      missing.length > 0
-        ? "MISSING_SEMANTIC_DECISIONS"
-        : "INCOMPLETE_SEMANTIC_CONTENT";
-    error.details = { missing };
-    throw error;
   }
 
   if (content.subject === null || typeof content.subject !== "object") {
-    const error = new Error("Complete semantic content requires a subject.");
-    error.code = "MISSING_SUBJECT_DECISION";
-    throw error;
+    throw new WorkflowDiagnosticError(
+      "MISSING_SUBJECT_DECISION",
+      "Complete semantic content requires a subject.",
+    );
   }
 
   if (
@@ -204,11 +204,11 @@ function assertCompleteContent(
     reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 ||
     reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256
   ) {
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      "CURRENT_REVIEW_RECEIPT_REQUIRED",
       "Complete semantic content requires a current reviewed receipt.",
+      { disposition: "unmet-prerequisite" },
     );
-    error.code = "CURRENT_REVIEW_RECEIPT_REQUIRED";
-    throw error;
   }
 
   assertEvidencePlanBinding(content, evidencePlan);
@@ -220,8 +220,9 @@ function notesByUnit(coverage, sharedReasonSet) {
   for (const group of coverage.fileNotes) {
     for (const reason of group.reasons) {
       if (sharedReasonSet.has(reason)) {
-        throw new Error(
-          `File note ${JSON.stringify(reason)} duplicates a shared rationale.`,
+        throw new WorkflowDiagnosticError(
+          "DUPLICATE_MESSAGE_REASON",
+          "A file note duplicates a shared rationale. Remove the repeated reason without changing its meaning.",
         );
       }
 
@@ -242,11 +243,10 @@ function notesByUnit(coverage, sharedReasonSet) {
 
 function renderDetailedV2(manifest, coverage, sharedReasonSet) {
   if (manifest.changeUnitCount >= BULK_FILE_THRESHOLD) {
-    const error = new Error(
+    throw new WorkflowDiagnosticError(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
       "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains.",
     );
-    error.code = "STRUCTURED_BULK_FINALIZATION_REQUIRED";
-    throw error;
   }
 
   const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
@@ -315,7 +315,10 @@ export function renderCommitMessage({
   const userExperience = content.userExperienceChanges ?? [];
 
   if (!Array.isArray(userExperience)) {
-    throw new Error("User experience changes must be an array.");
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
+      "User experience changes must be an array.",
+    );
   }
 
   const subject = `${content.subject.type}${
@@ -348,16 +351,19 @@ export function renderCommitMessage({
   const bytes = Buffer.from(displayText, "utf8");
 
   if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    throw new ApprovedMessageError(
+    throw new WorkflowDiagnosticError(
       "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
       `Rendered message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
       {
-        byteCount: bytes.length,
-        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-        remedy:
-          content.mode === "detailed"
-            ? "Select structured bulk mode without changing scope."
-            : "Shorten prose or combine truthful domains without changing scope.",
+        detailKind: "limit",
+        details: {
+          byteCount: bytes.length,
+          maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+          remedy:
+            content.mode === "detailed"
+              ? "Select structured bulk mode without changing scope."
+              : "Shorten prose or combine truthful domains without changing scope.",
+        },
       },
     );
   }

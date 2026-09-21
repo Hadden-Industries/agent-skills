@@ -1,3 +1,5 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowWarning } from "../diagnostics/diagnosticContract.js";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 
@@ -25,17 +27,8 @@ const SECTION_ORDER = Object.freeze([
 ]);
 const PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
 
-export class ApprovedMessageError extends Error {
-  constructor(code, message, details = {}) {
-    super(message);
-    this.name = "ApprovedMessageError";
-    this.code = code;
-    this.details = details;
-  }
-}
-
 function fail(code, message, details = {}) {
-  throw new ApprovedMessageError(code, message, details);
+  throw new WorkflowDiagnosticError(code, message, { details });
 }
 
 function scalarLength(value) {
@@ -590,6 +583,20 @@ function presentationWarnings(lines) {
     samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
     sha256,
   };
+}
+
+export function presentationDiagnostics(summary) {
+  return summary.count === 0
+    ? []
+    : [
+        createWorkflowWarning({
+          code: "MESSAGE_PRESENTATION_LIMIT",
+          message:
+            "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
+          documentation: "references/message-format.md",
+          details: [{ kind: "limit", ...summary }],
+        }),
+      ];
 }
 
 export function canUseDirectSubjectTransport(subject) {

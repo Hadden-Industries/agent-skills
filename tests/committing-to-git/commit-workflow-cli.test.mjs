@@ -183,7 +183,7 @@ test("canonical guidance requires capitalized descriptions before approval", () 
   assert.match(skill, /capitalization-only second approval/iu);
 });
 
-test("canonical skill routes exceptions to the six focused references", () => {
+test("canonical skill routes exceptions to focused references", () => {
   const source = readFileSync(CANONICAL_SKILL, "utf8");
   const expected = [
     "inspection-recovery.md",
@@ -192,6 +192,7 @@ test("canonical skill routes exceptions to the six focused references", () => {
     "publication-recovery.md",
     "message-format.md",
     "check-evidence.md",
+    "diagnostics.md",
   ];
 
   for (const reference of expected) {
@@ -355,7 +356,9 @@ test("high-level report-detail and publish help expose bounded transaction route
 
   assert.equal(detail.status, 0, detail.stderr);
   assert.match(detail.stdout, /--transaction <transaction\.json>/u);
-  assert.match(detail.stdout, /--cursor <cursor> \| --refresh/u);
+  assert.match(detail.stdout, /--cursor <cursor>/u);
+  assert.match(detail.stdout, /--refresh/u);
+  assert.match(detail.stdout, /Cursor and refresh are mutually exclusive/u);
   assert.equal(publication.status, 0, publication.stderr);
   assert.match(publication.stdout, /--remote <name>/u);
   assert.match(publication.stdout, /--retry-after-attempt <attempt-id>/u);
@@ -613,8 +616,11 @@ test("workflow preparation rejects policy and storage errors before allocation",
     JSON.parse(redirected.stdout).code,
     "UNSUPPORTED_GIT_STORAGE_OVERRIDE",
   );
-  assert.match(redirected.stderr, /GIT_INDEX_FILE/u);
-  assert.doesNotMatch(redirected.stderr, /do-not-echo-index/u);
+  assert.match(JSON.parse(redirected.stdout).message, /GIT_INDEX_FILE/u);
+  assert.doesNotMatch(
+    redirected.stdout + redirected.stderr,
+    /do-not-echo-index/u,
+  );
   assert.deepEqual(readdirSync(fixture.scratch), []);
 });
 
@@ -669,7 +675,7 @@ test("workflow preparation rejects unmatched selectors and staged path state bef
   assert.equal(staged.status, 1);
   const stagedOutput = JSON.parse(staged.stdout);
   assert.equal(stagedOutput.code, "PREEXISTING_STAGED_CHANGES");
-  assert.equal(stagedOutput.stagedChangeUnitCount, 1);
+  assert.equal(stagedOutput.details[0].stagedChangeUnitCount, 1);
   assert.deepEqual(readdirSync(fixture.scratch), []);
 });
 
@@ -1427,7 +1433,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
         environment: {},
         temporaryRoot: fixture.scratch,
       }),
-    (error) => error.code === "INVALID_EVIDENCE_PLAN",
+    (error) => error.code === "EVIDENCE_BASIS_NOTE_TOO_LARGE",
   );
   assert.deepEqual(readdirSync(fixture.scratch), []);
 
@@ -1456,6 +1462,6 @@ test("unified workflow rejects an unknown command with one bounded envelope", ()
   assert.equal(output.status, "invalid");
   assert.equal(output.code, "UNKNOWN_COMMAND");
   assert.match(output.message, /--help/u);
-  assert.equal(output.displayText.endsWith("\n"), true);
+  assert.equal(result.stdout.endsWith("\n"), true);
   assert.doesNotMatch(result.stderr, /\n\s+at\s/u);
 });

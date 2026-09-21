@@ -13,6 +13,18 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import assert from "node:assert/strict";
+export async function assertWorkflowResult(result, exitCode) {
+  const { validateWorkflowResult, MAXIMUM_RESULT_BYTES } =
+    await import("../../src/committing-to-git/diagnostics/diagnosticContract.js");
+  assert.equal(result.schemaVersion, 2);
+  assert.equal(result.domain, "committing-to-git");
+  assert.deepEqual(validateWorkflowResult(result), []);
+  assert.equal(result.exitCode, exitCode);
+  assert.ok(
+    Buffer.byteLength(`${JSON.stringify(result)}\n`) <= MAXIMUM_RESULT_BYTES,
+  );
+  assert.equal(result.recovery.automatic, false);
+}
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const COMMIT_WORKFLOW = join(

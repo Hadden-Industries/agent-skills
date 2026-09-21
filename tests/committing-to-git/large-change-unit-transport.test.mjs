@@ -837,7 +837,8 @@ test("public workflow completes and publishes one signed 3,150-unit transaction"
   );
 
   assert.equal(published.status, 0, published.stderr);
-  assert.equal(JSON.parse(published.stdout).publicationState, "succeeded");
+  assert.equal(JSON.parse(published.stdout).publicationState, "published");
+  assert.equal(JSON.parse(published.stdout).publication.status, "succeeded");
   assert.equal(
     git(["rev-parse", "refs/heads/transport-test"], remotePath).stdout.trim(),
     commitResult.commitOid,

@@ -1,13 +1,4 @@
-const SEMANTIC_SELECTION_FIELDS = Object.freeze([
-  "all",
-  "remaining",
-  "ids",
-  "destinationPaths",
-  "destinationPathPrefixes",
-  "sourcePaths",
-  "sourcePathPrefixes",
-  "kinds",
-]);
+import { SELECTOR_FIELDS } from "../selection/selectionVocabulary.js";
 
 const SUPPORTED_SECTIONS = Object.freeze([
   "Rationale",
@@ -52,7 +43,7 @@ export function semanticContentContract(mode) {
       example: ["Existing callers retain the same observable behavior"],
     },
     selection: {
-      allowedFields: [...SEMANTIC_SELECTION_FIELDS],
+      allowedFields: [...SELECTOR_FIELDS],
       exclusiveFields: ["all", "remaining"],
       exactDestinationExample: selectionExample(
         "destinationPaths",

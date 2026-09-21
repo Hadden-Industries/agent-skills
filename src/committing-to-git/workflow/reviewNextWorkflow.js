@@ -1,3 +1,9 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -20,18 +26,8 @@ const FORMATS = new Set(["json", "text"]);
 const MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-class ReviewNextError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "ReviewNextError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new ReviewNextError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function isContained(parent, candidate) {
@@ -108,7 +104,7 @@ function assertReviewNextTransaction(transaction, transactionPath) {
       "REVIEW_NEXT_NOT_ALLOWED",
       `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
-        exitCode: 1,
+        disposition: "unmet-prerequisite",
         details: { transaction: resolve(transactionPath) },
       },
     );
@@ -219,29 +215,33 @@ function assertResultBudget(result) {
 }
 
 function reviewResult({ transaction, transactionPath, packet, content }) {
-  return assertResultBudget({
-    schemaVersion: 1,
-    status: transaction.status,
-    phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: resolve(transactionPath),
-    route: transaction.route,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    packet:
-      packet === null
-        ? null
-        : {
-            id: packet.id,
-            kind: packet.kind,
-            sha256: packet.sha256,
-            byteCount: packet.byteCount,
-            content,
-          },
-    ...authoringProgress(transaction),
-  });
+  return assertResultBudget(
+    createWorkflowResult({
+      disposition: "succeeded",
+      status: transaction.status,
+      phase: transaction.phase,
+      transaction: resolve(transactionPath),
+      route: transaction.route,
+      commitState: "absent",
+      publicationState: "not-requested",
+      publicationAllowed: false,
+      recoveryRequired: false,
+      data: {
+        terminalDisposition: transaction.terminalDisposition,
+        packet:
+          packet === null
+            ? null
+            : {
+                id: packet.id,
+                kind: packet.kind,
+                sha256: packet.sha256,
+                byteCount: packet.byteCount,
+                content,
+              },
+        ...authoringProgress(transaction),
+      },
+    }),
+  );
 }
 
 export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
@@ -357,129 +357,36 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
 }
 
 export function parseReviewNextArguments(argv) {
-  const values = new Map();
+  const { values } = parseCommandArguments("workflow review-next", argv);
 
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (!new Set(["--transaction", "--cursor", "--format"]).has(token)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow review-next flag ${token}.`);
-    }
-
-    if (value === undefined || value.length === 0) {
-      fail("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-
-    if (values.has(token)) {
-      fail("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-
-    values.set(token, value);
-  }
-
-  if (!values.has("--transaction")) {
+  if (!values.has("transaction")) {
     fail(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next.",
     );
   }
 
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
 
   if (!FORMATS.has(format)) {
     fail("INVALID_FORMAT", "--format must be json or text.");
   }
 
   return {
-    transactionPath: values.get("--transaction"),
-    cursor: values.get("--cursor") ?? null,
+    transactionPath: values.get("transaction"),
+    cursor: values.get("cursor") ?? null,
     format,
   };
 }
 
-function errorResult(error, transactionPath = null) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details?.phase ?? null,
-    terminalDisposition: null,
-    transaction:
-      error.details?.transaction ??
-      (typeof transactionPath === "string" ? resolve(transactionPath) : null),
-    route: error.details?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code,
-    message: error.message,
-  };
-}
-
-function textResult(result) {
-  if (result.packet) {
-    return [
-      result.packet.content.replace(/\n$/u, ""),
-      "",
-      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
-      `Next cursor: ${result.reviewProgress.nextCursor ?? "complete"}`,
-      "",
-    ].join("\n");
-  }
-
-  if (result.reviewProgress?.complete) {
-    return [
-      `Status: ${result.status}`,
-      `Reviewed: ${result.reviewProgress.deliveredPacketCount}/${result.reviewProgress.requiredPacketCount}`,
-      `Next action: ${result.nextAction}`,
-      `Input path: ${result.contentPath ?? result.messagePath}`,
-      "",
-    ].join("\n");
-  }
-
-  return [
-    `Status: ${result.status}`,
-    `Code: ${result.code}`,
-    `Message: ${result.message}`,
-    "",
-  ].join("\n");
-}
-
 export async function runReviewNextCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let options = null;
-
-  try {
-    options = parseReviewNextArguments(argv);
-    const result = reviewNextWorkflow(options);
-
-    stdout.write(
-      options.format === "text"
-        ? textResult(result)
-        : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof ReviewNextError
-        ? caught
-        : new ReviewNextError(
-            caught.code ?? "REVIEW_NEXT_FAILED",
-            caught.message,
-          );
-    const result = assertResultBudget(
-      errorResult(error, options?.transactionPath),
-    );
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      options?.format === "text"
-        ? textResult(result)
-        : `${JSON.stringify(result)}\n`,
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseReviewNextArguments,
+    execute: reviewNextWorkflow,
+    stdout,
+  });
 }

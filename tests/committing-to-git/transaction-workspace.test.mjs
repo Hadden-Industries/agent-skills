@@ -1,3 +1,4 @@
+import { MAXIMUM_BASIS_NOTE_BYTES } from "../../src/committing-to-git/evidence/evidenceVocabulary.js";
 import {
   existsSync,
   mkdirSync,
@@ -11,7 +12,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  MAXIMUM_BASIS_NOTE_BYTES,
   MAXIMUM_INITIAL_JSON_INPUT_BYTES,
   MAXIMUM_TRANSACTION_PATH_BYTES,
   advanceTransaction,

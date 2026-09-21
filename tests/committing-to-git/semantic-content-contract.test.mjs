@@ -138,3 +138,20 @@ test("semantic structural validation hashes diagnostics beyond its fixed sample 
   assert.match(result.diagnostics.sha256, /^[0-9a-f]{64}$/u);
   assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") < 80 * 1024);
 });
+
+test("semantic locations escape RFC 6901 tokens and explicitly omit oversized pointers", () => {
+  const malformed = completeDetailedContent();
+  malformed["a/b~c"] = true;
+  const huge = "x".repeat(5000);
+  malformed[huge] = true;
+  const samples =
+    validateCompleteSemanticContent(malformed).diagnostics.samples;
+  assert.ok(samples.some((sample) => sample.pointer === "/a~1b~0c"));
+  const omitted = samples.find((sample) => sample.pointer === null);
+  assert.equal(omitted.pointerOmitted, true);
+  assert.equal(omitted.pointerByteLength, 5001);
+  assert.match(omitted.pointerSha256, /^[a-f0-9]{64}$/u);
+  assert.ok(
+    !samples.some((sample) => sample.pointer?.includes("field-sha256:")),
+  );
+});

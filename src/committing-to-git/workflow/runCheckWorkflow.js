@@ -1,3 +1,9 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -30,18 +36,8 @@ const ACTIVE_CHECK_PHASES = new Set([
 const MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1000;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-export class CheckWorkflowError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "CheckWorkflowError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new CheckWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -70,10 +66,9 @@ function readSnapshot(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER.decode(input.bytes));
   } catch (error) {
-    fail(
-      "SNAPSHOT_ARTIFACT_INVALID",
-      `Snapshot JSON is invalid: ${error.message}`,
-    );
+    fail("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+      cause: error,
+    });
   }
 }
 
@@ -86,7 +81,11 @@ function normalizeWorkingDirectory(repositoryRoot, requestedDirectory) {
   try {
     validateCheckContext(context);
   } catch (error) {
-    fail("CHECK_CONTEXT_INVALID", error.message);
+    fail(
+      "CHECK_CONTEXT_INVALID",
+      "The check working directory must be a repository-relative directory.",
+      { cause: error },
+    );
   }
 
   const candidate = resolve(repositoryRoot, requestedDirectory);
@@ -176,7 +175,10 @@ function assertRetryContract(transaction, retryAfterAttempt) {
     fail(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${latest.receiptId} has no durable outcome; confirm no child remains live before retrying.`,
-      { exitCode: 4, details: { receiptId: latest.receiptId } },
+      {
+        disposition: "outcome-unknown",
+        details: { receiptId: latest.receiptId },
+      },
     );
   }
 
@@ -213,15 +215,14 @@ function checkRecoveryResult({
   status,
   code,
   recoveryRequired,
-  exitCode,
+  disposition,
 }) {
   const attempt = transaction.checkAttempts.at(-1);
 
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition,
     status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "absent",
@@ -229,10 +230,22 @@ function checkRecoveryResult({
     publicationAllowed: false,
     recoveryRequired,
     code,
-    receiptId: attempt.receiptId,
-    retryRequired: !recoveryRequired,
-    exitCode,
-  };
+    recovery: {
+      kind: recoveryRequired ? "inspect-state" : "human-decision",
+      automatic: false,
+      requiredInputs: [
+        recoveryRequired
+          ? "confirmation that the recorded child is inactive"
+          : "explicit authorization to retry the recorded check",
+      ],
+      commands: [],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receiptId: attempt.receiptId,
+      retryRequired: !recoveryRequired,
+    },
+  });
 }
 
 export function recoverCheckAttempt({
@@ -259,7 +272,7 @@ export function recoverCheckAttempt({
       status: "check-outcome-unknown",
       code: "CHECK_OUTCOME_UNKNOWN",
       recoveryRequired: true,
-      exitCode: 4,
+      disposition: "outcome-unknown",
     });
   }
 
@@ -282,9 +295,10 @@ export function recoverCheckAttempt({
   } catch (error) {
     fail(
       "CHECK_CHILD_STILL_LIVE",
-      `The interrupted check cannot be resolved yet: ${error.message}`,
+      "The interrupted check cannot be resolved until the child is confirmed stopped.",
       {
-        exitCode: 4,
+        cause: error,
+        disposition: "outcome-unknown",
         details: { receiptId: attempt.receiptId, recoveryRequired: true },
       },
     );
@@ -332,7 +346,7 @@ export function recoverCheckAttempt({
     status: "check-recovery-resolved",
     code: "CHECK_RETRY_REQUIRED",
     recoveryRequired: false,
-    exitCode: 1,
+    disposition: "rejected",
   });
 }
 
@@ -364,30 +378,16 @@ function receiptSummary(attempt) {
   };
 }
 
-function displayFor(result) {
-  const receipt = result.receipt;
-  const command = [
-    receipt.command.executable,
-    ...receipt.command.arguments.map((argument) => JSON.stringify(argument)),
-  ].join(" ");
-
-  return [
-    `Status: ${result.status}`,
-    `Receipt: ${receipt.receiptId}`,
-    `Check: ${receipt.label}`,
-    `Command: ${command}`,
-    `Outcome: ${receipt.outcome}`,
-    `Exit: ${receipt.exitCode ?? receipt.signal ?? "unavailable"}`,
-    `Context: ${receipt.context}`,
-    `Selected scope stable: ${receipt.selectedScopeStable ? "yes" : "no"}`,
-    "",
-  ].join("\n");
-}
-
-function resultFor({ transactionPath, transaction, attempt, code, exitCode }) {
+function resultFor({
+  transactionPath,
+  transaction,
+  attempt,
+  code,
+  disposition,
+}) {
   const receipt = receiptSummary(attempt);
-  const result = {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition,
     status:
       code === null
         ? "check-passed"
@@ -395,7 +395,6 @@ function resultFor({ transactionPath, transaction, attempt, code, exitCode }) {
           ? "stopped"
           : "check-failed",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "absent",
@@ -403,11 +402,11 @@ function resultFor({ transactionPath, transaction, attempt, code, exitCode }) {
     publicationAllowed: false,
     recoveryRequired: false,
     code,
-    receipt,
-    exitCode,
-  };
-
-  return { ...result, displayText: displayFor(result) };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      receipt,
+    },
+  });
 }
 
 export async function runCheckWorkflow({
@@ -425,7 +424,11 @@ export async function runCheckWorkflow({
   try {
     validateCheckCommand(command);
   } catch (error) {
-    fail("CHECK_COMMAND_INVALID", error.message);
+    fail(
+      "CHECK_COMMAND_INVALID",
+      "Supply one executable and an array of literal arguments, without a shell command string.",
+      { cause: error },
+    );
   }
 
   let transaction = readTransaction(transactionPath);
@@ -457,11 +460,9 @@ export async function runCheckWorkflow({
       terminalDisposition: "no-commit-stopped",
     });
 
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
       status: "stopped",
       phase: stopped.phase,
-      terminalDisposition: stopped.terminalDisposition,
       transaction: resolve(transactionPath),
       route: stopped.route,
       commitState: "absent",
@@ -469,11 +470,10 @@ export async function runCheckWorkflow({
       publicationAllowed: false,
       recoveryRequired: false,
       code: "CHECK_SCOPE_DRIFT",
-      receipt: null,
-      exitCode: 1,
-      displayText:
-        "Status: stopped\nCode: CHECK_SCOPE_DRIFT\nThe selected worktree no longer matches the prepared tree.\n",
-    };
+      disposition: "rejected",
+      message: "The selected worktree no longer matches the prepared tree.",
+      data: { receipt: null, terminalDisposition: stopped.terminalDisposition },
+    });
   }
 
   const receiptId = nextReceiptId(transaction);
@@ -545,13 +545,15 @@ export async function runCheckWorkflow({
       },
       workspace: { ...current.workspace, after },
     }));
-    diagnosticWriter.write(`${error.message}\n`);
+    diagnosticWriter.write(
+      "CHECK_LAUNCH_FAILED: The check executable could not be launched; inspect the recorded receipt.\n",
+    );
     return resultFor({
       transactionPath,
       transaction,
       attempt: transaction.checkAttempts.at(-1),
       code: "CHECK_LAUNCH_FAILED",
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 
@@ -604,9 +606,33 @@ export async function runCheckWorkflow({
   } catch (error) {
     fail(
       "CHECK_OUTCOME_UNKNOWN",
-      `The check child may have run, but its terminal receipt could not be recorded: ${error.message}`,
+      "The check child may have run, but its terminal receipt could not be recorded. Inspect its journal before considering another execution.",
       {
-        exitCode: 4,
+        disposition: "outcome-unknown",
+        cause: error,
+        state: {
+          transaction: resolve(transactionPath),
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState: "absent",
+          publicationState: "not-requested",
+          recoveryRequired: true,
+        },
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: [],
+          commands: [
+            {
+              arguments: [
+                "workflow",
+                "recover",
+                "--transaction",
+                resolve(transactionPath),
+              ],
+            },
+          ],
+        },
         details: { receiptId, recoveryRequired: true },
       },
     );
@@ -631,7 +657,7 @@ export async function runCheckWorkflow({
       transaction,
       attempt: completed,
       code: "CHECK_SCOPE_DRIFT",
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 
@@ -652,7 +678,7 @@ export async function runCheckWorkflow({
       transaction,
       attempt: completed,
       code: codeByOutcome[completed.completion.outcome],
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 
@@ -661,57 +687,24 @@ export async function runCheckWorkflow({
     transaction,
     attempt: completed,
     code: null,
-    exitCode: 0,
+    disposition: "succeeded",
   });
 }
 
 function parseArguments(argv) {
-  const separator = argv.indexOf("--");
-
-  if (separator < 0 || separator === argv.length - 1) {
+  const { values: flags, childArguments: commandArguments } =
+    parseCommandArguments("workflow check", argv);
+  if (!flags.has("transaction")) {
+    fail(
+      "CHECK_TRANSACTION_REQUIRED",
+      "workflow check requires --transaction <transaction.json>.",
+    );
+  }
+  if (commandArguments.length === 0 || commandArguments[0] === "") {
     fail(
       "CHECK_COMMAND_REQUIRED",
       "workflow check requires -- followed by an executable and argument vector.",
     );
-  }
-
-  const flagArguments = argv.slice(0, separator);
-  const commandArguments = argv.slice(separator + 1);
-  const allowed = new Set([
-    "transaction",
-    "label",
-    "retry-after-attempt",
-    "working-directory",
-    "timeout-ms",
-    "format",
-  ]);
-  const flags = new Map();
-
-  for (let index = 0; index < flagArguments.length; index += 2) {
-    const key = flagArguments[index];
-    const value = flagArguments[index + 1];
-
-    if (
-      typeof key !== "string" ||
-      !key.startsWith("--") ||
-      typeof value !== "string"
-    ) {
-      fail(
-        "CHECK_ARGUMENTS_INVALID",
-        "workflow check options require --name value pairs before the command separator.",
-      );
-    }
-
-    const name = key.slice(2);
-
-    if (!allowed.has(name) || flags.has(name)) {
-      fail(
-        "CHECK_ARGUMENTS_INVALID",
-        `Unknown or repeated workflow check option: ${key}.`,
-      );
-    }
-
-    flags.set(name, value);
   }
 
   const timeoutText = flags.get("timeout-ms") ?? null;
@@ -748,72 +741,15 @@ function parseArguments(argv) {
     },
   };
 }
-
-function invalidResult(error, transactionPath) {
-  const result = {
-    schemaVersion: 1,
-    status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction:
-      typeof transactionPath === "string" ? resolve(transactionPath) : null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.exitCode === 4,
-    code: error.code ?? "CHECK_WORKFLOW_FAILED",
-    message: error.message,
-    ...error.details,
-    exitCode: error.exitCode ?? 2,
-  };
-
-  return {
-    ...result,
-    displayText: `Status: ${result.status}\nCode: ${result.code}\nMessage: ${result.message}\n`,
-  };
-}
-
 export async function runCheckWorkflowCommand(
   argv,
   { stdout = process.stdout, stderr = process.stderr } = {},
 ) {
-  let options = null;
-
-  try {
-    options = parseArguments(argv);
-
-    if (typeof options.transactionPath !== "string") {
-      fail(
-        "CHECK_TRANSACTION_REQUIRED",
-        "workflow check requires --transaction <transaction.json>.",
-      );
-    }
-
-    const result = await runCheckWorkflow({
-      ...options,
-      diagnosticWriter: stderr,
-    });
-
-    stdout.write(
-      options.format === "text"
-        ? result.displayText
-        : `${JSON.stringify(result)}\n`,
-    );
-    return result.exitCode;
-  } catch (error) {
-    const failure =
-      error instanceof CheckWorkflowError
-        ? error
-        : new CheckWorkflowError("CHECK_WORKFLOW_FAILED", error.message);
-    const result = invalidResult(failure, options?.transactionPath ?? null);
-
-    stderr.write(`${result.code}: ${result.message}\n`);
-    stdout.write(
-      options?.format === "text"
-        ? result.displayText
-        : `${JSON.stringify(result)}\n`,
-    );
-    return result.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments,
+    execute: (options) =>
+      runCheckWorkflow({ ...options, diagnosticWriter: stderr }),
+    stdout,
+  });
 }

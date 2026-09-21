@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  createWorkflowResult,
+  createWorkflowWarning,
+} from "../diagnostics/diagnosticContract.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { transactionDiagnosticState } from "./transactionDiagnosticState.js";
+import {
   closeSync,
   constants as fsConstants,
   existsSync,
@@ -400,24 +406,51 @@ export function assertRecordedChildInactive({
   }
 }
 
-function resultEnvelope(transaction, status, exitCode, details = {}) {
-  return {
-    schemaVersion: 1,
+function commitRecoveryResult(
+  transaction,
+  status,
+  disposition,
+  { code = null, ...data } = {},
+) {
+  const transactionPath = join(
+    transaction.attemptDirectory,
+    "transaction.json",
+  );
+  return createWorkflowResult({
+    disposition,
+    code,
     status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
-    transaction: join(transaction.attemptDirectory, "transaction.json"),
+    transaction: transactionPath,
     route: transaction.route,
-    commitState:
-      transaction.commit?.commitOid === null || transaction.commit === null
-        ? "absent"
-        : "created",
+    commitState: transaction.commit?.commitOid
+      ? "created"
+      : disposition === "outcome-unknown"
+        ? "unknown"
+        : "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
-    recoveryRequired: exitCode === 4,
-    exitCode,
-    ...details,
-  };
+    recoveryRequired: disposition === "outcome-unknown",
+    recovery: {
+      kind: disposition === "outcome-unknown" ? "inspect-state" : "none",
+      automatic: false,
+      requiredInputs: [],
+      commands:
+        disposition === "outcome-unknown"
+          ? [
+              {
+                arguments: [
+                  "workflow",
+                  "recover",
+                  "--transaction",
+                  transactionPath,
+                ],
+              },
+            ]
+          : [],
+    },
+    data: { ...data, terminalDisposition: transaction.terminalDisposition },
+  });
 }
 
 export function recoverCommitOutcome({
@@ -473,10 +506,15 @@ export function recoverCommitOutcome({
       ...transaction,
       commit: { ...transaction.commit, recoveryObservations: observations },
     });
-    return resultEnvelope(transaction, "outcome-unknown", 4, {
-      code: "COMMIT_REF_UNSTABLE",
-      observations,
-    });
+    return commitRecoveryResult(
+      transaction,
+      "outcome-unknown",
+      "outcome-unknown",
+      {
+        code: "COMMIT_REF_UNSTABLE",
+        observations,
+      },
+    );
   }
 
   const witnessedCreatedCommit =
@@ -505,7 +543,7 @@ export function recoverCommitOutcome({
         recoveryObservations: observations,
       },
     });
-    return resultEnvelope(transaction, status, 0, {
+    return commitRecoveryResult(transaction, status, "succeeded", {
       commitOid: candidateOid,
       commit: {
         treeMatches: candidate.comparison.treeMatches,
@@ -563,7 +601,7 @@ export function recoverCommitOutcome({
         recoveryObservations: observations,
       },
     });
-    return resultEnvelope(transaction, "stopped", 1, {
+    return commitRecoveryResult(transaction, "stopped", "rejected", {
       code: "COMMIT_NOT_CREATED",
       observations,
     });
@@ -576,13 +614,18 @@ export function recoverCommitOutcome({
       recoveryObservations: observations,
     },
   });
-  return resultEnvelope(transaction, "outcome-unknown", 4, {
-    code:
-      candidate === null
-        ? "COMMIT_OUTCOME_UNKNOWN"
-        : "COMMIT_OUTCOME_AMBIGUOUS",
-    observations,
-  });
+  return commitRecoveryResult(
+    transaction,
+    "outcome-unknown",
+    "outcome-unknown",
+    {
+      code:
+        candidate === null
+          ? "COMMIT_OUTCOME_UNKNOWN"
+          : "COMMIT_OUTCOME_AMBIGUOUS",
+      observations,
+    },
+  );
 }
 
 function validateTreeNoLinks(root, path = root) {
@@ -678,7 +721,14 @@ function compactTerminalTransactionUnlocked({
     transaction.status === "outcome-unknown" ||
     transaction.phase === "publication-pending"
   ) {
-    throw new Error("Cannot compact a pending or unknown transaction.");
+    throw new WorkflowDiagnosticError(
+      "CLEANUP_NOT_ALLOWED",
+      "Cannot compact a pending or unknown transaction.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
+    );
   }
 
   const names = [
@@ -720,7 +770,7 @@ function compactTerminalTransactionUnlocked({
   }
 
   const completed = [];
-  const failed = [];
+  const warnings = [];
 
   for (const name of names) {
     const path = join(attempt, name);
@@ -729,21 +779,25 @@ function compactTerminalTransactionUnlocked({
       if (removeOwnedTarget(attempt, path, removeOperation)) {
         completed.push(path);
       }
-    } catch (error) {
-      failed.push({
-        path,
-        code: error.code ?? "CLEANUP_FAILED",
-        message: error.message,
-      });
+    } catch {
+      warnings.push(
+        createWorkflowWarning({
+          code: "CLEANUP_TARGET_RETAINED",
+          message:
+            "The helper-owned target was retained because safe removal could not be completed.",
+          details: [{ kind: "prerequisite", path }],
+        }),
+      );
     }
   }
 
-  return {
-    schemaVersion: 1,
-    status: failed.length === 0 ? "cleaned" : "warning",
-    completed,
-    failed,
-  };
+  return createWorkflowResult({
+    disposition: "succeeded",
+    status: "cleaned",
+    ...transactionDiagnosticState(transaction, transactionPath),
+    warnings,
+    data: { completed, commitOid: transaction.commit?.commitOid ?? null },
+  });
 }
 
 export function compactTerminalTransaction(options) {
@@ -768,7 +822,14 @@ function purgeTransactionUnlocked({ transactionPath }) {
     transaction.phase === "publication-pending" ||
     transaction.status === "outcome-unknown"
   ) {
-    throw new Error("Cannot purge a pending or unknown mutation.");
+    throw new WorkflowDiagnosticError(
+      "PURGE_NOT_ALLOWED",
+      "Cannot purge a pending or unknown mutation.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
+    );
   }
 
   if (PRECOMMIT_PHASES.has(transaction.phase)) {
@@ -779,7 +840,14 @@ function purgeTransactionUnlocked({ transactionPath }) {
       terminalDisposition: "abandoned",
     });
   } else if (!TERMINAL_PHASES.has(transaction.phase)) {
-    throw new Error("Transaction is not safe to purge.");
+    throw new WorkflowDiagnosticError(
+      "PURGE_NOT_ALLOWED",
+      "Transaction is not safe to purge.",
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
+    );
   }
 
   const capsule = Buffer.from(`${JSON.stringify(transaction)}\n`, "utf8");
@@ -795,14 +863,17 @@ function purgeTransactionUnlocked({ transactionPath }) {
 
   removeWithRetry(attempt, { recursive: true });
 
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "purged",
-    formerPath,
-    finalCapsuleSha256: sha256(capsule),
-    completed: [formerPath],
-    failed: [],
-  };
+    ...transactionDiagnosticState(transaction, transactionPath),
+    data: {
+      commitOid: transaction.commit?.commitOid ?? null,
+      formerPath,
+      finalCapsuleSha256: sha256(capsule),
+      completed: [formerPath],
+    },
+  });
 }
 
 export function purgeTransaction(options) {

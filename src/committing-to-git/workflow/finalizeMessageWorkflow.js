@@ -1,3 +1,4 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import {
   existsSync,
   lstatSync,
@@ -40,19 +41,21 @@ import {
   manifestEnvironment,
 } from "./prepareWorkflow.js";
 import {
-  MessageWorkflowError,
-  asMessageWorkflowError,
   assertMessageResultBudget,
-  messageErrorResult,
   parseMessageWorkflowArguments,
   readExactRecordedSnapshot,
 } from "./checkMessageWorkflow.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { presentationDiagnostics } from "../message/approvedMessage.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { authoringProgress } from "./authoringProgress.js";
 
 const CONTENT_NAME = "content.json";
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-function fail(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new MessageWorkflowError(code, message, { exitCode, details });
+function fail(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function decodeContent(bytes) {
@@ -67,10 +70,9 @@ function decodeContent(bytes) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail(
-      "INVALID_MESSAGE_CONTENT",
-      `The fixed content.json is invalid JSON: ${error.message}`,
-    );
+    fail("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
+      cause: error,
+    });
   }
 }
 
@@ -202,10 +204,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   try {
     stored = JSON.parse(STRICT_UTF8_DECODER.decode(opened.bytes));
   } catch (error) {
-    fail(
-      "INVALID_EVIDENCE_PLAN",
-      `Current evidence plan is invalid JSON: ${error.message}`,
-    );
+    fail("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
+      cause: error,
+    });
   }
 
   const canonical = canonicalizeEvidencePlan({
@@ -252,10 +253,9 @@ function receiptCoverage(transaction, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt }),
     };
   } catch (error) {
-    fail(
-      "REVIEW_RECEIPT_INVALID",
-      `Review receipt is invalid: ${error.message}`,
-    );
+    fail("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+      cause: error,
+    });
   }
 }
 
@@ -265,7 +265,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     JSON.stringify(transaction.headAnchor)
   ) {
     fail("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
-      exitCode: 1,
+      disposition: "unmet-prerequisite",
     });
   }
 
@@ -275,7 +275,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     fail(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 },
+      { disposition: "unmet-prerequisite" },
     );
   }
 
@@ -290,7 +290,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
-        exitCode: 1,
+        disposition: "unmet-prerequisite",
       },
     );
   }
@@ -398,28 +398,48 @@ function requireEvidence(
   }
 
   const firstPage = evidenceDelta.queue?.firstPage ?? null;
-  const result = {
-    schemaVersion: 1,
+  const result = createWorkflowResult({
+    disposition: "unmet-prerequisite",
+    code: "REVIEW_EVIDENCE_REQUIRED",
+    message:
+      "Review the newly required evidence before finalizing the message.",
     status: "evidence-required",
     phase: "review-pending",
-    terminalDisposition: null,
     route: "extended",
     transaction: resolve(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    canonical: false,
-    evidenceDelta: {
-      newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-      firstQueuePage:
-        firstPage === null
-          ? null
-          : resolve(transaction.attemptDirectory, firstPage.artifact),
-      firstQueuePageSha256: firstPage?.sha256 ?? null,
+    recovery: {
+      kind: "satisfy-prerequisite",
+      automatic: false,
+      requiredInputs: ["review of newly required evidence"],
+      commands: [
+        {
+          arguments: [
+            "workflow",
+            "review-next",
+            "--transaction",
+            resolve(transactionPath),
+          ],
+        },
+      ],
     },
-    displayText: null,
-  };
+    data: {
+      terminalDisposition: null,
+      canonical: false,
+      evidenceDelta: {
+        newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
+        firstQueuePage:
+          firstPage === null
+            ? null
+            : resolve(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePageSha256: firstPage?.sha256 ?? null,
+      },
+      displayText: null,
+    },
+  });
 
   return assertMessageResultBudget(result);
 }
@@ -434,25 +454,28 @@ function validationSummary(validation) {
 }
 
 function finalizedResult({ transactionPath, rendered, canonical }) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "message-ready",
     phase: "message-ready",
-    terminalDisposition: null,
     route: "extended",
+    warnings: presentationDiagnostics(rendered.presentationWarnings),
     transaction: resolve(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    canonical: true,
-    messageSource: "finalized-extended",
-    messageRevision: canonical.messageRevision,
-    presentationWarnings: rendered.presentationWarnings,
-    messageSha256: canonical.messageSha256,
-    validation: validationSummary(rendered.validation),
-    displayText: canonical.displayText,
-  };
+    data: {
+      terminalDisposition: null,
+      canonical: true,
+      messageSource: "finalized-extended",
+      messageRevision: canonical.messageRevision,
+      presentationWarnings: rendered.presentationWarnings,
+      messageSha256: canonical.messageSha256,
+      validation: validationSummary(rendered.validation),
+      displayText: canonical.displayText,
+    },
+  });
 }
 
 export async function finalizeMessageWorkflow({
@@ -482,7 +505,28 @@ export async function finalizeMessageWorkflow({
     fail(
       "INVALID_MESSAGE_CONTENT",
       `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
-      { details: { diagnostics: structural.diagnostics } },
+      {
+        details: {
+          diagnostics: structural.diagnostics,
+          ...authoringProgress(transaction),
+        },
+        documentation: "references/message-format.md",
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: [resolve(transaction.attemptDirectory, CONTENT_NAME)],
+          commands: [
+            {
+              arguments: [
+                "message",
+                "finalize",
+                "--transaction",
+                resolve(transactionPath),
+              ],
+            },
+          ],
+        },
+      },
     );
   }
 
@@ -606,10 +650,9 @@ export async function finalizeMessageWorkflow({
         receipt,
       });
     } catch (error) {
-      fail(
-        "REVIEW_RECEIPT_INVALID",
-        `Review receipt is invalid: ${error.message}`,
-      );
+      fail("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+        cause: error,
+      });
     }
     normalized.evidenceGroups = canonicalContentGroups(recordedPlan);
   }
@@ -662,25 +705,11 @@ export async function runFinalizeMessageCommand(
   argv,
   { stdout = process.stdout } = {},
 ) {
-  let options = null;
-
-  try {
-    options = parseMessageWorkflowArguments(argv, "finalize");
-    const result = await finalizeMessageWorkflow(options);
-
-    if (options.format === "text" && result.displayText !== null) {
-      stdout.write(result.displayText);
-    } else {
-      stdout.write(`${JSON.stringify(result)}\n`);
-    }
-    return result.status === "evidence-required" ? 1 : 0;
-  } catch (caught) {
-    const error = asMessageWorkflowError(caught, "MESSAGE_FINALIZE_FAILED");
-    const result = assertMessageResultBudget(
-      messageErrorResult(error, options?.transactionPath),
-    );
-
-    stdout.write(`${JSON.stringify(result)}\n`);
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: (arguments_) =>
+      parseMessageWorkflowArguments(arguments_, "finalize"),
+    execute: finalizeMessageWorkflow,
+    stdout,
+  });
 }

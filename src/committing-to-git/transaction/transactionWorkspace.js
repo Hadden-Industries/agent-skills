@@ -1,4 +1,5 @@
 import { randomUUID as systemRandomUUID } from "node:crypto";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import {
   closeSync,
   constants as fsConstants,
@@ -31,7 +32,6 @@ import {
 
 export const MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
 export const MAXIMUM_INITIAL_JSON_INPUT_BYTES = 8 * 1024 * 1024;
-export const MAXIMUM_BASIS_NOTE_BYTES = 512;
 
 const TRANSACTION_FILE = "transaction.json";
 const MAXIMUM_ALLOCATION_ATTEMPTS = 16;
@@ -1258,11 +1258,14 @@ function validatePublicationAttempt(attempt) {
 }
 
 export function validateTransaction(transaction) {
-  assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
-
-  if (transaction.schemaVersion !== 4) {
-    throw new Error("Transaction schemaVersion must be 4.");
+  if (transaction?.schemaVersion !== 4) {
+    throw new WorkflowDiagnosticError(
+      "UNSUPPORTED_ATTEMPT_VERSION",
+      "Transaction schemaVersion must be 4; attempts are never migrated in place.",
+    );
   }
+
+  assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
 
   if (!PHASES.has(transaction.phase)) {
     throw new Error(

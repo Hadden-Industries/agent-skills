@@ -1,3 +1,15 @@
+import { executeCommand } from "../cli/commandExecution.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import {
+  EVIDENCE_POLICIES,
+  BASIS_KINDS,
+  REUSE_BASIS_KINDS,
+  validateEvidenceBasis,
+} from "../evidence/evidenceVocabulary.js";
+import { normalizeSelection } from "../selection/changeSelection.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -39,7 +51,7 @@ import {
 import { scaffoldContent } from "../message/commitMessageRenderer.js";
 import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
 import {
-  describeSshTrustSourceFailure,
+  signatureTrustDiagnostic,
   inspectSignatureRequirements,
 } from "../signature/signaturePreflight.js";
 import { writePacketStream } from "../inspection/streamingPacketWriter.js";
@@ -54,7 +66,6 @@ import {
   recoverIndexInstallation,
 } from "../transaction/indexInstallation.js";
 import {
-  MAXIMUM_BASIS_NOTE_BYTES,
   MAXIMUM_INITIAL_JSON_INPUT_BYTES,
   advanceTransaction,
   createTransactionWorkspace,
@@ -74,34 +85,8 @@ const STORAGE_OVERRIDE_NAMES = [
   "GIT_QUARANTINE_PATH",
   "GIT_NAMESPACE",
 ];
-const EVIDENCE_POLICIES = new Set(["reuse", "message", "review"]);
-const BASIS_KINDS = new Set([
-  "authored-current-task",
-  "read-current-task",
-  "task-lineage",
-  "user-grounded",
-  "generated-derived",
-  "unknown-preexisting",
-]);
 const VERIFICATION_POLICIES = new Set(["required", "advisory", "skipped"]);
 const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
-const SINGLETON_FLAGS = new Set([
-  "mode",
-  "scope",
-  "evidence",
-  "basis",
-  "evidence-plan",
-  "scope-file",
-  "verification",
-  "format",
-]);
-const REPEATABLE_FLAGS = new Set([
-  "allowed-type",
-  "path",
-  "path-prefix",
-  "exclude-path",
-  "exclude-path-prefix",
-]);
 const INLINE_SELECTOR_FLAGS = [
   "path",
   "path-prefix",
@@ -120,30 +105,10 @@ const SCOPE_KEYS = [
 const EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
 const GROUP_KEYS = ["selection", "policy", "basis"];
 const BASIS_KEYS = ["kind", "note"];
-const SELECTION_KEYS = new Set([
-  "all",
-  "remaining",
-  "ids",
-  "destinationPaths",
-  "sourcePaths",
-  "destinationPathPrefixes",
-  "sourcePathPrefixes",
-  "kinds",
-]);
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-export class PreparationError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "PreparationError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new PreparationError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 export function preflightVerificationPolicy({
@@ -168,21 +133,8 @@ export function preflightVerificationPolicy({
     signaturePreflight.backend === "ssh" &&
     signaturePreflight.trustSource?.state !== "readable"
   ) {
-    const failure = describeSshTrustSourceFailure(
-      signaturePreflight.trustSource,
-    );
-
-    fail("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
-      exitCode: 1,
-      details: {
-        ...(failure.capability === null
-          ? {}
-          : { capability: failure.capability }),
-        action: failure.action,
-        trustSource: failure.trustSource,
-        verificationPolicy,
-        policyAlternatives: failure.policyAlternatives,
-      },
+    throw signatureTrustDiagnostic(signaturePreflight.trustSource, {
+      verificationPolicy,
     });
   }
 
@@ -441,21 +393,7 @@ function normalizeScopePayload(payload) {
 }
 
 function normalizeEvidenceSelection(selection) {
-  if (!isPlainObject(selection) || Object.keys(selection).length === 0) {
-    fail(
-      "INVALID_EVIDENCE_PLAN",
-      "Evidence selection must be a non-empty object.",
-    );
-  }
-
-  for (const key of Object.keys(selection)) {
-    if (!SELECTION_KEYS.has(key)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection contains unknown member ${JSON.stringify(key)}.`,
-      );
-    }
-  }
+  normalizeSelection(selection);
 
   if ("all" in selection && selection.all !== true) {
     fail("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
@@ -470,11 +408,7 @@ function normalizeEvidenceSelection(selection) {
       continue;
     }
 
-    if (
-      !Array.isArray(value) ||
-      value.length === 0 ||
-      value.some((entry) => typeof entry !== "string" || entry.length === 0)
-    ) {
+    if (value.length === 0) {
       fail(
         "INVALID_EVIDENCE_PLAN",
         `Evidence selection ${key} must be a non-empty string array.`,
@@ -519,45 +453,10 @@ function normalizeEvidencePlan(payload) {
       "INVALID_EVIDENCE_PLAN",
     );
 
-    if (!EVIDENCE_POLICIES.has(group.policy)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} policy is invalid.`,
-      );
-    }
-
-    if (!BASIS_KINDS.has(group.basis.kind)) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis is invalid.`,
-      );
-    }
-
-    if (
-      group.basis.note !== null &&
-      (typeof group.basis.note !== "string" ||
-        Buffer.byteLength(group.basis.note, "utf8") > MAXIMUM_BASIS_NOTE_BYTES)
-    ) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence group ${index + 1} basis note exceeds ${MAXIMUM_BASIS_NOTE_BYTES} UTF-8 bytes.`,
-      );
-    }
-
-    if (
-      group.policy === "reuse" &&
-      new Set(["user-grounded", "unknown-preexisting"]).has(group.basis.kind)
-    ) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        "Reuse evidence requires authored, read, generated, or specific task-lineage basis.",
-      );
-    }
-
     return {
       selection: normalizeEvidenceSelection(group.selection),
       policy: group.policy,
-      basis: { kind: group.basis.kind, note: group.basis.note },
+      basis: validateEvidenceBasis(group.policy, group.basis),
     };
   });
 
@@ -625,10 +524,9 @@ function readBoundedJson(path, label) {
     try {
       return JSON.parse(text);
     } catch (error) {
-      fail(
-        "INVALID_JSON_INPUT",
-        `${label} is not valid JSON: ${error.message}`,
-      );
+      fail("INVALID_JSON_INPUT", `${label} is not valid JSON.`, {
+        cause: error,
+      });
     }
   } finally {
     closeSync(descriptor);
@@ -648,36 +546,7 @@ function inlineScopePayload(values) {
 }
 
 export function parsePrepareArguments(argv) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (typeof token !== "string" || !token.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-
-    const name = token.slice(2);
-
-    if (!SINGLETON_FLAGS.has(name) && !REPEATABLE_FLAGS.has(name)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow prepare flag --${name}.`);
-    }
-
-    if (value === undefined || value.length === 0) {
-      fail("INVALID_ARGUMENT", `--${name} requires a non-empty value.`);
-    }
-
-    if (SINGLETON_FLAGS.has(name)) {
-      if (values.has(name)) {
-        fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-      }
-
-      values.set(name, value);
-    } else {
-      values.set(name, [...(values.get(name) ?? []), value]);
-    }
-  }
+  const { values } = parseCommandArguments("workflow prepare", argv);
 
   const mode = values.get("mode");
   const scope = values.get("scope");
@@ -721,24 +590,21 @@ export function parsePrepareArguments(argv) {
     );
   }
 
-  if (evidence !== null && !EVIDENCE_POLICIES.has(evidence)) {
+  if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
     fail(
       "INVALID_EVIDENCE_POLICY",
       "--evidence must be reuse, message, or review.",
     );
   }
 
-  if (basis !== null && !BASIS_KINDS.has(basis)) {
+  if (basis !== null && !BASIS_KINDS.includes(basis)) {
     fail(
       "INVALID_EVIDENCE_BASIS",
       "--basis is not a supported provenance kind.",
     );
   }
 
-  if (
-    evidence === "reuse" &&
-    new Set(["user-grounded", "unknown-preexisting"]).has(basis)
-  ) {
+  if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
     fail(
       "INVALID_EVIDENCE_BASIS",
       "Reuse evidence requires authored, read, generated, or specific task-lineage basis.",
@@ -1259,7 +1125,7 @@ function assertPreallocationRepositoryState(root) {
     fail(
       "UNRESOLVED_CONFLICTS",
       "Cannot prepare an ordinary commit while unresolved conflicts remain.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -1269,7 +1135,7 @@ function assertPreallocationRepositoryState(root) {
     fail(
       "ACTIVE_GIT_OPERATION",
       `Cannot prepare an ordinary commit during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 }
@@ -1771,33 +1637,35 @@ export async function routePreparedEvidence({
 }
 
 function successEnvelope(transaction, summary) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "prepared",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    scope: summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...(transaction.route === "concise"
-      ? { capsule: transaction.inlineEvidence.capsule }
-      : {
-          extendedReason: transaction.review.extendedReason,
-          reviewQueue: transaction.review.queue,
-          structuredMessageMode: transaction.review.structuredMessageMode,
-          ...authoringProgress(transaction),
-        }),
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      scope: summary,
+      initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      ...(transaction.route === "concise"
+        ? { capsule: transaction.inlineEvidence.capsule }
+        : {
+            extendedReason: transaction.review.extendedReason,
+            reviewQueue: transaction.review.queue,
+            structuredMessageMode: transaction.review.structuredMessageMode,
+            ...authoringProgress(transaction),
+          }),
+    },
+  });
 }
 
 function interruptionError(error, transactionPath, summary) {
@@ -1813,15 +1681,20 @@ function interruptionError(error, transactionPath, summary) {
     // snapshot still permits exact transaction-local resume.
   }
 
-  return new PreparationError(
+  return new WorkflowDiagnosticError(
     "INDEX_INSTALLATION_INTERRUPTED",
-    `Prepared index installation did not finish: ${error.message}`,
+    "Prepared index installation did not finish. Inspect the retained recovery observation before resuming.",
     {
-      exitCode: 1,
-      details: {
+      disposition: "rejected",
+      cause: error,
+      state: {
         transaction: transactionPath,
         phase: "allocated",
+        commitState: "absent",
+        publicationState: "not-requested",
         recoveryRequired: true,
+      },
+      details: {
         resumeAllowed: recovery?.resumeAllowed ?? true,
         recoveryStatus: recovery?.status ?? "not-started",
         scope: summary,
@@ -1839,38 +1712,45 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
       status: "stopped",
       terminalDisposition: "no-commit-stopped",
     });
-    const stoppedError = new PreparationError(
+    const stoppedError = new WorkflowDiagnosticError(
       "PREPARATION_STOPPED",
-      `Preparation stopped before index installation: ${error.message}`,
+      "Preparation stopped before index installation. Inspect the retained transaction before starting new work.",
       {
-        exitCode: 1,
-        details: {
+        disposition: "rejected",
+        cause: error,
+        state: {
           transaction: transactionPath,
           phase: stopped.phase,
+          commitState: "absent",
+          publicationState: "not-requested",
+        },
+        details: {
           terminalDisposition: stopped.terminalDisposition,
-          recoveryRequired: false,
           scope: summary,
         },
       },
     );
-    stoppedError.cause = error;
     return stoppedError;
   } catch (checkpointError) {
-    const interrupted = new PreparationError(
+    const interrupted = new WorkflowDiagnosticError(
       "PREPARATION_CHECKPOINT_INTERRUPTED",
-      `Preparation checkpoint could not be completed: ${checkpointError.message}`,
+      "Preparation checkpoint could not be completed. Inspect the retained transaction before resuming.",
       {
-        exitCode: 1,
-        details: {
+        disposition: "rejected",
+        cause: checkpointError,
+        state: {
           transaction: transactionPath,
           phase: "allocated",
+          commitState: "absent",
+          publicationState: "not-requested",
           recoveryRequired: true,
+        },
+        details: {
           resumeAllowed: true,
           scope: summary,
         },
       },
     );
-    interrupted.cause = checkpointError;
     return interrupted;
   }
 }
@@ -1945,7 +1825,7 @@ export async function prepareWorkflow({
         "PREEXISTING_STAGED_CHANGES",
         "Actual path scope requires an initially clean staged index.",
         {
-          exitCode: 1,
+          disposition: "rejected",
           details: {
             stagedChangeUnitCount: candidates.staged.length,
             stagedSamples: candidates.staged
@@ -1973,7 +1853,7 @@ export async function prepareWorkflow({
           "DRAFT_SCOPE_OVERLAPS_STAGED",
           "Draft path scope overlaps existing staged work.",
           {
-            exitCode: 1,
+            disposition: "rejected",
             details: {
               overlapSamples: overlap.slice(0, 5).map(safePathDisplay),
             },
@@ -2145,81 +2025,21 @@ export async function prepareWorkflow({
   return successEnvelope(completed, summary);
 }
 
-function errorEnvelope(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: error.details.terminalDisposition ?? null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...Object.fromEntries(
-      Object.entries(error.details).filter(
-        ([key]) =>
-          !new Set([
-            "phase",
-            "terminalDisposition",
-            "transaction",
-            "recoveryRequired",
-          ]).has(key),
-      ),
-    ),
-  };
-}
-
-function textResult(result) {
-  const lines = [`Status: ${result.status}`];
-
-  if (result.code) {
-    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
-  }
-
-  if (result.transaction) {
-    lines.push(`Transaction: ${result.transaction}`);
-  }
-
-  if (result.indexTreeOid) {
-    lines.push(`Index tree: ${result.indexTreeOid}`);
-  }
-
-  return `${lines.join("\n")}\n`;
-}
-
 export async function runPrepareWorkflowCommand(
   argv,
   {
     cwd = process.cwd(),
     environment = process.env,
     stdout = process.stdout,
-    stderr = process.stderr,
   } = {},
 ) {
-  let format = "json";
-
-  try {
-    const options = parsePrepareArguments(argv);
-    format = options.format;
-    const result = await prepareWorkflow({ options, cwd, environment });
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof PreparationError
-        ? caught
-        : new PreparationError("PREPARATION_FAILED", caught.message);
-    const result = errorEnvelope(error);
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: parsePrepareArguments,
+    execute: (options) => prepareWorkflow({ options, cwd, environment }),
+    failureState: () => ({
+      commitState: "absent",
+      publicationState: "not-requested",
+    }),
+    stdout,
+  });
 }

@@ -1,3 +1,9 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import {
   closeSync,
   constants as fsConstants,
@@ -34,7 +40,6 @@ import {
   readTransaction,
 } from "../transaction/transactionWorkspace.js";
 import {
-  PreparationError,
   acquireEvidence,
   cleanupEvidenceSpools,
   manifestEnvironment,
@@ -48,8 +53,8 @@ const EXTENSION_REASONS = new Set([
   "semantic-structure-required",
 ]);
 
-function fail(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
+function fail(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function readFixedEvidencePlan(path) {
@@ -109,7 +114,8 @@ function readFixedEvidencePlan(path) {
     } catch (error) {
       fail(
         "INVALID_EVIDENCE_PLAN_INPUT",
-        `The fixed evidence-plan input is invalid JSON: ${error.message}`,
+        "The fixed evidence-plan input is invalid JSON.",
+        { cause: error },
       );
     }
 
@@ -142,7 +148,7 @@ function readExactSnapshot(transaction) {
       "SNAPSHOT_CHANGED",
       "The transaction snapshot changed after preparation.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           transaction: resolve(
             transaction.snapshot.path,
@@ -161,7 +167,7 @@ function readExactSnapshot(transaction) {
     manifest.changeUnitCount !== transaction.snapshot.changeUnitCount
   ) {
     fail("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 
@@ -174,7 +180,7 @@ function assertUnchangedAnchor(transaction, manifest) {
     JSON.stringify(transaction.headAnchor)
   ) {
     fail("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 
@@ -184,7 +190,7 @@ function assertUnchangedAnchor(transaction, manifest) {
     fail(
       "ACTIVE_GIT_OPERATION",
       `Review cannot be extended during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -199,7 +205,7 @@ function assertUnchangedAnchor(transaction, manifest) {
       "INDEX_DRIFT",
       "The prepared index tree changed before review extension.",
       {
-        exitCode: 1,
+        disposition: "rejected",
       },
     );
   }
@@ -233,28 +239,30 @@ function writeEvidencePlanRevision(transaction, evidencePlan) {
 }
 
 function extensionResult(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: transaction.status,
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.review.evidencePlanSha256,
-    capsuleSha256: transaction.review.coveredCapsuleSha256,
-    extendedReason: transaction.review.extendedReason,
-    reviewQueue: transaction.review.queue,
-    structuredMessageMode: transaction.review.structuredMessageMode,
-    ...authoringProgress(transaction),
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.review.evidencePlanSha256,
+      capsuleSha256: transaction.review.coveredCapsuleSha256,
+      extendedReason: transaction.review.extendedReason,
+      reviewQueue: transaction.review.queue,
+      structuredMessageMode: transaction.review.structuredMessageMode,
+      ...authoringProgress(transaction),
+    },
+  });
 }
 
 export async function extendReviewWorkflow({ transactionPath, reason }) {
@@ -274,7 +282,10 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
     fail(
       "EXTENSION_NOT_ALLOWED",
       `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve(transactionPath) } },
+      {
+        disposition: "rejected",
+        details: { transaction: resolve(transactionPath) },
+      },
     );
   }
 
@@ -410,101 +421,36 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
 }
 
 export function parseExtendReviewArguments(argv) {
-  const values = new Map();
+  const { values } = parseCommandArguments("workflow extend", argv);
 
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (!new Set(["--transaction", "--reason", "--format"]).has(token)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow extend flag ${token}.`);
-    }
-
-    if (value === undefined || value.length === 0) {
-      fail("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-
-    if (values.has(token)) {
-      fail("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-
-    values.set(token, value);
-  }
-
-  if (!values.has("--transaction") || !values.has("--reason")) {
+  if (!values.has("transaction") || !values.has("reason")) {
     fail(
       "MISSING_ARGUMENT",
       "--transaction and --reason are required for workflow extend.",
     );
   }
 
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
 
   if (!new Set(["json", "text"]).has(format)) {
     fail("INVALID_FORMAT", "--format must be json or text.");
   }
 
   return {
-    transactionPath: values.get("--transaction"),
-    reason: values.get("--reason"),
+    transactionPath: values.get("transaction"),
+    reason: values.get("reason"),
     format,
   };
 }
 
-function errorResult(error) {
-  return {
-    schemaVersion: 1,
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: false,
-    code: error.code,
-    message: error.message,
-  };
-}
-
-function textResult(result) {
-  return [
-    `Status: ${result.status}`,
-    ...(result.code
-      ? [`Code: ${result.code}`, `Message: ${result.message}`]
-      : []),
-    ...(result.transaction ? [`Transaction: ${result.transaction}`] : []),
-    ...(result.indexTreeOid ? [`Index tree: ${result.indexTreeOid}`] : []),
-    "",
-  ].join("\n");
-}
-
 export async function runExtendReviewCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const options = parseExtendReviewArguments(argv);
-    format = options.format;
-    const result = await extendReviewWorkflow(options);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof PreparationError
-        ? caught
-        : new PreparationError("EXTENSION_FAILED", caught.message);
-    const result = errorResult(error);
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseExtendReviewArguments,
+    execute: extendReviewWorkflow,
+    stdout,
+  });
 }

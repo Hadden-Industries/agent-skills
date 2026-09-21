@@ -1,3 +1,9 @@
+import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -21,14 +27,13 @@ import {
   readTransaction,
 } from "../transaction/transactionWorkspace.js";
 import {
-  PreparationError,
   manifestEnvironment,
   routePreparedEvidence,
 } from "./prepareWorkflow.js";
 import { authoringProgress } from "./authoringProgress.js";
 
-function fail(code, message, { exitCode = 2, details = {} } = {}) {
-  throw new PreparationError(code, message, { exitCode, details });
+function fail(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -97,10 +102,9 @@ function validatePersistedSnapshot(transaction) {
   try {
     manifest = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    fail(
-      "INVALID_TRANSACTION_ARTIFACT",
-      `snapshot.json is invalid JSON: ${error.message}`,
-    );
+    fail("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
+      cause: error,
+    });
   }
 
   if (
@@ -125,7 +129,7 @@ function assertRepositoryResumePreconditions(transaction) {
     fail(
       "ACTIVE_GIT_OPERATION",
       `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -142,7 +146,7 @@ function assertRepositoryResumePreconditions(transaction) {
     fail(
       "UNRESOLVED_CONFLICTS",
       "Preparation cannot resume while unresolved conflicts remain.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -152,40 +156,42 @@ function assertRepositoryResumePreconditions(transaction) {
     JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)
   ) {
     fail("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 }
 
 function resultEnvelope(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    scope: transaction.scope.summary,
-    initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-    ...(transaction.route === "concise"
-      ? { capsule: transaction.inlineEvidence.capsule }
-      : transaction.route === "extended"
-        ? {
-            extendedReason: transaction.review.extendedReason,
-            reviewQueue: transaction.review.queue,
-            ...authoringProgress(transaction),
-          }
-        : {}),
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      scope: transaction.scope.summary,
+      initialEvidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      evidencePlanSha256: transaction.initialEvidencePlan.sha256,
+      ...(transaction.route === "concise"
+        ? { capsule: transaction.inlineEvidence.capsule }
+        : transaction.route === "extended"
+          ? {
+              extendedReason: transaction.review.extendedReason,
+              reviewQueue: transaction.review.queue,
+              ...authoringProgress(transaction),
+            }
+          : {}),
+    },
+  });
 }
 
 function assertSnapshotIndexState(transaction, manifest) {
@@ -200,7 +206,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       fail(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index changed before resume.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
 
@@ -214,7 +220,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       fail(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index no longer matches the snapshot tree.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
   }
@@ -224,7 +230,7 @@ function assertSnapshotIndexState(transaction, manifest) {
     !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)
   ) {
     fail("INDEX_DRIFT", "The real index changed after snapshot creation.", {
-      exitCode: 1,
+      disposition: "rejected",
     });
   }
 }
@@ -289,7 +295,10 @@ export async function resumePreparationWorkflow({ transactionPath }) {
     fail(
       "RESUME_NOT_ALLOWED",
       `Preparation cannot resume from phase ${transaction.phase}.`,
-      { exitCode: 1, details: { transaction: resolve(transactionPath) } },
+      {
+        disposition: "rejected",
+        details: { transaction: resolve(transactionPath) },
+      },
     );
   }
 
@@ -323,12 +332,15 @@ export async function resumePreparationWorkflow({ transactionPath }) {
     } catch (error) {
       fail(
         "INDEX_INSTALLATION_INTERRUPTED",
-        `Prepared index installation resume failed: ${error.message}`,
+        "Prepared index installation resume failed. Inspect the retained transaction before another installation.",
         {
-          exitCode: 1,
-          details: {
+          disposition: "rejected",
+          cause: error,
+          state: {
             transaction: resolve(transactionPath),
             phase: "allocated",
+            commitState: "absent",
+            publicationState: "not-requested",
             recoveryRequired: true,
           },
         },
@@ -342,7 +354,7 @@ export async function resumePreparationWorkflow({ transactionPath }) {
       fail(
         "INDEX_INSTALLATION_MISMATCH",
         "Resumed index installation does not match the persisted snapshot.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
   }
@@ -358,92 +370,29 @@ export async function resumePreparationWorkflow({ transactionPath }) {
 }
 
 export function parseResumeArguments(argv) {
-  const values = new Map();
+  const { values } = parseCommandArguments("workflow resume", argv);
 
-  for (let index = 0; index < argv.length; index += 2) {
-    const token = argv[index];
-    const value = argv[index + 1];
-
-    if (!new Set(["--transaction", "--format"]).has(token)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow resume flag ${token}.`);
-    }
-
-    if (value === undefined || value.length === 0) {
-      fail("INVALID_ARGUMENT", `${token} requires a non-empty value.`);
-    }
-
-    if (values.has(token)) {
-      fail("DUPLICATE_ARGUMENT", `${token} may be supplied only once.`);
-    }
-
-    values.set(token, value);
-  }
-
-  if (!values.has("--transaction")) {
+  if (!values.has("transaction")) {
     fail("MISSING_TRANSACTION", "--transaction is required.");
   }
 
-  const format = values.get("--format") ?? "json";
+  const format = values.get("format") ?? "json";
 
   if (!new Set(["json", "text"]).has(format)) {
     fail("INVALID_FORMAT", "--format must be json or text.");
   }
 
-  return { transactionPath: values.get("--transaction"), format };
-}
-
-function errorEnvelope(error) {
-  return {
-    status: error.exitCode === 1 ? "stopped" : "invalid",
-    phase: error.details.phase ?? null,
-    terminalDisposition: null,
-    transaction: error.details.transaction ?? null,
-    route: null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-  };
-}
-
-function textResult(result) {
-  return [
-    `Status: ${result.status}`,
-    ...(result.code
-      ? [`Code: ${result.code}`, `Message: ${result.message}`]
-      : []),
-    ...(result.transaction ? [`Transaction: ${result.transaction}`] : []),
-    "",
-  ].join("\n");
+  return { transactionPath: values.get("transaction"), format };
 }
 
 export async function runResumePreparationCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const options = parseResumeArguments(argv);
-    format = options.format;
-    const result = await resumePreparationWorkflow(options);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof PreparationError
-        ? caught
-        : new PreparationError("RESUME_FAILED", caught.message);
-    const result = errorEnvelope(error);
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseResumeArguments,
+    execute: resumePreparationWorkflow,
+    stdout,
+  });
 }

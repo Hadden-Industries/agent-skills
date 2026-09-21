@@ -81,7 +81,7 @@ test("draft promotion completes trust preflight before real staging", async (t) 
         },
       }),
     (error) =>
-      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 1,
+      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 5,
   );
   assert.equal(inspections, 1);
   assert.deepEqual(readJson(requiredDraft.transaction), before);

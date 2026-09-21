@@ -1,3 +1,5 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowWarning } from "../diagnostics/diagnosticContract.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -45,18 +47,8 @@ const MESSAGE_SOURCES = new Set([
   "finalized-extended",
 ]);
 
-export class CanonicalMessageError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "CanonicalMessageError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new CanonicalMessageError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -266,7 +258,11 @@ export function readTransactionOwnedFile({
 }
 
 function warning(code, message, path) {
-  return { code, message, path };
+  return createWorkflowWarning({
+    code,
+    message,
+    details: [{ kind: "prerequisite", path }],
+  });
 }
 
 export function cleanupTransactionOwnedInput({

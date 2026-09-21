@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { canonicalizeEvidencePlan } from "../../src/committing-to-git/inspection/reviewCatalog.js";
 
 import {
   formatMessagePath,
-  resolveSelection,
   resolveSemanticCoverage,
   selectMessagePresentation,
 } from "../../src/committing-to-git/message/changeSelection.js";
+import { resolveSelection } from "../../src/committing-to-git/selection/changeSelection.js";
 
 function unit(index, overrides = {}) {
   const ordinal = String(index).padStart(6, "0");
@@ -48,6 +49,64 @@ function evidence(selection = { all: true }) {
     policy: "reuse",
     basis: { kind: "authored-current-task", note: null },
   };
+}
+
+test("exhausted remaining selection is an actionable input diagnostic", () => {
+  const manifest = manifestFixture([unit(1)]);
+  for (const invoke of [
+    () =>
+      resolveSelection(
+        manifest,
+        { remaining: true },
+        { assignedIds: new Set(["F000001"]) },
+      ),
+    () =>
+      canonicalizeEvidencePlan({
+        manifest,
+        groups: [evidence(), evidence({ remaining: true })],
+      }),
+  ]) {
+    assert.throws(invoke, (error) => {
+      assert.equal(error.code, "EMPTY_SELECTION");
+      assert.equal(error.exitCode, 2);
+      return true;
+    });
+  }
+});
+
+for (const [field, values] of [
+  ["ids", ["F000001", "F999998", "F999999"]],
+  ["destinationPaths", ["src/input.js", "absent.js", "also-absent.js"]],
+  ["destinationPathPrefixes", ["src/", "absent/", "also-absent/"]],
+  ["sourcePaths", ["legacy/input.js", "absent.js", "also-absent.js"]],
+  ["sourcePathPrefixes", ["legacy/", "absent/", "also-absent/"]],
+  ["kinds", ["renamed", "added", "deleted"]],
+]) {
+  for (const boundary of ["review", "message"]) {
+    test(`${boundary} rejects every unmatched ${field} value even when another matches`, () => {
+      const manifest = manifestFixture([
+        renamed(1, "legacy/input.js", "src/input.js"),
+      ]);
+      const selection = { [field]: values };
+      const invoke =
+        boundary === "review"
+          ? () =>
+              canonicalizeEvidencePlan({
+                manifest,
+                groups: [evidence(selection)],
+              })
+          : () => resolveSelection(manifest, selection);
+      assert.throws(invoke, (error) => {
+        assert.equal(error.code, "UNMATCHED_SELECTION_VALUES");
+        assert.equal(error.details.unmatchedCount, 2);
+        assert.deepEqual(
+          error.details.unmatchedValues,
+          values.slice(1).map((value) => ({ field, value })),
+        );
+        return true;
+      });
+    });
+  }
 }
 
 test("selectors union exact IDs, paths, prefixes, and kinds without duplicates", () => {

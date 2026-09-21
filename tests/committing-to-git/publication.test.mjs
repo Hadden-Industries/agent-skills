@@ -1,6 +1,7 @@
 // Exact-OID, explicit-destination publication and durable result capture.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { renameSync } from "node:fs";
 import { join } from "node:path";
 
 import assert from "node:assert/strict";
@@ -68,6 +69,44 @@ async function reportedTransaction(t, fixture) {
   };
 }
 
+test("publication reporting failure retains witnessed remote success when the journal becomes unreadable", async (t) => {
+  const fixture = createRepositoryFixture(t, "publication-report-loss-");
+  const remote = join(fixture.base, "remote.git");
+  git(["init", "--bare", "--quiet", remote], fixture.repo);
+  git(["remote", "add", "origin", remote], fixture.repo);
+  const reported = await reportedTransaction(t, fixture);
+  if (reported === null) return;
+  const { publishWorkflow } =
+    await import("../../src/committing-to-git/workflow/publishWorkflow.js");
+  const result = await publishWorkflow({
+    transactionPath: reported.transactionPath,
+    remote: "origin",
+    destination: "refs/heads/review",
+    failureInjector(point) {
+      if (point === "after-push-completion-before-report") {
+        renameSync(
+          reported.transactionPath,
+          `${reported.transactionPath}.retained`,
+        );
+        throw new Error("private injected reporting failure");
+      }
+    },
+  });
+  assert.equal(result.exitCode, 3);
+  assert.equal(result.commitState, "created");
+  assert.equal(result.commitOid, reported.commitOid);
+  assert.equal(result.publicationState, "published");
+  assert.equal(result.recoveryRequired, true);
+  assert.doesNotMatch(JSON.stringify(result), /private injected/u);
+  assert.equal(
+    git(
+      ["--git-dir", remote, "rev-parse", "refs/heads/review"],
+      fixture.repo,
+    ).stdout.trim(),
+    reported.commitOid,
+  );
+});
+
 function journaledPublicationAttempt(transaction, overrides = {}) {
   const commitOid = transaction.commit.commitOid;
   const destination = "refs/heads/review";
@@ -120,7 +159,8 @@ test("high-level publication reuses the report and witnesses one exact push", as
   });
 
   assert.equal(result.exitCode, 0, JSON.stringify(result));
-  assert.equal(result.publicationState, "succeeded");
+  assert.equal(result.publicationState, "published");
+  assert.equal(result.publication.status, "succeeded");
   assert.equal(result.report.publication.status, "succeeded");
   assert.deepEqual(readOperations, ["remote-names", "check-ref-format"]);
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 80 * 1024);
@@ -166,7 +206,8 @@ test("public workflow publish emits one bounded JSON result", async (t) => {
   assert.equal(result.stdout.trim().split(/\r?\n/u).length, 1);
   const parsed = JSON.parse(result.stdout);
 
-  assert.equal(parsed.publicationState, "succeeded");
+  assert.equal(parsed.publicationState, "published");
+  assert.equal(parsed.publication.status, "succeeded");
   assert.equal(parsed.exitCode, 0);
   assert.equal(
     git(["rev-parse", "refs/heads/review"], remote).stdout.trim(),
@@ -560,7 +601,8 @@ test("matching remote recovery is distinct from a witnessed helper push", async 
   });
 
   assert.equal(recovered.exitCode, 0);
-  assert.equal(recovered.publicationState, "observed-matching");
+  assert.equal(recovered.publicationState, "published");
+  assert.equal(recovered.publication.status, "observed-matching");
   assert.equal(recovered.publication.status, "observed-matching");
   assert.match(recovered.displayText, /was observed at/u);
   assert.match(recovered.displayText, /actor and attempt remain unproven/u);

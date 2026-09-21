@@ -44,6 +44,8 @@ Each page is at most 16 KiB and returns UTF-8 when valid or base64 otherwise. Fo
 
 A witnessed `failed`, `signaled`, or `timed-out` receipt blocks commit creation until the user knowingly authorizes that exact receipt. Present the message and named receipt IDs together; one reply may authorize both. Do not insist that the user fix the check, reduce the commit, or abandon an intentional checkpoint.
 
+`FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED` exits 5 and supplies up to 32 exact IDs in `details[0].receiptIds`, with `missingReceiptCount` and `omittedReceiptCount`. Its recovery kind is `human-decision`, with no pre-authorized command. Obtain the required decision, then pass only the IDs the user authorized. If IDs were omitted, retain those explicitly approved acknowledgement arguments on the next invocation to reveal the next batch; the helper still blocks until every non-passing receipt is authorized. The diagnostic itself is not approval. See [diagnostics](diagnostics.md) for common fields and text/JSON equivalence.
+
 Pass every required ID exactly once:
 
 ```text

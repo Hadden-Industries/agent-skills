@@ -1,3 +1,16 @@
+import { executeCommand } from "../cli/commandExecution.js";
+import { messageAuthoringRecovery } from "./authoringProgress.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import {
+  createWorkflowResult,
+  createWorkflowWarning,
+} from "../diagnostics/diagnosticContract.js";
+import {
+  observeTransactionFailure,
+  transactionDiagnosticState,
+} from "../transaction/transactionDiagnosticState.js";
+
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -41,7 +54,7 @@ import {
   verifyCommitSignature,
 } from "../signature/commitSignature.js";
 import {
-  describeSshTrustSourceFailure,
+  signatureTrustDiagnostic,
   inspectSignatureRequirements,
 } from "../signature/signaturePreflight.js";
 import {
@@ -70,18 +83,8 @@ const STORAGE_OVERRIDE_NAMES = [
   "GIT_NAMESPACE",
 ];
 
-export class CommitWorkflowError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "CommitWorkflowError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new CommitWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -127,10 +130,9 @@ function readSnapshot(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER.decode(input.bytes));
   } catch (error) {
-    fail(
-      "SNAPSHOT_ARTIFACT_INVALID",
-      `Snapshot JSON is invalid: ${error.message}`,
-    );
+    fail("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+      cause: error,
+    });
   }
 }
 
@@ -147,23 +149,27 @@ function directMessage(
     fail(
       "MESSAGE_REQUIRES_CHECKED_FILE",
       "This message must be supplied through the fixed message-input.txt check route.",
+      {
+        state: {
+          transaction: resolve(transactionPath),
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState: "absent",
+          publicationState: "not-requested",
+        },
+        ...messageAuthoringRecovery(transaction, transactionPath),
+      },
     );
   }
 
   const bytes = Buffer.from(`${approvedSubject}\n`, "utf8");
-  let validation;
-
-  try {
-    validation = validateApprovedMessage({
-      manifest,
-      route: "concise",
-      bytes,
-      repositoryTypePolicy: transaction.repositoryTypePolicy,
-      messageSource: "approved-subject",
-    });
-  } catch (error) {
-    fail(error.code ?? "MESSAGE_INVALID", error.message);
-  }
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "concise",
+    bytes,
+    repositoryTypePolicy: transaction.repositoryTypePolicy,
+    messageSource: "approved-subject",
+  });
 
   return replaceCanonicalMessage({
     transactionPath,
@@ -214,6 +220,11 @@ function selectCanonicalMessage({
   fail(
     "COMMIT_PHASE_INVALID",
     `Transaction phase ${transaction.phase} cannot create a commit.`,
+    {
+      disposition: "unmet-prerequisite",
+      state: transactionDiagnosticState(transaction, transactionPath),
+      ...messageAuthoringRecovery(transaction, transactionPath),
+    },
   );
 }
 
@@ -243,37 +254,20 @@ function preflightCommitVerification({
     transaction.signaturePreflight?.backend === "ssh" &&
     transaction.signaturePreflight.trustSource?.state !== "readable"
   ) {
-    const failure = describeSshTrustSourceFailure(
-      transaction.signaturePreflight.trustSource,
-    );
-
-    fail("SIGNATURE_TRUST_ACCESS_REQUIRED", failure.message, {
-      exitCode: 1,
-      details: {
-        status: "capability-required",
-        phase: transaction.phase,
-        terminalDisposition: transaction.terminalDisposition,
-        transaction: resolve(transactionPath),
-        route: transaction.route,
-        commitState: "absent",
-        publicationState: "not-requested",
-        publicationAllowed: false,
-        recoveryRequired: false,
-        ...(failure.capability === null
-          ? {}
-          : { capability: failure.capability }),
-        action: failure.action,
-        trustSource: failure.trustSource,
-        verificationPolicy: finalPolicy,
-        policyAlternatives: failure.policyAlternatives,
-      },
+    throw signatureTrustDiagnostic(transaction.signaturePreflight.trustSource, {
+      verificationPolicy: finalPolicy,
+      state: transactionDiagnosticState(transaction, transactionPath),
     });
   }
 
   return transaction;
 }
 
-function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
+function authorizeCheckReceipts(
+  transactionPath,
+  transaction,
+  acknowledgedFailedCheckIds,
+) {
   const readiness = analyzeCheckCommitReadiness(
     transaction.checkAttempts,
     acknowledgedFailedCheckIds,
@@ -284,7 +278,7 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
       "CHECK_RECOVERY_REQUIRED",
       `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
       {
-        exitCode: 4,
+        disposition: "outcome-unknown",
         details: {
           receiptIds: readiness.activeAttemptIds,
           recoveryRequired: true,
@@ -297,7 +291,10 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
     fail(
       "CHECK_RETRY_REQUIRED",
       `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
-      { exitCode: 1, details: { receiptIds: readiness.retryRequiredIds } },
+      {
+        disposition: "unmet-prerequisite",
+        details: { receiptIds: readiness.retryRequiredIds },
+      },
     );
   }
 
@@ -321,11 +318,37 @@ function authorizeCheckReceipts(transaction, acknowledgedFailedCheckIds) {
   if (readiness.missingAcknowledgementIds.length > 0) {
     fail(
       "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
-      `Exact commit authorization must acknowledge non-passing check ${readiness.missingAcknowledgementIds.join(", ")}.`,
+      "Exact commit authorization must acknowledge every non-passing receipt. Review the listed receipt IDs; retain explicitly approved acknowledgement arguments to reveal any remaining IDs on the next invocation.",
       {
-        exitCode: 1,
+        disposition: "unmet-prerequisite",
+        state: {
+          transaction: transactionPath,
+          phase: transaction.phase,
+          route: transaction.route,
+          commitState:
+            transaction.commit === null
+              ? "absent"
+              : transaction.commit.commitOid
+                ? "created"
+                : "unknown",
+          publicationState: "not-requested",
+        },
+        recovery: {
+          kind: "human-decision",
+          automatic: false,
+          requiredInputs: [
+            "exact commit authorization",
+            "explicit acknowledgement of every listed non-passing receipt ID",
+          ],
+          commands: [],
+        },
         details: {
-          receiptIds: readiness.missingAcknowledgementIds,
+          receiptIds: readiness.missingAcknowledgementIds.slice(0, 32),
+          missingReceiptCount: readiness.missingAcknowledgementIds.length,
+          omittedReceiptCount: Math.max(
+            0,
+            readiness.missingAcknowledgementIds.length - 32,
+          ),
           action: "request-exact-commit-and-failed-check-approval",
         },
       },
@@ -434,6 +457,29 @@ function verificationAttemptFor({
   );
 }
 
+function verificationDiagnostics(verification) {
+  const effectiveVerification =
+    verification.attempts[verification.effectiveAttempt];
+  return verification.finalPolicy === "advisory" &&
+    effectiveVerification.status !== "verified"
+    ? [
+        createWorkflowWarning({
+          code: "SIGNATURE_VERIFICATION_ADVISORY",
+          message:
+            "The commit is signed, but signature trust was not verified under the advisory policy.",
+          documentation: "references/signature-recovery.md",
+          details: [
+            {
+              kind: "prerequisite",
+              policy: verification.finalPolicy,
+              status: effectiveVerification.status,
+            },
+          ],
+        }),
+      ]
+    : [];
+}
+
 function reportResult(
   transactionPath,
   transaction,
@@ -442,24 +488,40 @@ function reportResult(
   exitCode,
   cleanup,
 ) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: exitCode === 0 ? "succeeded" : "completed-with-failure",
+    code: exitCode === 0 ? null : "COMMIT_POLICY_BLOCKED",
+    message:
+      exitCode === 0
+        ? null
+        : "The commit exists, but comparison or signature policy blocks publication.",
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
     publicationState:
       report.publication.status === "blocked" ? "blocked" : "not-requested",
     publicationAllowed: transaction.report.publicationAllowed,
     recoveryRequired: false,
-    report,
-    displayText,
-    cleanup,
-    exitCode,
-  };
+    warnings: [
+      ...(cleanup?.warnings ?? []),
+      ...verificationDiagnostics(report.verification),
+    ],
+    recovery: {
+      kind: exitCode === 0 ? "none" : "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands: [],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      report,
+      displayText,
+      cleanup,
+    },
+  });
 }
 
 export function readRecordedReport(transactionPath) {
@@ -504,7 +566,10 @@ export async function completeRecordedCommit({
     fail(
       "COMMIT_NOT_READY_FOR_REPORT",
       "A matching recorded commit is required before verification and reporting.",
-      { exitCode: 3 },
+      {
+        disposition: "unmet-prerequisite",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
     );
   }
 
@@ -585,7 +650,10 @@ export async function completeRecordedCommit({
     fail(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The commit exists, but its final result exceeds the bounded report budget.",
-      { exitCode: 3 },
+      {
+        disposition: "completed-with-failure",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
     );
   }
 
@@ -627,19 +695,23 @@ export async function completeRecordedCommit({
       retainReviewArtifacts,
       retainProcessLogs,
     });
-  } catch (error) {
-    cleanup = {
-      schemaVersion: 1,
-      status: "warning",
-      completed: [],
-      failed: [
-        {
-          path: transaction.attemptDirectory,
-          code: error.code ?? "COMPACTION_FAILED",
-          message: error.message,
-        },
+  } catch {
+    cleanup = createWorkflowResult({
+      disposition: "succeeded",
+      status: "cleaned",
+      ...transactionDiagnosticState(transaction, transactionPath),
+      warnings: [
+        createWorkflowWarning({
+          code: "COMPACTION_INCOMPLETE",
+          message:
+            "The commit report is retained, but optional artifact compaction could not finish.",
+          details: [
+            { kind: "prerequisite", path: transaction.attemptDirectory },
+          ],
+        }),
       ],
-    };
+      data: { completed: [] },
+    });
   }
 
   let result = reportResult(
@@ -684,31 +756,76 @@ export async function completeRecordedCommit({
     fail(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The complete serialized commit result exceeds the bounded report budget.",
-      { exitCode: 3 },
+      { disposition: "completed-with-failure" },
     );
   }
 
   return result;
 }
 
-function incompleteKnownCommitResult(transactionPath, error, recovery) {
+function incompleteKnownCommitResult(transactionPath, recovery) {
   const transaction = readTransaction(transactionPath);
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "completed-with-failure",
     status: "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null,
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: true,
     code: "COMMIT_CONTINUATION_REQUIRED",
-    message: error.message,
-    exitCode: 3,
-  };
+    message:
+      "The commit exists; its verification or report needs recovery from the recorded transaction.",
+    recovery: {
+      kind: "continue",
+      automatic: false,
+      requiredInputs: [],
+      commands: [
+        {
+          arguments: ["workflow", "recover", "--transaction", transactionPath],
+        },
+      ],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit?.commitOid ?? recovery.commitOid ?? null,
+    },
+  });
+}
+
+/** Retain the last observed facts when the journal cannot establish a final outcome. */
+function uncertainCommitResult(transactionPath, transaction) {
+  const knownCommit = Boolean(transaction.commit?.commitOid);
+  return createWorkflowResult({
+    disposition: knownCommit ? "completed-with-failure" : "outcome-unknown",
+    status: knownCommit ? "commit-blocked" : "outcome-unknown",
+    phase: transaction.phase,
+    transaction: resolve(transactionPath),
+    route: transaction.route,
+    commitState: transaction.commit?.commitOid ? "created" : "unknown",
+    publicationState: "not-requested",
+    recoveryRequired: true,
+    code: "COMMIT_RECOVERY_FAILED",
+    message: knownCommit
+      ? "The commit was created, but subsequent recovery failed. Inspect the retained transaction; do not recreate the commit."
+      : "Commit outcome recovery failed. Inspect the retained transaction before any further mutation.",
+    recovery: {
+      kind: "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands: [
+        {
+          arguments: ["workflow", "recover", "--transaction", transactionPath],
+        },
+      ],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit?.commitOid ?? null,
+    },
+  });
 }
 
 export async function createCommitWorkflow({
@@ -736,6 +853,7 @@ export async function createCommitWorkflow({
   }
 
   const canonicalFailedCheckAcknowledgements = authorizeCheckReceipts(
+    transactionPath,
     transaction,
     acknowledgedFailedCheckIds,
   );
@@ -784,11 +902,10 @@ export async function createCommitWorkflow({
       status: "stopped",
       terminalDisposition: "no-commit-stopped",
     });
-    return {
-      schemaVersion: 1,
+    return createWorkflowResult({
+      disposition: "rejected",
       status: "stopped",
       phase: stopped.phase,
-      terminalDisposition: stopped.terminalDisposition,
       transaction: resolve(transactionPath),
       route: stopped.route,
       commitState: "absent",
@@ -796,9 +913,19 @@ export async function createCommitWorkflow({
       publicationAllowed: false,
       recoveryRequired: false,
       code: "SNAPSHOT_DRIFT",
-      snapshotVerification,
-      exitCode: 1,
-    };
+      message:
+        "The selected snapshot changed; review the drift before preparing another transaction.",
+      recovery: {
+        kind: "inspect-state",
+        automatic: false,
+        requiredInputs: [],
+        commands: [],
+      },
+      data: {
+        terminalDisposition: stopped.terminalDisposition,
+        snapshotVerification,
+      },
+    });
   }
 
   const startedAt = new Date().toISOString();
@@ -930,8 +1057,13 @@ export async function createCommitWorkflow({
       signatureVerifier,
       failureInjector,
     });
-  } catch (error) {
-    const current = readTransaction(transactionPath);
+  } catch {
+    let current;
+    try {
+      current = readTransaction(transactionPath);
+    } catch {
+      return uncertainCommitResult(transactionPath, transaction);
+    }
 
     if (current.phase === "reported") {
       return readRecordedReport(transactionPath);
@@ -941,26 +1073,12 @@ export async function createCommitWorkflow({
 
     try {
       recovery = recoverCommitOutcome({ transactionPath });
-    } catch (recoveryError) {
-      return {
-        schemaVersion: 1,
-        status: "outcome-unknown",
-        phase: current.phase,
-        terminalDisposition: current.terminalDisposition,
-        transaction: resolve(transactionPath),
-        route: current.route,
-        commitState: current.commit?.commitOid ? "created" : "unknown",
-        publicationState: "not-requested",
-        publicationAllowed: false,
-        recoveryRequired: true,
-        code: "COMMIT_RECOVERY_FAILED",
-        message: `${error.message}; recovery failed: ${recoveryError.message}`,
-        exitCode: 4,
-      };
+    } catch {
+      return uncertainCommitResult(transactionPath, current);
     }
 
     return recovery.status === "matching-commit-observed"
-      ? incompleteKnownCommitResult(transactionPath, error, recovery)
+      ? incompleteKnownCommitResult(transactionPath, recovery)
       : recovery;
   }
 }
@@ -979,7 +1097,7 @@ export function retrySignatureVerificationWorkflow({
     fail(
       "VERIFICATION_RETRY_NOT_ALLOWED",
       "Verification retry requires one already reported commit.",
-      { exitCode: 3 },
+      { disposition: "unmet-prerequisite" },
     );
   }
 
@@ -1029,205 +1147,79 @@ export function retrySignatureVerificationWorkflow({
   });
 
   const effective = verification.attempts[verification.effectiveAttempt];
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: publicationAllowed ? "succeeded" : "completed-with-failure",
+    code: publicationAllowed ? null : "SIGNATURE_VERIFICATION_BLOCKED",
+    message: publicationAllowed
+      ? null
+      : "Signature verification policy blocks publication of the recorded commit.",
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
-    publicationState: "not-requested",
+    publicationState: transactionDiagnosticState(transaction, transactionPath)
+      .publicationState,
     publicationAllowed,
+    warnings: verificationDiagnostics(verification),
     recoveryRequired: false,
-    verification,
-    displayText:
-      `Verification for ${transaction.commit.commitOid}: ${effective.status}` +
-      `${effective.reason ? ` (${effective.reason})` : ""}\n`,
-    exitCode: publicationAllowed ? 0 : 3,
+    recovery: {
+      kind: publicationAllowed ? "none" : "satisfy-prerequisite",
+      automatic: false,
+      requiredInputs: publicationAllowed
+        ? []
+        : ["signature verification capability or authorized policy decision"],
+      commands: [],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      verification,
+      displayText:
+        `Verification for ${transaction.commit.commitOid}: ${effective.status}` +
+        `${effective.reason ? ` (${effective.reason})` : ""}\n`,
+    },
+  });
+}
+
+function parseArguments(argv, command) {
+  const flags = parseCommandArguments(command, argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail("INVALID_FORMAT", "--format must be json or text.");
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    fail("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    format,
+    approvedSubject: flags.get("message") ?? null,
+    acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
+    retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
+    retainProcessLogs: flags.get("retain-process-logs") === true,
+    verificationPolicyOverride: flags.get("verification") ?? null,
   };
 }
-
-function parseFlags(argv, repeatable = new Set()) {
-  const values = new Map();
-  const booleans = new Set(["retain-review-artifacts", "retain-process-logs"]);
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-
-    if (!token?.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-
-    const name = token.slice(2);
-
-    if (values.has(name) && !repeatable.has(name)) {
-      fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-
-    if (booleans.has(name)) {
-      values.set(name, true);
-      continue;
-    }
-
-    const value = argv[index + 1];
-
-    if (value === undefined || value.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-
-    if (repeatable.has(name)) {
-      values.set(name, [...(values.get(name) ?? []), value]);
-    } else {
-      values.set(name, value);
-    }
-    index += 1;
-  }
-
-  return values;
-}
-
-function commandOutput(result, format) {
-  return format === "text"
-    ? (result.displayText ??
-        `Status: ${result.status}\nCode: ${result.code ?? "none"}\n`)
-    : `${JSON.stringify(result)}\n`;
-}
-
 export async function runCreateCommitCommand(
   argv,
   { stdout = process.stdout, stderr = process.stderr } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv, new Set(["acknowledge-failed-check"]));
-    const allowed = new Set([
-      "transaction",
-      "message",
-      "verification",
-      "acknowledge-failed-check",
-      "retain-review-artifacts",
-      "retain-process-logs",
-      "format",
-    ]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail("UNKNOWN_ARGUMENT", `Unknown workflow commit flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-
-    if (!new Set(["json", "text"]).has(format)) {
-      fail("INVALID_FORMAT", "--format must be json or text.");
-    }
-
-    const transactionPath = flags.get("transaction");
-
-    if (!transactionPath) {
-      fail("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-
-    const result = await createCommitWorkflow({
-      transactionPath,
-      approvedSubject: flags.get("message") ?? null,
-      acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
-      retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
-      retainProcessLogs: flags.get("retain-process-logs") === true,
-      verificationPolicyOverride: flags.get("verification") ?? null,
-    });
-
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof CommitWorkflowError
-        ? caught
-        : new CommitWorkflowError("COMMIT_WORKFLOW_FAILED", caught.message);
-    const result = {
-      schemaVersion: 1,
-      status: "invalid",
-      phase: null,
-      terminalDisposition: null,
-      transaction: null,
-      route: null,
-      commitState: "absent",
-      publicationState: "not-requested",
-      publicationAllowed: false,
-      recoveryRequired: false,
-      code: error.code,
-      message: error.message,
-      exitCode: error.exitCode,
-      ...error.details,
-    };
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(commandOutput(result, format));
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments(arguments_, "workflow commit"),
+    execute: (options) =>
+      createCommitWorkflow({ ...options, diagnosticWriter: stderr }),
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }
-
 export async function runRetryVerificationCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv);
-    const allowed = new Set(["transaction", "verification", "format"]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail("UNKNOWN_ARGUMENT", `Unknown workflow verify flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-
-    if (!new Set(["json", "text"]).has(format)) {
-      fail("INVALID_FORMAT", "--format must be json or text.");
-    }
-
-    const transactionPath = flags.get("transaction");
-
-    if (!transactionPath) {
-      fail("TRANSACTION_REQUIRED", "--transaction is required.");
-    }
-
-    const result = retrySignatureVerificationWorkflow({
-      transactionPath,
-      verificationPolicyOverride: flags.get("verification") ?? null,
-    });
-
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof CommitWorkflowError
-        ? caught
-        : new CommitWorkflowError(
-            "VERIFICATION_WORKFLOW_FAILED",
-            caught.message,
-            {
-              exitCode: 3,
-            },
-          );
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      commandOutput(
-        {
-          status: "commit-blocked",
-          code: error.code,
-          message: error.message,
-        },
-        format,
-      ),
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments(arguments_, "workflow verify"),
+    execute: retrySignatureVerificationWorkflow,
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }

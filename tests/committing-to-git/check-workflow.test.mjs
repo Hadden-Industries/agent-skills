@@ -267,7 +267,8 @@ test("workflow check journals a synchronous launcher failure without inventing a
   assert.equal(attempt.childIdentity, null);
   assert.equal(attempt.completion.outcome, "launch-error");
   assert.equal(attempt.completion.launchError.code, "ENOENT");
-  assert.match(diagnostics.join(""), /launcher refused the executable/u);
+  assert.match(diagnostics.join(""), /CHECK_LAUNCH_FAILED/u);
+  assert.doesNotMatch(diagnostics.join(""), /launcher refused the executable/u);
 });
 
 test("workflow check journals an asynchronous executable lookup failure", async (t) => {

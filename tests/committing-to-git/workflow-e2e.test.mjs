@@ -542,11 +542,14 @@ test("semantic finalization aggregates independent structural diagnostics", (t) 
   const result = JSON.parse(finalized.stdout);
 
   assert.equal(result.code, "INVALID_MESSAGE_CONTENT");
-  assert.equal(result.diagnostics.truncated, false);
-  assert.match(result.diagnostics.sha256, /^[0-9a-f]{64}$/u);
-  assert.equal(result.diagnostics.count, result.diagnostics.samples.length);
+  assert.equal(result.details[0].diagnostics.truncated, false);
+  assert.match(result.details[0].diagnostics.sha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    result.details[0].diagnostics.count,
+    result.details[0].diagnostics.samples.length,
+  );
   const diagnosticsByPointer = new Map(
-    result.diagnostics.samples.map((diagnostic) => [
+    result.details[0].diagnostics.samples.map((diagnostic) => [
       diagnostic.pointer,
       diagnostic,
     ]),
@@ -652,12 +655,12 @@ test("structural diagnostics precede presentation-mode binding", (t) => {
 
   assert.equal(structuralResult.code, "INVALID_MESSAGE_CONTENT");
   assert.ok(
-    structuralResult.diagnostics.samples.some(
+    structuralResult.details[0].diagnostics.samples.some(
       (diagnostic) => diagnostic.pointer === "/domains/0/title",
     ),
   );
   assert.ok(
-    structuralResult.diagnostics.samples.some(
+    structuralResult.details[0].diagnostics.samples.some(
       (diagnostic) => diagnostic.pointer === "/domains/0/reasons",
     ),
   );
@@ -1203,7 +1206,7 @@ test("extended finalization converges through one evidence delta", (t) => {
     ["--transaction", transactionPath],
     fixture.repo,
   );
-  assert.equal(first.status, 1, first.stderr);
+  assert.equal(first.status, 5, first.stderr);
   const delta = JSON.parse(first.stdout);
 
   assert.equal(delta.status, "evidence-required");
@@ -1332,7 +1335,7 @@ test("an evidence revision delivers only packets not covered by the prior receip
     fixture.repo,
   );
 
-  assert.equal(firstEvidenceRequest.status, 1, firstEvidenceRequest.stderr);
+  assert.equal(firstEvidenceRequest.status, 5, firstEvidenceRequest.stderr);
   let cursor = null;
   const initiallyReviewed = new Set();
 
@@ -1383,7 +1386,7 @@ test("an evidence revision delivers only packets not covered by the prior receip
     fixture.repo,
   );
 
-  assert.equal(secondEvidenceRequest.status, 1, secondEvidenceRequest.stderr);
+  assert.equal(secondEvidenceRequest.status, 5, secondEvidenceRequest.stderr);
   const evidenceRequired = JSON.parse(secondEvidenceRequest.stdout);
   const pending = readJson(preparation.transaction).review.deliveryPacketIds;
 

@@ -1,3 +1,4 @@
+import { WorkflowDiagnosticError } from "../../src/committing-to-git/diagnostics/workflowDiagnosticError.js";
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
@@ -6,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -272,7 +274,7 @@ test("commit creation blocks both active and resolved-but-unretried check outcom
       transactionPath: prepared.transaction,
       approvedSubject: "test(checks): Block unresolved evidence",
     }),
-    (error) => error.code === "CHECK_RETRY_REQUIRED" && error.exitCode === 1,
+    (error) => error.code === "CHECK_RETRY_REQUIRED" && error.exitCode === 5,
   );
   assert.equal(readTransaction(prepared.transaction).commit, null);
 });
@@ -307,7 +309,7 @@ for (const [failurePoint, recoveryStatus] of [
       (error) =>
         error.code === "PROMOTION_INDEX_INSTALLATION_INTERRUPTED" &&
         error.exitCode === 1 &&
-        error.details.recoveryRequired === true &&
+        error.state.recoveryRequired === true &&
         error.details.recoveryStatus === recoveryStatus,
     );
 
@@ -328,7 +330,7 @@ for (const [failurePoint, recoveryStatus] of [
       ["--transaction", prepared.transaction],
       fixture.repo,
     );
-    assert.equal(observed.status, 1, observed.stderr);
+    assert.equal(observed.status, 5, observed.stderr);
     assert.equal(JSON.parse(observed.stdout).status, "recovery-observed");
     assert.equal(JSON.parse(observed.stdout).recoveryStatus, recoveryStatus);
 
@@ -349,6 +351,48 @@ for (const [failurePoint, recoveryStatus] of [
   });
 }
 
+test("ambiguous promotion reports top-level recovery without overwriting the index", async (t) => {
+  const fixture = createRepositoryFixture(t, "promotion-ambiguous-diagnostic-");
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = await prepareConcise(fixture, { mode: "draft" });
+  assert.throws(
+    () =>
+      promoteDraftWorkflow({
+        transactionPath: prepared.transaction,
+        indexFailureInjector(point) {
+          if (point === "after-pending-journal")
+            throw new Error("Fixture interruption");
+        },
+      }),
+    (error) => error.code === "PROMOTION_INDEX_INSTALLATION_INTERRUPTED",
+  );
+  writeRepositoryFile(fixture.repo, "other.txt", "third index\n");
+  git(["add", "other.txt"], fixture.repo);
+  const before = git(["write-tree"], fixture.repo).stdout;
+  const { runPromoteDraftCommand } =
+    await import("../../src/committing-to-git/workflow/promoteDraftWorkflow.js");
+  let output = "";
+  const exit = await runPromoteDraftCommand(
+    ["--transaction", prepared.transaction],
+    {
+      stdout: {
+        write(value) {
+          output += value;
+        },
+      },
+      stderr: { write() {} },
+    },
+  );
+  const result = JSON.parse(output);
+  assert.equal(exit, 1, output);
+  assert.equal(result.code, "PROMOTION_INDEX_STATE_AMBIGUOUS");
+  assert.equal(result.recoveryRequired, true);
+  assert.equal(result.commitState, "absent");
+  assert.equal(git(["write-tree"], fixture.repo).stdout, before);
+});
+
 test("required SSH trust preflight stops before transaction allocation", async (t) => {
   const fixture = createRepositoryFixture(t, "commit-preflight-required-");
   const missingTrustStore = join(fixture.scratch, "missing-allowed-signers");
@@ -363,7 +407,7 @@ test("required SSH trust preflight stops before transaction allocation", async (
   await assert.rejects(
     prepareConcise(fixture, { verification: "required" }),
     (error) =>
-      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 1,
+      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 5,
   );
   assert.deepEqual(readdirSync(fixture.scratch), []);
 });
@@ -439,7 +483,7 @@ test("a required commit-policy override preflights trust before message or Git m
       },
     }),
     (error) =>
-      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 1,
+      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED" && error.exitCode === 5,
   );
 
   const transaction = readTransaction(prepared.transaction);
@@ -625,7 +669,7 @@ test("direct input is rejected before mutation when checked transport is require
     fixture.repo,
   ).stdout.trim();
   const prepared = await prepareConcise(fixture);
-  const { createCommitWorkflow, CommitWorkflowError } =
+  const { createCommitWorkflow } =
     await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
 
   await assert.rejects(
@@ -634,7 +678,7 @@ test("direct input is rejected before mutation when checked transport is require
       approvedSubject: "feat(core): Add Unicode recovery é",
     }),
     (error) =>
-      error instanceof CommitWorkflowError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "MESSAGE_REQUIRES_CHECKED_FILE" &&
       error.exitCode === 2,
   );
@@ -672,8 +716,8 @@ test("checked multiline nonportable bytes commit exactly and reject a later dire
     transactionPath: prepared.transaction,
   });
 
-  assert.equal(checked.exitCode, undefined);
-  const { createCommitWorkflow, CommitWorkflowError } =
+  assert.equal(checked.exitCode, 0);
+  const { createCommitWorkflow } =
     await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
 
   await assert.rejects(
@@ -682,7 +726,7 @@ test("checked multiline nonportable bytes commit exactly and reject a later dire
       approvedSubject: "feat(core): Replace approved bytes",
     }),
     (error) =>
-      error instanceof CommitWorkflowError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "MESSAGE_ALREADY_RECORDED",
   );
   const result = await createCommitWorkflow({
@@ -908,7 +952,7 @@ test("commit requires exact authorization for every witnessed non-passing receip
 
   writeRepositoryFile(fixture.repo, "feature.txt", "checked\n");
   const prepared = await prepareConcise(fixture);
-  const { CommitWorkflowError, createCommitWorkflow } =
+  const { createCommitWorkflow } =
     await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
   const witnessed = await runCheckWorkflow({
     transactionPath: prepared.transaction,
@@ -926,15 +970,43 @@ test("commit requires exact authorization for every witnessed non-passing receip
     .checkAttempts[0].output.stderr.headPath;
 
   assert.equal(witnessed.receipt.receiptId, "C000001");
+  const { runCreateCommitCommand } =
+    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+  let publicOutput = "";
+  const commandExit = await runCreateCommitCommand(
+    [
+      "--transaction",
+      prepared.transaction,
+      "--message",
+      "test(core): Authorize failed witnessed check",
+    ],
+    {
+      stdout: {
+        write(value) {
+          publicOutput += value;
+        },
+      },
+      stderr: { write() {} },
+    },
+  );
+  const rejection = JSON.parse(publicOutput);
+  assert.equal(commandExit, 5);
+  assert.equal(rejection.schemaVersion, 2);
+  assert.equal(rejection.recovery.kind, "human-decision");
+  assert.deepEqual(rejection.recovery.commands, []);
+  assert.deepEqual(rejection.details[0].receiptIds, ["C000001"]);
   await assert.rejects(
     createCommitWorkflow({
       transactionPath: prepared.transaction,
       approvedSubject: "test(core): Authorize failed witnessed check",
     }),
     (error) =>
-      error instanceof CommitWorkflowError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED" &&
-      error.details.receiptIds[0] === "C000001",
+      error.details.receiptIds[0] === "C000001" &&
+      error.disposition === "unmet-prerequisite" &&
+      error.recovery.kind === "human-decision" &&
+      error.recovery.commands.length === 0,
   );
   assert.equal(existsSync(retainedOutputPath), true);
   await assert.rejects(
@@ -944,7 +1016,7 @@ test("commit requires exact authorization for every witnessed non-passing receip
       acknowledgedFailedCheckIds: ["C000002"],
     }),
     (error) =>
-      error instanceof CommitWorkflowError &&
+      error instanceof WorkflowDiagnosticError &&
       error.code === "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
   );
 
@@ -1223,11 +1295,11 @@ test("terminal compaction retries Windows-style lock failures and is idempotent"
 
   if (process.platform === "win32") {
     assert.equal(attempts, 3);
-    assert.equal(first.failed.length, 0);
+    assert.equal(first.warnings.length, 0);
     assert.equal(existsSync(leftover), false);
   } else {
     assert.equal(attempts, 1);
-    assert.equal(first.failed.length, 1);
+    assert.equal(first.warnings.length, 1);
     rmSync(leftover);
   }
 
@@ -1236,7 +1308,7 @@ test("terminal compaction retries Windows-style lock failures and is idempotent"
   });
 
   assert.deepEqual(second.completed, []);
-  assert.deepEqual(second.failed, []);
+  assert.deepEqual(second.warnings, []);
 });
 
 test("launcher failures distinguish proven non-launch from asynchronous unknown outcome", async (t) => {
@@ -1441,7 +1513,7 @@ for (const boundary of [
 
     if (boundary === "after-report-writing-before-compaction") {
       assert.equal(result.exitCode, 0);
-      assert.equal(result.cleanup.status, "warning");
+      assert.equal(result.cleanup.severity, "warning");
     } else {
       assert.equal(result.exitCode, 3);
       const recovered = await recoverTransactionWorkflow({
@@ -1454,3 +1526,102 @@ for (const boundary of [
     assert.equal(launches, 1);
   });
 }
+
+test("known commit survives an unreadable journal without becoming outcome-unknown", async (t) => {
+  const fixture = createRepositoryFixture(
+    t,
+    "known-commit-unreadable-journal-",
+  );
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  if (!configureSshSigning(t, fixture)) return;
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = await prepareConcise(fixture);
+  const { createCommitWorkflow } =
+    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+  let launches = 0;
+  const result = await createCommitWorkflow({
+    transactionPath: prepared.transaction,
+    approvedSubject: "test(core): Preserve known commit identity",
+    processLauncher(command, args, options) {
+      launches += 1;
+      return spawn(command, args, options);
+    },
+    failureInjector(point) {
+      if (point === "after-oid-before-verification") {
+        renameSync(prepared.transaction, `${prepared.transaction}.retained`);
+        throw new Error(
+          "Fixture journal becomes unavailable after witnessed OID",
+        );
+      }
+    },
+  });
+  assert.equal(result.exitCode, 3);
+  assert.equal(result.commitState, "created");
+  assert.equal(
+    result.commitOid,
+    git(["rev-parse", "HEAD"], fixture.repo).stdout.trim(),
+  );
+  assert.equal(result.recoveryRequired, true);
+  assert.equal(launches, 1);
+});
+
+test("many failed receipts retain bounded approval diagnostics without mutation", async (t) => {
+  const fixture = createRepositoryFixture(t, "many-failed-receipts-");
+  writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");
+  commitAll(fixture.repo);
+  writeRepositoryFile(fixture.repo, "feature.txt", "feature\n");
+  const prepared = await prepareConcise(fixture);
+  for (let index = 0; index < 33; index += 1) {
+    await runCheckWorkflow({
+      transactionPath: prepared.transaction,
+      label: `Failed check ${index + 1}`,
+      command: {
+        executable: process.execPath,
+        arguments: ["-e", "process.exit(7)"],
+      },
+      diagnosticWriter: { write() {} },
+    });
+  }
+  const { runCreateCommitCommand } =
+    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+  const before = git(["rev-parse", "HEAD"], fixture.repo).stdout;
+  const approvedIds = [];
+  for (const expectedCount of [33, 1]) {
+    let output = "";
+    const exit = await runCreateCommitCommand(
+      [
+        "--transaction",
+        prepared.transaction,
+        "--message",
+        "test(core): Review failed receipts",
+        ...approvedIds.flatMap((id) => ["--acknowledge-failed-check", id]),
+      ],
+      {
+        stdout: {
+          write(value) {
+            output += value;
+          },
+        },
+        stderr: { write() {} },
+      },
+    );
+    const result = JSON.parse(output);
+    assert.equal(exit, 5, output);
+    assert.equal(result.code, "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED");
+    assert.equal(result.details[0].missingReceiptCount, expectedCount);
+    assert.equal(
+      result.details[0].receiptIds.length,
+      Math.min(expectedCount, 32),
+    );
+    assert.equal(
+      result.details[0].omittedReceiptCount,
+      Math.max(0, expectedCount - 32),
+    );
+    assert.equal(result.recovery.requiredInputs.length, 2);
+    assert.deepEqual(result.recovery.commands, []);
+    approvedIds.push(...result.details[0].receiptIds);
+    assert.equal(readTransaction(prepared.transaction).commit, null);
+    assert.equal(git(["rev-parse", "HEAD"], fixture.repo).stdout, before);
+  }
+});

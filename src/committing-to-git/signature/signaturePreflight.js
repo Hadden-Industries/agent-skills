@@ -1,3 +1,4 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { spawnSync } from "node:child_process";
 import { closeSync, fstatSync, openSync } from "node:fs";
 
@@ -95,7 +96,10 @@ function normalizeTrustSourceProbe(result) {
   return { state: result.state, errorCode: result.errorCode };
 }
 
-export function describeSshTrustSourceFailure(trustSource) {
+export function signatureTrustDiagnostic(
+  trustSource,
+  { verificationPolicy, state = {} },
+) {
   if (
     trustSource === null ||
     typeof trustSource !== "object" ||
@@ -135,15 +139,31 @@ export function describeSshTrustSourceFailure(trustSource) {
       "Required SSH verification could not inspect Git's configured allowed-signers file.",
   };
 
-  return {
-    message:
-      messageByState[trustSource.state] ??
+  return new WorkflowDiagnosticError(
+    "SIGNATURE_TRUST_ACCESS_REQUIRED",
+    messageByState[trustSource.state] ??
       "Required SSH verification cannot use Git's configured allowed-signers file.",
-    action,
-    capability,
-    trustSource,
-    policyAlternatives: ["advisory", "skipped"],
-  };
+    {
+      disposition: "unmet-prerequisite",
+      state,
+      recovery: {
+        kind: "human-decision",
+        automatic: false,
+        requiredInputs: [
+          "readable configured verification trust source or an explicitly approved verification-policy change",
+        ],
+        commands: [],
+      },
+      documentation: "references/signature-recovery.md",
+      details: {
+        action,
+        ...(capability === null ? {} : { capability }),
+        trustSource,
+        verificationPolicy,
+        policyAlternatives: ["advisory", "skipped"],
+      },
+    },
+  );
 }
 
 export function inspectSignatureRequirements(

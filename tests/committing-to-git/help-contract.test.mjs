@@ -2,65 +2,21 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import {
+  COMMAND_ARGUMENTS,
+  commandOptions,
+} from "../../src/committing-to-git/cli/commandArguments.js";
 
 const cli = fileURLToPath(
   new URL("../../src/committing-to-git/cli/commitWorkflow.js", import.meta.url),
 );
 
-const optionsByCommand = {
-  "workflow prepare": [
-    "mode",
-    "scope",
-    "evidence",
-    "basis",
-    "evidence-plan",
-    "scope-file",
-    "path",
-    "path-prefix",
-    "exclude-path",
-    "exclude-path-prefix",
-    "allowed-type",
-    "verification",
-  ],
-  "workflow resume": ["transaction"],
-  "workflow extend": ["transaction", "reason"],
-  "workflow review-next": ["transaction", "cursor"],
-  "workflow promote": ["transaction"],
-  "message check": ["transaction"],
-  "message finalize": ["transaction"],
-  "workflow check": [
-    "transaction",
-    "label",
-    "working-directory",
-    "timeout-ms",
-    "retry-after-attempt",
-  ],
-  "workflow check-detail": [
-    "transaction",
-    "receipt",
-    "stream",
-    "segment",
-    "offset",
-  ],
-  "workflow commit": [
-    "transaction",
-    "message",
-    "verification",
-    "acknowledge-failed-check",
-    "retain-review-artifacts",
-    "retain-process-logs",
-  ],
-  "workflow verify": ["transaction", "verification"],
-  "workflow report-detail": ["transaction", "cursor", "refresh"],
-  "workflow publish": [
-    "transaction",
-    "remote",
-    "destination",
-    "retry-after-attempt",
-  ],
-  "workflow recover": ["transaction", "resolution"],
-  "workflow cleanup": ["transaction", "purge"],
-};
+const optionsByCommand = Object.fromEntries(
+  Object.keys(COMMAND_ARGUMENTS).map((command) => [
+    command,
+    Object.keys(commandOptions(command)),
+  ]),
+);
 
 for (const [command, options] of Object.entries(optionsByCommand)) {
   test(`${command} help describes every accepted option without a transaction`, () => {
@@ -76,7 +32,7 @@ for (const [command, options] of Object.entries(optionsByCommand)) {
       descriptions,
       "Help must include option descriptions, not only a synopsis",
     );
-    for (const option of [...options, "format", "help"]) {
+    for (const option of [...options, "help"]) {
       assert.match(
         descriptions,
         new RegExp(`^  --${option}(?:[ ,<]|$)`, "m"),

@@ -1,3 +1,12 @@
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import {
+  observeTransactionFailure,
+  transactionDiagnosticState,
+} from "../transaction/transactionDiagnosticState.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -39,18 +48,8 @@ const REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
 const MAXIMUM_REMOTE_OBSERVATION_BYTES = 64 * 1024;
 const MAXIMUM_PUSH_CLASSIFICATION_BYTES = 64 * 1024;
 
-export class PublishWorkflowError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "PublishWorkflowError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new PublishWorkflowError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -158,7 +157,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
     fail(
       "PUBLICATION_ATTEMPT_STALE",
       "Only the latest publication attempt may acquire new journal facts.",
-      { exitCode: 4 },
+      { disposition: "outcome-unknown" },
     );
   }
 
@@ -240,7 +239,15 @@ function assertPublicationAllowed(transaction) {
     fail(
       "PUBLICATION_BLOCKED",
       "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
-      { exitCode: 3 },
+      {
+        disposition: transaction.commit?.commitOid
+          ? "completed-with-failure"
+          : "unmet-prerequisite",
+        state: transactionDiagnosticState(
+          transaction,
+          resolve(transaction.attemptDirectory, "transaction.json"),
+        ),
+      },
     );
   }
 }
@@ -253,8 +260,8 @@ function readPersistedReport(transaction) {
   } catch (error) {
     fail(
       "REPORT_ARTIFACT_MISMATCH",
-      `The persisted report cannot be inspected: ${error.message}`,
-      { exitCode: 3 },
+      "The persisted report cannot be inspected.",
+      { disposition: "unmet-prerequisite", cause: error },
     );
   }
 
@@ -262,7 +269,7 @@ function readPersistedReport(transaction) {
     fail(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report path was replaced or is not regular.",
-      { exitCode: 3 },
+      { disposition: "unmet-prerequisite" },
     );
   }
 
@@ -272,7 +279,7 @@ function readPersistedReport(transaction) {
     fail(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report no longer matches its transaction digest.",
-      { exitCode: 3 },
+      { disposition: "unmet-prerequisite" },
     );
   }
 
@@ -325,49 +332,69 @@ function publicationArtifact(attempt, status = attempt.status) {
 }
 
 function resultModel(transactionPath, transaction, publication, report, text) {
-  const publicationState =
-    publication.status === "succeeded"
+  const publicationState = ["succeeded", "observed-matching"].includes(
+    publication.status,
+  )
+    ? "published"
+    : publication.status === "rejected"
+      ? "rejected"
+      : publication.status === "blocked"
+        ? "blocked"
+        : "unknown";
+  const disposition =
+    publicationState === "published"
       ? "succeeded"
-      : publication.status === "observed-matching"
-        ? "observed-matching"
-        : publication.status === "rejected"
+      : publicationState === "unknown"
+        ? "outcome-unknown"
+        : publicationState === "rejected"
           ? "rejected"
-          : publication.status === "blocked"
-            ? "blocked"
-            : "unknown";
-  const exitCode =
-    publicationState === "succeeded" || publicationState === "observed-matching"
-      ? 0
-      : publicationState === "rejected"
-        ? 1
-        : publicationState === "blocked"
-          ? 3
-          : 4;
+          : "completed-with-failure";
 
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition,
     status:
-      exitCode === 0
-        ? "published"
-        : exitCode === 1
-          ? "rejected"
-          : exitCode === 3
-            ? "commit-blocked"
-            : "outcome-unknown",
+      publicationState === "unknown" ? "outcome-unknown" : publicationState,
+    code:
+      disposition === "succeeded"
+        ? null
+        : publicationState === "unknown"
+          ? "PUBLICATION_OUTCOME_UNKNOWN"
+          : publicationState === "blocked"
+            ? "PUBLICATION_BLOCKED"
+            : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transactionPath),
     route: transaction.route,
     commitState: "created",
-    commitOid: transaction.commit.commitOid,
     publicationState,
     publicationAllowed: transaction.report.publicationAllowed,
-    recoveryRequired: exitCode === 4,
-    publication,
-    report,
-    displayText: text,
-    exitCode,
-  };
+    recoveryRequired: publicationState === "unknown",
+    recovery: {
+      kind: disposition === "succeeded" ? "none" : "inspect-state",
+      automatic: false,
+      requiredInputs: [],
+      commands:
+        publicationState === "unknown"
+          ? [
+              {
+                arguments: [
+                  "workflow",
+                  "recover",
+                  "--transaction",
+                  resolve(transactionPath),
+                ],
+              },
+            ]
+          : [],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      commitOid: transaction.commit.commitOid,
+      publication,
+      report,
+      displayText: text,
+    },
+  });
 }
 
 function boundedAugmentedModel(transactionPath, transaction, publication) {
@@ -401,7 +428,13 @@ function boundedAugmentedModel(transactionPath, transaction, publication) {
     fail(
       "PUBLICATION_RESULT_BUDGET_EXCEEDED",
       "Publication result exceeds the serialized report budget.",
-      { exitCode: publication.status === "unknown" ? 4 : 3 },
+      {
+        disposition:
+          publication.status === "unknown"
+            ? "outcome-unknown"
+            : "completed-with-failure",
+        state: transactionDiagnosticState(transaction, transactionPath),
+      },
     );
   }
 
@@ -579,7 +612,7 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
     fail(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The retry token does not bind the latest resolved unknown publication attempt.",
-      { exitCode: 4 },
+      { disposition: "outcome-unknown" },
     );
   }
 
@@ -591,8 +624,8 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
   } catch (error) {
     fail(
       "PUBLICATION_RETRY_NOT_PERMITTED",
-      `The resolved publication child state no longer permits retry: ${error.message}`,
-      { exitCode: 4 },
+      "The resolved publication child state no longer permits retry. Inspect its liveness before continuing.",
+      { disposition: "outcome-unknown", cause: error },
     );
   }
 
@@ -619,23 +652,32 @@ export async function publishWorkflow({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 1 });
+      fail(
+        "PUBLICATION_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        {
+          cause: error,
+          disposition: "rejected",
+        },
+      );
     }
 
     throw error;
   }
 
   let journaledAttemptId = null;
+  let transaction = null;
+  let witnessedOutcome = null;
 
   try {
-    let transaction = readTransaction(transactionPath);
+    transaction = readTransaction(transactionPath);
 
     if (transaction.phase === "published") {
       if (retryAfterAttempt !== null) {
         fail(
           "PUBLICATION_RETRY_NOT_PERMITTED",
           "A historical retry token cannot be reused after publication completed.",
-          { exitCode: 4 },
+          { disposition: "outcome-unknown" },
         );
       }
 
@@ -665,7 +707,7 @@ export async function publishWorkflow({
       fail(
         "PUBLICATION_RECOVERY_REQUIRED",
         "A pending publication must be recovered and explicitly resolved before retry.",
-        { exitCode: 4 },
+        { disposition: "outcome-unknown" },
       );
     }
 
@@ -771,6 +813,7 @@ export async function publishWorkflow({
     }
 
     const pushOutcome = classifyPushCompletion(transcript, destination);
+    witnessedOutcome = pushOutcome;
 
     updateAttempt(transactionPath, attempt.attemptId, (current) => ({
       ...current,
@@ -802,52 +845,92 @@ export async function publishWorkflow({
             "push-transport-outcome-unknown",
           );
   } catch (error) {
-    if (journaledAttemptId === null || error instanceof PublishWorkflowError) {
+    if (journaledAttemptId === null) {
       throw error;
     }
 
-    const transaction = readTransaction(transactionPath);
-    const attempt = latestAttempt(transaction);
+    try {
+      transaction = readTransaction(transactionPath);
+      const attempt = latestAttempt(transaction);
 
-    if (attempt?.attemptId !== journaledAttemptId) {
-      throw error;
-    }
-
-    if (attempt.launchState === "not-started") {
-      return finalizeAttempt(
-        transactionPath,
-        attempt.attemptId,
-        "rejected",
-        "not-launched",
-      );
-    }
-
-    if (attempt.launchState === "completed") {
-      if (attempt.completion?.outcome === "witnessed-success") {
-        return finalizeAttempt(transactionPath, attempt.attemptId, "succeeded");
+      if (attempt?.attemptId !== journaledAttemptId) {
+        throw error;
       }
 
-      if (
-        new Set(["known-rejection", "not-launched"]).has(
-          attempt.completion?.outcome,
-        )
-      ) {
+      if (attempt.launchState === "not-started") {
         return finalizeAttempt(
           transactionPath,
           attempt.attemptId,
           "rejected",
-          attempt.completion.outcome === "not-launched"
-            ? "not-launched"
-            : "git-push-rejected",
+          "not-launched",
         );
       }
-    }
 
-    return persistUnknownAttempt(
-      transactionPath,
-      attempt.attemptId,
-      error.message,
-    );
+      if (attempt.launchState === "completed") {
+        if (attempt.completion?.outcome === "witnessed-success") {
+          return finalizeAttempt(
+            transactionPath,
+            attempt.attemptId,
+            "succeeded",
+          );
+        }
+
+        if (
+          new Set(["known-rejection", "not-launched"]).has(
+            attempt.completion?.outcome,
+          )
+        ) {
+          return finalizeAttempt(
+            transactionPath,
+            attempt.attemptId,
+            "rejected",
+            attempt.completion.outcome === "not-launched"
+              ? "not-launched"
+              : "git-push-rejected",
+          );
+        }
+      }
+
+      return persistUnknownAttempt(
+        transactionPath,
+        attempt.attemptId,
+        "publication-result-unavailable",
+      );
+    } catch {
+      const publicationState =
+        witnessedOutcome === "witnessed-success"
+          ? "published"
+          : witnessedOutcome === "known-rejection"
+            ? "rejected"
+            : "unknown";
+      return createWorkflowResult({
+        disposition:
+          publicationState === "unknown"
+            ? "outcome-unknown"
+            : "completed-with-failure",
+        status: "publication-report-incomplete",
+        code: "PUBLICATION_RESULT_UNAVAILABLE",
+        message:
+          "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
+        transaction: resolve(transactionPath),
+        phase: "publication-pending",
+        route: transaction.route,
+        commitState: "created",
+        publicationState,
+        recoveryRequired: true,
+        recovery: {
+          kind: "inspect-state",
+          automatic: false,
+          requiredInputs: ["retained transaction and publication evidence"],
+          commands: [],
+        },
+        data: {
+          commitOid: transaction.commit.commitOid,
+          attemptId: journaledAttemptId,
+          witnessedOutcome,
+        },
+      });
+    }
   } finally {
     releaseTransactionStateLock(lock);
   }
@@ -982,7 +1065,7 @@ export async function recoverPublicationOutcome({
     fail(
       "PUBLICATION_RESOLUTION_INVALID",
       "Publication recovery accepts only confirmed-no-live-child.",
-      { exitCode: 4 },
+      { disposition: "outcome-unknown" },
     );
   }
 
@@ -995,7 +1078,14 @@ export async function recoverPublicationOutcome({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail("PUBLICATION_STATE_CONFLICT", error.message, { exitCode: 4 });
+      fail(
+        "PUBLICATION_STATE_CONFLICT",
+        "Another operation owns the transaction-state lock.",
+        {
+          cause: error,
+          disposition: "outcome-unknown",
+        },
+      );
     }
 
     throw error;
@@ -1008,7 +1098,7 @@ export async function recoverPublicationOutcome({
       fail(
         "PUBLICATION_RECOVERY_NOT_REQUIRED",
         "Publication recovery requires the pending publication phase.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
 
@@ -1062,10 +1152,10 @@ export async function recoverPublicationOutcome({
           attempt.remote,
           attempt.destination,
         );
-      } catch (error) {
+      } catch {
         observation = interruptedObservation(
           attempt.observation,
-          `remote-query-failed:${error.message}`,
+          "remote-query-failed",
         );
       }
 
@@ -1115,8 +1205,8 @@ export async function recoverPublicationOutcome({
       } catch (error) {
         fail(
           "PUBLICATION_RESOLUTION_CONTRADICTED",
-          `No-live-child confirmation is contradicted: ${error.message}`,
-          { exitCode: 4 },
+          "The child may still be live; the no-live-child confirmation cannot resolve this attempt.",
+          { disposition: "outcome-unknown", cause: error },
         );
       }
       transaction = updateAttempt(
@@ -1145,101 +1235,31 @@ export async function recoverPublicationOutcome({
   }
 }
 
-function parseFlags(argv) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-
-    if (!token?.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-
-    const name = token.slice(2);
-    const value = argv[index + 1];
-
-    if (values.has(name)) {
-      fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-
-    if (value === undefined || value.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-
-    values.set(name, value);
-    index += 1;
+function parseArguments(argv) {
+  const flags = parseCommandArguments("workflow publish", argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail("INVALID_FORMAT", "--format must be json or text.");
+  for (const required of ["transaction", "remote", "destination"]) {
+    if (!flags.get(required))
+      fail("INVALID_ARGUMENT", `--${required} is required.`);
   }
-
-  return values;
+  return {
+    transactionPath: flags.get("transaction"),
+    remote: flags.get("remote"),
+    destination: flags.get("destination"),
+    retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
+    format,
+  };
 }
-
-function commandOutput(result, format) {
-  return format === "text" ? result.displayText : `${JSON.stringify(result)}\n`;
-}
-
 export async function runPublishCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-
-  try {
-    const flags = parseFlags(argv);
-    const allowed = new Set([
-      "transaction",
-      "remote",
-      "destination",
-      "retry-after-attempt",
-      "format",
-    ]);
-
-    for (const name of flags.keys()) {
-      if (!allowed.has(name)) {
-        fail("UNKNOWN_ARGUMENT", `Unknown workflow publish flag --${name}.`);
-      }
-    }
-
-    format = flags.get("format") ?? "json";
-
-    if (!new Set(["json", "text"]).has(format)) {
-      fail("INVALID_FORMAT", "--format must be json or text.");
-    }
-
-    for (const required of ["transaction", "remote", "destination"]) {
-      if (!flags.get(required)) {
-        fail("INVALID_ARGUMENT", `--${required} is required.`);
-      }
-    }
-
-    const result = await publishWorkflow({
-      transactionPath: flags.get("transaction"),
-      remote: flags.get("remote"),
-      destination: flags.get("destination"),
-      retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
-    });
-
-    stdout.write(commandOutput(result, format));
-    return result.exitCode;
-  } catch (caught) {
-    const error =
-      caught instanceof PublishWorkflowError
-        ? caught
-        : new PublishWorkflowError(
-            "PUBLICATION_WORKFLOW_FAILED",
-            caught.message,
-          );
-    const result = {
-      schemaVersion: 1,
-      status: error.exitCode === 4 ? "outcome-unknown" : "invalid",
-      code: error.code,
-      message: error.message,
-      displayText: `Status: ${error.exitCode === 4 ? "outcome-unknown" : "invalid"}\nCode: ${error.code}\nMessage: ${error.message}\n`,
-      exitCode: error.exitCode,
-      ...error.details,
-    };
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(commandOutput(result, format));
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    parse: parseArguments,
+    execute: publishWorkflow,
+    failureState: observeTransactionFailure,
+    stdout,
+  });
 }

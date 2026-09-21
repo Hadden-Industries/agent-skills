@@ -402,7 +402,7 @@ test("preparation resume consumes only the persisted snapshot and policy", async
   assert.equal(interruption.details.recoveryStatus, "matching-index-observed");
 
   const result = await resumePreparationWorkflow({
-    transactionPath: interruption.details.transaction,
+    transactionPath: interruption.state.transaction,
   });
 
   assert.equal(result.status, "prepared");
@@ -412,7 +412,7 @@ test("preparation resume consumes only the persisted snapshot and policy", async
   assert.equal(result.recoveryRequired, false);
   assert.equal(result.changeUnitCount, 1);
   assert.equal(
-    readJson(interruption.details.transaction).phase,
+    readJson(interruption.state.transaction).phase,
     "evidence-ready",
   );
 });

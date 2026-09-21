@@ -1,3 +1,12 @@
+import {
+  observeTransactionFailure,
+  transactionDiagnosticState,
+} from "../transaction/transactionDiagnosticState.js";
+import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
+import { executeCommand } from "../cli/commandExecution.js";
+import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { parseCommandArguments } from "../cli/commandArguments.js";
+
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -36,7 +45,6 @@ import {
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
 import {
-  PreparationError,
   manifestEnvironment,
   preflightVerificationPolicy,
 } from "./prepareWorkflow.js";
@@ -50,18 +58,8 @@ const PROMOTABLE_STATES = new Set([
   JSON.stringify(["message-ready", "message-ready"]),
 ]);
 
-export class PromotionError extends Error {
-  constructor(code, message, { exitCode = 2, details = {} } = {}) {
-    super(message);
-    this.name = "PromotionError";
-    this.code = code;
-    this.exitCode = exitCode;
-    this.details = details;
-  }
-}
-
 function fail(code, message, options) {
-  throw new PromotionError(code, message, options);
+  throw new WorkflowDiagnosticError(code, message, options);
 }
 
 function sha256(bytes) {
@@ -113,7 +111,8 @@ function readDraftManifest(transactionPath, transaction) {
   } catch (error) {
     fail(
       "SNAPSHOT_ARTIFACT_INVALID",
-      `The draft snapshot is not canonical UTF-8 JSON: ${error.message}`,
+      "The draft snapshot is not canonical UTF-8 JSON.",
+      { cause: error },
     );
   }
 
@@ -183,10 +182,9 @@ function recordedPaths(transaction) {
       return bytes;
     });
   } catch (error) {
-    fail(
-      "DRAFT_SCOPE_INVALID",
-      `The recorded literal path scope is invalid: ${error.message}`,
-    );
+    fail("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
+      cause: error,
+    });
   }
 }
 
@@ -224,7 +222,7 @@ function assertDraftArtifacts(transaction, manifest) {
     fail(
       "DRAFT_SNAPSHOT_DRIFT",
       "The attempt-local draft index or object tree no longer matches the reviewed snapshot.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 }
@@ -267,7 +265,8 @@ function assertReviewedState(transactionPath, transaction) {
     } catch (error) {
       fail(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
-        `The extended review catalog cannot be reused: ${error.message}`,
+        "The extended review catalog cannot be reused.",
+        { cause: error },
       );
     }
 
@@ -298,7 +297,8 @@ function assertReviewedState(transactionPath, transaction) {
     } catch (error) {
       fail(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
-        `The canonical message cannot be reused: ${error.message}`,
+        "The canonical message cannot be reused.",
+        { cause: error },
       );
     }
 
@@ -320,7 +320,7 @@ function assertRepositoryPreconditions(transaction, manifest) {
       "PROMOTION_HEAD_DRIFT",
       "HEAD no longer matches the complete draft anchor.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedHeadAnchor: transaction.headAnchor,
           actualHeadAnchor: currentHeadAnchor,
@@ -335,7 +335,7 @@ function assertRepositoryPreconditions(transaction, manifest) {
     fail(
       "PROMOTION_UNRESOLVED_CONFLICTS",
       "Draft promotion is blocked while unresolved conflicts remain.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -345,7 +345,7 @@ function assertRepositoryPreconditions(transaction, manifest) {
     fail(
       "PROMOTION_ACTIVE_GIT_OPERATION",
       `Draft promotion is blocked during an active ${operations.join(", ")} operation.`,
-      { exitCode: 1, details: { activeOperations: operations } },
+      { disposition: "rejected", details: { activeOperations: operations } },
     );
   }
 
@@ -370,7 +370,7 @@ function assertRepositoryPreconditions(transaction, manifest) {
       "PROMOTION_BLOCKED_STAGED_STATE",
       "Path draft promotion requires the unrelated real staged state to be absent.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           promotionBlocker: transaction.scope.promotionBlocker ?? null,
         },
@@ -386,7 +386,7 @@ function assertRepositoryPreconditions(transaction, manifest) {
       "PROMOTION_STAGED_SOURCE_DRIFT",
       "The real staged index no longer has the draft's recorded source digest.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedSourceIndexIdentity: manifest.sourceIndexIdentity,
           actualSourceIndexIdentity: stagedSourceIdentity,
@@ -462,7 +462,7 @@ function finalizePromotion({
     fail(
       "PROMOTION_INSTALLATION_DRIFT",
       "The installed real index does not match the draft tree and head anchor.",
-      { exitCode: 1, details: { recoveryRequired: true } },
+      { disposition: "rejected", state: { recoveryRequired: true } },
     );
   }
 
@@ -485,31 +485,33 @@ function finalizePromotion({
 }
 
 function successEnvelope(transaction) {
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "succeeded",
     status: "promoted",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: resolve(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: false,
-    mode: transaction.mode,
-    headAnchor: transaction.headAnchor,
-    indexTreeOid: transaction.snapshot.indexTreeOid,
-    changeUnitCount: transaction.snapshot.changeUnitCount,
-    ...(transaction.route === "concise"
-      ? { capsule: transaction.inlineEvidence.capsule }
-      : {
-          reviewCatalogSha256: transaction.review?.catalogSha256 ?? null,
-          messageSha256: transaction.message?.sha256 ?? null,
-          ...(transaction.phase === "authoring-pending"
-            ? authoringProgress(transaction)
-            : {}),
-        }),
-  };
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      mode: transaction.mode,
+      headAnchor: transaction.headAnchor,
+      indexTreeOid: transaction.snapshot.indexTreeOid,
+      changeUnitCount: transaction.snapshot.changeUnitCount,
+      ...(transaction.route === "concise"
+        ? { capsule: transaction.inlineEvidence.capsule }
+        : {
+            reviewCatalogSha256: transaction.review?.catalogSha256 ?? null,
+            messageSha256: transaction.message?.sha256 ?? null,
+            ...(transaction.phase === "authoring-pending"
+              ? authoringProgress(transaction)
+              : {}),
+          }),
+    },
+  });
 }
 
 function assertPromotableTransaction(transaction) {
@@ -522,7 +524,7 @@ function assertPromotableTransaction(transaction) {
     fail(
       "PROMOTION_STATE_INVALID",
       "Only an active evidence-ready, authoring-pending, or message-ready draft can be promoted.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 }
@@ -553,7 +555,7 @@ export function recoverDraftPromotion({ transactionPath }) {
     fail(
       "PROMOTION_RECOVERY_NOT_REQUIRED",
       "The draft transaction has no journaled promotion to recover.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -567,22 +569,32 @@ export function recoverDraftPromotion({ transactionPath }) {
     recovery,
   });
 
-  return {
-    schemaVersion: 1,
+  return createWorkflowResult({
+    disposition: "unmet-prerequisite",
+    code: "PROMOTION_RECOVERY_OBSERVED",
+    message:
+      "Inspect the recorded index recovery observation before resuming promotion.",
     status: "recovery-observed",
     phase: transaction.phase,
-    terminalDisposition: transaction.terminalDisposition,
     transaction: canonicalTransactionPath,
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
     recoveryRequired: recovery.status === "ambiguous",
-    recoveryStatus: recovery.status,
-    resumeAllowed: recovery.resumeAllowed,
-    retryAllowed: recovery.resumeAllowed,
-    exitCode: 1,
-  };
+    recovery: {
+      kind: "inspect-state",
+      automatic: false,
+      requiredInputs: ["confirmation of the recorded index state"],
+      commands: [],
+    },
+    data: {
+      terminalDisposition: transaction.terminalDisposition,
+      recoveryStatus: recovery.status,
+      resumeAllowed: recovery.resumeAllowed,
+      retryAllowed: recovery.resumeAllowed,
+    },
+  });
 }
 
 function continuePreparedPromotion({
@@ -612,7 +624,7 @@ function continuePreparedPromotion({
     fail(
       "PROMOTION_PREPARED_STATE_DRIFT",
       "The prepared promotion index no longer matches its recorded identity and tree.",
-      { exitCode: 1, details: { recoveryRequired: true } },
+      { disposition: "rejected", state: { recoveryRequired: true } },
     );
   }
 
@@ -630,9 +642,9 @@ function continuePreparedPromotion({
       "PROMOTION_RECOVERY_OBSERVED",
       "The interrupted index installation was observed without replay; retry promotion only from this recorded result.",
       {
-        exitCode: 1,
+        disposition: "rejected",
+        state: { recoveryRequired: recovery.status === "ambiguous" },
         details: {
-          recoveryRequired: recovery.status === "ambiguous",
           recoveryStatus: recovery.status,
           resumeAllowed: recovery.resumeAllowed,
           retryAllowed: recovery.resumeAllowed,
@@ -653,7 +665,7 @@ function continuePreparedPromotion({
       fail(
         "PROMOTION_INDEX_STATE_AMBIGUOUS",
         "The real index matches neither recorded side of the promotion installation.",
-        { exitCode: 1, details: { recoveryRequired: true } },
+        { disposition: "rejected", state: { recoveryRequired: true } },
       );
     }
 
@@ -690,19 +702,22 @@ function continuePreparedPromotion({
         // A failure before the durable journal leaves no installation to observe.
       }
 
-      const interrupted = new PromotionError(
+      const interrupted = new WorkflowDiagnosticError(
         "PROMOTION_INDEX_INSTALLATION_INTERRUPTED",
-        `Draft promotion index installation did not finish: ${error.message}`,
+        "Draft promotion index installation did not finish. Inspect the recovery observation before resuming.",
         {
-          exitCode: 1,
-          details: {
+          disposition: "rejected",
+          cause: error,
+          state: {
+            ...transactionDiagnosticState(transaction, transactionPath),
             recoveryRequired: true,
+          },
+          details: {
             recoveryStatus: recovery?.status ?? "not-started",
             resumeAllowed: recovery?.resumeAllowed ?? false,
           },
         },
       );
-      interrupted.cause = error;
       throw interrupted;
     }
   }
@@ -711,7 +726,7 @@ function continuePreparedPromotion({
     fail(
       "PROMOTION_INDEX_INSTALLATION_INCOMPLETE",
       "The journaled real-index installation is not complete.",
-      { exitCode: 1, details: { recoveryRequired: true } },
+      { disposition: "rejected", state: { recoveryRequired: true } },
     );
   }
 
@@ -739,24 +754,11 @@ export function promoteDraftWorkflow({
   assertReviewedState(canonicalTransactionPath, transaction);
   assertRepositoryPreconditions(transaction, manifest);
 
-  let signaturePreflight;
-
-  try {
-    signaturePreflight = preflightVerificationPolicy({
-      root: transaction.repositoryRoot,
-      verificationPolicy: transaction.verificationPolicy,
-      ...(signaturePreflightInspector ? { signaturePreflightInspector } : {}),
-    });
-  } catch (error) {
-    if (error instanceof PreparationError) {
-      throw new PromotionError(error.code, error.message, {
-        exitCode: error.exitCode,
-        details: error.details,
-      });
-    }
-
-    throw error;
-  }
+  const signaturePreflight = preflightVerificationPolicy({
+    root: transaction.repositoryRoot,
+    verificationPolicy: transaction.verificationPolicy,
+    ...(signaturePreflightInspector ? { signaturePreflightInspector } : {}),
+  });
 
   const checked = assertRepositoryPreconditions(transaction, manifest);
 
@@ -779,7 +781,7 @@ export function promoteDraftWorkflow({
       fail(
         "PROMOTION_STAGED_SOURCE_DRIFT",
         "The real staged tree no longer equals the draft tree.",
-        { exitCode: 1 },
+        { disposition: "rejected" },
       );
     }
 
@@ -829,12 +831,11 @@ export function promoteDraftWorkflow({
       preparedIndexPath,
     });
   } catch (error) {
-    const drift = new PromotionError(
+    const drift = new WorkflowDiagnosticError(
       "PROMOTION_TREE_DRIFT",
-      `The current selected content cannot recreate the reviewed draft tree: ${error.message}`,
-      { exitCode: 1 },
+      "The current selected content cannot recreate the reviewed draft tree.",
+      { disposition: "rejected", cause: error },
     );
-    drift.cause = error;
     throw drift;
   }
 
@@ -843,7 +844,7 @@ export function promoteDraftWorkflow({
       "PROMOTION_TREE_DRIFT",
       "The current selected content no longer recreates the reviewed draft tree.",
       {
-        exitCode: 1,
+        disposition: "rejected",
         details: {
           expectedTreeOid: manifest.indexTreeOid,
           actualTreeOid: prepared.indexTreeOid,
@@ -863,7 +864,7 @@ export function promoteDraftWorkflow({
     fail(
       "PROMOTION_INDEX_DRIFT",
       "The real index changed while the promotion tree was prepared.",
-      { exitCode: 1 },
+      { disposition: "rejected" },
     );
   }
 
@@ -891,34 +892,7 @@ export function promoteDraftWorkflow({
 }
 
 function parseArguments(argv) {
-  const values = new Map();
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-
-    if (!token?.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `Unexpected argument ${JSON.stringify(token)}.`);
-    }
-
-    const name = token.slice(2);
-
-    if (!new Set(["transaction", "format"]).has(name)) {
-      fail("UNKNOWN_ARGUMENT", `Unknown workflow promote flag --${name}.`);
-    }
-
-    if (values.has(name)) {
-      fail("DUPLICATE_ARGUMENT", `--${name} may be supplied only once.`);
-    }
-
-    const value = argv[index + 1];
-
-    if (value === undefined || value.startsWith("--")) {
-      fail("INVALID_ARGUMENT", `--${name} requires a value.`);
-    }
-
-    values.set(name, value);
-    index += 1;
-  }
+  const { values } = parseCommandArguments("workflow promote", argv);
 
   const format = values.get("format") ?? "json";
 
@@ -933,99 +907,14 @@ function parseArguments(argv) {
   return { transactionPath: values.get("transaction"), format };
 }
 
-function errorEnvelope(error, transactionPath = null) {
-  let transaction = null;
-
-  if (transactionPath !== null) {
-    try {
-      transaction = readTransaction(transactionPath);
-    } catch {
-      // Malformed input has no trustworthy transaction state to report.
-    }
-  }
-
-  return {
-    schemaVersion: 1,
-    status:
-      error.code === "SIGNATURE_TRUST_ACCESS_REQUIRED"
-        ? "capability-required"
-        : error.exitCode === 1
-          ? "stopped"
-          : "invalid",
-    phase: error.details.phase ?? transaction?.phase ?? null,
-    terminalDisposition:
-      error.details.terminalDisposition ??
-      transaction?.terminalDisposition ??
-      null,
-    transaction: error.details.transaction ?? transactionPath,
-    route: transaction?.route ?? null,
-    commitState: "absent",
-    publicationState: "not-requested",
-    publicationAllowed: false,
-    recoveryRequired: error.details.recoveryRequired ?? false,
-    code: error.code,
-    message: error.message,
-    ...(transaction === null ? {} : { mode: transaction.mode }),
-    ...Object.fromEntries(
-      Object.entries(error.details).filter(
-        ([key]) =>
-          !new Set([
-            "phase",
-            "terminalDisposition",
-            "transaction",
-            "recoveryRequired",
-          ]).has(key),
-      ),
-    ),
-  };
-}
-
-function textResult(result) {
-  const lines = [`Status: ${result.status}`];
-
-  if (result.code) {
-    lines.push(`Code: ${result.code}`, `Message: ${result.message}`);
-  }
-
-  if (result.transaction) {
-    lines.push(`Transaction: ${result.transaction}`);
-  }
-
-  if (result.indexTreeOid) {
-    lines.push(`Index tree: ${result.indexTreeOid}`);
-  }
-
-  return `${lines.join("\n")}\n`;
-}
-
-export function runPromoteDraftCommand(
+export async function runPromoteDraftCommand(
   argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
+  { stdout = process.stdout } = {},
 ) {
-  let format = "json";
-  let transactionPath = null;
-
-  try {
-    const options = parseArguments(argv);
-    format = options.format;
-    transactionPath = resolve(options.transactionPath);
-    const result = promoteDraftWorkflow({ transactionPath });
-
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return 0;
-  } catch (caught) {
-    const error =
-      caught instanceof PromotionError
-        ? caught
-        : new PromotionError("PROMOTION_FAILED", caught.message);
-    const result = errorEnvelope(error, transactionPath);
-
-    stderr.write(`${error.code}: ${error.message}\n`);
-    stdout.write(
-      format === "text" ? textResult(result) : `${JSON.stringify(result)}\n`,
-    );
-    return error.exitCode;
-  }
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: parseArguments,
+    execute: promoteDraftWorkflow,
+    stdout,
+  });
 }
