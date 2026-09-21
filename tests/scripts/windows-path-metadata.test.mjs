@@ -1,4 +1,11 @@
-import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -56,7 +63,9 @@ test(
   "one metadata client reuses one real PowerShell process for many paths",
   { skip: process.platform !== "win32" },
   async (t) => {
-    const owner = await mkdtemp(join(tmpdir(), "windows-path-metadata-test-"));
+    const owner = await realpath(
+      await mkdtemp(join(tmpdir(), "windows-path-metadata-test-")),
+    );
     t.after(() => rm(owner, { force: true, recursive: true }));
     const ordinary = join(owner, "ordinary");
     const missing = join(owner, "missing");

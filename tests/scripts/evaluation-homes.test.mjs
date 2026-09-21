@@ -147,7 +147,9 @@ async function readJsonLines(target) {
 }
 
 async function createTestRoot(t) {
-  const owner = await mkdtemp(join(tmpdir(), "evaluation-homes-test-"));
+  const owner = await realpath(
+    await mkdtemp(join(tmpdir(), "evaluation-homes-test-")),
+  );
   t.after(() => rm(owner, { force: true, recursive: true }));
   const parent = join(owner, "EvaluationHomes");
   await mkdir(parent);

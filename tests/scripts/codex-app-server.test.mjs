@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   readdir,
   rm,
   writeFile,
@@ -35,7 +36,7 @@ const fakeAppServer = join(
 );
 
 async function temporaryRoot(t, prefix = "codex-app-server-test-") {
-  const root = await mkdtemp(join(tmpdir(), prefix));
+  const root = await realpath(await mkdtemp(join(tmpdir(), prefix)));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -372,7 +373,7 @@ test("toolchain inspection binds explicit prefix arguments and a canonical schem
   assert.equal(toolchain.provider, "openai");
   assert.equal(toolchain.transport, "codex-app-server");
   assert.equal(toolchain.version, "codex-cli 9.9.9-test");
-  assert.equal(toolchain.command.path, process.execPath);
+  assert.equal(toolchain.command.path, await realpath(process.execPath));
   assert.equal(toolchain.command.byteLength > 0, true);
   assert.match(toolchain.command.sha256, /^[0-9a-f]{64}$/u);
   assert.deepEqual(toolchain.prefixArguments, [

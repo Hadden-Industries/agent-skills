@@ -227,6 +227,7 @@ test("selected worktree comparison detects a prepared addition disappearing", as
 
 test("selected worktree comparison handles long selected path identities", async (t) => {
   const fixture = createRepositoryFixture(t, "check-worktree-long-path-");
+  git(["config", "core.longpaths", "true"], fixture.repo);
   const longPath = `long/${"a".repeat(80)}/${"b".repeat(80)}.txt`;
 
   writeRepositoryFile(fixture.repo, "seed.txt", "seed\n");

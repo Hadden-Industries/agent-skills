@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -468,8 +469,8 @@ test("prepare requires a positive packet-bound execution timeout", () => {
 });
 
 test("prepare binds an exact clarification turn and Codex completes both turns", async () => {
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "defining-concepts-clarification-"),
+  const temporary = realpathSync.native(
+    mkdtempSync(path.join(tmpdir(), "defining-concepts-clarification-")),
   );
   const caseFile = writeCase(temporary, {
     id: 10,
@@ -900,8 +901,8 @@ test("prepare rejects a nonempty destination", () => {
 });
 
 test("Codex preparation binds App Server transport and a managed execution home", async () => {
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "defining-concepts-codex-"),
+  const temporary = realpathSync.native(
+    mkdtempSync(path.join(tmpdir(), "defining-concepts-codex-")),
   );
   const caseFile = writeCase(temporary, {
     id: 1,
@@ -1006,8 +1007,8 @@ test("Codex preparation binds App Server transport and a managed execution home"
 });
 
 test("Codex preflight accepts available but disabled provider facilities without a model turn", async () => {
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "defining-concepts-codex-preflight-"),
+  const temporary = realpathSync.native(
+    mkdtempSync(path.join(tmpdir(), "defining-concepts-codex-preflight-")),
   );
   const caseFile = writeCase(temporary, {
     id: 1,

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -95,7 +96,7 @@ const PINNED_RUNNER_FILES = Object.freeze([
 ]);
 
 function temporaryRoot(t, prefix = "committing-to-git-runner-") {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
