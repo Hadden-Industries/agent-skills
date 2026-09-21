@@ -1,0 +1,69 @@
+name: Committing-to-git Linux verification
+run-name: Committing-to-git Linux verification (${{ inputs.revision }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Repository commit, tag, or branch to verify
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Record the tested revision and environment
+        run: |
+          VERIFICATION_OUTPUT="$RUNNER_TEMP/committing-to-git-linux"
+          echo "VERIFICATION_OUTPUT=$VERIFICATION_OUTPUT" >> "$GITHUB_ENV"
+          mkdir -p "$VERIFICATION_OUTPUT"
+          {
+            git rev-parse HEAD
+            cat /etc/os-release
+            uname -a
+            node --version
+            npm --version
+            git --version
+            ssh -V
+            command -v ssh-keygen
+          } 2>&1 | tee "$VERIFICATION_OUTPUT/environment.txt"
+          cat "$VERIFICATION_OUTPUT/environment.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install locked dependencies
+        run: npm ci 2>&1 | tee "$VERIFICATION_OUTPUT/install.txt"
+
+      - name: Check formatting, lint, and generated artifacts
+        run: npm run build:check 2>&1 | tee "$VERIFICATION_OUTPUT/build-check.txt"
+
+      - name: Run committing-to-git tests on Linux
+        run: node --test --test-reporter=tap 'tests/committing-to-git/**/*.test.mjs' 2>&1 | tee "$VERIFICATION_OUTPUT/tests.tap"
+
+      - name: Retain verification output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: committing-to-git-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/committing-to-git-linux/
+          if-no-files-found: error
+          retention-days: 30
