@@ -12,6 +12,26 @@ const booleanOption = { type: "boolean" };
 
 /** Public helper options. Child arguments are deliberately outside this schema. */
 export const COMMAND_ARGUMENTS = {
+  "workflow preflight": {
+    remote: {
+      ...stringOption,
+      description: "<name>  Required configured publication remote.",
+    },
+    destination: {
+      ...stringOption,
+      description:
+        "<refs/heads/name>  Target; default: provider default branch.",
+    },
+    "source-branch": {
+      ...stringOption,
+      description: "<name>  Proposed PR branch; default: not selected.",
+    },
+    "require-personal-signature": {
+      ...booleanOption,
+      description:
+        "Require original signed commits in target ancestry; default: false.",
+    },
+  },
   "workflow prepare": {
     mode: {
       ...stringOption,
@@ -204,7 +224,7 @@ export const COMMAND_ARGUMENTS = {
 export function commandOptions(command) {
   return {
     ...COMMAND_ARGUMENTS[command],
-    ...(command === "workflow prepare"
+    ...(["workflow prepare", "workflow preflight"].includes(command)
       ? {}
       : {
           transaction: {

@@ -590,7 +590,7 @@ import { parseArgs } from "node:util";
 function commandOptions(command) {
   return {
     ...COMMAND_ARGUMENTS[command],
-    ...command === "workflow prepare" ? {} : {
+    ...["workflow prepare", "workflow preflight"].includes(command) ? {} : {
       transaction: {
         ...stringOption,
         description: "<transaction.json>  Required opaque helper-returned path."
@@ -669,6 +669,24 @@ var init_commandArguments = __esm({
     repeatedOption = { type: "string", multiple: true };
     booleanOption = { type: "boolean" };
     COMMAND_ARGUMENTS = {
+      "workflow preflight": {
+        remote: {
+          ...stringOption,
+          description: "<name>  Required configured publication remote."
+        },
+        destination: {
+          ...stringOption,
+          description: "<refs/heads/name>  Target; default: provider default branch."
+        },
+        "source-branch": {
+          ...stringOption,
+          description: "<name>  Proposed PR branch; default: not selected."
+        },
+        "require-personal-signature": {
+          ...booleanOption,
+          description: "Require original signed commits in target ancestry; default: false."
+        }
+      },
       "workflow prepare": {
         mode: {
           ...stringOption,
@@ -908,245 +926,6 @@ var init_commandExecution = __esm({
         this.exitCode = result.disposition === "outcome-unknown" ? 4 : result.commitState === "created" ? 3 : 6;
       }
     };
-  }
-});
-
-// src/committing-to-git/selection/selectionVocabulary.js
-var ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS;
-var init_selectionVocabulary = __esm({
-  "src/committing-to-git/selection/selectionVocabulary.js"() {
-    ARRAY_SELECTOR_FIELDS = Object.freeze([
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
-    SELECTOR_FIELDS = Object.freeze([
-      "all",
-      "remaining",
-      ...ARRAY_SELECTOR_FIELDS
-    ]);
-  }
-});
-
-// src/committing-to-git/selection/changeSelection.js
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function assertChangeManifest(manifest) {
-  if (!isPlainObject(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
-    throw new Error(
-      "Semantic selection requires one nonempty exact change manifest."
-    );
-  }
-  const ids = manifest.changeUnits.map(({ id }) => id);
-  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
-    throw new Error("Manifest change-unit IDs must be unique and canonical.");
-  }
-}
-function changeUnitPathBytes(unit, direction) {
-  const encoded = unit[`${direction}PathBytesBase64`];
-  if (typeof encoded === "string") {
-    return Buffer.from(encoded, "base64");
-  }
-  const path = unit[`${direction}Path`];
-  return typeof path === "string" ? Buffer.from(path, "utf8") : null;
-}
-function assertRepositoryPath(value, { prefix, field }) {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
-    );
-  }
-  if (prefix && !value.endsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
-    );
-  }
-  if (!prefix && value.endsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
-    );
-  }
-  const components = value.split("/");
-  const meaningful = prefix ? components.slice(0, -1) : components;
-  if (meaningful.some(
-    (component) => component.length === 0 || component === "." || component === ".."
-  )) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
-    );
-  }
-}
-function normalizeSelection(selection) {
-  if (!isPlainObject(selection)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Change selection must be an object."
-    );
-  }
-  const unknown = Object.keys(selection).find(
-    (field) => !SELECTOR_FIELDS.includes(field)
-  );
-  if (unknown) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Unknown change selector field ${unknown}.`
-    );
-  }
-  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Selector all and remaining values must be booleans."
-    );
-  }
-  const all = selection.all === true;
-  const remaining = selection.remaining === true;
-  const populated = [];
-  const normalized = {};
-  for (const field of ARRAY_SELECTOR_FIELDS) {
-    const values = selection[field];
-    if (values === void 0) {
-      continue;
-    }
-    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
-      throw new WorkflowDiagnosticError(
-        "INVALID_SELECTION",
-        `Selector ${field} must be a string array.`
-      );
-    }
-    if (new Set(values).size !== values.length) {
-      throw new WorkflowDiagnosticError(
-        "INVALID_SELECTION",
-        `Selector ${field} contains duplicate values.`
-      );
-    }
-    if (field.endsWith("Paths")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: false, field })
-      );
-    } else if (field.endsWith("Prefixes")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: true, field })
-      );
-    }
-    if (values.length > 0) {
-      populated.push(field);
-      normalized[field] = [...values];
-    }
-  }
-  if ((all || remaining) && (all === remaining || populated.length > 0)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Selectors all and remaining are each exclusive of every other selector field."
-    );
-  }
-  if (!all && !remaining && populated.length === 0) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Change selection requires one nonempty selector."
-    );
-  }
-  if (all) {
-    return { all: true };
-  }
-  if (remaining) {
-    return { remaining: true };
-  }
-  return normalized;
-}
-function unitMatchesValue(unit, field, value) {
-  if (field === "ids") {
-    return unit.id === value;
-  }
-  if (field === "kinds") {
-    return unit.kind === value;
-  }
-  const source = field.startsWith("source");
-  if (source && unit.kind !== "renamed") {
-    return false;
-  }
-  const bytes = changeUnitPathBytes(unit, source ? "source" : "destination");
-  if (bytes === null) {
-    return false;
-  }
-  const expected = Buffer.from(value, "utf8");
-  return field.endsWith("Prefixes") ? bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected) : bytes.equals(expected);
-}
-function resolveSelection(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
-  assertChangeManifest(manifest);
-  if (!(assignedIds instanceof Set)) {
-    throw new Error("Selection assignedIds must be a Set.");
-  }
-  const normalized = normalizeSelection(selection);
-  if (normalized.all === true) {
-    return [...manifest.changeUnits];
-  }
-  if (normalized.remaining === true) {
-    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
-    if (units.length === 0) {
-      throw new WorkflowDiagnosticError(
-        "EMPTY_SELECTION",
-        "The remaining selector matched no change units. Remove the empty group or correct its preceding selections.",
-        { details: { selection: { remaining: true }, matchedCount: 0 } }
-      );
-    }
-    return units;
-  }
-  const matchedIds = /* @__PURE__ */ new Set();
-  let unmatchedCount = 0;
-  const unmatchedValues = [];
-  for (const [field, values] of Object.entries(normalized)) {
-    for (const value of values) {
-      const matches = manifest.changeUnits.filter(
-        (unit) => unitMatchesValue(unit, field, value)
-      );
-      if (matches.length === 0) {
-        unmatchedCount += 1;
-        if (unmatchedValues.length < 32) {
-          unmatchedValues.push(
-            Buffer.byteLength(value) <= 256 ? { field, value } : {
-              field,
-              index: values.indexOf(value),
-              valueByteLength: Buffer.byteLength(value)
-            }
-          );
-        }
-      }
-      matches.forEach(({ id }) => matchedIds.add(id));
-    }
-  }
-  if (unmatchedCount > 0) {
-    throw new WorkflowDiagnosticError(
-      "UNMATCHED_SELECTION_VALUES",
-      `${unmatchedCount} explicit selector value(s) matched no change units.`,
-      {
-        details: {
-          unmatchedCount,
-          unmatchedValues,
-          omittedCount: unmatchedCount - unmatchedValues.length
-        },
-        recovery: {
-          kind: "correct-input",
-          automatic: false,
-          requiredInputs: ["selectors matching the current manifest"],
-          commands: []
-        }
-      }
-    );
-  }
-  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
-}
-var init_changeSelection = __esm({
-  "src/committing-to-git/selection/changeSelection.js"() {
-    init_selectionVocabulary();
-    init_workflowDiagnosticError();
   }
 });
 
@@ -1895,6 +1674,983 @@ var init_gitRepository = __esm({
   }
 });
 
+// src/committing-to-git/signature/signaturePreflight.js
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { closeSync, fstatSync, openSync } from "node:fs";
+function runGitConfig(root, args) {
+  return spawnSync2("git", args, {
+    cwd: root,
+    encoding: null,
+    env: process.env,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024
+  });
+}
+function configText(result, label) {
+  if (result?.error) {
+    throw new Error(`${label} could not run: ${result.error.message}`);
+  }
+  if (result?.status !== 0 && result?.status !== 1) {
+    const diagnostic = Buffer.from(result?.stderr ?? Buffer.alloc(0)).toString("utf8").trim();
+    throw new Error(
+      `${label} failed${diagnostic ? `: ${diagnostic}` : ` with exit ${result?.status}`}.`
+    );
+  }
+  return result.status === 0 ? Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8").replace(/\r?\n$/u, "") : null;
+}
+function defaultTrustSourceProbe(path) {
+  let descriptor = null;
+  try {
+    descriptor = openSync(path, "r");
+    const stat = fstatSync(descriptor);
+    return stat.isFile() ? { state: "readable", errorCode: null } : { state: "invalid-file-type", errorCode: null };
+  } catch (error) {
+    const errorCode = typeof error.code === "string" ? error.code : null;
+    if ((/* @__PURE__ */ new Set(["ENOENT", "ENOTDIR"])).has(errorCode)) {
+      return { state: "not-found", errorCode };
+    }
+    if ((/* @__PURE__ */ new Set(["EACCES", "EPERM"])).has(errorCode)) {
+      return { state: "permission-denied", errorCode };
+    }
+    if ((/* @__PURE__ */ new Set(["EISDIR", "ELOOP"])).has(errorCode)) {
+      return { state: "invalid-file-type", errorCode };
+    }
+    return { state: "probe-error", errorCode };
+  } finally {
+    if (descriptor !== null) {
+      closeSync(descriptor);
+    }
+  }
+}
+function normalizeTrustSourceProbe(result) {
+  if (result === null || typeof result !== "object" || Array.isArray(result) || !TRUST_SOURCE_STATES.has(result.state) || result.state === "not-configured" || !Object.hasOwn(result, "errorCode") || result.errorCode !== null && typeof result.errorCode !== "string") {
+    throw new Error("SSH allowed-signers probe returned an invalid result.");
+  }
+  return { state: result.state, errorCode: result.errorCode };
+}
+function signatureTrustDiagnostic(trustSource, { verificationPolicy, state = {} }) {
+  if (trustSource === null || typeof trustSource !== "object" || trustSource.state === "readable") {
+    throw new Error(
+      "SSH trust-source failure description requires an unavailable source."
+    );
+  }
+  const permissionDenied = trustSource.state === "permission-denied";
+  const capability = permissionDenied ? {
+    kind: "read-file",
+    path: trustSource.path,
+    origin: trustSource.origin
+  } : null;
+  const action = permissionDenied ? { kind: "request-read-capability", capability } : {
+    kind: "repair-configuration",
+    configKey: "gpg.ssh.allowedSignersFile",
+    origin: trustSource.origin,
+    path: trustSource.path
+  };
+  const messageByState = {
+    "not-configured": "Required SSH verification has no configured allowed-signers file.",
+    "not-found": "Required SSH verification cannot find Git's configured allowed-signers file.",
+    "permission-denied": "Required SSH verification cannot read Git's configured allowed-signers file because access was denied.",
+    "invalid-file-type": "Required SSH verification configured an allowed-signers path that is not a readable regular file.",
+    "probe-error": "Required SSH verification could not inspect Git's configured allowed-signers file."
+  };
+  return new WorkflowDiagnosticError(
+    "SIGNATURE_TRUST_ACCESS_REQUIRED",
+    messageByState[trustSource.state] ?? "Required SSH verification cannot use Git's configured allowed-signers file.",
+    {
+      disposition: "unmet-prerequisite",
+      state,
+      recovery: {
+        kind: "human-decision",
+        automatic: false,
+        requiredInputs: [
+          "readable configured verification trust source or an explicitly approved verification-policy change"
+        ],
+        commands: []
+      },
+      documentation: "references/signature-recovery.md",
+      details: {
+        action,
+        ...capability === null ? {} : { capability },
+        trustSource,
+        verificationPolicy,
+        policyAlternatives: ["advisory", "skipped"]
+      }
+    }
+  );
+}
+function inspectSignatureRequirements(root, {
+  runConfig = (args) => runGitConfig(root, args),
+  probeTrustSource = defaultTrustSourceProbe
+} = {}) {
+  const format = configText(
+    runConfig(["config", "--get", "gpg.format"]),
+    "Git signature backend discovery"
+  );
+  const backend = format === null || format === "" || format === "openpgp" ? "openpgp" : format.toLowerCase();
+  if (!(/* @__PURE__ */ new Set(["openpgp", "ssh"])).has(backend)) {
+    throw new Error(
+      `Unsupported Git signature backend ${JSON.stringify(backend)}.`
+    );
+  }
+  if (backend !== "ssh") {
+    return { backend, trustSource: null };
+  }
+  const configured = configText(
+    runConfig([
+      "config",
+      "--show-origin",
+      "--path",
+      "--get",
+      "gpg.ssh.allowedSignersFile"
+    ]),
+    "SSH allowed-signers discovery"
+  );
+  if (configured === null) {
+    return {
+      backend: "ssh",
+      trustSource: {
+        configured: false,
+        origin: null,
+        path: null,
+        state: "not-configured",
+        errorCode: null
+      }
+    };
+  }
+  const separator = configured.indexOf("	");
+  if (separator < 1 || separator === configured.length - 1) {
+    throw new Error(
+      "Git returned an invalid origin/path record for gpg.ssh.allowedSignersFile."
+    );
+  }
+  const origin = configured.slice(0, separator);
+  const path = configured.slice(separator + 1);
+  const probe = normalizeTrustSourceProbe(probeTrustSource(path));
+  return {
+    backend: "ssh",
+    trustSource: {
+      configured: true,
+      origin,
+      path,
+      ...probe
+    }
+  };
+}
+var TRUST_SOURCE_STATES;
+var init_signaturePreflight = __esm({
+  "src/committing-to-git/signature/signaturePreflight.js"() {
+    init_workflowDiagnosticError();
+    TRUST_SOURCE_STATES = /* @__PURE__ */ new Set([
+      "readable",
+      "not-configured",
+      "not-found",
+      "permission-denied",
+      "invalid-file-type",
+      "probe-error"
+    ]);
+  }
+});
+
+// src/committing-to-git/publication/publicationPolicy.js
+function selectPublicationRoute({
+  repository,
+  protection,
+  targetRules,
+  sourceRules,
+  sourceProtection = null,
+  pushRules,
+  sourceBranch,
+  requirePersonalSignature = false
+}) {
+  const prerequisites = [];
+  const reasons = [];
+  const stop = (status, reason) => ({
+    status,
+    route: null,
+    reasons: [...reasons, reason],
+    prerequisites
+  });
+  if (!repository || typeof repository.permissions?.push !== "boolean")
+    return stop("unknown", "Publication permissions are unavailable.");
+  if (repository.archived || repository.disabled)
+    return stop("blocked", "The repository is archived or disabled.");
+  if (!repository.permissions.push)
+    return stop(
+      "blocked",
+      "The authenticated actor cannot publish to this repository; a separately selected fork or maintainer handoff is needed."
+    );
+  if (![targetRules, sourceRules, pushRules].every(Array.isArray))
+    return stop("unknown", "Complete active policy is unavailable.");
+  const knownRules = /* @__PURE__ */ new Set([
+    "creation",
+    "update",
+    "deletion",
+    "required_linear_history",
+    "required_signatures",
+    "pull_request",
+    "required_status_checks",
+    "non_fast_forward",
+    "merge_queue",
+    "required_deployments",
+    "code_scanning",
+    "workflows",
+    "code_quality",
+    "commit_message_pattern",
+    "commit_author_email_pattern",
+    "committer_email_pattern",
+    "branch_name_pattern",
+    "file_path_restriction",
+    "max_file_path_length",
+    "file_extension_restriction",
+    "max_file_size"
+  ]);
+  for (const rule of [...targetRules, ...sourceRules, ...pushRules]) {
+    if (!rule || !knownRules.has(rule.type))
+      return stop(
+        "unknown",
+        `Unsupported active rule: ${rule?.type ?? "invalid rule"}.`
+      );
+  }
+  if (protection?.lock_branch?.enabled || targetRules.some((rule) => rule.type === "update"))
+    return stop(
+      "blocked",
+      "Target updates require a bypass, which this workflow does not use."
+    );
+  if (protection?.restrictions)
+    return stop(
+      "unknown",
+      "Resolve classic push restrictions against the actual Git transport actor before selecting a route."
+    );
+  const contentRules = /* @__PURE__ */ new Set([
+    "commit_message_pattern",
+    "commit_author_email_pattern",
+    "committer_email_pattern",
+    "branch_name_pattern",
+    "file_path_restriction",
+    "max_file_path_length",
+    "file_extension_restriction",
+    "max_file_size"
+  ]);
+  if ([...targetRules, ...pushRules].some((rule) => contentRules.has(rule.type)))
+    prerequisites.push(
+      "Validate selected commit content, metadata and branch names against every returned content rule before mutation."
+    );
+  if (targetRules.some((rule) => rule.type === "required_signatures") || protection?.required_signatures?.enabled)
+    prerequisites.push(
+      "Verify all introduced commits satisfy the provider signing rules as well as the expected local signer."
+    );
+  const checkRules = /* @__PURE__ */ new Set([
+    "required_status_checks",
+    "required_deployments",
+    "code_scanning",
+    "workflows",
+    "code_quality"
+  ]);
+  const needsChecks = Boolean(protection?.required_status_checks) || targetRules.some((rule) => checkRules.has(rule.type));
+  const needsReview = Boolean(protection?.required_pull_request_reviews) || targetRules.some((rule) => rule.type === "pull_request");
+  const queues = targetRules.filter((rule) => rule.type === "merge_queue");
+  const needsConversation = protection?.required_conversation_resolution?.enabled === true;
+  const needsPullRequest = needsChecks || needsReview || needsConversation || queues.length > 0;
+  if (!needsPullRequest)
+    return {
+      status: prerequisites.length ? "viable-with-prerequisites" : "viable",
+      route: "direct",
+      reasons: ["No observed policy requires PR delivery."],
+      prerequisites,
+      signatureEffect: "The exact locally signed commit is published without rewriting."
+    };
+  if (!sourceBranch)
+    return stop(
+      "unknown",
+      "Select a unique PR source branch and inspect its protections before drafting."
+    );
+  if (sourceProtection?.restrictions)
+    return stop(
+      "unknown",
+      "Resolve the source branch push restrictions before publication."
+    );
+  if (sourceProtection?.lock_branch?.enabled || sourceProtection?.required_pull_request_reviews || sourceRules.some(
+    (rule) => ["creation", "update", "pull_request", "merge_queue"].includes(rule.type)
+  ))
+    return stop(
+      "blocked",
+      "The proposed source branch cannot accept ordinary publication; select another permitted source branch and repeat preflight."
+    );
+  if (sourceRules.some((rule) => contentRules.has(rule.type)))
+    prerequisites.push(
+      "Validate selected source content and branch metadata against source-branch rules."
+    );
+  if (sourceProtection?.required_status_checks || sourceRules.some((rule) => checkRules.has(rule.type)))
+    prerequisites.push(
+      "Satisfy source-branch checks before pushing; target PR checks do not satisfy source publication requirements."
+    );
+  if (sourceProtection?.required_signatures?.enabled || sourceRules.some((rule) => rule.type === "required_signatures"))
+    prerequisites.push(
+      "Verify source-branch signing requirements for all introduced commits."
+    );
+  let methods = new Set(
+    ["merge", "squash", "rebase"].filter(
+      (method2) => repository[`allow_${method2 === "merge" ? "merge_commit" : `${method2}_merge`}`] === true
+    )
+  );
+  if (["allow_merge_commit", "allow_squash_merge", "allow_rebase_merge"].some(
+    (key) => typeof repository[key] !== "boolean"
+  ))
+    return stop("unknown", "Repository merge-method settings are incomplete.");
+  for (const rule of targetRules.filter(
+    (entry) => entry.type === "pull_request"
+  )) {
+    const allowed = rule.parameters?.allowed_merge_methods;
+    if (allowed !== void 0) {
+      if (!Array.isArray(allowed) || allowed.some(
+        (method2) => !["merge", "squash", "rebase"].includes(method2)
+      ))
+        return stop("unknown", "Unsupported allowed merge methods.");
+      methods = new Set(
+        [...methods].filter((method2) => allowed.includes(method2))
+      );
+    }
+  }
+  if (protection?.required_linear_history?.enabled || targetRules.some((rule) => rule.type === "required_linear_history"))
+    methods.delete("merge");
+  if (queues.length) {
+    const queueMethods = queues.map(
+      (rule) => rule.parameters?.merge_method?.toLowerCase()
+    );
+    if (queueMethods.some(
+      (method2) => !["merge", "squash", "rebase"].includes(method2)
+    ) || new Set(queueMethods).size !== 1)
+      return stop(
+        "unknown",
+        "The required merge queue method is unavailable or conflicting."
+      );
+    methods = new Set(
+      [...methods].filter((method2) => method2 === queueMethods[0])
+    );
+    prerequisites.push(
+      "Enter the required merge queue and observe actual integration, not just admission."
+    );
+  }
+  methods.delete("rebase");
+  if (requirePersonalSignature) methods.delete("squash");
+  const method = methods.has("merge") ? "merge" : methods.has("squash") ? "squash" : null;
+  if (!method)
+    return stop(
+      "blocked",
+      "No allowed merge method meets the accepted signature policy; rebase is not an automatic fallback."
+    );
+  prerequisites.push(
+    "Confirm token authority to create and merge the PR; satisfy required reviews, checks and conversation resolution on the reviewed head."
+  );
+  reasons.push(
+    needsReview ? "Target policy requires a pull request." : "Use a pull request to satisfy target integration prerequisites."
+  );
+  return {
+    status: "viable-with-prerequisites",
+    route: `${queues.length ? "merge-queue" : "pull-request"}-${method}`,
+    reasons,
+    prerequisites,
+    signatureEffect: method === "merge" ? "Original signed commits remain ancestors; verify the separate integration commit and its signer." : "Squash creates a new commit and SHA signed by GitHub; source signatures do not transfer. Disclose this before approval."
+  };
+}
+var init_publicationPolicy = __esm({
+  "src/committing-to-git/publication/publicationPolicy.js"() {
+  }
+});
+
+// src/committing-to-git/publication/githubPolicy.js
+import { spawnSync as spawnSync3 } from "node:child_process";
+function githubApi(endpoint, fields = {}) {
+  const args = [
+    "api",
+    "--hostname",
+    "github.com",
+    "--method",
+    endpoint === "graphql" ? "POST" : "GET",
+    endpoint
+  ];
+  for (const [key, value] of Object.entries(fields))
+    args.push("-f", `${key}=${value}`);
+  const result = spawnSync3("gh", args, {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 3e4,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_PAGER: "cat" }
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `GitHub policy query failed (${result.error?.code ?? `exit ${result.status}`}) at ${endpoint.split("?")[0]}.`
+    );
+  }
+  const body = JSON.parse(result.stdout);
+  if (body?.errors)
+    throw new Error("GitHub returned incomplete GraphQL policy observations.");
+  return body;
+}
+function pages(api, endpoint) {
+  const items = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const batch = api(
+      `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=100&page=${page}`
+    );
+    if (!Array.isArray(batch))
+      throw new Error("Expected a complete policy array.");
+    items.push(...batch);
+    if (batch.length < 100) return items;
+  }
+  throw new Error("Policy pagination exceeded the bounded discovery limit.");
+}
+function inspectGitHubPolicy({
+  owner,
+  repository,
+  destination,
+  sourceBranch,
+  requirePersonalSignature = false,
+  api = githubApi
+}) {
+  const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const prefix = `repos/${owner}/${repository}`;
+    const actor = api("user").login;
+    const metadata = api(prefix);
+    if (typeof actor !== "string" || typeof metadata.default_branch !== "string")
+      throw new Error("Provider identity or default branch is unavailable.");
+    const branch = destination ? destination.slice("refs/heads/".length) : metadata.default_branch;
+    const encoded = encodeURIComponent(branch);
+    const target = api(`${prefix}/branches/${encoded}`);
+    if (typeof target.protected !== "boolean" || !/^[a-f0-9]{40,64}$/u.test(target.commit?.sha ?? ""))
+      throw new Error("Target branch observation is incomplete.");
+    const targetRules = pages(api, `${prefix}/rules/branches/${encoded}`);
+    const classic = api("graphql", {
+      query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:100){nodes{pattern} pageInfo{hasNextPage}}}}",
+      owner,
+      name: repository
+    }).data?.repository?.branchProtectionRules;
+    if (!Array.isArray(classic?.nodes) || classic.pageInfo?.hasNextPage !== false || classic.nodes.some((node) => typeof node.pattern !== "string"))
+      throw new Error("Classic protection inventory is incomplete.");
+    const matches = (name) => classic.nodes.filter(
+      ({ pattern }) => pattern === name || /[*?[\\]/u.test(pattern)
+    );
+    const protection = target.protected && matches(branch).length ? api(`${prefix}/branches/${encoded}/protection`) : null;
+    if (target.protected && matches(branch).length && (!protection || typeof protection !== "object" || Array.isArray(protection)))
+      throw new Error("Classic protection body is incomplete.");
+    if (target.protected && !protection && targetRules.length === 0)
+      throw new Error("Protected branch has no readable effective policy.");
+    const summaries = pages(api, `${prefix}/rulesets?includes_parents=true`);
+    const pushRules = [];
+    for (const summary of summaries) {
+      if (summary.enforcement !== "active" || summary.target !== "push")
+        continue;
+      if (!Number.isSafeInteger(summary.id))
+        throw new Error("Invalid push ruleset identity.");
+      const detail = api(`${prefix}/rulesets/${summary.id}`);
+      if (detail.enforcement !== "active" || detail.target !== "push" || !Array.isArray(detail.rules))
+        throw new Error(
+          "Push ruleset changed during observation; repeat discovery."
+        );
+      pushRules.push(...detail.rules);
+    }
+    const policy = {
+      repository: {
+        archived: metadata.archived,
+        disabled: metadata.disabled,
+        permissions: metadata.permissions,
+        allow_merge_commit: metadata.allow_merge_commit,
+        allow_squash_merge: metadata.allow_squash_merge,
+        allow_rebase_merge: metadata.allow_rebase_merge
+      },
+      protection,
+      sourceProtection: null,
+      targetRules,
+      sourceRules: [],
+      pushRules,
+      sourceBranch,
+      requirePersonalSignature
+    };
+    const targetRoute = selectPublicationRoute(policy);
+    if (targetRoute.route !== "direct" && sourceBranch) {
+      policy.sourceRules = pages(
+        api,
+        `${prefix}/rules/branches/${encodeURIComponent(sourceBranch)}`
+      );
+      if (matches(sourceBranch).length) {
+        policy.sourceProtection = api(
+          `${prefix}/branches/${encodeURIComponent(sourceBranch)}/protection`
+        );
+        if (!policy.sourceProtection || typeof policy.sourceProtection !== "object" || Array.isArray(policy.sourceProtection))
+          throw new Error("Source classic protection body is incomplete.");
+      }
+    }
+    return {
+      ...selectPublicationRoute(policy),
+      provider: "github",
+      repository: `${owner}/${repository}`,
+      actor,
+      destination: `refs/heads/${branch}`,
+      targetOid: target.commit.sha,
+      observedAt,
+      policy
+    };
+  } catch (error) {
+    return {
+      status: "unknown",
+      route: null,
+      reasons: [error.message],
+      prerequisites: [],
+      observedAt
+    };
+  }
+}
+var init_githubPolicy = __esm({
+  "src/committing-to-git/publication/githubPolicy.js"() {
+    init_publicationPolicy();
+  }
+});
+
+// src/committing-to-git/publication/publicationPreflight.js
+var publicationPreflight_exports = {};
+__export(publicationPreflight_exports, {
+  githubRemoteIdentity: () => githubRemoteIdentity,
+  inspectPublicationFeasibility: () => inspectPublicationFeasibility
+});
+import { spawnSync as spawnSync4 } from "node:child_process";
+function gitRead(cwd, args, allowAbsent = false) {
+  const result = spawnSync4(
+    "git",
+    ["--no-lazy-fetch", "--no-pager", "-c", "core.fsmonitor=false", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+      timeout: 15e3,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_NO_LAZY_FETCH: "1",
+        GIT_NO_REPLACE_OBJECTS: "1"
+      }
+    }
+  );
+  if (!result.error && allowAbsent && result.status === 1) return null;
+  if (result.error || result.status !== 0)
+    throw new Error(`Read-only Git ${args[0]} observation failed.`);
+  return result.stdout.trim();
+}
+function githubRemoteIdentity(url) {
+  const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/u.exec(
+    url
+  );
+  return match ? { owner: match[1], repository: match[2] } : null;
+}
+function inspectPublicationFeasibility({
+  cwd = process.cwd(),
+  remote,
+  destination,
+  sourceBranch,
+  requirePersonalSignature = false,
+  api
+}) {
+  const stop = (status, reason) => ({
+    status,
+    route: null,
+    reasons: [reason],
+    prerequisites: [],
+    summary: reason,
+    observedAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  try {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(remote ?? ""))
+      return stop("blocked", "Select an exact configured remote name.");
+    const root = repositoryRoot(cwd);
+    if (activeGitOperations(root).length)
+      return stop(
+        "blocked",
+        "Finish or explicitly resolve the existing Git operation before starting a new commit workflow."
+      );
+    if (destination && !destination.startsWith("refs/heads/"))
+      return stop(
+        "blocked",
+        "Destination must be a full refs/heads/ branch ref."
+      );
+    if (destination) gitRead(root, ["check-ref-format", destination]);
+    if (sourceBranch)
+      gitRead(root, ["check-ref-format", `refs/heads/${sourceBranch}`]);
+    const urls = gitRead(root, [
+      "remote",
+      "get-url",
+      "--push",
+      "--all",
+      remote
+    ]).split(/\r?\n/u);
+    if (urls.length !== 1)
+      return stop(
+        "unknown",
+        "Multiple push URLs require an explicit single-target publication design."
+      );
+    const identity2 = githubRemoteIdentity(urls[0]);
+    if (!identity2)
+      return stop(
+        "unknown",
+        "This provider or transport is not supported by GitHub preflight; no publication permission is inferred."
+      );
+    gitRead(root, ["var", "GIT_AUTHOR_IDENT"]);
+    gitRead(root, ["var", "GIT_COMMITTER_IDENT"]);
+    const signature = inspectSignatureRequirements(root);
+    if (signature.backend === "ssh" && signature.trustSource?.state !== "readable")
+      return stop(
+        "blocked",
+        "Required SSH verification needs its configured readable allowed-signers file."
+      );
+    const signingKey = gitRead(
+      root,
+      ["config", "--get", "user.signingkey"],
+      true
+    );
+    if (signature.backend === "ssh" && !signingKey && !gitRead(root, ["config", "--get", "gpg.ssh.defaultKeyCommand"], true))
+      return stop(
+        "blocked",
+        "SSH signing has neither a configured signing key nor a default key command."
+      );
+    const result = inspectGitHubPolicy({
+      ...identity2,
+      destination,
+      sourceBranch,
+      requirePersonalSignature,
+      api
+    });
+    if (sourceBranch && result.destination === `refs/heads/${sourceBranch}` && result.route !== "direct")
+      return stop(
+        "blocked",
+        "The PR source branch must differ from the target branch."
+      );
+    if (result.route) {
+      result.prerequisites.push(
+        "Confirm the Git transport actor matches the observed API actor, and verify signing-key availability and expected signer during the signed commit workflow."
+      );
+      result.prerequisites.push(
+        "Check selected scope, outgoing ancestry and target freshness before publication; this preflight does not authorize mutations or prove a future push will succeed."
+      );
+      result.status = "viable-with-prerequisites";
+    }
+    return {
+      ...result,
+      remote,
+      sourceBranch: sourceBranch ?? null,
+      localSignatureBackend: signature.backend,
+      summary: result.route ? `Publication route: ${result.route}. Resolve the listed prerequisites before the corresponding mutation.` : result.reasons.join(" ")
+    };
+  } catch {
+    return stop(
+      "unknown",
+      "Local repository, identity, remote or signing readiness could not be established. Inspect the failing prerequisite without attempting publication."
+    );
+  }
+}
+var init_publicationPreflight = __esm({
+  "src/committing-to-git/publication/publicationPreflight.js"() {
+    init_gitRepository();
+    init_signaturePreflight();
+    init_githubPolicy();
+  }
+});
+
+// src/committing-to-git/workflow/publicationPreflightWorkflow.js
+var publicationPreflightWorkflow_exports = {};
+__export(publicationPreflightWorkflow_exports, {
+  runPublicationPreflightCommand: () => runPublicationPreflightCommand
+});
+async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(), stdout = process.stdout } = {}) {
+  return executeCommand(arguments_, {
+    stdout,
+    parse: (args) => {
+      const { values } = parseCommandArguments("workflow preflight", args);
+      if (values.has("format") && !["json", "text"].includes(values.get("format")))
+        throw new WorkflowDiagnosticError(
+          "INVALID_ARGUMENT",
+          "--format must be json or text."
+        );
+      if (!values.has("remote"))
+        throw new WorkflowDiagnosticError(
+          "INVALID_ARGUMENT",
+          "--remote is required."
+        );
+      return {
+        remote: values.get("remote"),
+        destination: values.get("destination"),
+        sourceBranch: values.get("source-branch"),
+        requirePersonalSignature: values.get("require-personal-signature") ?? false,
+        format: values.get("format") ?? "json"
+      };
+    },
+    execute: async (options) => {
+      const { inspectPublicationFeasibility: inspectPublicationFeasibility2 } = await Promise.resolve().then(() => (init_publicationPreflight(), publicationPreflight_exports));
+      const feasibility = inspectPublicationFeasibility2({ ...options, cwd });
+      return createWorkflowResult({
+        disposition: ["viable", "viable-with-prerequisites"].includes(
+          feasibility.status
+        ) ? "succeeded" : "unmet-prerequisite",
+        status: feasibility.status,
+        code: ["blocked", "unknown"].includes(feasibility.status) ? "PUBLICATION_PREFLIGHT_INCOMPLETE" : null,
+        message: feasibility.summary,
+        commitState: "absent",
+        publicationState: "not-requested",
+        publicationAllowed: false,
+        documentation: "references/publication-routing.md",
+        data: { feasibility }
+      });
+    }
+  });
+}
+var init_publicationPreflightWorkflow = __esm({
+  "src/committing-to-git/workflow/publicationPreflightWorkflow.js"() {
+    init_commandArguments();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+  }
+});
+
+// src/committing-to-git/selection/selectionVocabulary.js
+var ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS;
+var init_selectionVocabulary = __esm({
+  "src/committing-to-git/selection/selectionVocabulary.js"() {
+    ARRAY_SELECTOR_FIELDS = Object.freeze([
+      "ids",
+      "destinationPaths",
+      "destinationPathPrefixes",
+      "sourcePaths",
+      "sourcePathPrefixes",
+      "kinds"
+    ]);
+    SELECTOR_FIELDS = Object.freeze([
+      "all",
+      "remaining",
+      ...ARRAY_SELECTOR_FIELDS
+    ]);
+  }
+});
+
+// src/committing-to-git/selection/changeSelection.js
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertChangeManifest(manifest) {
+  if (!isPlainObject(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
+    throw new Error(
+      "Semantic selection requires one nonempty exact change manifest."
+    );
+  }
+  const ids = manifest.changeUnits.map(({ id }) => id);
+  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error("Manifest change-unit IDs must be unique and canonical.");
+  }
+}
+function changeUnitPathBytes(unit, direction) {
+  const encoded = unit[`${direction}PathBytesBase64`];
+  if (typeof encoded === "string") {
+    return Buffer.from(encoded, "base64");
+  }
+  const path = unit[`${direction}Path`];
+  return typeof path === "string" ? Buffer.from(path, "utf8") : null;
+}
+function assertRepositoryPath(value, { prefix, field }) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
+    );
+  }
+  if (prefix && !value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
+    );
+  }
+  if (!prefix && value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
+    );
+  }
+  const components = value.split("/");
+  const meaningful = prefix ? components.slice(0, -1) : components;
+  if (meaningful.some(
+    (component) => component.length === 0 || component === "." || component === ".."
+  )) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
+    );
+  }
+}
+function normalizeSelection(selection) {
+  if (!isPlainObject(selection)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection must be an object."
+    );
+  }
+  const unknown = Object.keys(selection).find(
+    (field) => !SELECTOR_FIELDS.includes(field)
+  );
+  if (unknown) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Unknown change selector field ${unknown}.`
+    );
+  }
+  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selector all and remaining values must be booleans."
+    );
+  }
+  const all = selection.all === true;
+  const remaining = selection.remaining === true;
+  const populated = [];
+  const normalized = {};
+  for (const field of ARRAY_SELECTOR_FIELDS) {
+    const values = selection[field];
+    if (values === void 0) {
+      continue;
+    }
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} must be a string array.`
+      );
+    }
+    if (new Set(values).size !== values.length) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} contains duplicate values.`
+      );
+    }
+    if (field.endsWith("Paths")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: false, field })
+      );
+    } else if (field.endsWith("Prefixes")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: true, field })
+      );
+    }
+    if (values.length > 0) {
+      populated.push(field);
+      normalized[field] = [...values];
+    }
+  }
+  if ((all || remaining) && (all === remaining || populated.length > 0)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selectors all and remaining are each exclusive of every other selector field."
+    );
+  }
+  if (!all && !remaining && populated.length === 0) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection requires one nonempty selector."
+    );
+  }
+  if (all) {
+    return { all: true };
+  }
+  if (remaining) {
+    return { remaining: true };
+  }
+  return normalized;
+}
+function unitMatchesValue(unit, field, value) {
+  if (field === "ids") {
+    return unit.id === value;
+  }
+  if (field === "kinds") {
+    return unit.kind === value;
+  }
+  const source = field.startsWith("source");
+  if (source && unit.kind !== "renamed") {
+    return false;
+  }
+  const bytes = changeUnitPathBytes(unit, source ? "source" : "destination");
+  if (bytes === null) {
+    return false;
+  }
+  const expected = Buffer.from(value, "utf8");
+  return field.endsWith("Prefixes") ? bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected) : bytes.equals(expected);
+}
+function resolveSelection(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
+  assertChangeManifest(manifest);
+  if (!(assignedIds instanceof Set)) {
+    throw new Error("Selection assignedIds must be a Set.");
+  }
+  const normalized = normalizeSelection(selection);
+  if (normalized.all === true) {
+    return [...manifest.changeUnits];
+  }
+  if (normalized.remaining === true) {
+    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
+    if (units.length === 0) {
+      throw new WorkflowDiagnosticError(
+        "EMPTY_SELECTION",
+        "The remaining selector matched no change units. Remove the empty group or correct its preceding selections.",
+        { details: { selection: { remaining: true }, matchedCount: 0 } }
+      );
+    }
+    return units;
+  }
+  const matchedIds = /* @__PURE__ */ new Set();
+  let unmatchedCount = 0;
+  const unmatchedValues = [];
+  for (const [field, values] of Object.entries(normalized)) {
+    for (const value of values) {
+      const matches = manifest.changeUnits.filter(
+        (unit) => unitMatchesValue(unit, field, value)
+      );
+      if (matches.length === 0) {
+        unmatchedCount += 1;
+        if (unmatchedValues.length < 32) {
+          unmatchedValues.push(
+            Buffer.byteLength(value) <= 256 ? { field, value } : {
+              field,
+              index: values.indexOf(value),
+              valueByteLength: Buffer.byteLength(value)
+            }
+          );
+        }
+      }
+      matches.forEach(({ id }) => matchedIds.add(id));
+    }
+  }
+  if (unmatchedCount > 0) {
+    throw new WorkflowDiagnosticError(
+      "UNMATCHED_SELECTION_VALUES",
+      `${unmatchedCount} explicit selector value(s) matched no change units.`,
+      {
+        details: {
+          unmatchedCount,
+          unmatchedValues,
+          omittedCount: unmatchedCount - unmatchedValues.length
+        },
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: ["selectors matching the current manifest"],
+          commands: []
+        }
+      }
+    );
+  }
+  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
+}
+var init_changeSelection = __esm({
+  "src/committing-to-git/selection/changeSelection.js"() {
+    init_selectionVocabulary();
+    init_workflowDiagnosticError();
+  }
+});
+
 // src/committing-to-git/git/gitPath.js
 function splitNul(buffer) {
   const fields = [];
@@ -1931,11 +2687,11 @@ var init_gitPath = __esm({
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
-  closeSync,
+  closeSync as closeSync2,
   constants as fsConstants,
   existsSync as existsSync2,
   lstatSync,
-  openSync,
+  openSync as openSync2,
   unlinkSync
 } from "node:fs";
 import { dirname, resolve as resolve2 } from "node:path";
@@ -1997,12 +2753,12 @@ function allocateProjectedIndexPath(temporaryDirectory, purpose) {
   if (dirname(indexPath) !== canonicalDirectory) {
     throw new Error("Projected index escaped its temporary directory.");
   }
-  const reservation = openSync(
+  const reservation = openSync2(
     indexPath,
     fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL,
     384
   );
-  closeSync(reservation);
+  closeSync2(reservation);
   unlinkSync(indexPath);
   return indexPath;
 }
@@ -2616,12 +3372,12 @@ var init_inlineEvidenceCapsule = __esm({
 // src/committing-to-git/inspection/streamingPacketWriter.js
 import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
 import {
-  closeSync as closeSync2,
+  closeSync as closeSync3,
   existsSync as existsSync3,
-  fstatSync,
+  fstatSync as fstatSync2,
   fsyncSync,
   mkdirSync,
-  openSync as openSync2,
+  openSync as openSync3,
   readSync,
   renameSync,
   unlinkSync as unlinkSync2,
@@ -2706,11 +3462,11 @@ function readChunkExactly(descriptor, buffer, length, position) {
   return total;
 }
 function filesEqualBounded(leftPath, rightPath) {
-  const left = openSync2(leftPath, "r");
-  const right = openSync2(rightPath, "r");
+  const left = openSync3(leftPath, "r");
+  const right = openSync3(rightPath, "r");
   try {
-    const leftSize = Number(fstatSync(left, { bigint: true }).size);
-    const rightSize = Number(fstatSync(right, { bigint: true }).size);
+    const leftSize = Number(fstatSync2(left, { bigint: true }).size);
+    const rightSize = Number(fstatSync2(right, { bigint: true }).size);
     if (leftSize !== rightSize) {
       return false;
     }
@@ -2727,13 +3483,13 @@ function filesEqualBounded(leftPath, rightPath) {
     }
     return true;
   } finally {
-    closeSync2(right);
-    closeSync2(left);
+    closeSync3(right);
+    closeSync3(left);
   }
 }
 async function spoolSource(outputDirectory, source) {
   const temporaryPath = join(outputDirectory, `.raw-${randomUUID2()}.tmp`);
-  const descriptor = openSync2(temporaryPath, "wx", 384);
+  const descriptor = openSync3(temporaryPath, "wx", 384);
   const hash = createHash3("sha256");
   const decoder = new TextDecoder3("utf-8", { fatal: true });
   let validUtf8 = true;
@@ -2768,7 +3524,7 @@ async function spoolSource(outputDirectory, source) {
     fsyncSync(descriptor);
     complete = true;
   } finally {
-    closeSync2(descriptor);
+    closeSync3(descriptor);
     if (!complete && existsSync3(temporaryPath)) {
       unlinkSync2(temporaryPath);
     }
@@ -2788,7 +3544,7 @@ async function spoolSource(outputDirectory, source) {
 }
 function spoolSourceSync(outputDirectory, source) {
   const temporaryPath = join(outputDirectory, `.raw-${randomUUID2()}.tmp`);
-  const descriptor = openSync2(temporaryPath, "wx", 384);
+  const descriptor = openSync3(temporaryPath, "wx", 384);
   const hash = createHash3("sha256");
   const decoder = new TextDecoder3("utf-8", { fatal: true });
   let validUtf8 = true;
@@ -2823,7 +3579,7 @@ function spoolSourceSync(outputDirectory, source) {
     fsyncSync(descriptor);
     complete = true;
   } finally {
-    closeSync2(descriptor);
+    closeSync3(descriptor);
     if (!complete && existsSync3(temporaryPath)) {
       unlinkSync2(temporaryPath);
     }
@@ -2852,7 +3608,7 @@ function utf8Boundary(buffer, candidateEnd) {
   return boundary > 0 ? boundary : candidateEnd;
 }
 function* readRawSegments(path, byteCount, validUtf8) {
-  const descriptor = openSync2(path, "r");
+  const descriptor = openSync3(path, "r");
   let start = 0;
   try {
     while (start < byteCount) {
@@ -2894,20 +3650,20 @@ function* readRawSegments(path, byteCount, validUtf8) {
       start = end;
     }
   } finally {
-    closeSync2(descriptor);
+    closeSync3(descriptor);
   }
 }
 function finalByte(path, byteCount) {
   if (byteCount === 0) {
     return null;
   }
-  const descriptor = openSync2(path, "r");
+  const descriptor = openSync3(path, "r");
   const byte = Buffer.alloc(1);
   try {
     readSync(descriptor, byte, 0, 1, byteCount - 1);
     return byte[0];
   } finally {
-    closeSync2(descriptor);
+    closeSync3(descriptor);
   }
 }
 function escapedHex(bytes, absoluteStart) {
@@ -3521,14 +4277,14 @@ var init_checkReceipt = __esm({
 // src/committing-to-git/transaction/transactionWorkspace.js
 import { randomUUID as systemRandomUUID } from "node:crypto";
 import {
-  closeSync as closeSync3,
+  closeSync as closeSync4,
   constants as fsConstants2,
   existsSync as existsSync4,
-  fstatSync as fstatSync2,
+  fstatSync as fstatSync3,
   fsyncSync as fsyncSync2,
   lstatSync as lstatSync2,
   mkdirSync as mkdirSync2,
-  openSync as openSync3,
+  openSync as openSync4,
   readFileSync,
   realpathSync,
   renameSync as renameSync2,
@@ -4352,7 +5108,7 @@ function initialTransaction(repositoryRoot2, attemptDirectory) {
 }
 function openReadOnlyNoFollow(path) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  return openSync3(path, fsConstants2.O_RDONLY + noFollow);
+  return openSync4(path, fsConstants2.O_RDONLY + noFollow);
 }
 function fileIdentity(stat) {
   return {
@@ -4367,12 +5123,12 @@ function identitiesMatch(left, right) {
 function readStableRegularFile(path) {
   const fd = openReadOnlyNoFollow(path);
   try {
-    const before = fstatSync2(fd, { bigint: true });
+    const before = fstatSync3(fd, { bigint: true });
     if (!before.isFile()) {
       throw new Error(`Expected a regular file at ${path}.`);
     }
     const payload = readFileSync(fd);
-    const after = fstatSync2(fd, { bigint: true });
+    const after = fstatSync3(fd, { bigint: true });
     const pathStat = lstatSync2(path, { bigint: true });
     if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
       throw new Error(
@@ -4386,23 +5142,23 @@ function readStableRegularFile(path) {
     }
     return payload;
   } finally {
-    closeSync3(fd);
+    closeSync4(fd);
   }
 }
 function flushDirectory(path) {
   if (process.platform === "win32") {
     return;
   }
-  const fd = openSync3(path, fsConstants2.O_RDONLY);
+  const fd = openSync4(path, fsConstants2.O_RDONLY);
   try {
     fsyncSync2(fd);
   } finally {
-    closeSync3(fd);
+    closeSync4(fd);
   }
 }
 function writeNewFile(path, payload) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  const fd = openSync3(
+  const fd = openSync4(
     path,
     fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
     384
@@ -4411,7 +5167,7 @@ function writeNewFile(path, payload) {
     writeFileSync2(fd, payload);
     fsyncSync2(fd);
   } finally {
-    closeSync3(fd);
+    closeSync4(fd);
   }
   flushDirectory(dirname2(path));
 }
@@ -4797,14 +5553,14 @@ var init_transactionWorkspace = __esm({
 // src/committing-to-git/transaction/indexInstallation.js
 import { createHash as createHash4, randomUUID as randomUUID3 } from "node:crypto";
 import {
-  closeSync as closeSync4,
+  closeSync as closeSync5,
   constants as fsConstants3,
   existsSync as existsSync5,
-  fstatSync as fstatSync3,
+  fstatSync as fstatSync4,
   fsyncSync as fsyncSync3,
   futimesSync,
   lstatSync as lstatSync3,
-  openSync as openSync4,
+  openSync as openSync5,
   readFileSync as readFileSync2,
   realpathSync as realpathSync2,
   renameSync as renameSync3,
@@ -4836,7 +5592,7 @@ function stableIdentityMatches(left, right) {
   return left.device === right.device && left.inode === right.inode && left.mode === right.mode && left.modifiedTimeMilliseconds === right.modifiedTimeMilliseconds && left.changeTimeMilliseconds === right.changeTimeMilliseconds;
 }
 function openReadOnlyNoFollow2(path) {
-  return openSync4(path, fsConstants3.O_RDONLY + (fsConstants3.O_NOFOLLOW ?? 0));
+  return openSync5(path, fsConstants3.O_RDONLY + (fsConstants3.O_NOFOLLOW ?? 0));
 }
 function readStableRegularFile2(path, { allowAbsent = false } = {}) {
   let pathStat;
@@ -4853,12 +5609,12 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
   }
   const descriptor = openReadOnlyNoFollow2(path);
   try {
-    const before = fstatSync3(descriptor);
+    const before = fstatSync4(descriptor);
     if (!before.isFile()) {
       throw new Error(`Expected a regular file after opening: ${path}`);
     }
     const bytes = readFileSync2(descriptor);
-    const after = fstatSync3(descriptor);
+    const after = fstatSync4(descriptor);
     const finalPathStat = lstatSync3(path);
     const beforeIdentity = statIdentity(before);
     const afterIdentity = statIdentity(after);
@@ -4870,7 +5626,7 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
     }
     return {
       bytes,
-      modifiedTimeNanoseconds: fstatSync3(descriptor, { bigint: true }).mtimeNs,
+      modifiedTimeNanoseconds: fstatSync4(descriptor, { bigint: true }).mtimeNs,
       identity: {
         state: "file",
         byteCount: bytes.length,
@@ -4879,7 +5635,7 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
       }
     };
   } finally {
-    closeSync4(descriptor);
+    closeSync5(descriptor);
   }
 }
 function assertIndexIdentity(identity2, label) {
@@ -4910,7 +5666,7 @@ function readIndexIdentity(indexPath) {
 function flushDirectory2(path) {
   let descriptor;
   try {
-    descriptor = openSync4(path, fsConstants3.O_RDONLY);
+    descriptor = openSync5(path, fsConstants3.O_RDONLY);
     fsyncSync3(descriptor);
   } catch (error) {
     if (process.platform !== "win32") {
@@ -4918,12 +5674,12 @@ function flushDirectory2(path) {
     }
   } finally {
     if (descriptor !== void 0) {
-      closeSync4(descriptor);
+      closeSync5(descriptor);
     }
   }
 }
 function writeNewJson2(path, value) {
-  const descriptor = openSync4(
+  const descriptor = openSync5(
     path,
     fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
     384
@@ -4933,7 +5689,7 @@ function writeNewJson2(path, value) {
 `, "utf8");
     fsyncSync3(descriptor);
   } finally {
-    closeSync4(descriptor);
+    closeSync5(descriptor);
   }
   flushDirectory2(dirname3(path));
 }
@@ -5128,7 +5884,7 @@ function performJournaledReplacement({
   let lockDescriptor;
   let lockOwned = false;
   try {
-    lockDescriptor = openSync4(
+    lockDescriptor = openSync5(
       lockPath,
       fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
       438
@@ -5137,13 +5893,13 @@ function performJournaledReplacement({
     writeFileSync3(lockDescriptor, preparedBytes);
     const timestamp = Number(preparedModifiedTimeNanoseconds / 1000000000n);
     futimesSync(lockDescriptor, timestamp, timestamp);
-    if (fstatSync3(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
+    if (fstatSync4(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
       throw new Error(
         "Installed index timestamp could not preserve native Git freshness."
       );
     }
     fsyncSync3(lockDescriptor);
-    closeSync4(lockDescriptor);
+    closeSync5(lockDescriptor);
     lockDescriptor = void 0;
     const lockedIdentity = readIndexIdentity(journal.indexPath);
     const lockedHeadAnchor = captureHeadAnchor(journal.repositoryRoot);
@@ -5169,7 +5925,7 @@ function performJournaledReplacement({
     };
   } finally {
     if (lockDescriptor !== void 0) {
-      closeSync4(lockDescriptor);
+      closeSync5(lockDescriptor);
     }
     if (lockOwned) {
       rmSync2(lockPath, { force: true });
@@ -6265,15 +7021,15 @@ var init_createSnapshot = __esm({
 // src/committing-to-git/inspection/reviewCatalog.js
 import { createHash as createHash6 } from "node:crypto";
 import {
-  closeSync as closeSync5,
+  closeSync as closeSync6,
   constants as fsConstants4,
   createReadStream,
   existsSync as existsSync8,
-  fstatSync as fstatSync4,
+  fstatSync as fstatSync5,
   fsyncSync as fsyncSync4,
   lstatSync as lstatSync5,
   mkdirSync as mkdirSync5,
-  openSync as openSync5,
+  openSync as openSync6,
   readFileSync as readFileSync3,
   readdirSync as readdirSync2,
   realpathSync as realpathSync3,
@@ -6980,12 +7736,12 @@ function readVerifiedPacket(outputDirectory, packet) {
     );
   }
   const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
-  const descriptor = openSync5(path, fsConstants4.O_RDONLY | noFollow);
+  const descriptor = openSync6(path, fsConstants4.O_RDONLY | noFollow);
   let bytes;
   try {
-    const before = fstatSync4(descriptor);
+    const before = fstatSync5(descriptor);
     bytes = readFileSync3(descriptor);
-    const after = fstatSync4(descriptor);
+    const after = fstatSync5(descriptor);
     const final = lstatSync5(path);
     if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync3(path) !== path) {
       failPacket(
@@ -6994,7 +7750,7 @@ function readVerifiedPacket(outputDirectory, packet) {
       );
     }
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
   const actual = sha256Bytes(bytes);
   if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
@@ -7192,7 +7948,7 @@ function writeReviewPacketQueue({
   if (!existsSync8(queuesDirectory)) {
     mkdirSync5(queuesDirectory);
   }
-  const pages = new Array(partitions.length);
+  const pages2 = new Array(partitions.length);
   let nextPage = null;
   for (let index = partitions.length - 1; index >= 0; index -= 1) {
     const ordinal = String(index + 1).padStart(6, "0");
@@ -7215,7 +7971,7 @@ function writeReviewPacketQueue({
       byteCount: bytes.length,
       packetCount: partitions[index].length
     };
-    pages[index] = page;
+    pages2[index] = page;
     nextPage = { artifact, sha256: page.sha256 };
   }
   const summary = {
@@ -7224,12 +7980,12 @@ function writeReviewPacketQueue({
     catalogSha256: catalog.catalogSha256,
     evidencePlanSha256: catalog.evidencePlanSha256,
     requiredPacketCount: records.length,
-    pageCount: pages.length,
-    firstPage: pages[0]
+    pageCount: pages2.length,
+    firstPage: pages2[0]
   };
   Object.defineProperty(summary, "pages", {
     enumerable: false,
-    value: pages
+    value: pages2
   });
   return summary;
 }
@@ -7265,16 +8021,16 @@ function supersedePriorQueue({
   priorCatalog,
   supersedingCatalogSha256
 }) {
-  const pages = queuePagesForCatalog(
+  const pages2 = queuePagesForCatalog(
     outputDirectory,
     priorCatalog.catalogSha256
   );
-  if (pages.length === 0) {
+  if (pages2.length === 0) {
     return null;
   }
   const pageSetSha256 = sha256Bytes(
     stableJsonBytes(
-      pages.map(({ artifact, sha256: sha25612 }) => ({ artifact, sha256: sha25612 }))
+      pages2.map(({ artifact, sha256: sha25612 }) => ({ artifact, sha256: sha25612 }))
     )
   );
   const marker = {
@@ -7283,20 +8039,20 @@ function supersedePriorQueue({
     catalogSha256: priorCatalog.catalogSha256,
     evidencePlanSha256: priorCatalog.evidencePlanSha256,
     supersededByCatalogSha256: supersedingCatalogSha256,
-    removedPageCount: pages.length,
+    removedPageCount: pages2.length,
     removedPageSetSha256: pageSetSha256
   };
   const markerBytes = stableJsonBytes(marker);
   const markerSha256 = sha256Bytes(markerBytes);
   const markerArtifact = `queues/superseded-${markerSha256}.json`;
   writeImmutableSmallFile(join6(outputDirectory, markerArtifact), markerBytes);
-  for (const { path } of pages) {
+  for (const { path } of pages2) {
     unlinkSync3(path);
   }
   return {
     catalogSha256: priorCatalog.catalogSha256,
     supersededByCatalogSha256: supersedingCatalogSha256,
-    removedPageCount: pages.length,
+    removedPageCount: pages2.length,
     removedPageSetSha256: pageSetSha256,
     markerArtifact,
     markerSha256
@@ -8573,14 +9329,14 @@ var init_commitMessageRenderer = __esm({
 // src/committing-to-git/message/canonicalMessageState.js
 import { createHash as createHash8, randomUUID as randomUUID4 } from "node:crypto";
 import {
-  closeSync as closeSync6,
+  closeSync as closeSync7,
   constants as fsConstants5,
   existsSync as existsSync9,
-  fstatSync as fstatSync5,
+  fstatSync as fstatSync6,
   fsyncSync as fsyncSync5,
   lstatSync as lstatSync6,
   mkdirSync as mkdirSync6,
-  openSync as openSync6,
+  openSync as openSync7,
   readFileSync as readFileSync4,
   realpathSync as realpathSync4,
   renameSync as renameSync4,
@@ -8604,11 +9360,11 @@ function flushDirectory3(path) {
   if (process.platform === "win32") {
     return;
   }
-  const descriptor = openSync6(path, fsConstants5.O_RDONLY);
+  const descriptor = openSync7(path, fsConstants5.O_RDONLY);
   try {
     fsyncSync5(descriptor);
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
 }
 function assertContained(attemptDirectory, path) {
@@ -8665,7 +9421,7 @@ function sameIdentity(left, right) {
 }
 function openReadOnlyNoFollow3(path) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  return openSync6(path, fsConstants5.O_RDONLY + noFollow);
+  return openSync7(path, fsConstants5.O_RDONLY + noFollow);
 }
 function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
   let initial;
@@ -8690,7 +9446,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
   }
   const descriptor = openReadOnlyNoFollow3(path);
   try {
-    const before = fstatSync5(descriptor, { bigint: true });
+    const before = fstatSync6(descriptor, { bigint: true });
     const initialIdentity = statIdentity2(initial);
     const openedIdentity = statIdentity2(before);
     if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
@@ -8701,7 +9457,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
     }
     afterOpen?.({ descriptor, identity: openedIdentity, path });
     const bytes = readFileSync4(descriptor);
-    const after = fstatSync5(descriptor, { bigint: true });
+    const after = fstatSync6(descriptor, { bigint: true });
     const finalIdentity = statIdentity2(after);
     if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || bytes.length > maximumBytes) {
       fail2(
@@ -8720,7 +9476,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
     }
     return { bytes, identity: finalIdentity, path };
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
 }
 function readTransactionOwnedFile({
@@ -8782,7 +9538,7 @@ function cleanupTransactionOwnedInput({
     };
   }
   try {
-    const opened = fstatSync5(descriptor, { bigint: true });
+    const opened = fstatSync6(descriptor, { bigint: true });
     if (!opened.isFile() || !sameIdentity(identity2, statIdentity2(opened))) {
       return {
         removed: false,
@@ -8794,7 +9550,7 @@ function cleanupTransactionOwnedInput({
       };
     }
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
   try {
     const finalPathStat = lstatSync6(path, { bigint: true });
@@ -8827,7 +9583,7 @@ function cleanupTransactionOwnedInput({
 }
 function writeNewFile2(path, bytes) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  const descriptor = openSync6(
+  const descriptor = openSync7(
     path,
     fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL + noFollow,
     384
@@ -8836,7 +9592,7 @@ function writeNewFile2(path, bytes) {
     writeFileSync6(descriptor, bytes);
     fsyncSync5(descriptor);
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
 }
 function ensureTransactionOwnedJson({
@@ -8893,13 +9649,13 @@ function currentPathMatches(path, identity2) {
   let descriptor;
   try {
     descriptor = openReadOnlyNoFollow3(path);
-    const stat = fstatSync5(descriptor, { bigint: true });
+    const stat = fstatSync6(descriptor, { bigint: true });
     return stat.isFile() && sameIdentity(identity2, statIdentity2(stat));
   } catch {
     return false;
   } finally {
     if (descriptor !== void 0) {
-      closeSync6(descriptor);
+      closeSync7(descriptor);
     }
   }
 }
@@ -9411,183 +10167,6 @@ var init_canonicalMessageState = __esm({
       "approved-subject",
       "checked-file",
       "finalized-extended"
-    ]);
-  }
-});
-
-// src/committing-to-git/signature/signaturePreflight.js
-import { spawnSync as spawnSync2 } from "node:child_process";
-import { closeSync as closeSync7, fstatSync as fstatSync6, openSync as openSync7 } from "node:fs";
-function runGitConfig(root, args) {
-  return spawnSync2("git", args, {
-    cwd: root,
-    encoding: null,
-    env: process.env,
-    windowsHide: true,
-    maxBuffer: 1024 * 1024
-  });
-}
-function configText(result, label) {
-  if (result?.error) {
-    throw new Error(`${label} could not run: ${result.error.message}`);
-  }
-  if (result?.status !== 0 && result?.status !== 1) {
-    const diagnostic = Buffer.from(result?.stderr ?? Buffer.alloc(0)).toString("utf8").trim();
-    throw new Error(
-      `${label} failed${diagnostic ? `: ${diagnostic}` : ` with exit ${result?.status}`}.`
-    );
-  }
-  return result.status === 0 ? Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8").replace(/\r?\n$/u, "") : null;
-}
-function defaultTrustSourceProbe(path) {
-  let descriptor = null;
-  try {
-    descriptor = openSync7(path, "r");
-    const stat = fstatSync6(descriptor);
-    return stat.isFile() ? { state: "readable", errorCode: null } : { state: "invalid-file-type", errorCode: null };
-  } catch (error) {
-    const errorCode = typeof error.code === "string" ? error.code : null;
-    if ((/* @__PURE__ */ new Set(["ENOENT", "ENOTDIR"])).has(errorCode)) {
-      return { state: "not-found", errorCode };
-    }
-    if ((/* @__PURE__ */ new Set(["EACCES", "EPERM"])).has(errorCode)) {
-      return { state: "permission-denied", errorCode };
-    }
-    if ((/* @__PURE__ */ new Set(["EISDIR", "ELOOP"])).has(errorCode)) {
-      return { state: "invalid-file-type", errorCode };
-    }
-    return { state: "probe-error", errorCode };
-  } finally {
-    if (descriptor !== null) {
-      closeSync7(descriptor);
-    }
-  }
-}
-function normalizeTrustSourceProbe(result) {
-  if (result === null || typeof result !== "object" || Array.isArray(result) || !TRUST_SOURCE_STATES.has(result.state) || result.state === "not-configured" || !Object.hasOwn(result, "errorCode") || result.errorCode !== null && typeof result.errorCode !== "string") {
-    throw new Error("SSH allowed-signers probe returned an invalid result.");
-  }
-  return { state: result.state, errorCode: result.errorCode };
-}
-function signatureTrustDiagnostic(trustSource, { verificationPolicy, state = {} }) {
-  if (trustSource === null || typeof trustSource !== "object" || trustSource.state === "readable") {
-    throw new Error(
-      "SSH trust-source failure description requires an unavailable source."
-    );
-  }
-  const permissionDenied = trustSource.state === "permission-denied";
-  const capability = permissionDenied ? {
-    kind: "read-file",
-    path: trustSource.path,
-    origin: trustSource.origin
-  } : null;
-  const action = permissionDenied ? { kind: "request-read-capability", capability } : {
-    kind: "repair-configuration",
-    configKey: "gpg.ssh.allowedSignersFile",
-    origin: trustSource.origin,
-    path: trustSource.path
-  };
-  const messageByState = {
-    "not-configured": "Required SSH verification has no configured allowed-signers file.",
-    "not-found": "Required SSH verification cannot find Git's configured allowed-signers file.",
-    "permission-denied": "Required SSH verification cannot read Git's configured allowed-signers file because access was denied.",
-    "invalid-file-type": "Required SSH verification configured an allowed-signers path that is not a readable regular file.",
-    "probe-error": "Required SSH verification could not inspect Git's configured allowed-signers file."
-  };
-  return new WorkflowDiagnosticError(
-    "SIGNATURE_TRUST_ACCESS_REQUIRED",
-    messageByState[trustSource.state] ?? "Required SSH verification cannot use Git's configured allowed-signers file.",
-    {
-      disposition: "unmet-prerequisite",
-      state,
-      recovery: {
-        kind: "human-decision",
-        automatic: false,
-        requiredInputs: [
-          "readable configured verification trust source or an explicitly approved verification-policy change"
-        ],
-        commands: []
-      },
-      documentation: "references/signature-recovery.md",
-      details: {
-        action,
-        ...capability === null ? {} : { capability },
-        trustSource,
-        verificationPolicy,
-        policyAlternatives: ["advisory", "skipped"]
-      }
-    }
-  );
-}
-function inspectSignatureRequirements(root, {
-  runConfig = (args) => runGitConfig(root, args),
-  probeTrustSource = defaultTrustSourceProbe
-} = {}) {
-  const format = configText(
-    runConfig(["config", "--get", "gpg.format"]),
-    "Git signature backend discovery"
-  );
-  const backend = format === null || format === "" || format === "openpgp" ? "openpgp" : format.toLowerCase();
-  if (!(/* @__PURE__ */ new Set(["openpgp", "ssh"])).has(backend)) {
-    throw new Error(
-      `Unsupported Git signature backend ${JSON.stringify(backend)}.`
-    );
-  }
-  if (backend !== "ssh") {
-    return { backend, trustSource: null };
-  }
-  const configured = configText(
-    runConfig([
-      "config",
-      "--show-origin",
-      "--path",
-      "--get",
-      "gpg.ssh.allowedSignersFile"
-    ]),
-    "SSH allowed-signers discovery"
-  );
-  if (configured === null) {
-    return {
-      backend: "ssh",
-      trustSource: {
-        configured: false,
-        origin: null,
-        path: null,
-        state: "not-configured",
-        errorCode: null
-      }
-    };
-  }
-  const separator = configured.indexOf("	");
-  if (separator < 1 || separator === configured.length - 1) {
-    throw new Error(
-      "Git returned an invalid origin/path record for gpg.ssh.allowedSignersFile."
-    );
-  }
-  const origin = configured.slice(0, separator);
-  const path = configured.slice(separator + 1);
-  const probe = normalizeTrustSourceProbe(probeTrustSource(path));
-  return {
-    backend: "ssh",
-    trustSource: {
-      configured: true,
-      origin,
-      path,
-      ...probe
-    }
-  };
-}
-var TRUST_SOURCE_STATES;
-var init_signaturePreflight = __esm({
-  "src/committing-to-git/signature/signaturePreflight.js"() {
-    init_workflowDiagnosticError();
-    TRUST_SOURCE_STATES = /* @__PURE__ */ new Set([
-      "readable",
-      "not-configured",
-      "not-found",
-      "permission-denied",
-      "invalid-file-type",
-      "probe-error"
     ]);
   }
 });
@@ -13575,7 +14154,7 @@ var require_cross_spawn = __commonJS({
       enoent.hookChildProcess(spawned, parsed);
       return spawned;
     }
-    function spawnSync3(command, args, options) {
+    function spawnSync5(command, args, options) {
       const parsed = parse(command, args, options);
       const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
@@ -13583,7 +14162,7 @@ var require_cross_spawn = __commonJS({
     }
     module.exports = spawn4;
     module.exports.spawn = spawn4;
-    module.exports.sync = spawnSync3;
+    module.exports.sync = spawnSync5;
     module.exports._parse = parse;
     module.exports._enoent = enoent;
   }
@@ -18355,7 +18934,7 @@ async function materializeObservation(transaction, active) {
   let entries = [];
   let pageIndex = 0;
   let nextOrdinal = 0;
-  const pages = [];
+  const pages2 = [];
   const flushPage = () => {
     if (entries.length === 0) {
       return;
@@ -18367,7 +18946,7 @@ async function materializeObservation(transaction, active) {
       entries
     };
     writeNew(pagePath(transaction, active, pageIndex), page);
-    pages.push({
+    pages2.push({
       index: pageIndex,
       startOrdinal: page.startOrdinal,
       endOrdinal: page.endOrdinal,
@@ -18392,7 +18971,7 @@ async function materializeObservation(transaction, active) {
     }
   );
   flushPage();
-  if (pages.length === 0) {
+  if (pages2.length === 0) {
     const page = {
       schemaVersion: 1,
       startOrdinal: 0,
@@ -18400,7 +18979,7 @@ async function materializeObservation(transaction, active) {
       entries: []
     };
     writeNew(pagePath(transaction, active, 0), page);
-    pages.push({
+    pages2.push({
       index: 0,
       startOrdinal: 0,
       endOrdinal: -1,
@@ -18413,7 +18992,7 @@ async function materializeObservation(transaction, active) {
     observationDirectoryIdentity,
     observationDigest: observation.digest,
     observedEntryCount: observation.observedEntries,
-    pages
+    pages: pages2
   };
   replaceJson2(join15(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
   return completedActive;
@@ -21206,6 +21785,13 @@ import { createHash as createHash24 } from "node:crypto";
 import { readFileSync as readFileSync15 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
+    "workflow preflight",
+    [
+      () => Promise.resolve().then(() => (init_publicationPreflightWorkflow(), publicationPreflightWorkflow_exports)),
+      "runPublicationPreflightCommand"
+    ]
+  ],
+  [
     "workflow prepare",
     [
       () => Promise.resolve().then(() => (init_prepareWorkflow(), prepareWorkflow_exports)),
@@ -21306,6 +21892,13 @@ var COMMANDS = /* @__PURE__ */ new Map([
   ]
 ]);
 var COMMAND_HELP = /* @__PURE__ */ new Map([
+  [
+    "workflow preflight",
+    `Performs read-only local and GitHub publication feasibility discovery before
+message drafting. Creates no transaction and grants no publication authority.
+Unsupported or inaccessible policy is unknown, never permission to push.
+`
+  ],
   [
     "workflow prepare",
     `Allocates one helper-owned transaction, validates literal scope and evidence
@@ -21440,6 +22033,7 @@ var HELP = `Commit workflow
 
 Usage:
   commitWorkflow.mjs --version
+  commitWorkflow.mjs workflow preflight [options]
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]

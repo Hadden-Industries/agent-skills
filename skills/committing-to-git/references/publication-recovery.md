@@ -1,6 +1,6 @@
 # Publication Recovery
 
-Read this reference after a known rejection or unknown publication result, when retargeting or a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation.
+Read this reference after a known rejection or unknown publication result, when retargeting or a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation. For new commit-and-publish requests, first use [publication routing](publication-routing.md) before drafting; rejection is recovery, not policy discovery. Reuse an already approved route/fallback within its exact scope rather than requesting the same approval again.
 
 ## Known rejection
 

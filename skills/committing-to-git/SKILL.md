@@ -1,6 +1,6 @@
 ---
 name: committing-to-git
-description: Drafts or revises commit messages for current workspace changes, guides creation of a signed commit from an approved staged snapshot, reports whether the result matches, and optionally pushes that exact commit. Use for a requested message draft, new local commit, or that workflow's push. Do not use to amend history or finish merge, rebase, cherry-pick, or revert operations.
+description: Drafts messages, creates and verifies signed commits, and preflights authorized direct or GitHub PR publication. Use for message drafts, new commits, or their delivery. Excludes history amendment and existing merge, rebase, cherry-pick, or revert operations.
 compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configured signing. Required SSH verification needs its configured trust source readable.
 license: MPL-2.0
 metadata:
@@ -9,11 +9,15 @@ metadata:
 
 # Committing to Git
 
-Parse JSON `disposition`, `status`, `phase`, and `recovery`; keep `transaction` opaque; show canonical message `displayText` verbatim. Stderr is not the result. Follow [diagnostics](references/diagnostics.md) for shared fields, equivalent text output, installed identity, and bounded recovery commands. Never evaluate diagnostic prose as a shell command.
+Parse JSON `disposition`, `status`, `phase`, and `recovery`; keep `transaction` opaque; show `displayText` verbatim. Stderr is not the result. Follow [diagnostics](references/diagnostics.md). Never execute diagnostic prose.
 
-Treat the user's hint as a hypothesis. Use policy, task evidence, and Git facts to correct type and scope, sharpen the outcome, and add useful rationale or user-experience consequences. Do not ask for wording when evidence can improve it.
+Treat the user's hint as a hypothesis. Use policy, task evidence and Git facts to correct type and scope, sharpen the outcome, and add rationale or user-experience consequences.
 
 For a known-context transport-safe subject, the route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`, with no artifact access between helper calls. Drafting authorizes neither staging nor committing; pushing needs separate authorization.
+
+## Publication intent before drafting
+
+Before drafting for commit-and-publish intent, follow [publication routing](references/publication-routing.md); run `workflow preflight --remote <name>` with known target/source refs. Resolve blocked/unknown feasibility; pending reviews/checks are prerequisites. Prefer direct signed publication, normal PR merge, then disclosed squash, respecting policy, queues and signature requirements. Include route/fallback in the original approval and reuse it. Draft-only/local-only intent needs no remote preflight.
 
 Derive exact scope from task lineage and Git state, never a semantic hint used as a glob, pathspec, prefix, or fuzzy selector. Ask only when two materially different scopes remain plausible. Never autocorrect unmatched selectors.
 
@@ -34,11 +38,11 @@ Use `staged` for an intentional index or partial hunks, `full` for every change,
 | `message` | The user's hint or bounded current observations are sufficient; a hint alone belongs here |
 | `review` | Content or consequential Git facts remain unknown and require packets |
 
-Age is not uncertainty. When a targeted exact-path diff fully explains a small dependency, integrity hash, lock entry, or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
+Age is not uncertainty. When a targeted exact-path diff explains a small dependency, integrity hash, lock entry or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
 
 For mixed provenance, use exact non-overlapping selections covering the scope, not per-file lists. Rationales may overlap; bulk domains may not. Scope verification proves selection, message evidence supports claims, and full review inspects content. Bounded evidence stays inline; larger requirements use packets.
 
-Reuse `task-lineage` requires a specific note through reusable `--evidence-plan` JSON; see [evidence-plan recovery](references/inspection-recovery.md#reusable-evidence-plans). Do not claim `read-current-task` unless the content was actually read. Durable evidence remains usable across hosts when its identity, subject, and applicability still match.
+Reuse `task-lineage` requires a specific `--evidence-plan` JSON note; see [evidence-plan recovery](references/inspection-recovery.md#reusable-evidence-plans). Claim `read-current-task` only for content actually read. Cross-host evidence requires matching identity, subject and applicability.
 
 Every mode may write Git objects. Actual `full` or `paths` may install the index; drafts do not. Run:
 
@@ -48,7 +52,7 @@ node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode <actual|draft> -
 
 Loaded repository type policy wins. Otherwise choose the most specific dominant outcome: `feat` capability, `fix` correction, `perf` performance, `refactor` internals, `docs`, `test`, `build` dependencies, `ci`, or `chore` maintenance. Do not routinely scan history; sample only an unresolved convention. Disclose only a tie that changes release or user meaning.
 
-Concise eligibility tracks unresolved semantic uncertainty; file count never determines concise eligibility. No path or domain label is an escalation deny-list, including security, migration, deployment, lockfile, generated, or submodule. Escalate only for unresolved evidence or unexplained special Git facts; an explicit review request still stays inline when its complete evidence fits. Oversized inline evidence selects extended, never truncation.
+Concise eligibility tracks semantic uncertainty; file count never determines concise eligibility. No path or domain label is an escalation deny-list. Escalate for unresolved evidence or unexplained Git facts. Explicit review stays inline when complete evidence fits; otherwise select extended, never truncate.
 
 ## Validate before approval
 
@@ -56,7 +60,7 @@ Complete the message before approval. Checked or structured text must be `messag
 
 Before presenting any subject for approval, while authoring the first proposal, apply the supported skill message policy: the description immediately after `: ` must begin with an uppercase Unicode cased letter; optional scope does not change this rule. Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`. If local validation returns `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message to the user, avoiding a capitalization-only second approval. This is an authoring defect, not a repository-specific rejection.
 
-For bodies or inventories, follow the authoring route below and [message format](references/message-format.md) examples. Evidence depth does not determine verbosity; preserve requested sections.
+For bodies/inventories, follow the authoring route and [message format](references/message-format.md). Preserve requested sections regardless of evidence depth.
 
 Canonical bytes are strict UTF-8 with one LF. Direct `--message` is `subject + LF` only after `canUseDirectSubjectTransport()` succeeds. Checked text uses the fixed local input:
 
@@ -64,7 +68,7 @@ Canonical bytes are strict UTF-8 with one LF. Direct `--message` is `subject + L
 node <skill>/scripts/commitWorkflow.mjs message check --transaction <opaque-transaction>
 ```
 
-Success consumes the input; recreate it for revision. Failure preserves prior valid state and rejected input. Code enforces mechanics, not semantics.
+Success consumes input; recreate for revision. Failure preserves valid state and rejected input. Code cannot validate semantics.
 
 | Revision | Invalidation and route |
 | --- | --- |
@@ -106,7 +110,7 @@ Immediately before this command, confirm commit authorization for the exact disp
 node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
 ```
 
-Hooks may change the message; preserve the known commit and report the mismatch. For trust-source failure, policy change, or backend identity limits, use [signature recovery](references/signature-recovery.md). One transition reduces duplicate races; journals preserve unknown outcomes without replay.
+For hook message changes, preserve the commit and report mismatch. Use [signature recovery](references/signature-recovery.md) for trust, policy or identity limits. Journals preserve unknown outcomes without replay.
 
 ## Interpret, recover, and publish
 
@@ -114,10 +118,10 @@ Use the [exit outcomes](references/diagnostics.md#exit-outcomes): 0 success, 1 k
 
 Resume a recoverably interrupted preparation only with `workflow resume --transaction <opaque-transaction>`; persisted inputs cannot broaden. Use [transaction recovery](references/transaction-recovery.md) for permission, lock, partial-phase, or pending/unknown failures. Bounded diagnostics point to a complete hashed failure log. Query count/byte-limited report paths through `workflow report-detail`; replay the same cursor or cursorless completed page, and use `--refresh` only for a new observation.
 
-Immediately before publication, obtain separate push authorization for the exact OID, remote, and full destination ref:
+Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding the resulting OID to its tree/message and destination. Refresh [publication routing](references/publication-routing.md) before pushing/merging. Publishing the PR source does not complete integration:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs workflow publish --transaction <opaque-transaction> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <prior-attempt-id>]
 ```
 
-A witnessed success differs from a recovery-time matching remote observation. Never retry automatically; `confirmed-no-live-child` requires explicit user confirmation that the process ended or host restarted. A separately authorized retry binds resolved uncertainty with `--retry-after-attempt`; a `reported` rejection omits it. Follow [publication recovery](references/publication-recovery.md) for rejections, retargeting, unknown outcomes, or missing transactions.
+A witnessed success differs from a recovery-time matching remote observation. Never retry an unknown publication outcome automatically; `confirmed-no-live-child` requires explicit user confirmation that the process ended or host restarted. A separately authorized retry binds resolved uncertainty with `--retry-after-attempt`; a `reported` rejection omits it. Continue a known rejection's already authorized fallback without duplicate approval. Follow [publication recovery](references/publication-recovery.md) for rejections, retargeting, unknown outcomes, or missing transactions.

@@ -17,6 +17,13 @@ import {
 
 const COMMANDS = new Map([
   [
+    "workflow preflight",
+    [
+      () => import("../workflow/publicationPreflightWorkflow.js"),
+      "runPublicationPreflightCommand",
+    ],
+  ],
+  [
     "workflow prepare",
     [
       () => import("../workflow/prepareWorkflow.js"),
@@ -118,6 +125,13 @@ const COMMANDS = new Map([
 ]);
 
 const COMMAND_HELP = new Map([
+  [
+    "workflow preflight",
+    `Performs read-only local and GitHub publication feasibility discovery before
+message drafting. Creates no transaction and grants no publication authority.
+Unsupported or inaccessible policy is unknown, never permission to push.
+`,
+  ],
   [
     "workflow prepare",
     `Allocates one helper-owned transaction, validates literal scope and evidence
@@ -258,6 +272,7 @@ const HELP = `Commit workflow
 
 Usage:
   commitWorkflow.mjs --version
+  commitWorkflow.mjs workflow preflight [options]
   commitWorkflow.mjs workflow prepare [options]
   commitWorkflow.mjs workflow resume [options]
   commitWorkflow.mjs workflow extend [options]

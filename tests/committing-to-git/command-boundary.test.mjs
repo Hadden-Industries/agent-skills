@@ -23,6 +23,7 @@ const cli = fileURLToPath(
 );
 
 const commands = [
+  "workflow preflight",
   "workflow prepare",
   "workflow resume",
   "workflow extend",
