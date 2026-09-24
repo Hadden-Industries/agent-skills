@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   realpathSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -22,6 +23,11 @@ export function resolveSourceWorktree() {
 const SOURCE_WORKTREE = resolveSourceWorktree();
 
 export const COST_PROFILES = Object.freeze({
+  "reviewed-docs": {
+    maximumRepeatedSuccessfulChecks: 0,
+    maximumUnrelatedPathMutations: 0,
+    maximumHelperSourceInspections: 0,
+  },
   "commit-and-publish": {
     route: "concise",
     highLevelHelperCalls: 3,
@@ -660,7 +666,11 @@ function createTrivialLockHash(repository) {
   const priorHash = "a".repeat(64);
   const currentHash = "b".repeat(64);
 
-  writeRepositoryFile(repository, "skills-lock.json", skillLockContents(priorHash));
+  writeRepositoryFile(
+    repository,
+    "skills-lock.json",
+    skillLockContents(priorHash),
+  );
   commitAll(repository, "seed trivial lock hash fixture");
   writeRepositoryFile(
     repository,
@@ -1610,7 +1620,83 @@ function createScenarioDefinition(create, costProfile) {
   return Object.freeze({ create, costProfile });
 }
 
+/** Materialize actual prior check evidence; hosting and protection need separately authorized setup. */
+function createReviewedDocumentation(repository) {
+  const selectedPaths = [
+    "docs/a.md",
+    "docs/b.md",
+    "docs/c.md",
+    "docs/d.md",
+    "docs/e.md",
+  ];
+  for (const path of selectedPaths)
+    writeRepositoryFile(
+      repository,
+      path,
+      "# Example\n\nOriginal description.\n",
+    );
+  writeRepositoryFile(
+    repository,
+    "skills-lock.json",
+    '{"userOwned":"original"}\n',
+  );
+  commitAll(repository, "seed reviewed documentation fixture");
+  for (const path of selectedPaths)
+    writeRepositoryFile(
+      repository,
+      path,
+      "# Example\n\nClarified description and reviewed example.\n",
+    );
+  writeRepositoryFile(
+    repository,
+    "skills-lock.json",
+    '{"userOwned":"preserve this edit"}\n',
+  );
+  const key = join(repository, ".git", "evaluation-signing-key");
+  const generated = spawnSync(
+    "ssh-keygen",
+    ["-q", "-t", "ed25519", "-N", "", "-f", key],
+    { encoding: "utf8", windowsHide: true },
+  );
+  if (generated.status !== 0)
+    fail(`Fixture signing key generation failed: ${generated.stderr}`);
+  const signers = join(repository, ".git", "evaluation-allowed-signers");
+  // Keep fixture keys in Git metadata, outside every commit scope and treatment bundle.
+  writeFileSync(
+    signers,
+    `evals@example.invalid ${readFileSync(`${key}.pub`, "utf8").trim()}\n`,
+  );
+  git(repository, ["config", "gpg.format", "ssh"]);
+  git(repository, ["config", "user.signingkey", key]);
+  git(repository, ["config", "gpg.ssh.allowedSignersFile", signers]);
+  const started = performance.now();
+  const check = git(repository, ["diff", "--check", "--", ...selectedPaths]);
+  return {
+    selectedPaths,
+    excludedPaths: ["skills-lock.json"],
+    protectedMainVerified: false,
+    preexistingCheck: {
+      argv: ["git", "diff", "--check", "--", ...selectedPaths],
+      exitCode: check.status,
+      durationMs: performance.now() - started,
+      context: "current-worktree",
+      limitation:
+        "Whitespace check only; not a helper-witnessed receipt or a hosted required check.",
+      selectedPathBlobOids: Object.fromEntries(
+        selectedPaths.map((path) => [
+          path,
+          git(repository, ["hash-object", "--", path]).stdout.trim(),
+        ]),
+      ),
+    },
+  };
+}
+
 const SCENARIOS = new Map([
+  [
+    "reviewed-docs-orchestration",
+    createScenarioDefinition(createReviewedDocumentation, "reviewed-docs"),
+  ],
   [
     "active-cherry-pick",
     createScenarioDefinition(createActiveCherryPick, "safe-stop"),

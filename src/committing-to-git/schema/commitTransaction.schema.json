@@ -30,6 +30,7 @@
     "publicationAttempts"
   ],
   "properties": {
+    "messageFormat": { "const": "detailed" },
     "schemaVersion": { "const": 4 },
     "phase": {
       "enum": [
@@ -618,6 +619,12 @@
         "coveredCapsuleSha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "preparationEvidence": {
+          "allOf": [
+            { "$ref": "#/$defs/inlineEvidenceState" },
+            { "type": "object" }
+          ]
         },
         "extendedReason": {
           "enum": [

@@ -4,6 +4,8 @@ Use for commit-and-publish intent before message drafting or `workflow prepare`,
 
 ## Discover before drafting
 
+Record the authorized endpoint before selecting refs: source publication or integration into the named final target. Resolve an unspecified destination before publication; the provider default branch alone does not supply integration authority. Keep this endpoint in task evidence until readback verifies it or a concrete prerequisite blocks completion. Source publication and pending CI/review are intermediate states for an authorized integration request.
+
 Resolve the intended configured remote from task evidence and Git configuration. Do not assume `origin`, `main`, the current branch, or the API actor is the Git transport actor. A supplied target overrides the provider default branch. Inspect the effective push URL; a different fetch URL is not authority for publication. Choose a unique prospective source branch when PR delivery is possible, then run:
 
 ```text

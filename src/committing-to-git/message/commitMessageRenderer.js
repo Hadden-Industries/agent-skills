@@ -401,6 +401,14 @@ function projectedDetailedInventoryBytes(manifest) {
   return Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
 }
 
+/** Select presentation from exact inventory size before installing an actual index. */
+export function messagePresentationForManifest(manifest) {
+  return selectMessagePresentation({
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest),
+  });
+}
+
 function scaffoldEvidenceGroups(evidencePlan) {
   return evidencePlan.groups.map(({ selection, policy, basis }) => ({
     selection,
@@ -421,10 +429,16 @@ export function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
     );
   }
 
-  const recommendedMode = selectMessagePresentation({
-    changeUnitCount: manifest.changeUnitCount,
-    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest),
-  });
+  return scaffoldMessageContent(
+    messagePresentationForManifest(manifest),
+    evidencePlan,
+  );
+}
+
+/** Return fresh editable semantic input; evidence membership and mode stay helper-owned. */
+export function scaffoldMessageContent(mode, evidencePlan) {
+  if (!["detailed", "bulk"].includes(mode))
+    throw new Error("Invalid structured message mode.");
   const common = {
     schemaVersion: 3,
     authoringState: "draft",
@@ -432,10 +446,10 @@ export function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
     subject: null,
     sharedRationales: [],
     userExperienceChanges: [],
-    mode: recommendedMode,
+    mode,
   };
 
-  return recommendedMode === "bulk"
+  return mode === "bulk"
     ? { ...common, domains: [] }
     : { ...common, fileNotes: [] };
 }

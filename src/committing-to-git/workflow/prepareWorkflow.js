@@ -48,7 +48,10 @@ import {
   createReviewCatalog,
   writeReviewPacketQueue,
 } from "../inspection/reviewCatalog.js";
-import { scaffoldContent } from "../message/commitMessageRenderer.js";
+import {
+  scaffoldContent,
+  messagePresentationForManifest,
+} from "../message/commitMessageRenderer.js";
 import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
 import {
   signatureTrustDiagnostic,
@@ -552,6 +555,13 @@ export function parsePrepareArguments(argv) {
   const scope = values.get("scope");
   const verificationPolicy = values.get("verification") ?? "required";
   const format = values.get("format") ?? "json";
+  const messageFormat = values.get("message-format") ?? null;
+  if (messageFormat !== null && messageFormat !== "detailed") {
+    fail(
+      "INVALID_MESSAGE_FORMAT",
+      "--message-format must be detailed when supplied.",
+    );
+  }
 
   if (!new Set(["actual", "draft"]).has(mode)) {
     fail("INVALID_MODE", "--mode must be actual or draft.");
@@ -670,6 +680,7 @@ export function parsePrepareArguments(argv) {
         ? inlineScopePayload(values)
         : null,
     verificationPolicy,
+    messageFormat,
     format,
   };
 }
@@ -1525,7 +1536,10 @@ export async function routePreparedEvidence({
       }
     }
 
-    if (routing.route === "concise") {
+    if (
+      routing.route === "concise" &&
+      transaction.messageFormat !== "detailed"
+    ) {
       const capsuleSha256 = sha256Bytes(stableJsonBytes(routing.capsule));
       const completed = advanceTransaction(
         transactionPath,
@@ -1561,6 +1575,13 @@ export async function routePreparedEvidence({
     const extendedManifest = {
       ...anchoredManifest,
       manifestSha256: evidencePlan.manifestSha256,
+      // Inline evidence is returned in this same preparation result. Required
+      // packets remain mandatory whenever the existing evidence router escalates.
+      coveredSynopsis: routing.route === "concise",
+      coveredEvidenceGroupIds:
+        routing.route === "concise"
+          ? evidencePlan.groups.map(({ id }) => id)
+          : [],
       preMaterializedPacketsByGroupId: packetsByGroupId,
       evidenceByGroupId: Object.fromEntries(
         records
@@ -1620,13 +1641,23 @@ export async function routePreparedEvidence({
         catalogSha256: catalog.catalogSha256,
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
-        extendedReason: routing.extendedReason,
+        extendedReason: routing.extendedReason ?? "semantic-structure-required",
         deliveryPacketIds: packetIds,
         queue: reviewQueue,
         receipt: reviewReceipt,
-        semanticStructureRequired: false,
+        semanticStructureRequired: transaction.messageFormat === "detailed",
         structuredMessageMode: structuredContent.mode,
         traversal: null,
+        ...(routing.route === "concise"
+          ? {
+              preparationEvidence: {
+                capsuleSha256: sha256Bytes(stableJsonBytes(routing.capsule)),
+                manifestSha256: evidencePlan.manifestSha256,
+                evidencePlanSha256: evidencePlan.evidencePlanSha256,
+                capsule: routing.capsule,
+              },
+            }
+          : {}),
       },
     });
 
@@ -1891,6 +1922,7 @@ export async function prepareWorkflow({
   const allocated = updateTransaction(workspace.transactionPath, "allocated", {
     ...workspace.transaction,
     mode: parsed.mode,
+    ...(parsed.messageFormat ? { messageFormat: parsed.messageFormat } : {}),
     scope: initialScope,
     repositoryTypePolicy: { allowedTypes: parsed.allowedTypes },
     initialEvidencePlan: {
@@ -1941,6 +1973,16 @@ export async function prepareWorkflow({
       normalizedScope,
       selectedPaths,
     );
+
+    if (
+      parsed.messageFormat === "detailed" &&
+      messagePresentationForManifest(snapshotResult.snapshot) !== "detailed"
+    ) {
+      fail(
+        "DETAILED_MESSAGE_LIMIT_EXCEEDED",
+        "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB. Use the supported bulk authoring route for this scope.",
+      );
+    }
 
     const snapshotBytes = readFileSync(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {

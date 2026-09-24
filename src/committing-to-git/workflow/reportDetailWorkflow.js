@@ -842,7 +842,67 @@ export async function readWorkspaceDetailPage({
 }
 
 export async function reportDetailWorkflow(options) {
+  if (options.section === "report") return readRetainedReport(options);
   return readWorkspaceDetailPage(options);
+}
+
+/** Read the hash-bound report under the existing state lock; never refresh or retry an effect. */
+function readRetainedReport({
+  transactionPath,
+  cursor = null,
+  refresh = false,
+}) {
+  if (cursor !== null || refresh)
+    fail(
+      "DETAIL_ARGUMENT_CONFLICT",
+      "Report detail accepts neither --cursor nor --refresh.",
+    );
+  const lock = acquireTransactionStateLock({
+    transactionPath,
+    operation: "report-detail",
+  });
+  try {
+    const transaction = readTransaction(transactionPath);
+    if (
+      !["reported", "published"].includes(transaction.phase) ||
+      !transaction.report
+    ) {
+      fail(
+        "DETAIL_PHASE_INVALID",
+        "Retained report requires a reported or published transaction.",
+        "rejected",
+      );
+    }
+    const retained = (path, digest, name) => {
+      if (resolve(path) !== resolve(transaction.attemptDirectory, name))
+        fail("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
+      assertRegularFile(path, name);
+      const bytes = readFileSync(path);
+      if (sha256(bytes) !== digest)
+        fail("DETAIL_STATE_INVALID", "Retained report digest does not match.");
+      return bytes.toString("utf8");
+    };
+    const report = JSON.parse(
+      retained(
+        transaction.report.jsonPath,
+        transaction.report.jsonSha256,
+        "report.json",
+      ),
+    );
+    const displayText = retained(
+      transaction.report.textPath,
+      transaction.report.textSha256,
+      "report.txt",
+    );
+    return createWorkflowResult({
+      disposition: "succeeded",
+      status: "report-read",
+      ...transactionDiagnosticState(transaction, transactionPath),
+      data: { commitOid: transaction.commit.commitOid, report, displayText },
+    });
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
 }
 
 function parseArguments(argv) {
@@ -853,8 +913,12 @@ function parseArguments(argv) {
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
     fail("TRANSACTION_REQUIRED", "--transaction is required.");
+  const section = flags.get("section") ?? "workspace";
+  if (!["workspace", "report"].includes(section))
+    fail("INVALID_DETAIL_SECTION", "--section must be workspace or report.");
   return {
     transactionPath,
+    section,
     cursor: flags.get("cursor") ?? null,
     refresh: flags.get("refresh") === true,
     format,

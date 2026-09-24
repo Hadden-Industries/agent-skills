@@ -599,6 +599,10 @@ function commandOptions(command) {
     format: {
       ...stringOption,
       description: "<json|text>  Output contract; default: json."
+    },
+    "result-detail": {
+      ...stringOption,
+      description: "<full|summary>  Default: full. Summary omits duplicate successful report detail; exact display and recovery stay intact."
     }
   };
 }
@@ -637,6 +641,13 @@ function parseCommandArguments(command, argv) {
     );
   }
   const seen = /* @__PURE__ */ new Set();
+  if (parsed.values["result-detail"] !== void 0 && !["full", "summary"].includes(parsed.values["result-detail"])) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_RESULT_DETAIL",
+      "--result-detail must be full or summary.",
+      { recovery }
+    );
+  }
   for (const token of parsed.tokens) {
     if (token.kind !== "option") continue;
     if (seen.has(token.name) && !options[token.name].multiple) {
@@ -688,6 +699,10 @@ var init_commandArguments = __esm({
         }
       },
       "workflow prepare": {
+        "message-format": {
+          ...stringOption,
+          description: "<detailed>  Prepare structured detailed authoring immediately; evidence requirements remain independent."
+        },
         mode: {
           ...stringOption,
           description: "<actual|draft>  Required. Actual may install the index; draft does not."
@@ -819,6 +834,10 @@ var init_commandArguments = __esm({
         }
       },
       "workflow report-detail": {
+        section: {
+          ...stringOption,
+          description: "<workspace|report>  Default: workspace. Report reads retained evidence without a new observation."
+        },
         cursor: {
           ...stringOption,
           description: "<cursor>  Opaque returned page cursor; default: cursorless replay."
@@ -892,6 +911,41 @@ function requestedOutputFormat(arguments_) {
   }
   return format === "text" ? "text" : "json";
 }
+function projectReportResult(result, arguments_) {
+  const separator = arguments_.indexOf("--");
+  const helperArguments = separator < 0 ? arguments_ : arguments_.slice(0, separator);
+  const index = helperArguments.indexOf("--result-detail");
+  const summary = index >= 0 && helperArguments[index + 1] === "summary" || helperArguments.includes("--result-detail=summary");
+  if (!summary || result.disposition !== "succeeded" || !result.report || !result.transaction)
+    return result;
+  const { report, ...remaining } = result;
+  return {
+    ...remaining,
+    reportSummary: {
+      commit: {
+        oid: report.commit.oid,
+        parentMatches: report.commit.parentMatches,
+        treeMatches: report.commit.treeMatches,
+        messageMatches: report.commit.messageMatches,
+        signed: report.commit.signed
+      },
+      comparison: report.comparison,
+      verification: report.verification,
+      checks: report.checks,
+      publication: report.publication
+    },
+    reportDetail: {
+      arguments: [
+        "workflow",
+        "report-detail",
+        "--transaction",
+        result.transaction,
+        "--section",
+        "report"
+      ]
+    }
+  };
+}
 async function executeCommand(arguments_, { parse, execute, failureState = () => ({}), stdout = process.stdout }) {
   let options;
   let result;
@@ -905,7 +959,7 @@ async function executeCommand(arguments_, { parse, execute, failureState = () =>
     });
   }
   const encoded = encodeWorkflowResult(
-    result,
+    projectReportResult(result, arguments_),
     options?.format ?? requestedOutputFormat(arguments_)
   );
   await writeWorkflowOutput(stdout, encoded);
@@ -4552,8 +4606,15 @@ function validateReviewState(review) {
     "structuredMessageMode",
     "traversal"
   ];
-  const optional = review.coveredCapsuleSha256 === void 0 ? [] : ["coveredCapsuleSha256"];
+  const optional = ["coveredCapsuleSha256", "preparationEvidence"].filter(
+    (key) => Object.hasOwn(review, key)
+  );
   assertExactKeys2(review, [...required, ...optional], "Review state");
+  if (Object.hasOwn(review, "preparationEvidence")) {
+    validateInlineEvidence(review.preparationEvidence);
+    if (review.preparationEvidence === null)
+      throw new Error("Preparation evidence must be present.");
+  }
   if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN2.test(review.catalogSha256) || !SHA256_PATTERN2.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN2.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || !Array.isArray(review.deliveryPacketIds) || new Set(review.deliveryPacketIds).size !== review.deliveryPacketIds.length || review.deliveryPacketIds.some(
     (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
   ) || typeof review.semanticStructureRequired !== "boolean" || !(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(review.structuredMessageMode)) {
@@ -4902,7 +4963,17 @@ function validateTransaction(transaction) {
       "Transaction schemaVersion must be 4; attempts are never migrated in place."
     );
   }
-  assertExactKeys2(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
+  assertExactKeys2(
+    transaction,
+    [
+      ...REQUIRED_TRANSACTION_KEYS,
+      ...Object.hasOwn(transaction, "messageFormat") ? ["messageFormat"] : []
+    ],
+    "Transaction"
+  );
+  if (Object.hasOwn(transaction, "messageFormat") && transaction.messageFormat !== "detailed") {
+    throw new Error("Requested message format must be detailed.");
+  }
   if (!PHASES.has(transaction.phase)) {
     throw new Error(
       `Unknown transaction phase ${JSON.stringify(transaction.phase)}.`
@@ -4948,6 +5019,11 @@ function validateTransaction(transaction) {
   validateHeadAnchor(transaction.headAnchor);
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
+  if (transaction.review?.preparationEvidence && (transaction.review.preparationEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan?.sha256 || transaction.review.preparationEvidence.manifestSha256 !== transaction.snapshot?.sha256)) {
+    throw new Error(
+      "Preparation evidence must match the original plan and snapshot."
+    );
+  }
   validateMessageState(transaction.message);
   validateSignaturePreflight(transaction.signaturePreflight);
   validatePromotionState(transaction.snapshot, transaction);
@@ -9288,6 +9364,12 @@ function projectedDetailedInventoryBytes(manifest) {
   return Buffer4.byteLength(`${lines.join("\n")}
 `, "utf8");
 }
+function messagePresentationForManifest(manifest) {
+  return selectMessagePresentation({
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest)
+  });
+}
 function scaffoldEvidenceGroups(evidencePlan) {
   return evidencePlan.groups.map(({ selection, policy, basis }) => ({
     selection,
@@ -9301,10 +9383,14 @@ function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
       "Semantic scaffolding requires one matching review catalog and evidence plan."
     );
   }
-  const recommendedMode = selectMessagePresentation({
-    changeUnitCount: manifest.changeUnitCount,
-    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest)
-  });
+  return scaffoldMessageContent(
+    messagePresentationForManifest(manifest),
+    evidencePlan
+  );
+}
+function scaffoldMessageContent(mode, evidencePlan) {
+  if (!["detailed", "bulk"].includes(mode))
+    throw new Error("Invalid structured message mode.");
   const common = {
     schemaVersion: 3,
     authoringState: "draft",
@@ -9312,9 +9398,9 @@ function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
     subject: null,
     sharedRationales: [],
     userExperienceChanges: [],
-    mode: recommendedMode
+    mode
   };
-  return recommendedMode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
+  return mode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
 }
 var BULK_FILE_THRESHOLD;
 var init_commitMessageRenderer = __esm({
@@ -10270,6 +10356,25 @@ var init_semanticContentContract = __esm({
 
 // src/committing-to-git/workflow/authoringProgress.js
 import { resolve as resolve9 } from "node:path";
+function worksheetMatchesTemplate(transaction, template) {
+  const expected = Buffer.from(`${JSON.stringify(template, null, 2)}
+`);
+  try {
+    const opened = readTransactionOwnedFile({
+      transactionPath: resolve9(
+        transaction.attemptDirectory,
+        "transaction.json"
+      ),
+      artifactName: "content.json",
+      maximumBytes: expected.length,
+      label: "Unedited semantic worksheet",
+      allowPathReplacement: false
+    });
+    return opened.bytes.equals(expected);
+  } catch {
+    return false;
+  }
+}
 function messageAuthoringRecovery(transaction, transactionPath) {
   const handle = resolve9(transactionPath);
   const concise = transaction.route === "concise" && transaction.phase === "evidence-ready";
@@ -10316,7 +10421,20 @@ function authoringProgress(transaction) {
   const deliveredPacketCount = traversal?.deliveredPacketCount ?? (receiptComplete ? requiredPacketCount : 0);
   const complete = receiptComplete && deliveredPacketCount === requiredPacketCount;
   const structuredContentRequired = complete && transaction.review.semanticStructureRequired === true;
+  const templateRequested = structuredContentRequired && transaction.messageFormat === "detailed";
+  const originalEvidenceCurrent = transaction.initialEvidencePlan.sha256 === transaction.review.evidencePlanSha256;
+  const template = templateRequested && originalEvidenceCurrent ? scaffoldMessageContent(
+    transaction.review.structuredMessageMode,
+    transaction.initialEvidencePlan
+  ) : null;
+  const templateFits = template !== null && Buffer.byteLength(JSON.stringify(template)) <= 16 * 1024;
+  const templateAvailable = templateFits && worksheetMatchesTemplate(transaction, template);
   return {
+    ...transaction.review.preparationEvidence && originalEvidenceCurrent ? { capsule: transaction.review.preparationEvidence.capsule } : {},
+    ...!templateRequested ? {} : {
+      contentTemplate: templateAvailable ? template : null,
+      contentTemplateOmittedReason: templateAvailable ? null : originalEvidenceCurrent ? templateFits ? "Read and preserve the existing contentPath; an unedited worksheet could not be confirmed." : "Read the fixed contentPath; the complete template exceeds the 16 KiB inline budget." : "Evidence was revised; continue with the authored contentPath instead of the original preparation template."
+    },
     reviewRequired: !complete,
     reviewProgress: {
       deliveredPacketCount,
@@ -10333,6 +10451,8 @@ function authoringProgress(transaction) {
 var init_authoringProgress = __esm({
   "src/committing-to-git/workflow/authoringProgress.js"() {
     init_semanticContentContract();
+    init_commitMessageRenderer();
+    init_canonicalMessageState();
   }
 });
 
@@ -10698,6 +10818,13 @@ function parsePrepareArguments(argv) {
   const scope = values.get("scope");
   const verificationPolicy = values.get("verification") ?? "required";
   const format = values.get("format") ?? "json";
+  const messageFormat = values.get("message-format") ?? null;
+  if (messageFormat !== null && messageFormat !== "detailed") {
+    fail3(
+      "INVALID_MESSAGE_FORMAT",
+      "--message-format must be detailed when supplied."
+    );
+  }
   if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
     fail3("INVALID_MODE", "--mode must be actual or draft.");
   }
@@ -10788,6 +10915,7 @@ function parsePrepareArguments(argv) {
     scopeFilePath,
     inlineScope: scope === "paths" && scopeFilePath === null ? inlineScopePayload(values) : null,
     verificationPolicy,
+    messageFormat,
     format
   };
 }
@@ -11478,7 +11606,7 @@ async function routePreparedEvidence({
         };
       }
     }
-    if (routing.route === "concise") {
+    if (routing.route === "concise" && transaction.messageFormat !== "detailed") {
       const capsuleSha256 = sha256Bytes(stableJsonBytes(routing.capsule));
       const completed2 = advanceTransaction(
         transactionPath,
@@ -11510,6 +11638,10 @@ async function routePreparedEvidence({
     const extendedManifest = {
       ...anchoredManifest,
       manifestSha256: evidencePlan.manifestSha256,
+      // Inline evidence is returned in this same preparation result. Required
+      // packets remain mandatory whenever the existing evidence router escalates.
+      coveredSynopsis: routing.route === "concise",
+      coveredEvidenceGroupIds: routing.route === "concise" ? evidencePlan.groups.map(({ id }) => id) : [],
       preMaterializedPacketsByGroupId: packetsByGroupId,
       evidenceByGroupId: Object.fromEntries(
         records.filter(({ empty }) => empty).map(({ group }) => [group.id, Buffer.alloc(0)])
@@ -11560,13 +11692,21 @@ async function routePreparedEvidence({
         catalogSha256: catalog.catalogSha256,
         evidencePlanPath,
         evidencePlanSha256: evidencePlan.evidencePlanSha256,
-        extendedReason: routing.extendedReason,
+        extendedReason: routing.extendedReason ?? "semantic-structure-required",
         deliveryPacketIds: packetIds,
         queue: reviewQueue,
         receipt: reviewReceipt,
-        semanticStructureRequired: false,
+        semanticStructureRequired: transaction.messageFormat === "detailed",
         structuredMessageMode: structuredContent.mode,
-        traversal: null
+        traversal: null,
+        ...routing.route === "concise" ? {
+          preparationEvidence: {
+            capsuleSha256: sha256Bytes(stableJsonBytes(routing.capsule)),
+            manifestSha256: evidencePlan.manifestSha256,
+            evidencePlanSha256: evidencePlan.evidencePlanSha256,
+            capsule: routing.capsule
+          }
+        } : {}
       }
     });
     return completed;
@@ -11796,6 +11936,7 @@ async function prepareWorkflow({
   const allocated = updateTransaction(workspace.transactionPath, "allocated", {
     ...workspace.transaction,
     mode: parsed.mode,
+    ...parsed.messageFormat ? { messageFormat: parsed.messageFormat } : {},
     scope: initialScope,
     repositoryTypePolicy: { allowedTypes: parsed.allowedTypes },
     initialEvidencePlan: {
@@ -11831,6 +11972,12 @@ async function prepareWorkflow({
       normalizedScope,
       selectedPaths
     );
+    if (parsed.messageFormat === "detailed" && messagePresentationForManifest(snapshotResult.snapshot) !== "detailed") {
+      fail3(
+        "DETAILED_MESSAGE_LIMIT_EXCEEDED",
+        "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB. Use the supported bulk authoring route for this scope."
+      );
+    }
     const snapshotBytes = readFileSync5(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {
       ...allocated,
@@ -19253,7 +19400,62 @@ async function readWorkspaceDetailPage({
   }
 }
 async function reportDetailWorkflow(options) {
+  if (options.section === "report") return readRetainedReport(options);
   return readWorkspaceDetailPage(options);
+}
+function readRetainedReport({
+  transactionPath,
+  cursor = null,
+  refresh = false
+}) {
+  if (cursor !== null || refresh)
+    fail11(
+      "DETAIL_ARGUMENT_CONFLICT",
+      "Report detail accepts neither --cursor nor --refresh."
+    );
+  const lock = acquireTransactionStateLock({
+    transactionPath,
+    operation: "report-detail"
+  });
+  try {
+    const transaction = readTransaction(transactionPath);
+    if (!["reported", "published"].includes(transaction.phase) || !transaction.report) {
+      fail11(
+        "DETAIL_PHASE_INVALID",
+        "Retained report requires a reported or published transaction.",
+        "rejected"
+      );
+    }
+    const retained = (path, digest, name) => {
+      if (resolve24(path) !== resolve24(transaction.attemptDirectory, name))
+        fail11("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
+      assertRegularFile(path, name);
+      const bytes = readFileSync12(path);
+      if (sha2569(bytes) !== digest)
+        fail11("DETAIL_STATE_INVALID", "Retained report digest does not match.");
+      return bytes.toString("utf8");
+    };
+    const report = JSON.parse(
+      retained(
+        transaction.report.jsonPath,
+        transaction.report.jsonSha256,
+        "report.json"
+      )
+    );
+    const displayText = retained(
+      transaction.report.textPath,
+      transaction.report.textSha256,
+      "report.txt"
+    );
+    return createWorkflowResult({
+      disposition: "succeeded",
+      status: "report-read",
+      ...transactionDiagnosticState(transaction, transactionPath),
+      data: { commitOid: transaction.commit.commitOid, report, displayText }
+    });
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
 }
 function parseArguments5(argv) {
   const flags = parseCommandArguments("workflow report-detail", argv).values;
@@ -19263,8 +19465,12 @@ function parseArguments5(argv) {
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
     fail11("TRANSACTION_REQUIRED", "--transaction is required.");
+  const section = flags.get("section") ?? "workspace";
+  if (!["workspace", "report"].includes(section))
+    fail11("INVALID_DETAIL_SECTION", "--section must be workspace or report.");
   return {
     transactionPath,
+    section,
     cursor: flags.get("cursor") ?? null,
     refresh: flags.get("refresh") === true,
     format

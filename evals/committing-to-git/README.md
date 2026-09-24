@@ -1,5 +1,7 @@
 # Evaluating `committing-to-git`
 
+For issue #5 desktop orchestration and protected-target delivery, use the separate opt-in [reviewed-change host evaluation](reviewed-change-host.md). Its measurement tools do not relax this suite's offline controller or authorize model/publication effects.
+
 This maintainer-only directory evaluates the deployable skill in `skills/committing-to-git/`. It is deliberately outside the installed skill payload. A deterministic test, a model run, and a human readability review answer different questions; passing one layer never implies that another passed.
 
 ## Shared Runtime

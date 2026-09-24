@@ -606,10 +606,16 @@ function validateReviewState(review) {
     "structuredMessageMode",
     "traversal",
   ];
-  const optional =
-    review.coveredCapsuleSha256 === undefined ? [] : ["coveredCapsuleSha256"];
+  const optional = ["coveredCapsuleSha256", "preparationEvidence"].filter(
+    (key) => Object.hasOwn(review, key),
+  );
 
   assertExactKeys(review, [...required, ...optional], "Review state");
+  if (Object.hasOwn(review, "preparationEvidence")) {
+    validateInlineEvidence(review.preparationEvidence);
+    if (review.preparationEvidence === null)
+      throw new Error("Preparation evidence must be present.");
+  }
 
   if (
     typeof review.catalogPath !== "string" ||
@@ -1265,7 +1271,20 @@ export function validateTransaction(transaction) {
     );
   }
 
-  assertExactKeys(transaction, REQUIRED_TRANSACTION_KEYS, "Transaction");
+  assertExactKeys(
+    transaction,
+    [
+      ...REQUIRED_TRANSACTION_KEYS,
+      ...(Object.hasOwn(transaction, "messageFormat") ? ["messageFormat"] : []),
+    ],
+    "Transaction",
+  );
+  if (
+    Object.hasOwn(transaction, "messageFormat") &&
+    transaction.messageFormat !== "detailed"
+  ) {
+    throw new Error("Requested message format must be detailed.");
+  }
 
   if (!PHASES.has(transaction.phase)) {
     throw new Error(
@@ -1326,6 +1345,17 @@ export function validateTransaction(transaction) {
   validateHeadAnchor(transaction.headAnchor);
   validateInlineEvidence(transaction.inlineEvidence);
   validateReviewState(transaction.review);
+  if (
+    transaction.review?.preparationEvidence &&
+    (transaction.review.preparationEvidence.evidencePlanSha256 !==
+      transaction.initialEvidencePlan?.sha256 ||
+      transaction.review.preparationEvidence.manifestSha256 !==
+        transaction.snapshot?.sha256)
+  ) {
+    throw new Error(
+      "Preparation evidence must match the original plan and snapshot.",
+    );
+  }
   validateMessageState(transaction.message);
   validateSignaturePreflight(transaction.signaturePreflight);
   validatePromotionState(transaction.snapshot, transaction);

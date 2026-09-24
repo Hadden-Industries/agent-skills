@@ -63,6 +63,10 @@ If the host output is truncated, malformed or lost, read that invocation's retai
 
 ## Common fields
 
+`--result-detail summary` projects successful reports to `reportSummary` and a public `reportDetail.arguments` command. It preserves common outcome/recovery fields, warnings, exact `displayText`, tree/message comparison, signing verification, checks and publication facts. Other results, including every failure, retain full detail. The default remains `--result-detail full`; JSON and text select encoding independently of detail.
+
+`workflow report-detail --transaction <opaque-transaction> --section report` reads the retained report and exact display under the transaction lock, verifies both recorded hashes, and creates no new observation or Git effect. It accepts neither a cursor nor refresh. The existing default `--section workspace` retains bounded workspace paging. Reading a report does not prove fresh remote state or main integration. The summary option does not change the merged-stream capture recipe above.
+
 Every workflow result has these fields. Command-specific fields supplement the common fields; they cannot override their identity, state, authorization or exit meaning. The owning command defines those additional payload fields.
 
 | Field | Meaning |

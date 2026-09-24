@@ -54,6 +54,51 @@ export function requestedOutputFormat(arguments_) {
   return format === "text" ? "text" : "json";
 }
 
+/** Project successful report output only; errors and exact human display remain complete. */
+function projectReportResult(result, arguments_) {
+  const separator = arguments_.indexOf("--");
+  const helperArguments =
+    separator < 0 ? arguments_ : arguments_.slice(0, separator);
+  const index = helperArguments.indexOf("--result-detail");
+  const summary =
+    (index >= 0 && helperArguments[index + 1] === "summary") ||
+    helperArguments.includes("--result-detail=summary");
+  if (
+    !summary ||
+    result.disposition !== "succeeded" ||
+    !result.report ||
+    !result.transaction
+  )
+    return result;
+  const { report, ...remaining } = result;
+  return {
+    ...remaining,
+    reportSummary: {
+      commit: {
+        oid: report.commit.oid,
+        parentMatches: report.commit.parentMatches,
+        treeMatches: report.commit.treeMatches,
+        messageMatches: report.commit.messageMatches,
+        signed: report.commit.signed,
+      },
+      comparison: report.comparison,
+      verification: report.verification,
+      checks: report.checks,
+      publication: report.publication,
+    },
+    reportDetail: {
+      arguments: [
+        "workflow",
+        "report-detail",
+        "--transaction",
+        result.transaction,
+        "--section",
+        "report",
+      ],
+    },
+  };
+}
+
 /** Execute once, encode once, then write outside the operation's catch boundary. */
 export async function executeCommand(
   arguments_,
@@ -71,7 +116,7 @@ export async function executeCommand(
     });
   }
   const encoded = encodeWorkflowResult(
-    result,
+    projectReportResult(result, arguments_),
     options?.format ?? requestedOutputFormat(arguments_),
   );
   await writeWorkflowOutput(stdout, encoded);

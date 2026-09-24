@@ -33,6 +33,11 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow prepare": {
+    "message-format": {
+      ...stringOption,
+      description:
+        "<detailed>  Prepare structured detailed authoring immediately; evidence requirements remain independent.",
+    },
     mode: {
       ...stringOption,
       description:
@@ -178,6 +183,11 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow report-detail": {
+    section: {
+      ...stringOption,
+      description:
+        "<workspace|report>  Default: workspace. Report reads retained evidence without a new observation.",
+    },
     cursor: {
       ...stringOption,
       description:
@@ -237,6 +247,11 @@ export function commandOptions(command) {
       ...stringOption,
       description: "<json|text>  Output contract; default: json.",
     },
+    "result-detail": {
+      ...stringOption,
+      description:
+        "<full|summary>  Default: full. Summary omits duplicate successful report detail; exact display and recovery stay intact.",
+    },
   };
 }
 
@@ -278,6 +293,16 @@ export function parseCommandArguments(command, argv) {
     );
   }
   const seen = new Set();
+  if (
+    parsed.values["result-detail"] !== undefined &&
+    !["full", "summary"].includes(parsed.values["result-detail"])
+  ) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_RESULT_DETAIL",
+      "--result-detail must be full or summary.",
+      { recovery },
+    );
+  }
   for (const token of parsed.tokens) {
     if (token.kind !== "option") continue;
     if (seen.has(token.name) && !options[token.name].multiple) {
