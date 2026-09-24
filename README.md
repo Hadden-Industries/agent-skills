@@ -14,7 +14,7 @@ The repository follows one core rule:
 
 ## Available Skills
 
-* **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, guides creation of an explicitly approved signed root or ordinary one-parent commit, reports whether the result matches, and can guide an explicitly authorized push of that exact commit. Use for message drafts, new local commits, or a later push from this workflow; not for amending history or continuing merge, rebase, cherry-pick, or revert operations.
+* **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, creates and verifies explicitly approved signed commits, and guides authorized direct or GitHub pull-request delivery. For commit-and-publish requests, it checks publication feasibility before drafting. Use for message drafts, new local commits, or their delivery; not for amending history or continuing an existing local merge, rebase, cherry-pick, or revert operation.
 
 * **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance. It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
 
@@ -28,7 +28,10 @@ The repository follows one core rule:
 
 The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
 
-- the public CLI is organized around `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
+- read-only `workflow preflight` checks local readiness, GitHub permissions, classic protection, inherited branch and push rules, allowed merge methods, and queue requirements before drafting for publication; draft-only and local-only requests need no remote preflight;
+- publication prefers direct signed push, then normal PR merge, then disclosed squash, subject to policy and explicit signature requirements; missing policy remains unknown, while pending checks and reviews remain prerequisites;
+- one informed approval can cover commit, push, PR creation, merge, and disclosed fallbacks; the agent reuses that authority instead of interrupting again at each phase, without treating commit approval alone as permission to publish;
+- the transaction CLI provides `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
 - a [shared diagnostic contract](./skills/committing-to-git/references/diagnostics.md) gives failures stable codes, explicit next actions, and required recovery inputs across command routes, including failed-check acknowledgement, evidence-plan reuse, message validation, and uncertain transaction outcomes;
 - a targeted exact-path diff can establish a small dependency, integrity-hash, lock-entry, or metadata-scalar change without extended ceremony; concise preparation then returns complete bounded evidence inline;
 - extended preparation creates hash-bound packets only for unresolved uncertainty, and `workflow review-next` returns one complete verified packet plus an opaque replay-safe cursor until the helper records a catalog-bound receipt;
@@ -45,6 +48,8 @@ The skill is an opinionated proportional review and transaction workflow, not a 
 - an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
 
 Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing. Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch. Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source. The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
+
+GitHub preflight additionally requires an authenticated GitHub CLI (`gh`) with access to the relevant policy. Feasibility is an observation, not mutation authorization or a guarantee that a future push will succeed. PR creation, merge, queue handling, and final integration verification use agent-guided native GitHub operations; they are not journaled by the helper's push transaction. Normal merge preserves the original signed commits as ancestors. Squash creates a different commit: GitHub's signature does not prove that the original author signed it. See [publication routing](./skills/committing-to-git/references/publication-routing.md) for approval boundaries, head binding, recovery, and separate source/final verification.
 
 The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor. Historical design decisions are recorded separately in dated implementation plans.
 
@@ -70,7 +75,7 @@ To install only `committing-to-git`, run:
 npx skills add Hadden-Industries/agent-skills --skill committing-to-git
 ```
 
-These commands install from the default branch and prompt for target agents. Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target. For the current `committing-to-git` release, its release-tag-pinned installation command, archive, and qualification evidence, see the [release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271).
+These commands install from the default branch and prompt for target agents. Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target. The publication-routing update is available on `main`. The earlier [tagged release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271) contain that version's pinned installation command, archive, and qualification evidence; they do not qualify the newer publication-routing behavior.
 
 Each complete `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets therefore live with the skill. Maintainer evals are deliberately separate: prompts, fixtures, cost profiles, retained results, and evaluation programs under [`evals/<name>/`](./evals/README.md) test the deployable content but are not installed with it.
 
@@ -178,6 +183,7 @@ agent-skills/
 │   │   │   ├── inspection-recovery.md    # Exceptional evidence and packet recovery
 │   │   │   ├── message-format.md         # Optional sections and structured formatting
 │   │   │   ├── publication-recovery.md   # Exact-OID push recovery policy
+│   │   │   ├── publication-routing.md    # Preflight, PR delivery, and signature boundaries
 │   │   │   ├── signature-recovery.md     # Trust and verification recovery
 │   │   │   └── transaction-recovery.md   # Permission, lock, and outcome recovery
 │   │   └── scripts/
@@ -255,6 +261,7 @@ agent-skills/
 │       ├── git/                          # Git process and path semantics
 │       ├── inspection/                   # Bounded deletion-aware change inspection
 │       ├── message/                      # Commit-message rendering and validation
+│       ├── publication/                  # Read-only GitHub policy discovery and route selection
 │       ├── report/                       # Post-commit fact collection and rendering
 │       ├── schema/                       # Versioned workflow contracts
 │       ├── signature/                    # Signature verification policy
@@ -1164,7 +1171,7 @@ Recheck the complete state:
 git status --porcelain=v2 --branch --untracked-files=all
 ```
 
-Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and any separately authorized push. The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
+Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and explicitly authorized publication. For commit-and-publish requests, establish publication feasibility before drafting and include the selected route and permitted fallbacks in the approval proposal. The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
 
 ---
 
