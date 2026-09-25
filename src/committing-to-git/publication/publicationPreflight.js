@@ -36,7 +36,11 @@ export function githubRemoteIdentity(url) {
   return match ? { owner: match[1], repository: match[2] } : null;
 }
 
-/** Observe without staging, committing, changing branches, fetching or writing workflow artifacts. */
+/**
+ * Discover a route without mutations and return task-local reuse guidance.
+ * Reuse is advisory: callers retain task/transport identity and authorization;
+ * Git and the provider still enforce each actual publication attempt.
+ */
 export function inspectPublicationFeasibility({
   cwd = process.cwd(),
   remote,
@@ -52,6 +56,7 @@ export function inspectPublicationFeasibility({
     prerequisites: [],
     summary: reason,
     observedAt: new Date().toISOString(),
+    discoveryReuse: { eligible: false, binding: null },
   });
   try {
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(remote ?? ""))
@@ -143,8 +148,35 @@ export function inspectPublicationFeasibility({
       remote,
       sourceBranch: sourceBranch ?? null,
       localSignatureBackend: signature.backend,
+      discoveryReuse: result.route
+        ? {
+            eligible: true,
+            scope: "current-task",
+            binding: {
+              repositoryRoot: root,
+              repository: result.repository,
+              remote,
+              pushUrl: urls[0],
+              destination: result.destination,
+              sourceBranch: sourceBranch ?? null,
+              apiActor: result.actor,
+              requirePersonalSignature,
+            },
+            refreshWhen: [
+              "A new task starts or the prior discovery context is unavailable.",
+              "A binding value, Git transport identity or signing requirement changes or becomes uncertain.",
+              "A policy change is known or publication is definitively rejected.",
+            ],
+            beforePublication: [
+              "Verify the exact authorized commits, signatures, outgoing ancestry and current destination refs.",
+              "Satisfy the observed route's content, check, review and integration-method prerequisites on the current head.",
+            ],
+            onUnknownOutcome:
+              "Reconcile the existing attempt through publication recovery before considering any retry.",
+          }
+        : { eligible: false, binding: null },
       summary: result.route
-        ? `Publication route: ${result.route}. Resolve the listed prerequisites before the corresponding mutation.`
+        ? `Publication route: ${result.route}. Reuse discovery within the unchanged task; check exact payload, live refs and prerequisites before effects. Rediscover after context/policy changes or definitive rejection; reconcile unknown outcomes before retry.`
         : result.reasons.join(" "),
     };
   } catch {

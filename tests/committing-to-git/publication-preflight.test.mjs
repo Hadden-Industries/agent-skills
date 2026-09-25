@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { selectPublicationRoute } from "../../src/committing-to-git/publication/publicationPolicy.js";
@@ -384,10 +384,97 @@ test("preflight reads a real repository without modifying its working tree or in
     api: apiFixture(),
   });
   assert.equal(result.route, "pull-request-merge", JSON.stringify(result));
+  assert.equal(result.discoveryReuse.eligible, true);
+  assert.equal(result.discoveryReuse.scope, "current-task");
+  assert.equal(
+    resolve(result.discoveryReuse.binding.repositoryRoot),
+    fixture.repo,
+  );
+  assert.equal(
+    result.discoveryReuse.binding.pushUrl,
+    "https://github.com/owner/project.git",
+  );
+  assert.equal(result.discoveryReuse.binding.remote, "origin");
+  assert.equal(result.discoveryReuse.binding.repository, "owner/project");
+  assert.equal(result.discoveryReuse.binding.destination, "refs/heads/main");
+  assert.equal(result.discoveryReuse.binding.sourceBranch, "delivery/change");
+  assert.equal(result.discoveryReuse.binding.apiActor, "owner");
+  assert.equal(result.discoveryReuse.binding.requirePersonalSignature, false);
   assert.equal(
     git(["status", "--porcelain=v1", "-uall"], fixture.repo).stdout,
     before,
   );
+});
+
+test("discovery reuse binds the effective push target rather than the fetch URL", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  git(
+    ["remote", "add", "delivery", "https://github.com/elsewhere/fetch.git"],
+    fixture.repo,
+  );
+  git(
+    [
+      "remote",
+      "set-url",
+      "--push",
+      "delivery",
+      "git@github.com:owner/project.git",
+    ],
+    fixture.repo,
+  );
+  const result = inspectPublicationFeasibility({
+    cwd: fixture.repo,
+    remote: "delivery",
+    sourceBranch: "delivery/change",
+    requirePersonalSignature: true,
+    api: apiFixture(),
+  });
+  assert.equal(result.route, "pull-request-merge");
+  assert.equal(result.discoveryReuse.eligible, true);
+  assert.equal(
+    result.discoveryReuse.binding.pushUrl,
+    "git@github.com:owner/project.git",
+  );
+  assert.equal(result.discoveryReuse.binding.remote, "delivery");
+  assert.equal(result.discoveryReuse.binding.requirePersonalSignature, true);
+});
+
+test("blocked and incomplete discovery never offer optimistic route reuse", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  git(
+    ["remote", "add", "origin", "https://github.com/owner/project.git"],
+    fixture.repo,
+  );
+  for (const [want, options] of [
+    ["blocked", { remote: "-invalid" }],
+    ["unknown", { api: apiFixture({ user: new Error("HTTP 403") }) }],
+    [
+      "blocked",
+      {
+        api: apiFixture({
+          "repos/owner/project": {
+            ...policy().repository,
+            default_branch: "main",
+            full_name: "owner/project",
+            archived: true,
+          },
+        }),
+      },
+    ],
+  ]) {
+    const result = inspectPublicationFeasibility({
+      cwd: fixture.repo,
+      remote: "origin",
+      sourceBranch: "delivery/change",
+      api: apiFixture(),
+      ...options,
+    });
+    assert.equal(result.status, want, JSON.stringify(result));
+    assert.equal(result.discoveryReuse.eligible, false);
+    assert.equal(result.discoveryReuse.binding, null);
+  }
 });
 
 test("unsupported provider returns an honest non-authorizing CLI result", (t) => {

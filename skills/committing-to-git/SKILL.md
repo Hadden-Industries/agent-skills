@@ -28,7 +28,7 @@ Use `--result-detail summary` to retain exact display, comparison, signature, ch
 
 ## Publication intent before drafting
 
-For commit-and-publish intent, distinguish source publication from named-target integration; an unspecified push never authorizes main integration. Follow [publication routing](references/publication-routing.md) and `workflow preflight --remote <name>` with known refs. Resolve blocked/unknown feasibility and required reviews/checks. Prefer direct signed publication, normal PR merge, then disclosed squash under policy/queue/signature rules. Reuse approved route/fallback; refresh policy/head before effects. Local-only intent needs no remote preflight.
+Distinguish source publication from named-target integration. Discover once with `workflow preflight --remote <name>` and known refs; follow [publication routing](references/publication-routing.md). Reuse `feasibility.discoveryReuse` within unchanged tasks. Resolve blocked/unknown feasibility and required reviews/checks. Prefer direct signed publication, normal PR merge, then disclosed squash. Check payload/live refs before effects; rediscover on context/policy change or rejection. Local-only commits need no remote discovery.
 
 Derive scope from task lineage/Git, never a semantic hint used as a glob, pathspec, prefix, or fuzzy selector. Ask when two materially different scopes remain plausible. Never autocorrect selectors.
 
@@ -113,7 +113,7 @@ Use the [exit outcomes](references/diagnostics.md#exit-outcomes): 0 success, 1 k
 
 Resume a recoverably interrupted preparation only with `workflow resume --transaction <opaque-transaction>`; persisted inputs cannot broaden. Use [transaction recovery](references/transaction-recovery.md) for permission, lock, partial-phase, or pending/unknown failures. Bounded diagnostics point to a complete hashed failure log. Query count/byte-limited report paths through `workflow report-detail`; replay the same cursor or cursorless completed page, and use `--refresh` only for a new observation.
 
-Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding the resulting OID to its tree/message and destination. Refresh [publication routing](references/publication-routing.md) before pushing/merging. Publishing the PR source does not complete integration:
+Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding the resulting OID to its tree/message and destination, and discovery under [publication routing](references/publication-routing.md). Publishing the PR source does not complete integration:
 
 ```text
 node <skill>/scripts/commitWorkflow.mjs workflow publish --transaction <opaque-transaction> --remote <name> --destination <refs/heads/name> [--retry-after-attempt <prior-attempt-id>]
