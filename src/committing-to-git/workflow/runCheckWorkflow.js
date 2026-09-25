@@ -1,7 +1,10 @@
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
+import {
+  executeCommand,
+  diagnosticWriterFor,
+} from "../cli/commandExecution.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
@@ -749,7 +752,10 @@ export async function runCheckWorkflowCommand(
     failureState: observeTransactionFailure,
     parse: parseArguments,
     execute: (options) =>
-      runCheckWorkflow({ ...options, diagnosticWriter: stderr }),
+      runCheckWorkflow({
+        ...options,
+        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
+      }),
     stdout,
   });
 }

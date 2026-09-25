@@ -1,6 +1,9 @@
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
+import {
+  executeCommand,
+  diagnosticWriterFor,
+} from "../cli/commandExecution.js";
 import {
   observeTransactionFailure,
   transactionDiagnosticState,
@@ -1254,11 +1257,16 @@ function parseArguments(argv) {
 }
 export async function runPublishCommand(
   argv,
-  { stdout = process.stdout } = {},
+  { stdout = process.stdout, stderr = process.stderr } = {},
 ) {
   return executeCommand(argv, {
     parse: parseArguments,
-    execute: publishWorkflow,
+    includeProcessDiagnostics: true,
+    execute: (options) =>
+      publishWorkflow({
+        ...options,
+        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
+      }),
     failureState: observeTransactionFailure,
     stdout,
   });

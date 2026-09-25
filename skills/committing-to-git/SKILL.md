@@ -9,7 +9,7 @@ metadata:
 
 # Committing to Git
 
-Read JSON `disposition`, `status`, `phase`, `recovery`; keep `transaction` opaque; show `displayText` verbatim. Never execute diagnostics. For Codex `exec_command` or merged streams, use [capture](references/diagnostics.md#merged-streams).
+Parse complete JSON (Codex included). Keep `transaction` opaque; follow `disposition`, `status`, `phase`, `recovery`; show `displayText` verbatim. Follow [diagnostics](references/diagnostics.md); never execute diagnostic prose.
 
 Treat the user's hint as a hypothesis. Use policy, task evidence and Git facts to correct type and scope, sharpen the outcome, and add rationale or user-experience consequences.
 

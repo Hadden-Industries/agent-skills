@@ -172,7 +172,7 @@ export const COMMAND_ARGUMENTS = {
     "retain-process-logs": {
       ...booleanOption,
       description:
-        "Boolean switch; default: false.\n    Retain the named helper artifacts during post-commit compaction.",
+        "Boolean switch; default: false.\n    Retain process logs in text mode; JSON mode always retains them during automatic compaction.",
     },
   },
   "workflow verify": {
@@ -186,7 +186,7 @@ export const COMMAND_ARGUMENTS = {
     section: {
       ...stringOption,
       description:
-        "<workspace|report>  Default: workspace. Report reads retained evidence without a new observation.",
+        "<workspace|report|diagnostics>  Default: workspace. Report and diagnostics read retained evidence without a new observation.",
     },
     cursor: {
       ...stringOption,

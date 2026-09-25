@@ -148,7 +148,21 @@ test("workflow check derives a failed receipt from the actual child exit", async
   assert.equal(payload.status, "check-failed");
   assert.equal(payload.receipt.outcome, "failed");
   assert.equal(payload.receipt.exitCode, 7);
-  assert.match(result.stderr, /check-failed-evidence/u);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(JSON.parse(result.stdout + result.stderr), payload);
+  const detail = runCheckDetail(fixture, transactionPath, [
+    "--receipt",
+    "C000001",
+    "--stream",
+    "stderr",
+    "--segment",
+    "head",
+  ]);
+  assert.equal(detail.status, 0, detail.stdout + detail.stderr);
+  assert.match(
+    JSON.parse(detail.stdout).content.value,
+    /check-failed-evidence/u,
+  );
   assert.equal(attempt.completion.outcome, "failed");
   assert.equal(attempt.completion.exitCode, 7);
   assert.equal(attempt.output.stderr.totalByteCount, 21);
@@ -327,16 +341,21 @@ test("workflow check records a helper-enforced timeout as timed-out", async (t) 
   assert.equal(attempt.completion.exitCode, null);
 });
 
-test("workflow check bounds diagnostics and retained segments while hashing complete output", async (t) => {
+test("text workflow check bounds diagnostics and retained segments while hashing complete output", async (t) => {
   const { fixture, transactionPath } = await prepareTransaction(
     t,
     "check-workflow-output-budget-",
   );
-  const result = runCheck(fixture, transactionPath, [
-    process.execPath,
-    "-e",
-    "process.stderr.write('H'.repeat(300000) + 'T'.repeat(300000)); process.exitCode = 6",
-  ]);
+  const result = runCheck(
+    fixture,
+    transactionPath,
+    [
+      process.execPath,
+      "-e",
+      "process.stderr.write('H'.repeat(300000) + 'T'.repeat(300000)); process.exitCode = 6",
+    ],
+    ["--format", "text"],
+  );
   const attempt = readTransaction(transactionPath).checkAttempts[0];
 
   assert.equal(result.status, 1, result.stderr || result.stdout);

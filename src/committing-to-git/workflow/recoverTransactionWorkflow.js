@@ -173,6 +173,7 @@ function parseArguments(argv, command) {
   return {
     transactionPath,
     format,
+    retainProcessLogs: command === "workflow recover" && format !== "text",
     resolution: flags.get("resolution") ?? null,
     purge: flags.get("purge") === true,
   };
@@ -183,6 +184,7 @@ export async function runRecoverTransactionCommand(
 ) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments(arguments_, "workflow recover"),
+    includeProcessDiagnostics: true,
     execute: recoverTransactionWorkflow,
     failureState: observeTransactionFailure,
     stdout,

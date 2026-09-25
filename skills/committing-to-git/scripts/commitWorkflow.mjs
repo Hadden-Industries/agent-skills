@@ -824,7 +824,7 @@ var init_commandArguments = __esm({
         },
         "retain-process-logs": {
           ...booleanOption,
-          description: "Boolean switch; default: false.\n    Retain the named helper artifacts during post-commit compaction."
+          description: "Boolean switch; default: false.\n    Retain process logs in text mode; JSON mode always retains them during automatic compaction."
         }
       },
       "workflow verify": {
@@ -836,7 +836,7 @@ var init_commandArguments = __esm({
       "workflow report-detail": {
         section: {
           ...stringOption,
-          description: "<workspace|report>  Default: workspace. Report reads retained evidence without a new observation."
+          description: "<workspace|report|diagnostics>  Default: workspace. Report and diagnostics read retained evidence without a new observation."
         },
         cursor: {
           ...stringOption,
@@ -879,17 +879,20 @@ var init_commandArguments = __esm({
 
 // src/committing-to-git/cli/commandExecution.js
 import { Writable } from "node:stream";
+function diagnosticWriterFor(format, stderr) {
+  return format === "text" ? stderr : quietDiagnostics;
+}
 async function writeWorkflowOutput(stdout, encoded) {
   try {
     if (stdout instanceof Writable) {
-      await new Promise((resolve30, reject) => {
+      await new Promise((resolve31, reject) => {
         const onError = (error) => reject(error);
         stdout.once("error", onError);
         stdout.write(encoded.output, (error) => {
           if (error) reject(error);
           else {
             stdout.removeListener("error", onError);
-            resolve30();
+            resolve31();
           }
         });
       });
@@ -946,7 +949,13 @@ function projectReportResult(result, arguments_) {
     }
   };
 }
-async function executeCommand(arguments_, { parse, execute, failureState = () => ({}), stdout = process.stdout }) {
+async function executeCommand(arguments_, {
+  parse,
+  execute,
+  failureState = () => ({}),
+  stdout = process.stdout,
+  includeProcessDiagnostics = false
+}) {
   let options;
   let result;
   try {
@@ -958,6 +967,21 @@ async function executeCommand(arguments_, { parse, execute, failureState = () =>
       state: failureState(options)
     });
   }
+  if (includeProcessDiagnostics && result.transaction && result.commitState !== "absent" && !result.processDiagnostics) {
+    result = {
+      ...result,
+      processDiagnostics: {
+        arguments: [
+          "workflow",
+          "report-detail",
+          "--transaction",
+          result.transaction,
+          "--section",
+          "diagnostics"
+        ]
+      }
+    };
+  }
   const encoded = encodeWorkflowResult(
     projectReportResult(result, arguments_),
     options?.format ?? requestedOutputFormat(arguments_)
@@ -965,11 +989,12 @@ async function executeCommand(arguments_, { parse, execute, failureState = () =>
   await writeWorkflowOutput(stdout, encoded);
   return encoded.result.exitCode;
 }
-var WorkflowOutputError;
+var quietDiagnostics, WorkflowOutputError;
 var init_commandExecution = __esm({
   "src/committing-to-git/cli/commandExecution.js"() {
     init_diagnosticContract();
     init_workflowDiagnosticError();
+    quietDiagnostics = Object.freeze({ write: () => true });
     WorkflowOutputError = class extends Error {
       constructor(result, cause) {
         super(
@@ -1078,7 +1103,7 @@ function buildReadOnlyDiffArguments(args) {
     "--root",
     "--"
   ]);
-  const invalid2 = optionArguments.find(
+  const invalid3 = optionArguments.find(
     (argument) => !allowedArguments.has(argument) && !FULL_OBJECT_ID.test(argument)
   );
   const outputModes = optionArguments.filter(
@@ -1090,9 +1115,9 @@ function buildReadOnlyDiffArguments(args) {
       "--quiet"
     ])).has(argument)
   );
-  if (invalid2 || separatorIndex < 0 || args.at(-1) !== "--" || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || optionArguments.some((argument) => isAbsolute(argument))) {
+  if (invalid3 || separatorIndex < 0 || args.at(-1) !== "--" || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || optionArguments.some((argument) => isAbsolute(argument))) {
     throw new Error(
-      `Arguments are not permitted for read-only Git operation diff${invalid2 ? `: ${invalid2}` : ""}.`
+      `Arguments are not permitted for read-only Git operation diff${invalid3 ? `: ${invalid3}` : ""}.`
     );
   }
   return [
@@ -13912,12 +13937,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve30, reject) {
+        return new Promise(function(resolve31, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve30(is);
+              resolve31(is);
             }
           });
         });
@@ -13983,27 +14008,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve30, reject) => {
+      const step = (i) => new Promise((resolve31, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve30(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve31(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve30(subStep(p, i, 0));
+        resolve31(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve30, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve31, reject) => {
         if (ii === pathExt.length)
-          return resolve30(step(i + 1));
+          return resolve31(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve30(p + ext);
+              return resolve31(p + ext);
           }
-          return resolve30(subStep(p, i, ii + 1));
+          return resolve31(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -16949,7 +16974,10 @@ async function runCheckWorkflowCommand(argv, { stdout = process.stdout, stderr =
   return executeCommand(argv, {
     failureState: observeTransactionFailure,
     parse: parseArguments2,
-    execute: (options) => runCheckWorkflow({ ...options, diagnosticWriter: stderr }),
+    execute: (options) => runCheckWorkflow({
+      ...options,
+      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
+    }),
     stdout
   });
 }
@@ -18784,7 +18812,12 @@ function parseArguments4(argv, command) {
 async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments4(arguments_, "workflow commit"),
-    execute: (options) => createCommitWorkflow({ ...options, diagnosticWriter: stderr }),
+    includeProcessDiagnostics: true,
+    execute: (options) => createCommitWorkflow({
+      ...options,
+      retainProcessLogs: options.format !== "text" || options.retainProcessLogs,
+      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
+    }),
     failureState: observeTransactionFailure,
     stdout
   });
@@ -18792,6 +18825,7 @@ async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = 
 async function runRetryVerificationCommand(argv, { stdout = process.stdout } = {}) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments4(arguments_, "workflow verify"),
+    includeProcessDiagnostics: true,
     execute: retrySignatureVerificationWorkflow,
     failureState: observeTransactionFailure,
     stdout
@@ -18832,6 +18866,147 @@ var init_createCommitWorkflow = __esm({
   }
 });
 
+// src/committing-to-git/workflow/processDiagnostics.js
+import { createHash as createHash20 } from "node:crypto";
+import { closeSync as closeSync15, openSync as openSync15, readSync as readSync2, realpathSync as realpathSync11 } from "node:fs";
+import { join as join15, resolve as resolve24 } from "node:path";
+function invalid() {
+  throw new WorkflowDiagnosticError(
+    "PROCESS_DIAGNOSTICS_INVALID",
+    "Retained process evidence is missing, replaced or corrupt. Preserve known mutation state; do not replay the operation."
+  );
+}
+function previewTranscript(evidence, expectedPath) {
+  if (resolve24(evidence.path) !== expectedPath || realpathSync11(expectedPath) !== expectedPath)
+    invalid();
+  const fd = openSync15(expectedPath, "r");
+  const hash = createHash20("sha256");
+  const channels = {
+    stdout: { bytes: Buffer.alloc(0), total: 0 },
+    stderr: { bytes: Buffer.alloc(0), total: 0 }
+  };
+  function read(size, allowEnd = false) {
+    const bytes = Buffer.alloc(size);
+    let count = 0;
+    while (count < size) {
+      const n = readSync2(fd, bytes, count, size - count, null);
+      if (n === 0) {
+        if (allowEnd && count === 0) return null;
+        invalid();
+      }
+      count += n;
+    }
+    hash.update(bytes);
+    return bytes;
+  }
+  try {
+    if (!read(MAGIC2.length).equals(MAGIC2)) invalid();
+    let sequence = 0n;
+    for (let header = read(13, true); header; header = read(13, true)) {
+      if (header.readBigUInt64BE(0) !== sequence++) invalid();
+      const channel = channels[{ 1: "stdout", 2: "stderr" }[header[8]]];
+      if (!channel) invalid();
+      let remaining = header.readUInt32BE(9);
+      channel.total += remaining;
+      while (remaining > 0) {
+        const bytes = read(Math.min(remaining, 64 * 1024));
+        const available = PREVIEW_BYTES - channel.bytes.length;
+        if (available > 0)
+          channel.bytes = Buffer.concat([
+            channel.bytes,
+            bytes.subarray(0, available)
+          ]);
+        remaining -= bytes.length;
+      }
+    }
+    if (hash.digest("hex") !== evidence.sha256 || channels.stdout.total !== evidence.stdoutByteCount || channels.stderr.total !== evidence.stderrByteCount)
+      invalid();
+    const summary = ({ bytes, total }) => ({
+      text: bytes.toString("utf8"),
+      totalByteCount: total,
+      omittedByteCount: total - bytes.length
+    });
+    return {
+      path: expectedPath,
+      sha256: evidence.sha256,
+      stdout: summary(channels.stdout),
+      stderr: summary(channels.stderr)
+    };
+  } finally {
+    closeSync15(fd);
+  }
+}
+function readProcessDiagnostics({
+  transactionPath,
+  cursor = null,
+  refresh = false
+}) {
+  if (cursor !== null || refresh)
+    throw new WorkflowDiagnosticError(
+      "DETAIL_ARGUMENT_CONFLICT",
+      "Process diagnostics accepts neither --cursor nor --refresh."
+    );
+  const lock = acquireTransactionStateLock({
+    transactionPath,
+    operation: "report-detail"
+  });
+  try {
+    const transaction = readTransaction(transactionPath);
+    const operations = [];
+    const directory = resolve24(transaction.attemptDirectory, "process-logs");
+    const add = (operation, evidence, filename, attemptId = null) => {
+      if (!evidence) return;
+      operations.push({
+        operation,
+        attemptId,
+        ...previewTranscript(evidence, join15(directory, filename))
+      });
+    };
+    try {
+      add("commit", transaction.commit?.transcript, "commit.transcript.bin");
+      const latest = transaction.publicationAttempts.at(-1);
+      if (latest)
+        add(
+          "publish",
+          latest.transcript,
+          `push-${latest.attemptId}.transcript.bin`,
+          latest.attemptId
+        );
+    } catch {
+      invalid();
+    }
+    return createWorkflowResult({
+      disposition: "succeeded",
+      status: "diagnostics-read",
+      ...transactionDiagnosticState(transaction, transactionPath),
+      data: {
+        commitOid: transaction.commit?.commitOid ?? null,
+        processDiagnostics: {
+          operations,
+          omittedPublicationAttempts: Math.max(
+            0,
+            transaction.publicationAttempts.length - 1
+          )
+        }
+      }
+    });
+  } finally {
+    releaseTransactionStateLock(lock);
+  }
+}
+var MAGIC2, PREVIEW_BYTES;
+var init_processDiagnostics = __esm({
+  "src/committing-to-git/workflow/processDiagnostics.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_transactionWorkspace();
+    init_transactionRecovery();
+    MAGIC2 = Buffer.from("CTG-GIT-TRANSCRIPT-1\n");
+    PREVIEW_BYTES = 4096;
+  }
+});
+
 // src/committing-to-git/workflow/reportDetailWorkflow.js
 var reportDetailWorkflow_exports = {};
 __export(reportDetailWorkflow_exports, {
@@ -18839,28 +19014,28 @@ __export(reportDetailWorkflow_exports, {
   reportDetailWorkflow: () => reportDetailWorkflow,
   runReportDetailCommand: () => runReportDetailCommand
 });
-import { createHash as createHash20, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
+import { createHash as createHash21, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
 import {
-  closeSync as closeSync15,
+  closeSync as closeSync16,
   constants as fsConstants11,
   existsSync as existsSync17,
   fsyncSync as fsyncSync11,
   lstatSync as lstatSync18,
   mkdirSync as mkdirSync11,
-  openSync as openSync15,
+  openSync as openSync16,
   readFileSync as readFileSync12,
   renameSync as renameSync6,
   rmSync as rmSync5,
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join15, resolve as resolve24 } from "node:path";
+import { join as join16, resolve as resolve25 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
 function fail11(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 function sha2569(value) {
-  return createHash20("sha256").update(value).digest("hex");
+  return createHash21("sha256").update(value).digest("hex");
 }
 function canonicalBytes2(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -18956,14 +19131,14 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve24(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve25(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
     fail11("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
 }
 function writeNew(path, value) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants11.O_NOFOLLOW;
-  const descriptor = openSync15(
+  const descriptor = openSync16(
     path,
     fsConstants11.O_WRONLY + fsConstants11.O_CREAT + fsConstants11.O_EXCL + noFollow,
     384
@@ -18972,7 +19147,7 @@ function writeNew(path, value) {
     writeFileSync12(descriptor, canonicalBytes2(value));
     fsyncSync11(descriptor);
   } finally {
-    closeSync15(descriptor);
+    closeSync16(descriptor);
   }
 }
 function replaceJson2(path, value) {
@@ -19051,13 +19226,13 @@ function observationDirectory(transaction, active) {
   if (!UUID_V4_PATTERN3.test(active.observationId)) {
     fail11("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
   }
-  return join15(
+  return join16(
     transaction.attemptDirectory,
     `report-detail-${active.observationId}`
   );
 }
 function pagePath(transaction, active, index) {
-  return join15(
+  return join16(
     observationDirectory(transaction, active),
     `page-${String(index).padStart(6, "0")}.json`
   );
@@ -19141,7 +19316,7 @@ async function materializeObservation(transaction, active) {
     observedEntryCount: observation.observedEntries,
     pages: pages2
   };
-  replaceJson2(join15(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
+  replaceJson2(join16(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
   return completedActive;
 }
 function boundedPageResult(transactionPath, transaction, active, page, requestCursor) {
@@ -19150,7 +19325,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     disposition: "succeeded",
     ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     data: {
       commitOid: transaction.commit?.commitOid ?? null,
       startingReportDigest: active.startingReportDigest,
@@ -19227,7 +19402,7 @@ function validateCompletedResult(result, transactionPath) {
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve24(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
+  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve25(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
     fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
@@ -19286,8 +19461,8 @@ async function readWorkspaceDetailPage({
         "rejected"
       );
     }
-    const activePath = join15(transaction.attemptDirectory, ACTIVE_NAME);
-    const completedPath = join15(transaction.attemptDirectory, COMPLETED_NAME);
+    const activePath = join16(transaction.attemptDirectory, ACTIVE_NAME);
+    const completedPath = join16(transaction.attemptDirectory, COMPLETED_NAME);
     if (existsSync17(completedPath) && !refresh) {
       const completed = readJson(
         completedPath,
@@ -19343,7 +19518,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve24(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve25(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -19400,6 +19575,7 @@ async function readWorkspaceDetailPage({
   }
 }
 async function reportDetailWorkflow(options) {
+  if (options.section === "diagnostics") return readProcessDiagnostics(options);
   if (options.section === "report") return readRetainedReport(options);
   return readWorkspaceDetailPage(options);
 }
@@ -19427,7 +19603,7 @@ function readRetainedReport({
       );
     }
     const retained = (path, digest, name) => {
-      if (resolve24(path) !== resolve24(transaction.attemptDirectory, name))
+      if (resolve25(path) !== resolve25(transaction.attemptDirectory, name))
         fail11("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
       assertRegularFile(path, name);
       const bytes = readFileSync12(path);
@@ -19466,8 +19642,11 @@ function parseArguments5(argv) {
   if (!transactionPath)
     fail11("TRANSACTION_REQUIRED", "--transaction is required.");
   const section = flags.get("section") ?? "workspace";
-  if (!["workspace", "report"].includes(section))
-    fail11("INVALID_DETAIL_SECTION", "--section must be workspace or report.");
+  if (!["workspace", "report", "diagnostics"].includes(section))
+    fail11(
+      "INVALID_DETAIL_SECTION",
+      "--section must be workspace, report or diagnostics."
+    );
   return {
     transactionPath,
     section,
@@ -19495,6 +19674,7 @@ var init_reportDetailWorkflow = __esm({
     init_commitReport();
     init_transactionRecovery();
     init_transactionWorkspace();
+    init_processDiagnostics();
     ACTIVE_NAME = "report-detail.active.json";
     COMPLETED_NAME = "report-detail.completed.json";
     MAXIMUM_CURSOR_BYTES = 512;
@@ -19515,23 +19695,23 @@ __export(publishWorkflow_exports, {
   runPublishCommand: () => runPublishCommand
 });
 import { spawn as spawn3 } from "node:child_process";
-import { createHash as createHash21, randomUUID as randomUUID9 } from "node:crypto";
+import { createHash as createHash22, randomUUID as randomUUID9 } from "node:crypto";
 import {
-  closeSync as closeSync16,
+  closeSync as closeSync17,
   constants as fsConstants12,
   fsyncSync as fsyncSync12,
   lstatSync as lstatSync19,
-  openSync as openSync16,
+  openSync as openSync17,
   readFileSync as readFileSync13,
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname11, join as join16, resolve as resolve25 } from "node:path";
+import { dirname as dirname11, join as join17, resolve as resolve26 } from "node:path";
 function fail12(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25610(bytes) {
-  return createHash21("sha256").update(bytes).digest("hex");
+  return createHash22("sha256").update(bytes).digest("hex");
 }
 function canonicalBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -19544,8 +19724,8 @@ function containsControlCharacter2(value) {
   });
 }
 function atomicWrite2(path, bytes) {
-  const candidate = join16(dirname11(path), `.publication-${randomUUID9()}.tmp`);
-  const descriptor = openSync16(
+  const candidate = join17(dirname11(path), `.publication-${randomUUID9()}.tmp`);
+  const descriptor = openSync17(
     candidate,
     fsConstants12.O_WRONLY + fsConstants12.O_CREAT + fsConstants12.O_EXCL,
     384
@@ -19554,7 +19734,7 @@ function atomicWrite2(path, bytes) {
     writeFileSync13(descriptor, bytes);
     fsyncSync12(descriptor);
   } finally {
-    closeSync16(descriptor);
+    closeSync17(descriptor);
   }
   try {
     const current = lstatSync19(path);
@@ -19656,7 +19836,7 @@ function assertPublicationAllowed(transaction) {
         disposition: transaction.commit?.commitOid ? "completed-with-failure" : "unmet-prerequisite",
         state: transactionDiagnosticState(
           transaction,
-          resolve25(transaction.attemptDirectory, "transaction.json")
+          resolve26(transaction.attemptDirectory, "transaction.json")
         )
       }
     );
@@ -19732,7 +19912,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
     status: publicationState === "unknown" ? "outcome-unknown" : publicationState,
     code: disposition === "succeeded" ? null : publicationState === "unknown" ? "PUBLICATION_OUTCOME_UNKNOWN" : publicationState === "blocked" ? "PUBLICATION_BLOCKED" : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    transaction: resolve25(transactionPath),
+    transaction: resolve26(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState,
@@ -19748,7 +19928,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
             "workflow",
             "recover",
             "--transaction",
-            resolve25(transactionPath)
+            resolve26(transactionPath)
           ]
         }
       ] : []
@@ -19825,11 +20005,11 @@ function persistPublicationReport({
   if (!currentReportFilesMatch(transaction, reportBytes, textBytes)) {
     const reportRevision = randomUUID9();
     const reportDirectory = dirname11(transaction.report.jsonPath);
-    jsonPath = join16(
+    jsonPath = join17(
       reportDirectory,
       `report-publication-${reportRevision}.json`
     );
-    textPath = join16(
+    textPath = join17(
       reportDirectory,
       `report-publication-${reportRevision}.txt`
     );
@@ -20188,7 +20368,7 @@ async function publishWorkflow({
         status: "publication-report-incomplete",
         code: "PUBLICATION_RESULT_UNAVAILABLE",
         message: "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
-        transaction: resolve25(transactionPath),
+        transaction: resolve26(transactionPath),
         phase: "publication-pending",
         route: transaction.route,
         commitState: "created",
@@ -20477,10 +20657,14 @@ function parseArguments6(argv) {
     format
   };
 }
-async function runPublishCommand(argv, { stdout = process.stdout } = {}) {
+async function runPublishCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   return executeCommand(argv, {
     parse: parseArguments6,
-    execute: publishWorkflow,
+    includeProcessDiagnostics: true,
+    execute: (options) => publishWorkflow({
+      ...options,
+      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
+    }),
     failureState: observeTransactionFailure,
     stdout
   });
@@ -20513,8 +20697,8 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve26 } from "node:path";
-function invalid(code, message) {
+import { resolve as resolve27 } from "node:path";
+function invalid2(code, message) {
   throw new WorkflowDiagnosticError(code, message);
 }
 async function recoverTransactionWorkflow({
@@ -20528,7 +20712,7 @@ async function recoverTransactionWorkflow({
   now = () => (/* @__PURE__ */ new Date()).toISOString()
 }) {
   if (!RESOLUTIONS.has(resolution)) {
-    invalid(
+    invalid2(
       "INVALID_RECOVERY_RESOLUTION",
       "Recovery resolution must be confirmed-no-live-child when supplied."
     );
@@ -20566,7 +20750,7 @@ async function recoverTransactionWorkflow({
         disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        transaction: resolve26(transactionPath),
+        transaction: resolve27(transactionPath),
         route: current.route,
         commitState: "created",
         publicationState: "not-requested",
@@ -20584,7 +20768,7 @@ async function recoverTransactionWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve26(transactionPath)
+                resolve27(transactionPath)
               ]
             }
           ]
@@ -20619,7 +20803,7 @@ async function recoverTransactionWorkflow({
       }
     });
   }
-  invalid(
+  invalid2(
     "RECOVERY_NOT_REQUIRED",
     `Transaction phase ${transaction.phase} has no irreversible journal to recover.`,
     1
@@ -20629,13 +20813,14 @@ function parseArguments7(argv, command) {
   const flags = parseCommandArguments(command, argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    invalid("INVALID_FORMAT", "--format must be json or text.");
+    invalid2("INVALID_FORMAT", "--format must be json or text.");
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
-    invalid("TRANSACTION_REQUIRED", "--transaction is required.");
+    invalid2("TRANSACTION_REQUIRED", "--transaction is required.");
   return {
     transactionPath,
     format,
+    retainProcessLogs: command === "workflow recover" && format !== "text",
     resolution: flags.get("resolution") ?? null,
     purge: flags.get("purge") === true
   };
@@ -20643,6 +20828,7 @@ function parseArguments7(argv, command) {
 async function runRecoverTransactionCommand(argv, { stdout = process.stdout } = {}) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments7(arguments_, "workflow recover"),
+    includeProcessDiagnostics: true,
     execute: recoverTransactionWorkflow,
     failureState: observeTransactionFailure,
     stdout
@@ -20685,14 +20871,14 @@ __export(checkMessageWorkflow_exports, {
   readExactRecordedSnapshot: () => readExactRecordedSnapshot,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-import { createHash as createHash22 } from "node:crypto";
-import { resolve as resolve27 } from "node:path";
+import { createHash as createHash23 } from "node:crypto";
+import { resolve as resolve28 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
 function fail13(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
-  return createHash22("sha256").update(bytes).digest("hex");
+  return createHash23("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
@@ -20722,8 +20908,8 @@ function readExactRecordedSnapshot(transactionPath) {
     allowPathReplacement: false
   });
   const { transaction, bytes } = opened;
-  const expectedPath = resolve27(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve27(transaction.snapshot?.path ?? "") !== expectedPath) {
+  const expectedPath = resolve28(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve28(transaction.snapshot?.path ?? "") !== expectedPath) {
     fail13(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
@@ -20736,7 +20922,7 @@ function readExactRecordedSnapshot(transactionPath) {
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve27(manifest.repositoryRoot) !== resolve27(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+  if (resolve28(manifest.repositoryRoot) !== resolve28(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
     fail13(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
@@ -20775,7 +20961,7 @@ function checkedResult({
     status: "message-ready",
     phase: "message-ready",
     route,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     warnings: [
@@ -20826,7 +21012,7 @@ function assertCheckTransaction(transaction, transactionPath) {
     fail13(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve27(transactionPath) } }
+      { details: { transaction: resolve28(transactionPath) } }
     );
   }
 }
@@ -20930,7 +21116,7 @@ var init_checkMessageWorkflow = __esm({
 });
 
 // src/committing-to-git/message/semanticContentValidation.js
-import { createHash as createHash23 } from "node:crypto";
+import { createHash as createHash24 } from "node:crypto";
 function isPlainObject5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -20939,7 +21125,7 @@ function boundedPointerToken(token) {
   if (Buffer.byteLength(value, "utf8") <= MAXIMUM_POINTER_TOKEN_BYTES) {
     return value;
   }
-  const digest = createHash23("sha256").update(value).digest("hex");
+  const digest = createHash24("sha256").update(value).digest("hex");
   return `field-sha256:${digest}`;
 }
 function childPointer(parent, token) {
@@ -20947,7 +21133,7 @@ function childPointer(parent, token) {
   return `${parent}/${escaped}`;
 }
 function diagnosticCollector() {
-  const digest = createHash23("sha256");
+  const digest = createHash24("sha256");
   const samples = [];
   let count = 0;
   return {
@@ -20958,7 +21144,7 @@ function diagnosticCollector() {
         ...pointerByteLength <= 4096 ? {} : {
           pointerOmitted: true,
           pointerByteLength,
-          pointerSha256: createHash23("sha256").update(pointer).digest("hex")
+          pointerSha256: createHash24("sha256").update(pointer).digest("hex")
         },
         code,
         message
@@ -21415,10 +21601,10 @@ import {
   existsSync as existsSync18,
   lstatSync as lstatSync20,
   readFileSync as readFileSync14,
-  realpathSync as realpathSync11,
+  realpathSync as realpathSync12,
   writeFileSync as writeFileSync14
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute12, join as join17, relative as relative11, resolve as resolve28, sep as sep5 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute12, join as join18, relative as relative11, resolve as resolve29, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
 function fail14(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -21439,7 +21625,7 @@ function decodeContent(bytes) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve28(path);
+  const absolute = resolve29(path);
   const contained = relative11(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute12(contained)) {
     fail14(
@@ -21458,7 +21644,7 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
       `${label} must be a non-link regular file.`
     );
   }
-  if (realpathSync11(absolute) !== absolute) {
+  if (realpathSync12(absolute) !== absolute) {
     fail14(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
@@ -21473,7 +21659,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve28(transactionPath),
+          transaction: resolve29(transactionPath),
           route: transaction.route
         }
       }
@@ -21485,7 +21671,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve28(transactionPath),
+          transaction: resolve29(transactionPath),
           route: transaction.route
         }
       }
@@ -21493,7 +21679,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog2(transaction) {
-  const expectedReviewDirectory = resolve28(
+  const expectedReviewDirectory = resolve29(
     transaction.attemptDirectory,
     "review"
   );
@@ -21600,7 +21786,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join17(
+  const path = join18(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
@@ -21685,7 +21871,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     status: "evidence-required",
     phase: "review-pending",
     route: "extended",
-    transaction: resolve28(transactionPath),
+    transaction: resolve29(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -21700,7 +21886,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
             "workflow",
             "review-next",
             "--transaction",
-            resolve28(transactionPath)
+            resolve29(transactionPath)
           ]
         }
       ]
@@ -21710,7 +21896,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
       canonical: false,
       evidenceDelta: {
         newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-        firstQueuePage: firstPage === null ? null : resolve28(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePage: firstPage === null ? null : resolve29(transaction.attemptDirectory, firstPage.artifact),
         firstQueuePageSha256: firstPage?.sha256 ?? null
       },
       displayText: null
@@ -21733,7 +21919,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     route: "extended",
     warnings: presentationDiagnostics(rendered.presentationWarnings),
-    transaction: resolve28(transactionPath),
+    transaction: resolve29(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -21782,14 +21968,14 @@ async function finalizeMessageWorkflow({
         recovery: {
           kind: "correct-input",
           automatic: false,
-          requiredInputs: [resolve28(transaction.attemptDirectory, CONTENT_NAME)],
+          requiredInputs: [resolve29(transaction.attemptDirectory, CONTENT_NAME)],
           commands: [
             {
               arguments: [
                 "message",
                 "finalize",
                 "--transaction",
-                resolve28(transactionPath)
+                resolve29(transactionPath)
               ]
             }
           ]
@@ -21986,8 +22172,8 @@ init_commandArguments();
 init_commandExecution();
 init_diagnosticContract();
 import { pathToFileURL } from "node:url";
-import { resolve as resolve29 } from "node:path";
-import { createHash as createHash24 } from "node:crypto";
+import { resolve as resolve30 } from "node:path";
+import { createHash as createHash25 } from "node:crypto";
 import { readFileSync as readFileSync15 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
@@ -22266,7 +22452,7 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest = createHash24("sha256").update(readFileSync15(new URL(import.meta.url))).digest("hex");
+    const digest = createHash25("sha256").update(readFileSync15(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({
@@ -22341,7 +22527,7 @@ async function runCommitWorkflowCli(args, { stdout = process.stdout, stderr = pr
     return writeInvalidResult(result, args, stdout);
   }
 }
-if (process.argv[1] && pathToFileURL(resolve29(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && pathToFileURL(resolve30(process.argv[1])).href === import.meta.url) {
   process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));
 }
 export {

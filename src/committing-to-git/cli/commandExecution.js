@@ -2,6 +2,12 @@ import { encodeWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import { workflowFailureResult } from "../diagnostics/workflowDiagnosticError.js";
 import { Writable } from "node:stream";
 
+const quietDiagnostics = Object.freeze({ write: () => true });
+
+export function diagnosticWriterFor(format, stderr) {
+  return format === "text" ? stderr : quietDiagnostics;
+}
+
 export class WorkflowOutputError extends Error {
   constructor(result, cause) {
     super(
@@ -102,7 +108,13 @@ function projectReportResult(result, arguments_) {
 /** Execute once, encode once, then write outside the operation's catch boundary. */
 export async function executeCommand(
   arguments_,
-  { parse, execute, failureState = () => ({}), stdout = process.stdout },
+  {
+    parse,
+    execute,
+    failureState = () => ({}),
+    stdout = process.stdout,
+    includeProcessDiagnostics = false,
+  },
 ) {
   let options;
   let result;
@@ -114,6 +126,26 @@ export async function executeCommand(
       transaction: options?.transactionPath ?? null,
       state: failureState(options),
     });
+  }
+  if (
+    includeProcessDiagnostics &&
+    result.transaction &&
+    result.commitState !== "absent" &&
+    !result.processDiagnostics
+  ) {
+    result = {
+      ...result,
+      processDiagnostics: {
+        arguments: [
+          "workflow",
+          "report-detail",
+          "--transaction",
+          result.transaction,
+          "--section",
+          "diagnostics",
+        ],
+      },
+    };
   }
   const encoded = encodeWorkflowResult(
     projectReportResult(result, arguments_),

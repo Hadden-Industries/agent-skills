@@ -1,4 +1,7 @@
-import { executeCommand } from "../cli/commandExecution.js";
+import {
+  executeCommand,
+  diagnosticWriterFor,
+} from "../cli/commandExecution.js";
 import { messageAuthoringRecovery } from "./authoringProgress.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
@@ -1206,8 +1209,14 @@ export async function runCreateCommitCommand(
 ) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments(arguments_, "workflow commit"),
+    includeProcessDiagnostics: true,
     execute: (options) =>
-      createCommitWorkflow({ ...options, diagnosticWriter: stderr }),
+      createCommitWorkflow({
+        ...options,
+        retainProcessLogs:
+          options.format !== "text" || options.retainProcessLogs,
+        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
+      }),
     failureState: observeTransactionFailure,
     stdout,
   });
@@ -1218,6 +1227,7 @@ export async function runRetryVerificationCommand(
 ) {
   return executeCommand(argv, {
     parse: (arguments_) => parseArguments(arguments_, "workflow verify"),
+    includeProcessDiagnostics: true,
     execute: retrySignatureVerificationWorkflow,
     failureState: observeTransactionFailure,
     stdout,

@@ -16,17 +16,6 @@ const helper = fileURLToPath(new URL("scripts/commitWorkflow.mjs", skill));
 
 function captureFixture(t, { trusted = true } = {}) {
   const fixture = createRepositoryFixture(t, "host-capture-");
-  const documentation = readFileSync(
-    new URL("references/diagnostics.md", skill),
-    "utf8",
-  );
-  const recipe = documentation.match(/```javascript\r?\n(.*?)\r?\n```/su)?.[1];
-  assert.ok(
-    recipe,
-    "The documented stream-preserving capture must be runnable",
-  );
-  const wrapper = join(fixture.scratch, "capture-workflow.mjs");
-  writeFileSync(wrapper, recipe);
   assert.ok(configureSshSigning(t, fixture));
   const key = git(
     ["config", "--path", "user.signingkey"],
@@ -41,36 +30,16 @@ function captureFixture(t, { trusted = true } = {}) {
   );
   git(["config", "gpg.ssh.allowedSignersFile", signers], fixture.repo);
   writeRepositoryFile(fixture.repo, "example.txt", "Capture both streams\n");
-  let sequence = 0;
   function invoke(args, expectedExit = 0) {
-    const directory = join(fixture.scratch, `capture ${sequence++}`);
-    const child = runNodeScript(
-      wrapper,
-      [directory, helper, ...args],
-      fixture.repo,
-      { env: { TEMP: fixture.scratch, TMP: fixture.scratch } },
-    );
+    const child = runNodeScript(helper, args, fixture.repo, {
+      env: { TEMP: fixture.scratch, TMP: fixture.scratch },
+    });
     assert.equal(child.status, expectedExit, child.stdout + child.stderr);
     assert.equal(child.stderr, "");
-    // A host combining streams still receives exactly the capture envelope.
-    const envelope = JSON.parse(child.stderr + child.stdout);
-    assert.equal(envelope.exitCode, expectedExit);
-    assert.equal(envelope.signal, null);
-    assert.equal(envelope.spawnError, null);
-    assert.equal(
-      readFileSync(join(directory, "capture.json"), "utf8"),
-      child.stdout,
-    );
-    for (const channel of ["stdout", "stderr"]) {
-      assert.equal(
-        readFileSync(join(directory, `${channel}.txt`), "utf8"),
-        envelope[channel],
-      );
-    }
-    const result = JSON.parse(envelope.stdout);
-    assert.equal(envelope.stdout, `${JSON.stringify(result)}\n`);
+    const result = JSON.parse(child.stdout + child.stderr);
+    assert.equal(child.stdout, `${JSON.stringify(result)}\n`);
     assert.equal(result.exitCode, expectedExit);
-    return { result, envelope, directory };
+    return { result };
   }
   const { result: prepared } = invoke([
     "workflow",
@@ -101,7 +70,7 @@ function captureFixture(t, { trusted = true } = {}) {
   return { ...fixture, invoke, commit, transaction: prepared.transaction };
 }
 
-test("documented capture preserves signed commit and publication through a merged host", (t) => {
+test("direct JSON invocation preserves signed commit and publication through a merged host", (t) => {
   const fixture = captureFixture(t);
   const remote = join(fixture.base, "remote.git");
   git(["init", "--bare", "--quiet", remote], fixture.repo);
@@ -114,11 +83,6 @@ test("documented capture preserves signed commit and publication through a merge
   const committed = fixture.commit();
   assert.equal(committed.result.commitState, "created");
   assert.equal(committed.result.report.commit.signed, true);
-  assert.match(committed.envelope.stderr, /create mode/u);
-  // The original consumer fails on these actual helper bytes.
-  assert.throws(() =>
-    JSON.parse(committed.envelope.stderr + committed.envelope.stdout),
-  );
   const published = fixture.invoke([
     "workflow",
     "publish",
@@ -130,8 +94,21 @@ test("documented capture preserves signed commit and publication through a merge
     "refs/heads/review",
   ]);
   assert.equal(published.result.publicationState, "published");
-  assert.match(published.envelope.stderr, /capture-remote-diagnostic/u);
-  assert.match(published.envelope.stderr, /\[new branch\]/u);
+  const detail = fixture.invoke(
+    published.result.processDiagnostics.arguments,
+  ).result;
+  assert.match(
+    detail.processDiagnostics.operations[0].stdout.text,
+    /create mode/u,
+  );
+  assert.match(
+    detail.processDiagnostics.operations[1].stderr.text,
+    /capture-remote-diagnostic/u,
+  );
+  assert.match(
+    detail.processDiagnostics.operations[1].stdout.text,
+    /\[new branch\]/u,
+  );
   assert.equal(
     git(
       ["--git-dir", remote, "rev-parse", "refs/heads/review"],
@@ -139,18 +116,7 @@ test("documented capture preserves signed commit and publication through a merge
     ).stdout.trim(),
     committed.result.commitOid,
   );
-  // A truncated host response is recovered by reading the existing capture,
-  // never by invoking the mutation again.
-  assert.throws(() =>
-    JSON.parse(JSON.stringify(published.envelope).slice(0, 50)),
-  );
-  const retained = JSON.parse(
-    readFileSync(join(published.directory, "capture.json"), "utf8"),
-  );
-  assert.equal(
-    JSON.parse(retained.stdout).commitOid,
-    committed.result.commitOid,
-  );
+  // Lost output is recovered through the public transaction command only.
   const report = fixture.invoke([
     "workflow",
     "recover",
@@ -158,13 +124,18 @@ test("documented capture preserves signed commit and publication through a merge
     fixture.transaction,
   ]);
   assert.equal(report.result.publicationState, "published");
+  assert.equal(report.result.commitOid, committed.result.commitOid);
+  assert.deepEqual(
+    report.result.processDiagnostics,
+    published.result.processDiagnostics,
+  );
   assert.equal(
     git(["rev-list", "--count", "HEAD"], fixture.repo).stdout,
     "1\n",
   );
 });
 
-test("documented capture retains a known commit when publication is rejected", (t) => {
+test("direct JSON invocation retains a known commit when publication is rejected", (t) => {
   const fixture = captureFixture(t);
   const remote = join(fixture.base, "remote.git");
   git(["init", "--bare", "--quiet", remote], fixture.repo);
@@ -192,7 +163,13 @@ test("documented capture retains a known commit when publication is rejected", (
   assert.equal(rejected.result.commitOid, committed.result.commitOid);
   assert.equal(rejected.result.commitState, "created");
   assert.equal(rejected.result.recovery.automatic, false);
-  assert.match(rejected.envelope.stderr, /capture-rejection/u);
+  const detail = fixture.invoke(
+    rejected.result.processDiagnostics.arguments,
+  ).result;
+  assert.match(
+    detail.processDiagnostics.operations[1].stderr.text,
+    /capture-rejection/u,
+  );
   assert.notEqual(
     git(["--git-dir", remote, "rev-parse", "refs/heads/review"], fixture.repo, {
       allowFailure: true,
@@ -201,7 +178,7 @@ test("documented capture retains a known commit when publication is rejected", (
   );
 });
 
-test("documented capture retains a signed commit after required verification fails", (t) => {
+test("direct JSON invocation retains a signed commit after required verification fails", (t) => {
   const fixture = captureFixture(t, { trusted: false });
   const failed = fixture.commit(3);
   assert.equal(failed.result.disposition, "completed-with-failure");
@@ -221,4 +198,87 @@ test("documented capture retains a signed commit after required verification fai
     git(["rev-list", "--count", "HEAD"], fixture.repo).stdout,
     "1\n",
   );
+});
+
+test("JSON diagnostics are bounded, retained and hash-checked without replay", (t) => {
+  const fixture = captureFixture(t);
+  writeFileSync(
+    join(fixture.repo, ".git", "hooks", "pre-commit"),
+    "#!/bin/sh\nprintf '%020000d\\n' 0\n",
+    { mode: 0o755 },
+  );
+  const committed = fixture.commit();
+  const detail = fixture.invoke(
+    committed.result.processDiagnostics.arguments,
+  ).result;
+  const evidence = detail.processDiagnostics.operations[0];
+  assert.equal(evidence.stderr.text.length, 4096);
+  assert.ok(evidence.stderr.omittedByteCount > 15000);
+  assert.ok(readFileSync(evidence.path).length > 20000);
+  writeFileSync(evidence.path, "corrupt evidence");
+  const corrupt = fixture.invoke(
+    committed.result.processDiagnostics.arguments,
+    2,
+  ).result;
+  assert.equal(corrupt.code, "PROCESS_DIAGNOSTICS_INVALID");
+  assert.equal(corrupt.commitState, "created");
+  assert.equal(
+    git(["rev-list", "--count", "HEAD"], fixture.repo).stdout,
+    "1\n",
+  );
+});
+
+test("text mode still streams child diagnostics", (t) => {
+  const fixture = captureFixture(t);
+  const child = runNodeScript(
+    helper,
+    [
+      "workflow",
+      "commit",
+      "--transaction",
+      fixture.transaction,
+      "--message",
+      "fix(capture): Preserve human output",
+      "--format",
+      "text",
+    ],
+    fixture.repo,
+  );
+  assert.equal(child.status, 0, child.stdout + child.stderr);
+  assert.match(child.stderr, /create mode/u);
+  assert.match(child.stdout, /Created signed commit/u);
+});
+
+test("argument rejection is one JSON result through merged capture", (t) => {
+  const fixture = createRepositoryFixture(t);
+  const child = runNodeScript(
+    helper,
+    ["workflow", "commit", "--unknown"],
+    fixture.repo,
+  );
+  assert.equal(child.status, 2);
+  assert.equal(child.stderr, "");
+  assert.equal(
+    JSON.parse(child.stdout + child.stderr).disposition,
+    "invalid-input",
+  );
+});
+
+test("explicit cleanup can remove retained diagnostics without losing the commit", (t) => {
+  const fixture = captureFixture(t);
+  const committed = fixture.commit();
+  fixture.invoke(["workflow", "cleanup", "--transaction", fixture.transaction]);
+  const detail = fixture.invoke(
+    committed.result.processDiagnostics.arguments,
+    2,
+  ).result;
+  assert.equal(detail.code, "PROCESS_DIAGNOSTICS_INVALID");
+  assert.equal(detail.commitOid, committed.result.commitOid);
+  const recovered = fixture.invoke([
+    "workflow",
+    "recover",
+    "--transaction",
+    fixture.transaction,
+  ]).result;
+  assert.equal(recovered.commitOid, committed.result.commitOid);
 });

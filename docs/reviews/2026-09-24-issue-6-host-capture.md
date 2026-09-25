@@ -1,9 +1,10 @@
 # Issue 6: shell capture diagnosis and regression evidence
 
-The confirmed cause is the consumer parsing a merged shell capture as helper
-stdout. The helper's one-JSON-value stdout contract holds. The integration remedy
-belongs in committing-to-git's supported invocation guidance; no helper stream
-change or HISEW change is required.
+The confirmed cause was the consumer parsing a merged shell capture as helper
+stdout. The original helper's one-JSON-value stdout contract held, but its
+ancillary stderr was incompatible with this host's normal capture. The initial
+documentation workaround below was superseded on September 25: the helper now
+owns quiet JSON output and diagnostic retrieval. No HISEW change is required.
 
 ## Affected package reproduction
 
@@ -33,7 +34,7 @@ interface reproduced `JSON.parse(result.output)` failure with exit 0. This repla
 performed no Git mutation. It isolates the host's merged capture from the helper's
 separated streams; the original production transaction was never replayed.
 
-## Remedy and repeatable checks
+## Initial workaround (superseded)
 
 The canonical skill routes merged-stream hosts to the executable Node capture
 recipe in `references/diagnostics.md`. It preserves both streams in a fresh
@@ -48,13 +49,27 @@ the envelope, then its stdout as the workflow result, succeeded for both. The
 commit returned `created`; publication returned `published` for the same OID.
 The retained diagnostic streams contained 128 and 192 bytes respectively.
 
-Run `node --test tests/committing-to-git/host-capture.test.mjs`. The tests execute
-the recipe extracted from the documentation against the packaged helper and real
-disposable Git repositories. They cover successful signed commit/publication,
-remote rejection, required verification failure after a known commit, retained
-diagnostics, recovery from truncated host output and public recovery without an
-additional commit. The successful case also asserts that the old combined-stream
-parser fails on the actual helper bytes.
+## Built-in remedy and repeatable checks
+
+JSON mode now emits no child diagnostics on stderr. The ordinary CLI returns one
+workflow result even when the host merges streams. Human text mode retains
+diagnostic streaming. Automatic JSON commit/recovery compaction retains process
+logs, and results point to the existing report-detail command with a diagnostics
+section. It verifies complete transcript hashes using bounded memory and returns
+bounded previews with omission counts. Public recovery/report commands use the
+existing durable transaction; callers create no wrapper or transport envelope.
+
+Run `node --test tests/committing-to-git/host-capture.test.mjs`. The tests invoke
+the packaged CLI directly in disposable Git repositories. They cover signed
+commit/publication, remote rejection, required verification failure after a known
+commit, public recovery without another commit, bounded retained diagnostics,
+corrupt evidence rejection, invalid input and human text output. The replacement
+tests first failed on the old helper's Git stderr output.
+
+Live Codex calls also exercised the rebuilt CLI directly on September 25. A
+fresh signed commit and push to a disposable bare remote each parsed with one
+`JSON.parse(result.output)`. The public diagnostics command returned the commit
+summary and remote hook message from retained, hash-verified transcripts.
 
 These are deterministic integration checks. They do not establish behavioral
 evaluation across agents or execution on other operating systems.

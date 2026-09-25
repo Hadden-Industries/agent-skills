@@ -38,6 +38,7 @@ import {
   releaseTransactionStateLock,
 } from "../transaction/transactionRecovery.js";
 import { readTransaction } from "../transaction/transactionWorkspace.js";
+import { readProcessDiagnostics } from "./processDiagnostics.js";
 
 const ACTIVE_NAME = "report-detail.active.json";
 const COMPLETED_NAME = "report-detail.completed.json";
@@ -842,6 +843,7 @@ export async function readWorkspaceDetailPage({
 }
 
 export async function reportDetailWorkflow(options) {
+  if (options.section === "diagnostics") return readProcessDiagnostics(options);
   if (options.section === "report") return readRetainedReport(options);
   return readWorkspaceDetailPage(options);
 }
@@ -914,8 +916,11 @@ function parseArguments(argv) {
   if (!transactionPath)
     fail("TRANSACTION_REQUIRED", "--transaction is required.");
   const section = flags.get("section") ?? "workspace";
-  if (!["workspace", "report"].includes(section))
-    fail("INVALID_DETAIL_SECTION", "--section must be workspace or report.");
+  if (!["workspace", "report", "diagnostics"].includes(section))
+    fail(
+      "INVALID_DETAIL_SECTION",
+      "--section must be workspace, report or diagnostics.",
+    );
   return {
     transactionPath,
     section,
