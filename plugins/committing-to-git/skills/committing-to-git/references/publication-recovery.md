@@ -1,5 +1,7 @@
 # Publication Recovery
 
+A pre-execution guard denial is not a rejected or uncertain publication: the denied command did not run. If the host denied the helper itself, no new helper result or attempt record exists. Preserve prior evidence and stop that operation without retries, equivalent commands, alternate executables or a manual bypass request. An optional transport-identity probe may remain unavailable while the already-authorized ordinary route continues; do not prompt solely to improve that evidence. Escalate only a concrete mandatory prerequisite. See [publication routing](publication-routing.md#supplementary-git-transport-evidence).
+
 Read this reference after a known rejection or unknown publication result, when retargeting or a separately authorized retry is requested, or when a later push request has no matching transaction capsule. Pushing always requires explicit authorization separate from commit creation. For new commit-and-publish requests, first use [publication routing](publication-routing.md) before drafting; rejection is recovery, not policy discovery. Reuse an already approved route/fallback within its exact scope rather than requesting the same approval again.
 
 ## Known rejection

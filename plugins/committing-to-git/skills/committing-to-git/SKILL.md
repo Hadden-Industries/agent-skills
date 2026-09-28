@@ -28,7 +28,9 @@ Use `--result-detail summary` to retain exact display, comparison, signature, ch
 
 ## Publication intent before drafting
 
-Distinguish source publication from named-target integration. Discover once with `workflow preflight --remote <name>` and known refs; follow [publication routing](references/publication-routing.md). Reuse `feasibility.discoveryReuse` within unchanged tasks. Resolve blocked/unknown feasibility and required reviews/checks. Prefer direct signed publication, normal PR merge, then disclosed squash. Check payload/live refs before effects; rediscover on context/policy change or rejection. Local-only commits need no remote discovery.
+Distinguish source publication from target integration. Follow [publication routing](references/publication-routing.md) with `workflow preflight --remote <name>` and known refs; reuse `feasibility.discoveryReuse` within unchanged tasks. Resolve mandatory feasibility/reviews/checks. Prefer direct signed publication, normal PR merge, then disclosed squash. Check payload/live refs; rediscover after context/policy changes or rejection. Local-only commits need no remote discovery.
+
+Optional identity failures alone never block/prompt. Stop guard-denied operations.
 
 Derive scope from task lineage/Git, never a semantic hint used as a glob, pathspec, prefix, or fuzzy selector. Ask when two materially different scopes remain plausible. Never autocorrect selectors.
 

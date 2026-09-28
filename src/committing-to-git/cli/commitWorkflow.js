@@ -400,5 +400,14 @@ if (
   process.argv[1] &&
   pathToFileURL(resolve(process.argv[1])).href === import.meta.url
 ) {
-  process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));
+  if (
+    process.argv.length === 3 &&
+    process.argv[2] === "--internal-transport-observation"
+  ) {
+    const { runTransportObservationWorker } =
+      await import("../publication/transportObservationWorker.js");
+    process.exitCode = await runTransportObservationWorker();
+  } else {
+    process.exitCode = await runCommitWorkflowCli(process.argv.slice(2));
+  }
 }

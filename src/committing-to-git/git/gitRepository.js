@@ -866,8 +866,8 @@ export function gitText(args, options) {
   return runGit(args, options).stdout.toString("utf8");
 }
 
-export function repositoryRoot(cwd = process.cwd()) {
-  return readOnlyGitText(cwd, "repository-root").trim();
+export function repositoryRoot(cwd = process.cwd(), observe = readOnlyGitText) {
+  return observe(cwd, "repository-root").trim();
 }
 
 export function resolveHead(root, env) {
@@ -939,8 +939,8 @@ const OPERATION_MARKERS = [
   ["sequencer", "sequencer"],
 ];
 
-export function activeGitOperations(root) {
-  const markerPaths = readOnlyGitText(
+export function activeGitOperations(root, observe = readOnlyGitText) {
+  const markerPaths = observe(
     root,
     "operation-markers",
     OPERATION_MARKERS.map(([, marker]) => marker),

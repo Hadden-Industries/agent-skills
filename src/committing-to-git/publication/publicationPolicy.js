@@ -8,6 +8,7 @@ export function selectPublicationRoute({
   pushRules,
   sourceBranch,
   requirePersonalSignature = false,
+  permissionBasis = "publication-actor",
 }) {
   const prerequisites = [];
   const reasons = [];
@@ -17,11 +18,18 @@ export function selectPublicationRoute({
     reasons: [...reasons, reason],
     prerequisites,
   });
-  if (!repository || typeof repository.permissions?.push !== "boolean")
+  if (
+    !repository ||
+    (permissionBasis !== "transport-not-observed" &&
+      typeof repository.permissions?.push !== "boolean")
+  )
     return stop("unknown", "Publication permissions are unavailable.");
   if (repository.archived || repository.disabled)
     return stop("blocked", "The repository is archived or disabled.");
-  if (!repository.permissions.push)
+  if (
+    permissionBasis !== "transport-not-observed" &&
+    !repository.permissions.push
+  )
     return stop(
       "blocked",
       "The authenticated actor cannot publish to this repository; a separately selected fork or maintainer handoff is needed.",

@@ -8,9 +8,36 @@ import { selectPublicationRoute } from "../../src/committing-to-git/publication/
 import { inspectGitHubPolicy } from "../../src/committing-to-git/publication/githubPolicy.js";
 import {
   githubRemoteIdentity,
-  inspectPublicationFeasibility,
+  inspectPublicationFeasibility as inspectNativePublicationFeasibility,
 } from "../../src/committing-to-git/publication/publicationPreflight.js";
 import { createRepositoryFixture, git } from "./harness.mjs";
+
+// Exercise the real repository observations independently of workstation guard
+// policy. The operation-marker command is represented by its documented native
+// output; it is never executed here (the installed strict pack denies it).
+function fixtureCommand(executable, args, options) {
+  if (options.operation === "git-operation-markers") {
+    const paths = [
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "rebase-merge",
+      "rebase-apply",
+      "sequencer",
+    ];
+    return {
+      status: 0,
+      stdout: paths.map((path) => join(options.cwd, ".git", path)).join("\n"),
+    };
+  }
+  return spawnSync(executable, args, options);
+}
+function inspectPublicationFeasibility(options) {
+  return inspectNativePublicationFeasibility({
+    runCommand: fixtureCommand,
+    ...options,
+  });
+}
 
 const cli = fileURLToPath(
   new URL("../../src/committing-to-git/cli/commitWorkflow.js", import.meta.url),
@@ -576,4 +603,207 @@ test("preflight rejects invalid format using the shared diagnostic contract", ()
     { encoding: "utf8", windowsHide: true },
   );
   assert.equal(result.status, 2, result.stdout + result.stderr);
+});
+
+test("a denied local discovery command returns an unmet prerequisite without further commands", (t) => {
+  const fixture = createRepositoryFixture(t);
+  const attempts = [];
+  const result = inspectPublicationFeasibility({
+    cwd: fixture.repo,
+    remote: "origin",
+    api: () => assert.fail("Provider access must not follow a command denial"),
+    runCommand: (executable, args) => {
+      attempts.push([executable, args]);
+      throw Object.assign(new Error("private guard output must not escape"), {
+        code: "COMMAND_GUARD_DENIED",
+        operation: "git-repository-root",
+        executed: false,
+        ruleId: "core.git:git-alias-semantic-unverified",
+      });
+    },
+  });
+  assert.equal(attempts.length, 1);
+  assert.equal(result.status, "unknown");
+  assert.equal(result.route, null);
+  assert.equal(result.commandFailure.code, "COMMAND_GUARD_DENIED");
+  assert.equal(result.commandFailure.executed, false);
+  assert.equal(result.nextAction, "resolve-command-prerequisite");
+  assert.doesNotMatch(JSON.stringify(result), /private guard output/);
+});
+
+test("a local executable that cannot launch is not reported as executed", () => {
+  const result = inspectPublicationFeasibility({
+    remote: "origin",
+    runCommand: () => ({ error: { code: "ENOENT" }, status: null, pid: 0 }),
+  });
+  assert.equal(result.commandFailure.code, "COMMAND_UNAVAILABLE");
+  assert.equal(result.commandFailure.executed, false);
+});
+
+test("preflight evaluates authenticated transport evidence instead of requiring actor equality", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(
+    ["remote", "add", "origin", "https://github.com/owner/project.git"],
+    fixture.repo,
+  );
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  const result = inspectPublicationFeasibility({
+    cwd: fixture.repo,
+    remote: "origin",
+    taskId: "identity-task",
+    sourceBranch: "delivery/change",
+    authorizedTransportActor: "publisher",
+    api: apiFixture(),
+    observeContext: () => ({
+      supported: true,
+      transport: "https",
+      fingerprint: "a".repeat(64),
+    }),
+    observeTransport: () => ({
+      state: "established",
+      method: "git-credential-github-user",
+      principal: { kind: "user", login: "publisher", id: 52 },
+      permissions: { state: "established", canPush: true },
+    }),
+  });
+  assert.equal(result.transportIdentity?.state, "established");
+  assert.equal(result.transportIdentity.principal.login, "publisher");
+  assert.equal(result.transportPermissions.state, "established");
+  assert.equal(result.identityRelationship, "authorized-different");
+  assert.equal(result.discoveryReuse.eligible, true);
+  assert.equal(result.nextAction, "verify-publication-payload");
+  assert.doesNotMatch(
+    result.prerequisites.join(" "),
+    /matches the observed API actor/,
+  );
+});
+
+test("an optional identity denial preserves an authorized ordinary route without a prompt or another probe", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(
+    ["remote", "add", "origin", "https://github.com/owner/project.git"],
+    fixture.repo,
+  );
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  let probes = 0;
+  const result = inspectPublicationFeasibility({
+    cwd: fixture.repo,
+    remote: "origin",
+    taskId: "optional-identity",
+    sourceBranch: "delivery/change",
+    api: apiFixture(),
+    observeContext: () => ({
+      supported: true,
+      transport: "https",
+      fingerprint: "a".repeat(64),
+    }),
+    observeTransport: () => {
+      probes++;
+      throw Object.assign(new Error("not executed"), {
+        code: "COMMAND_GUARD_DENIED",
+        operation: "git-credential-selection",
+        executed: false,
+      });
+    },
+  });
+  assert.equal(probes, 1);
+  assert.equal(result.route, "pull-request-merge");
+  assert.equal(result.status, "viable-with-prerequisites");
+  assert.equal(result.transportIdentity.state, "unavailable");
+  assert.equal(result.transportIdentity.required, false);
+  assert.equal(result.nextAction, "verify-publication-payload");
+  assert.equal(
+    result.warnings[0].code,
+    "TRANSPORT_IDENTITY_OPTIONAL_UNAVAILABLE",
+  );
+});
+
+test("API account write permission is not a prerequisite for a direct Git publication route", () => {
+  const result = inspectGitHubPolicy({
+    owner: "owner",
+    repository: "project",
+    api: apiFixture({
+      "repos/owner/project": {
+        ...policy().repository,
+        default_branch: "main",
+        permissions: { push: false },
+      },
+      "repos/owner/project/branches/main": {
+        protected: false,
+        commit: { sha: "a".repeat(40) },
+      },
+      "repos/owner/project/rules/branches/main?per_page=100&page=1": [],
+      graphql: {
+        data: {
+          repository: {
+            branchProtectionRules: {
+              nodes: [],
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        },
+      },
+    }),
+  });
+  assert.equal(result.route, "direct", JSON.stringify(result));
+  assert.equal(result.policy.repository.permissions.push, false);
+  assert.equal(result.permissionBasis, "transport-not-observed");
+});
+
+test("same-task evidence reuse refreshes API identity without repeating policy or a denied credential probe", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(
+    ["remote", "add", "origin", "https://github.com/owner/project.git"],
+    fixture.repo,
+  );
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  const options = {
+    cwd: fixture.repo,
+    remote: "origin",
+    taskId: "reuse-task",
+    sourceBranch: "delivery/change",
+    observeContext: () => ({ supported: true, fingerprint: "b".repeat(64) }),
+  };
+  const first = inspectPublicationFeasibility({
+    ...options,
+    api: apiFixture(),
+    observeTransport: () => {
+      throw Object.assign(new Error("denied"), {
+        code: "COMMAND_GUARD_DENIED",
+        operation: "credential-selection",
+        executed: false,
+      });
+    },
+  });
+  assert.ok(first.discoveryEvidence);
+  const reads = [];
+  const second = inspectPublicationFeasibility({
+    ...options,
+    priorDiscovery: first.discoveryEvidence,
+    api: (endpoint) => {
+      reads.push(endpoint);
+      assert.equal(endpoint, "user");
+      return { login: "owner" };
+    },
+    observeTransport: () => assert.fail("Denied probe must never be retried"),
+  });
+  assert.equal(second.discoveryReused, true);
+  assert.equal(second.route, "pull-request-merge");
+  assert.deepEqual(reads, ["user"]);
+  assert.equal(
+    second.transportIdentity.commandFailure.code,
+    "COMMAND_GUARD_DENIED",
+  );
+  assert.equal(second.transportIdentity.required, false);
+  const changed = inspectPublicationFeasibility({
+    ...options,
+    taskId: "different-task",
+    priorDiscovery: first.discoveryEvidence,
+    api: apiFixture(),
+    observeTransport: () =>
+      assert.fail("Invalid reuse must not automatically reprobe"),
+  });
+  assert.equal(changed.discoveryReused, false);
+  assert.equal(changed.transportIdentity.state, "binding-changed");
+  assert.equal(changed.route, "pull-request-merge");
 });

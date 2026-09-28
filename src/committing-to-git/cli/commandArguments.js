@@ -13,6 +13,26 @@ const booleanOption = { type: "boolean" };
 /** Public helper options. Child arguments are deliberately outside this schema. */
 export const COMMAND_ARGUMENTS = {
   "workflow preflight": {
+    "task-id": {
+      ...stringOption,
+      description:
+        "<id>  Current task identity for optional transport observations.",
+    },
+    "reuse-discovery": {
+      ...stringOption,
+      description:
+        "<file>  Retained preflight JSON witnessed in this task; never an account assertion.",
+    },
+    "transport-probe": {
+      ...stringOption,
+      description:
+        "<auto|reuse-only>  Default: auto. Reuse-only never starts a transport probe.",
+    },
+    "authorized-transport-actor": {
+      ...stringOption,
+      description:
+        "<login>  Explicit user requirement for a particular Git account; default: none.",
+    },
     remote: {
       ...stringOption,
       description: "<name>  Required configured publication remote.",

@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { selectPublicationRoute } from "./publicationPolicy.js";
+import { commandFailure } from "./publicationCommands.js";
 
 /** Bounded GETs and one fixed GraphQL query; no credentials or provider text enter a shell. */
-export function githubApi(endpoint, fields = {}) {
+export function githubApi(endpoint, fields = {}, runCommand = spawnSync) {
   const args = [
     "api",
     "--hostname",
@@ -13,7 +14,8 @@ export function githubApi(endpoint, fields = {}) {
   ];
   for (const [key, value] of Object.entries(fields))
     args.push("-f", `${key}=${value}`);
-  const result = spawnSync("gh", args, {
+  const result = runCommand("gh", args, {
+    operation: "github-policy-observation",
     encoding: "utf8",
     windowsHide: true,
     timeout: 30000,
@@ -140,6 +142,7 @@ export function inspectGitHubPolicy({
       pushRules,
       sourceBranch,
       requirePersonalSignature,
+      permissionBasis: "transport-not-observed",
     };
     const targetRoute = selectPublicationRoute(policy);
     if (targetRoute.route !== "direct" && sourceBranch) {
@@ -169,12 +172,24 @@ export function inspectGitHubPolicy({
       targetOid: target.commit.sha,
       observedAt,
       policy,
+      permissionBasis: policy.permissionBasis,
     };
   } catch (error) {
+    const failure = commandFailure(error);
     return {
       status: "unknown",
       route: null,
-      reasons: [error.message],
+      reasons: [
+        failure
+          ? "The provider observation command was unavailable; no publication was attempted."
+          : error.message,
+      ],
+      ...(failure
+        ? {
+            commandFailure: failure,
+            nextAction: "resolve-command-prerequisite",
+          }
+        : {}),
       prerequisites: [],
       observedAt,
     };
