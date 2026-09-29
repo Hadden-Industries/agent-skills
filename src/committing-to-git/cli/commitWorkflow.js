@@ -4,10 +4,9 @@ import {
   WorkflowOutputError,
   writeWorkflowOutput,
 } from "./commandExecution.js";
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import {
   DIAGNOSTIC_CONTRACT_VERSION,
   DISPOSITION_EXIT_CODES,
@@ -396,10 +395,25 @@ export async function runCommitWorkflowCli(
   }
 }
 
-if (
-  process.argv[1] &&
-  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
-) {
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+
+  try {
+    // Node resolves module paths through links, while argv keeps the invoked path.
+    // Resolve both sides to also support --preserve-symlinks-main.
+    return (
+      realpathSync.native(process.argv[1]) ===
+      realpathSync.native(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    // Importers may supply an absent or synthetic entry path.
+    return false;
+  }
+}
+
+if (isMainModule()) {
   if (
     process.argv.length === 3 &&
     process.argv[2] === "--internal-transport-observation"

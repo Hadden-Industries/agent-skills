@@ -901,14 +901,14 @@ function diagnosticWriterFor(format, stderr) {
 async function writeWorkflowOutput(stdout, encoded) {
   try {
     if (stdout instanceof Writable) {
-      await new Promise((resolve31, reject) => {
+      await new Promise((resolve30, reject) => {
         const onError = (error) => reject(error);
         stdout.once("error", onError);
         stdout.write(encoded.output, (error) => {
           if (error) reject(error);
           else {
             stdout.removeListener("error", onError);
-            resolve31();
+            resolve30();
           }
         });
       });
@@ -2839,7 +2839,7 @@ import { existsSync as existsSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 function githubGet(endpoint, credential) {
-  return new Promise((resolve31, reject) => {
+  return new Promise((resolve30, reject) => {
     const req = request(
       {
         hostname: "api.github.com",
@@ -2863,7 +2863,7 @@ function githubGet(endpoint, credential) {
           if (response.statusCode !== 200)
             return reject(new Error("Identity read unavailable."));
           try {
-            resolve31(JSON.parse(body));
+            resolve30(JSON.parse(body));
           } catch {
             reject(new Error("Identity response unavailable."));
           }
@@ -14675,12 +14675,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve31, reject) {
+        return new Promise(function(resolve30, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve31(is);
+              resolve30(is);
             }
           });
         });
@@ -14746,27 +14746,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve31, reject) => {
+      const step = (i) => new Promise((resolve30, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve31(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve30(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve31(subStep(p, i, 0));
+        resolve30(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve31, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve30, reject) => {
         if (ii === pathExt.length)
-          return resolve31(step(i + 1));
+          return resolve30(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve31(p + ext);
+              return resolve30(p + ext);
           }
-          return resolve31(subStep(p, i, ii + 1));
+          return resolve30(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -22909,10 +22909,9 @@ var init_finalizeMessageWorkflow = __esm({
 init_commandArguments();
 init_commandExecution();
 init_diagnosticContract();
-import { pathToFileURL } from "node:url";
-import { resolve as resolve30 } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash as createHash26 } from "node:crypto";
-import { readFileSync as readFileSync16 } from "node:fs";
+import { readFileSync as readFileSync16, realpathSync as realpathSync13 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
     "workflow preflight",
@@ -23265,7 +23264,17 @@ async function runCommitWorkflowCli(args, { stdout = process.stdout, stderr = pr
     return writeInvalidResult(result, args, stdout);
   }
 }
-if (process.argv[1] && pathToFileURL(resolve30(process.argv[1])).href === import.meta.url) {
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+  try {
+    return realpathSync13.native(process.argv[1]) === realpathSync13.native(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+if (isMainModule()) {
   if (process.argv.length === 3 && process.argv[2] === "--internal-transport-observation") {
     const { runTransportObservationWorker: runTransportObservationWorker2 } = await Promise.resolve().then(() => (init_transportObservationWorker(), transportObservationWorker_exports));
     process.exitCode = await runTransportObservationWorker2();
