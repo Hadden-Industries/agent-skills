@@ -15,6 +15,7 @@ import {
 } from "../transaction/transactionDiagnosticState.js";
 
 import { spawn } from "node:child_process";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -41,7 +42,6 @@ import {
 } from "../message/approvedMessage.js";
 import {
   readCanonicalMessage,
-  readTransactionOwnedFile,
   recoverCanonicalMessageReplacement,
   replaceCanonicalMessage,
 } from "../message/canonicalMessageState.js";
@@ -112,13 +112,7 @@ function assertNoGitStorageOverrides(environment) {
 }
 
 function readSnapshot(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false,
-  });
+  const input = readRecordedSnapshotFile(transactionPath);
 
   if (
     resolve(input.path) !== resolve(transaction.snapshot.path) ||
@@ -833,6 +827,7 @@ function uncertainCommitResult(transactionPath, transaction) {
 
 export async function createCommitWorkflow({
   transactionPath,
+  execution = "auto",
   approvedSubject = null,
   acknowledgedFailedCheckIds = [],
   retainReviewArtifacts = false,
@@ -845,6 +840,12 @@ export async function createCommitWorkflow({
   signaturePreflightInspector = inspectSignatureRequirements,
   failureInjector = () => {},
 }) {
+  if (!["auto", "native"].includes(execution)) {
+    fail(
+      "INVALID_COMMIT_EXECUTION",
+      "--execution must be auto or native; both retain normal checks, hooks, signing and outcome recovery.",
+    );
+  }
   assertNoGitStorageOverrides(environment);
   let transaction = readTransaction(transactionPath);
 
@@ -1196,6 +1197,7 @@ function parseArguments(argv, command) {
   return {
     transactionPath,
     format,
+    execution: flags.get("execution") ?? "auto",
     approvedSubject: flags.get("message") ?? null,
     acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
     retainReviewArtifacts: flags.get("retain-review-artifacts") === true,

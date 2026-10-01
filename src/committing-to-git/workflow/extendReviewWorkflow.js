@@ -1,4 +1,5 @@
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
@@ -141,7 +142,9 @@ function readFixedEvidencePlan(path) {
 }
 
 function readExactSnapshot(transaction) {
-  const bytes = readFileSync(transaction.snapshot.path);
+  const { bytes } = readRecordedSnapshotFile(
+    resolve(transaction.attemptDirectory, "transaction.json"),
+  );
 
   if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
     fail(

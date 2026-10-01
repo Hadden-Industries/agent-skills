@@ -101,10 +101,10 @@ Only an unchanged draft may become actual, and only through promotion. `workflow
 
 Report checks require `workflow check` after preparation and before approval; never reconstruct receipts. For failure authorization, drift or recovery, read [check evidence](references/check-evidence.md).
 
-Confirm commit authorization for exact displayed bytes and named non-passing receipts. The helper makes one journaled signed transition, compares raw commit-message bytes without trimming, verifies the full OID, and reports. Never substitute standalone Git steps:
+Confirm exact-byte authorization and named non-passing receipts. The helper journals a signed commit, compares raw commit-message bytes without trimming and verifies full OID. For capacity, [native execution](references/native-execution.md) retains existing authority; standalone Git mutations remain unsupported:
 
 ```text
-node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
+node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--execution native] [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
 ```
 
 Preserve hook-altered commits; report mismatches. Use [signature recovery](references/signature-recovery.md) for trust/policy/identity limits. Journals preserve unknown outcomes without replay.

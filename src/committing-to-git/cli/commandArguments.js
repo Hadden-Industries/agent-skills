@@ -171,6 +171,11 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow commit": {
+    execution: {
+      ...stringOption,
+      description:
+        "<auto|native>  Default: auto. Both use native signed Git with identical journal, checks and verification. Snapshots above 8 MiB need no method exception (64 MiB maximum).",
+    },
     message: {
       ...stringOption,
       description:

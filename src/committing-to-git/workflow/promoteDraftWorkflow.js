@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 
 import {
   activeGitOperations,
@@ -24,10 +25,7 @@ import {
   stableJsonBytes,
 } from "../inspection/inlineEvidenceCapsule.js";
 import { readReviewCatalog } from "../inspection/reviewCatalog.js";
-import {
-  readCanonicalMessage,
-  readTransactionOwnedFile,
-} from "../message/canonicalMessageState.js";
+import { readCanonicalMessage } from "../message/canonicalMessageState.js";
 import {
   captureStagedSourceIdentity,
   preparePromotionIndex,
@@ -86,13 +84,7 @@ function realIndexPath(root) {
 }
 
 function readDraftManifest(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false,
-  });
+  const input = readRecordedSnapshotFile(transactionPath);
 
   if (
     !samePath(input.path, transaction.snapshot?.path ?? "") ||

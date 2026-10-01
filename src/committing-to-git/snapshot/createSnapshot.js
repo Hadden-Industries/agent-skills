@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { assertSnapshotCapacity } from "./recordedSnapshot.js";
 
 import {
   activeGitOperations,
@@ -459,8 +460,11 @@ export function createSnapshot({
     throw new Error("The staged scope is empty.");
   }
 
+  const serializedSnapshot = `${JSON.stringify(snapshot, null, 2)}\n`;
+  // Capacity is established before actual index installation or evidence work.
+  assertSnapshotCapacity(Buffer.byteLength(serializedSnapshot));
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(snapshot, null, 2)}\n`, {
+  writeFileSync(outputPath, serializedSnapshot, {
     flag: "wx",
     mode: 0o600,
   });

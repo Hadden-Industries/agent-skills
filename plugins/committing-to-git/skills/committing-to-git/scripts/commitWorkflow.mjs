@@ -822,6 +822,10 @@ var init_commandArguments = __esm({
         }
       },
       "workflow commit": {
+        execution: {
+          ...stringOption,
+          description: "<auto|native>  Default: auto. Both use native signed Git with identical journal, checks and verification. Snapshots above 8 MiB need no method exception (64 MiB maximum)."
+        },
         message: {
           ...stringOption,
           description: "<subject>  Exact transport-safe subject without LF; the helper\n    appends LF. Default: checked/finalized revision. Not a body or message file."
@@ -901,14 +905,14 @@ function diagnosticWriterFor(format, stderr) {
 async function writeWorkflowOutput(stdout, encoded) {
   try {
     if (stdout instanceof Writable) {
-      await new Promise((resolve30, reject) => {
+      await new Promise((resolve31, reject) => {
         const onError = (error) => reject(error);
         stdout.once("error", onError);
         stdout.write(encoded.output, (error) => {
           if (error) reject(error);
           else {
             stdout.removeListener("error", onError);
-            resolve30();
+            resolve31();
           }
         });
       });
@@ -2839,7 +2843,7 @@ import { existsSync as existsSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 function githubGet(endpoint, credential) {
-  return new Promise((resolve30, reject) => {
+  return new Promise((resolve31, reject) => {
     const req = request(
       {
         hostname: "api.github.com",
@@ -2863,7 +2867,7 @@ function githubGet(endpoint, credential) {
           if (response.statusCode !== 200)
             return reject(new Error("Identity read unavailable."));
           try {
-            resolve30(JSON.parse(body));
+            resolve31(JSON.parse(body));
           } catch {
             reject(new Error("Identity response unavailable."));
           }
@@ -3468,1302 +3472,796 @@ var init_changeSelection = __esm({
   }
 });
 
-// src/committing-to-git/git/gitPath.js
-function splitNul(buffer) {
-  const fields = [];
-  let start = 0;
-  for (let index = 0; index < buffer.length; index += 1) {
-    if (buffer[index] !== 0) {
-      continue;
-    }
-    fields.push(buffer.subarray(start, index));
-    start = index + 1;
-  }
-  if (start < buffer.length) {
-    fields.push(buffer.subarray(start));
-  }
-  return fields.filter((field) => field.length > 0);
+// src/committing-to-git/message/changeSelection.js
+import { Buffer as Buffer2 } from "node:buffer";
+function isPlainObject2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function comparePathBytes(left, right) {
-  return Buffer.compare(left, right);
-}
-function pathRecord(raw) {
-  const decoded = raw.toString("utf8");
-  return {
-    bytesBase64: raw.toString("base64"),
-    text: decoded,
-    display: decoded
-  };
-}
-var init_gitPath = __esm({
-  "src/committing-to-git/git/gitPath.js"() {
-  }
-});
-
-// src/committing-to-git/git/projectedIndex.js
-import { randomUUID } from "node:crypto";
-import {
-  chmodSync,
-  closeSync as closeSync2,
-  constants as fsConstants,
-  existsSync as existsSync3,
-  lstatSync,
-  openSync as openSync2,
-  unlinkSync
-} from "node:fs";
-import { dirname, resolve as resolve2 } from "node:path";
-function validatedPathBytes(pathBytes) {
-  if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
-    throw new Error(
-      "Projected-index entries require a nonempty raw path Buffer without NUL bytes."
+function validateReasons(reasons, label) {
+  if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
+    (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
+  )) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} requires one or more canonical reasons.`
     );
   }
-  return pathBytes;
-}
-function validatedEntry(entry) {
-  if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !INDEX_MODES.has(entry.mode) || !FULL_OBJECT_ID2.test(entry.oid)) {
-    throw new Error(
-      "Projected-index entries require a supported Git mode and full object ID."
+  if (new Set(reasons).size !== reasons.length) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} contains duplicate reasons.`
     );
   }
-  return {
-    mode: entry.mode,
-    oid: entry.oid,
-    pathBytes: validatedPathBytes(entry.pathBytes)
-  };
+  return [...reasons];
 }
-function encodeIndexInfoRecords(entries) {
-  if (!Array.isArray(entries)) {
-    throw new Error("Projected-index entries must be an array.");
+function resolvePartition(manifest, groups, { label, validateGroup }) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} groups must be a nonempty array.`
+    );
   }
-  const seen = /* @__PURE__ */ new Set();
-  const records = [];
-  for (const candidate of entries) {
-    const entry = validatedEntry(candidate);
-    const identity2 = entry.pathBytes.toString("base64");
-    if (seen.has(identity2)) {
-      throw new Error(
-        "Projected-index entries contain a duplicate raw path identity."
+  const assignedIds = /* @__PURE__ */ new Set();
+  const resolved = groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} group ${index + 1} must be an object.`
       );
     }
-    seen.add(identity2);
-    records.push(
-      Buffer.from(`${entry.mode} ${entry.oid}	`, "ascii"),
-      entry.pathBytes,
-      NUL
-    );
-  }
-  return Buffer.concat(records);
-}
-function allocateProjectedIndexPath(temporaryDirectory, purpose) {
-  const canonicalDirectory = resolve2(temporaryDirectory);
-  const directoryStat = lstatSync(canonicalDirectory);
-  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
-    throw new Error(
-      "Projected indexes require a real helper-owned temporary directory."
-    );
-  }
-  const indexPath = resolve2(
-    canonicalDirectory,
-    `.projected-index-${purpose}-${randomUUID()}.tmp`
-  );
-  if (dirname(indexPath) !== canonicalDirectory) {
-    throw new Error("Projected index escaped its temporary directory.");
-  }
-  const reservation = openSync2(
-    indexPath,
-    fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL,
-    384
-  );
-  closeSync2(reservation);
-  unlinkSync(indexPath);
-  return indexPath;
-}
-function removeExactArtifact(path) {
-  if (existsSync3(path)) {
-    unlinkSync(path);
-  }
-}
-async function withProjectedIndex({
-  root,
-  baselineTreeOid = null,
-  entries,
-  temporaryDirectory,
-  environment = {},
-  purpose = "projection",
-  launchers = {}
-}, useIndex) {
-  if (typeof root !== "string" || root.length === 0 || typeof temporaryDirectory !== "string" || temporaryDirectory.length === 0 || !PURPOSE.test(purpose) || baselineTreeOid !== null && !FULL_OBJECT_ID2.test(baselineTreeOid) || typeof useIndex !== "function" || launchers === null || typeof launchers !== "object" || Array.isArray(launchers) || launchers.synchronous !== void 0 && typeof launchers.synchronous !== "function") {
-    throw new Error("Projected-index invocation is invalid.");
-  }
-  const encodedEntries = encodeIndexInfoRecords(entries);
-  const indexPath = allocateProjectedIndexPath(temporaryDirectory, purpose);
-  const lockPath = `${indexPath}.lock`;
-  const projectedEnvironment = {
-    ...environment,
-    GIT_INDEX_FILE: indexPath,
-    GIT_OPTIONAL_LOCKS: "0"
-  };
-  const gitOptions = {
-    env: projectedEnvironment,
-    launcher: launchers.synchronous
-  };
-  let primaryError = null;
-  let result;
-  try {
-    runIndexMutationGit(
-      root,
-      "read-index-tree",
-      [baselineTreeOid ?? "--empty"],
-      gitOptions
-    );
-    if (encodedEntries.length > 0) {
-      runIndexMutationGit(root, "update-index-info", [], {
-        ...gitOptions,
-        input: encodedEntries
-      });
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
+      );
     }
-    if (process.platform !== "win32") {
-      chmodSync(indexPath, 384);
+    const units = resolveSelection(manifest, selection, { assignedIds });
+    const overlap = units.find(({ id }) => assignedIds.has(id));
+    if (overlap) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} groups overlap at ${overlap.id}.`
+      );
     }
-    result = await useIndex({
-      environment: projectedEnvironment,
-      indexPath
-    });
-  } catch (error) {
-    primaryError = error;
-  }
-  let cleanupError = null;
-  try {
-    removeExactArtifact(lockPath);
-    removeExactArtifact(indexPath);
-  } catch (error) {
-    cleanupError = error;
-  }
-  if (primaryError !== null && cleanupError !== null) {
-    throw new AggregateError(
-      [primaryError, cleanupError],
-      "Projected-index operation and exact cleanup both failed."
-    );
-  }
-  if (primaryError !== null) {
-    throw primaryError;
-  }
-  if (cleanupError !== null) {
-    throw cleanupError;
-  }
-  return result;
-}
-var FULL_OBJECT_ID2, INDEX_MODES, PURPOSE, NUL;
-var init_projectedIndex = __esm({
-  "src/committing-to-git/git/projectedIndex.js"() {
-    init_gitRepository();
-    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    INDEX_MODES = /* @__PURE__ */ new Set(["000000", "100644", "100755", "120000", "160000"]);
-    PURPOSE = /^[a-z][a-z0-9-]{0,63}$/u;
-    NUL = Buffer.from([0]);
-  }
-});
-
-// src/committing-to-git/inspection/inlineEvidenceCapsule.js
-import { createHash as createHash3 } from "node:crypto";
-import { TextDecoder as TextDecoder2 } from "node:util";
-function sha256Bytes(bytes) {
-  return createHash3("sha256").update(bytes).digest("hex");
-}
-function canonicalValue(value) {
-  if (Array.isArray(value)) {
-    return value.map(canonicalValue);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])])
-    );
-  }
-  return value;
-}
-function stableJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(canonicalValue(value))}
-`, "utf8");
-}
-function digestableManifest(manifest) {
-  return Object.fromEntries(
-    Object.entries(manifest).filter(([key]) => !EPHEMERAL_MANIFEST_KEYS.has(key)).map(([key, value]) => [
-      key,
-      key === "changeUnits" ? value.map(
-        (unit) => Object.fromEntries(
-          Object.entries(unit).filter(
-            ([unitKey]) => !EPHEMERAL_CHANGE_UNIT_KEYS.has(unitKey)
-          )
-        )
-      ) : value
-    ])
-  );
-}
-function manifestDigest(manifest) {
-  if (/^[0-9a-f]{64}$/u.test(manifest?.manifestSha256 ?? "")) {
-    return manifest.manifestSha256;
-  }
-  return sha256Bytes(stableJsonBytes(digestableManifest(manifest)));
-}
-function strictUtf8(bytes) {
-  try {
-    return STRICT_UTF8_DECODER.decode(bytes);
-  } catch {
-    return null;
-  }
-}
-function containsUnsafeControl(text) {
-  return [...text].some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint <= 31 || codePoint >= 127 && codePoint <= 159;
-  });
-}
-function safeBoundedText(bytes, label = "bytes") {
-  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-  const text = strictUtf8(buffer);
-  if (text !== null && !containsUnsafeControl(text) && buffer.length <= MAXIMUM_SAFE_TEXT_BYTES) {
-    return text;
-  }
-  const prefix = buffer.subarray(0, 48).toString("hex");
-  const suffix = buffer.length > 48 ? buffer.subarray(-24).toString("hex") : "";
-  return `${label}:${prefix}${suffix ? `...${suffix}` : ""};bytes=${buffer.length};sha256=${sha256Bytes(buffer)}`;
-}
-function unitPathBytes(unit) {
-  if (typeof unit.destinationPathBytesBase64 === "string") {
-    return Buffer.from(unit.destinationPathBytesBase64, "base64");
-  }
-  return Buffer.from(
-    unit.destinationPath ?? unit.displayPath ?? unit.id,
-    "utf8"
-  );
-}
-function unitPathDisplay(unit) {
-  return safeBoundedText(unitPathBytes(unit), "path-bytes");
-}
-function serializedStatistic(value) {
-  return Number.isSafeInteger(value) && value >= 0 ? String(value) : "deferred";
-}
-function exactSynopsis(manifest, digest2) {
-  const lines = [
-    `${manifest.changeUnitCount} change unit${manifest.changeUnitCount === 1 ? "" : "s"}; manifest ${digest2}`
-  ];
-  for (const unit of manifest.changeUnits) {
-    const source = unit.sourcePathBytesBase64 ? ` from ${safeBoundedText(Buffer.from(unit.sourcePathBytesBase64, "base64"), "source-path-bytes")}` : "";
-    const statistics = unit.binary ? "binary/unavailable" : `+${serializedStatistic(unit.additions)}/-${serializedStatistic(unit.deletions)}`;
-    const exactFacts = [
-      unit.oldMode && unit.newMode ? `mode ${unit.oldMode}->${unit.newMode}` : null,
-      unit.kind === "deleted" || unit.kind === "type-changed" || unit.kind === "mode-changed" || unit.kind === "submodule-changed" || unit.binary ? `objects ${unit.oldOid ?? "unknown"}->${unit.newOid ?? "unknown"}` : null,
-      unit.renameClassification ? `rename ${unit.renameClassification}` : null,
-      `line-stat ${unit.lineStatistics ?? "unknown"}`
-    ].filter(Boolean);
-    lines.push(
-      `${unit.id} ${unit.kind}: ${unitPathDisplay(unit)}${source}; ${statistics}; ${exactFacts.join("; ")}`
-    );
-  }
-  return lines.join("\n");
-}
-function directoryComponents(bytes) {
-  const components = [];
-  let start = 0;
-  for (let index = 0; index < bytes.length; index += 1) {
-    if (bytes[index] === 47) {
-      components.push(bytes.subarray(start, index));
-      start = index + 1;
-    }
-  }
-  return components;
-}
-function trieNode(prefix = Buffer.alloc(0)) {
-  return { prefix, units: [], directUnits: [], children: /* @__PURE__ */ new Map() };
-}
-function pathTrie(units) {
-  const root = trieNode();
-  for (const unit of units) {
-    const path = unitPathBytes(unit);
-    let node = root;
-    node.units.push(unit);
-    for (const component of directoryComponents(path)) {
-      const key = component.toString("base64");
-      let child = node.children.get(key);
-      if (!child) {
-        child = trieNode(
-          Buffer.concat([node.prefix, component, Buffer.of(47)])
-        );
-        node.children.set(key, child);
-      }
-      child.units.push(unit);
-      node = child;
-    }
-    node.directUnits.push(unit);
-  }
-  return root;
-}
-function compressedNode(node) {
-  let current = node;
-  while (current.directUnits.length === 0 && current.children.size === 1) {
-    current = [...current.children.values()][0];
-  }
-  return current;
-}
-function pathPrefixDisplay(prefix) {
-  if (prefix.length === 0) {
-    return "(repository root)";
-  }
-  return `${safeBoundedText(prefix.subarray(0, -1), "path-prefix-bytes")}/`;
-}
-function directGroup(node) {
-  return {
-    sortKey: Buffer.concat([node.prefix, Buffer.of(0)]),
-    display: node.prefix.length === 0 ? "(repository root)" : `${pathPrefixDisplay(node.prefix)} (direct files)`,
-    units: node.directUnits,
-    node: null
-  };
-}
-function nodeGroup(node) {
-  const compressed = compressedNode(node);
-  return {
-    sortKey: compressed.prefix,
-    display: pathPrefixDisplay(compressed.prefix),
-    units: compressed.units,
-    node: compressed
-  };
-}
-function childGroups(node) {
-  const groups = [...node.children.values()].map(nodeGroup);
-  if (node.directUnits.length > 0) {
-    groups.push(directGroup(node));
-  }
-  return groups.sort(
-    (left, right) => Buffer.compare(left.sortKey, right.sortKey)
-  );
-}
-function mergeOverflowGroups(groups, maximumGroups, parent) {
-  if (groups.length <= maximumGroups) {
-    return groups;
-  }
-  const retained = groups.slice(0, maximumGroups - 1);
-  const overflow = groups.slice(maximumGroups - 1);
-  retained.push({
-    sortKey: Buffer.concat([parent.prefix, Buffer.of(255)]),
-    display: parent.prefix.length === 0 ? "(other path-prefix groups)" : `${pathPrefixDisplay(parent.prefix)} (other descendants)`,
-    units: overflow.flatMap(({ units }) => units),
-    node: null
-  });
-  return retained;
-}
-function synopsisGroups(manifest, maximumGroups) {
-  const root = compressedNode(pathTrie(manifest.changeUnits));
-  const groups = [nodeGroup(root)];
-  for (; ; ) {
-    const available = maximumGroups - groups.length + 1;
-    const candidates = groups.map((candidate2, index2) => ({ candidate: candidate2, index: index2 })).filter(
-      ({ candidate: candidate2 }) => candidate2.node !== null && childGroups(candidate2.node).length > 1 && available >= 2
-    ).sort(
-      (left, right) => right.candidate.units.length - left.candidate.units.length || Buffer.compare(left.candidate.sortKey, right.candidate.sortKey)
-    );
-    if (candidates.length === 0) {
-      break;
-    }
-    const { candidate, index } = candidates[0];
-    const replacements = mergeOverflowGroups(
-      childGroups(candidate.node),
-      available,
-      candidate.node
-    );
-    groups.splice(index, 1, ...replacements);
-  }
-  return groups.sort(
-    (left, right) => Buffer.compare(left.sortKey, right.sortKey)
-  );
-}
-function kindSummary(units) {
-  const kindCounts = /* @__PURE__ */ new Map();
-  for (const unit of units) {
-    kindCounts.set(unit.kind, (kindCounts.get(unit.kind) ?? 0) + 1);
-  }
-  return [...kindCounts.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
-}
-function orderedUnits(units) {
-  return [...units].sort(
-    (left, right) => Buffer.compare(unitPathBytes(left), unitPathBytes(right))
-  );
-}
-function countedGroupLines(manifest, maximumGroups, maximumSamples) {
-  return synopsisGroups(manifest, maximumGroups).map(({ display, units }) => {
-    const samples = orderedUnits(units).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
-    return `${display}: ${units.length} change units (${kindSummary(units)})${samples ? `; samples ${samples}` : ""}`;
-  });
-}
-function boundedWarning(warning2) {
-  return safeBoundedText(Buffer.from(String(warning2), "utf8"), "warning-bytes");
-}
-function pathHasInvalidUtf8(unit) {
-  const paths = [unitPathBytes(unit)];
-  if (unit.sourcePathBytesBase64) {
-    paths.push(Buffer.from(unit.sourcePathBytesBase64, "base64"));
-  }
-  return paths.some((path) => strictUtf8(path) === null);
-}
-function categoryLine(label, units, maximumSamples) {
-  if (units.length === 0) {
-    return null;
-  }
-  const samples = orderedUnits(units).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
-  return `${label} (${units.length})${samples ? `: examples ${samples}` : ""}`;
-}
-function quantityText(value) {
-  return typeof value === "number" || typeof value === "string" ? String(value) : "unknown";
-}
-function anomalyLines(manifest, maximumSamples) {
-  const categories = [
-    categoryLine(
-      "Non-UTF-8 paths",
-      manifest.changeUnits.filter(pathHasInvalidUtf8),
-      maximumSamples
-    ),
-    categoryLine(
-      "Type or mode changes",
-      manifest.changeUnits.filter(
-        ({ kind }) => (/* @__PURE__ */ new Set(["mode-changed", "symlink-changed", "type-changed"])).has(kind)
-      ),
-      maximumSamples
-    ),
-    categoryLine(
-      "Gitlinks",
-      manifest.changeUnits.filter(
-        ({ kind, oldMode, newMode }) => kind === "submodule-changed" || oldMode === "160000" || newMode === "160000"
-      ),
-      maximumSamples
-    ),
-    categoryLine(
-      "Deferred line statistics",
-      manifest.changeUnits.filter(
-        ({ lineStatistics }) => lineStatistics === "deferred"
-      ),
-      maximumSamples
-    )
-  ].filter(Boolean);
-  const ambiguousRenames = manifest.changeUnits.filter(
-    ({ renameClassification }) => renameClassification === "exact-rename-ambiguous"
-  );
-  const renamePolicy = manifest.diffPolicy?.rename;
-  if (ambiguousRenames.length > 0 || renamePolicy?.mode === "deferred") {
-    const samples = orderedUnits(ambiguousRenames).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
-    categories.push(
-      `Rename ambiguity or deferred detection: ambiguous=${ambiguousRenames.length}, policy=${renamePolicy?.mode ?? "unknown"}, candidate-pairs=${quantityText(renamePolicy?.candidatePairs)}, maximum=${quantityText(renamePolicy?.maximumCandidatePairs)}${samples ? `; examples ${samples}` : ""}`
-    );
-  }
-  const linePolicy = manifest.diffPolicy?.lineStatistics;
-  if (linePolicy?.mode === "deferred") {
-    categories.push(
-      `Objects above eager-analysis budget: eligible blob bytes=${quantityText(linePolicy.eligibleBlobBytes)}, maximum=${quantityText(linePolicy.maximumEagerBytes)}`
-    );
-  }
-  if (Array.isArray(manifest.warnings) && manifest.warnings.length > 0) {
-    categories.push(
-      `Other deterministic anomalies (${manifest.warnings.length}): ${manifest.warnings.slice(0, maximumSamples).map(boundedWarning).join(", ")}`
-    );
-  }
-  return categories;
-}
-function bulkSynopsis(manifest, digest2) {
-  const kinds = /* @__PURE__ */ new Map();
-  let deferredStatistics = 0;
-  let binaryFiles = 0;
-  for (const unit of manifest.changeUnits) {
-    kinds.set(unit.kind, (kinds.get(unit.kind) ?? 0) + 1);
-    deferredStatistics += unit.lineStatistics === "deferred" ? 1 : 0;
-    binaryFiles += unit.binary ? 1 : 0;
-  }
-  const kindSummary2 = [...kinds.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
-  const fixedLines = [
-    `${manifest.changeUnitCount} change units; manifest ${digest2}`,
-    `Kinds: ${kindSummary2}`,
-    `Statistics: additions=${serializedStatistic(manifest.statistics?.additions)}, deletions=${serializedStatistic(manifest.statistics?.deletions)}, binary=${binaryFiles}, deferred=${deferredStatistics}`
-  ];
-  for (let maximumGroups = MAXIMUM_SYNOPSIS_GROUPS; maximumGroups >= 1; maximumGroups -= 1) {
-    for (let maximumSamples = MAXIMUM_GROUP_SAMPLES; maximumSamples >= 0; maximumSamples -= 1) {
-      const lines = [
-        ...fixedLines,
-        ...countedGroupLines(manifest, maximumGroups, maximumSamples),
-        ...anomalyLines(manifest, maximumSamples)
-      ];
-      const text = lines.join("\n");
-      if (Buffer.byteLength(text, "utf8") <= MAXIMUM_BULK_SYNOPSIS_BYTES) {
-        return text;
-      }
-    }
-  }
-  return [...fixedLines, ...anomalyLines(manifest, 0)].join("\n");
-}
-function createScopeSynopsis(manifest) {
-  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length) {
-    throw new Error("A scope synopsis requires an exact manifest.");
-  }
-  const digest2 = manifestDigest(manifest);
-  const text = typeof manifest.scopeSynopsis === "string" ? manifest.scopeSynopsis : manifest.changeUnitCount < 50 ? exactSynopsis(manifest, digest2) : bulkSynopsis(manifest, digest2);
-  return {
-    text,
-    manifestSha256: digest2,
-    changeUnitCount: manifest.changeUnitCount,
-    detailed: manifest.changeUnitCount < 50
-  };
-}
-function groupEvidenceBytes(manifest, evidencePlan, group) {
-  const sources = [
-    group.patchBytes,
-    evidencePlan.evidenceByGroupId?.[group.id],
-    manifest.evidenceByGroupId?.[group.id]
-  ];
-  const direct = sources.find((value) => value !== void 0);
-  if (direct !== void 0) {
-    if (Buffer.isBuffer(direct)) {
-      return direct;
-    }
-    if (direct instanceof Uint8Array) {
-      return Buffer.from(direct);
-    }
-    if (typeof direct === "string") {
-      return Buffer.from(direct, "utf8");
-    }
-    throw new Error(`Evidence for ${group.id} must be bytes or text.`);
-  }
-  const byUnit = manifest.evidenceByChangeUnitId;
-  if (byUnit && Array.isArray(group.changeUnitIds)) {
-    const parts = [];
-    for (const id of group.changeUnitIds) {
-      const value = byUnit[id];
-      if (value === void 0) {
-        return null;
-      }
-      parts.push(Buffer.isBuffer(value) ? value : Buffer.from(value));
-    }
-    return Buffer.concat(parts);
-  }
-  return null;
-}
-function selectionSummary(group) {
-  const selection = group.selection;
-  if (selection.all === true) {
-    return `all ${group.changeUnitCount} change units`;
-  }
-  if (selection.remaining === true) {
-    return `remaining ${group.changeUnitCount} change units`;
-  }
-  const fields = Object.entries(selection).filter(([, value]) => Array.isArray(value) && value.length > 0).map(([name, value]) => `${name}=${value.join(",")}`);
-  return `${fields.join("; ")} (${group.changeUnitCount} change units)`;
-}
-function completeResultByteCount(capsule) {
-  let byteCount = 0;
-  for (; ; ) {
-    const candidate = {
-      route: "concise",
-      capsule: { ...capsule, byteCount },
-      extendedReason: null
+    units.forEach(({ id }) => assignedIds.add(id));
+    return {
+      ...validateGroup(group, index),
+      selection,
+      units
     };
-    const measured = Buffer.byteLength(JSON.stringify(candidate), "utf8");
-    if (measured === byteCount) {
-      return measured;
-    }
-    byteCount = measured;
-  }
-}
-function extended(reason) {
-  return { route: "extended", capsule: null, extendedReason: reason };
-}
-function manifestExtendedReason(manifest) {
-  if (manifest.warnings?.some(
-    (warning2) => String(warning2).startsWith("required-object-unavailable:")
-  )) {
-    return "required-object-unavailable";
-  }
-  if (manifest.warnings?.length > 0) {
-    return "unresolved-anomaly";
-  }
-  return null;
-}
-function createInlineEvidenceCapsule({
-  manifest,
-  evidencePlan,
-  maximumResultBytes = MAXIMUM_CONCISE_RESULT_BYTES
-}) {
-  if (!Number.isSafeInteger(maximumResultBytes) || maximumResultBytes < 1) {
-    throw new Error("maximumResultBytes must be a positive safe integer.");
-  }
-  if (!evidencePlan || evidencePlan.manifestSha256 !== manifestDigest(manifest) || !Array.isArray(evidencePlan.groups)) {
-    throw new Error("Evidence plan does not match the exact manifest.");
-  }
-  const anomalyReason = manifestExtendedReason(manifest);
-  if (anomalyReason !== null) {
-    return extended(anomalyReason);
-  }
-  const synopsis = createScopeSynopsis(manifest);
-  const evidence = [];
-  for (const group of evidencePlan.groups) {
-    if (group.policy === "reuse") {
-      evidence.push({
-        policy: group.policy,
-        selectionSummary: selectionSummary(group),
-        basisKind: group.basis.kind,
-        basisNote: group.basis.note,
-        patchText: null,
-        patchComplete: true
-      });
-      continue;
-    }
-    const bytes = groupEvidenceBytes(manifest, evidencePlan, group);
-    if (bytes === null) {
-      return extended("required-object-unavailable");
-    }
-    const patchText = strictUtf8(bytes);
-    if (patchText === null) {
-      return extended("invalid-evidence-encoding");
-    }
-    evidence.push({
-      policy: group.policy,
-      selectionSummary: selectionSummary(group),
-      basisKind: group.basis.kind,
-      basisNote: group.basis.note,
-      patchText,
-      patchComplete: true
-    });
-  }
-  const capsule = {
-    schemaVersion: 1,
-    manifestSha256: synopsis.manifestSha256,
-    evidencePlanSha256: evidencePlan.evidencePlanSha256,
-    changeUnitCount: manifest.changeUnitCount,
-    scopeSynopsis: synopsis.text,
-    evidence,
-    unresolved: [],
-    byteCount: 0
-  };
-  const byteCount = completeResultByteCount(capsule);
-  const synopsisOnly = {
-    ...capsule,
-    evidence: evidence.map((entry) => ({
-      ...entry,
-      patchText: null,
-      patchComplete: entry.policy === "reuse"
-    }))
-  };
-  const synopsisOnlyBytes = completeResultByteCount(synopsisOnly);
-  if (byteCount > maximumResultBytes) {
-    return extended(
-      synopsisOnlyBytes > maximumResultBytes ? "scope-synopsis-over-budget" : "required-evidence-over-budget"
+  });
+  if (assignedIds.size !== manifest.changeUnitCount) {
+    const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
     );
   }
-  capsule.byteCount = byteCount;
-  return { route: "concise", capsule, extendedReason: null };
+  return { assignedIds, resolved };
 }
-var MAXIMUM_CONCISE_RESULT_BYTES, MAXIMUM_SYNOPSIS_GROUPS, MAXIMUM_GROUP_SAMPLES, MAXIMUM_BULK_SYNOPSIS_BYTES, MAXIMUM_SAFE_TEXT_BYTES, STRICT_UTF8_DECODER, EPHEMERAL_MANIFEST_KEYS, EPHEMERAL_CHANGE_UNIT_KEYS;
-var init_inlineEvidenceCapsule = __esm({
-  "src/committing-to-git/inspection/inlineEvidenceCapsule.js"() {
-    MAXIMUM_CONCISE_RESULT_BYTES = 32 * 1024;
-    MAXIMUM_SYNOPSIS_GROUPS = 24;
-    MAXIMUM_GROUP_SAMPLES = 3;
-    MAXIMUM_BULK_SYNOPSIS_BYTES = 8 * 1024 - 1;
-    MAXIMUM_SAFE_TEXT_BYTES = 192;
-    STRICT_UTF8_DECODER = new TextDecoder2("utf-8", { fatal: true });
-    EPHEMERAL_MANIFEST_KEYS = /* @__PURE__ */ new Set([
-      "conciseEnvelope",
-      "coveredEvidenceGroupIds",
-      "coveredSynopsis",
-      "evidenceByChangeUnitId",
-      "evidenceByGroupId",
-      "manifestSha256",
-      "preMaterializedPacketsByGroupId",
-      "scopeSynopsis"
-    ]);
-    EPHEMERAL_CHANGE_UNIT_KEYS = /* @__PURE__ */ new Set([
-      "deletedContent",
-      "evidenceBytes",
-      "evidenceBytesBase64",
-      "patchBytes",
-      "patchText"
-    ]);
+function resolveOverlappingGroups(manifest, groups, label) {
+  if (groups === void 0) {
+    return [];
+  }
+  if (!Array.isArray(groups)) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} must be an array.`
+    );
+  }
+  const previouslyMatched = /* @__PURE__ */ new Set();
+  return groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} entry ${index + 1} must be an object.`
+      );
+    }
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `The remaining selector is permitted only in the final ${label} entry.`
+      );
+    }
+    const units = resolveSelection(manifest, selection, {
+      assignedIds: previouslyMatched
+    });
+    units.forEach(({ id }) => previouslyMatched.add(id));
+    return {
+      selection,
+      units,
+      reasons: validateReasons(group.reasons, `${label} entry ${index + 1}`)
+    };
+  });
+}
+function resolveSemanticCoverage(manifest, content) {
+  assertChangeManifest(manifest);
+  if (!isPlainObject2(content)) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message content must be an object."
+    );
+  }
+  const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
+    label: "Evidence",
+    validateGroup(group, index) {
+      if (!EVIDENCE_POLICIES.includes(group.policy)) {
+        throw new WorkflowDiagnosticError(
+          "SEMANTIC_COVERAGE_INVALID",
+          `Evidence group ${index + 1} has an invalid policy.`
+        );
+      }
+      return {
+        policy: group.policy,
+        basis: validateEvidenceBasis(group.policy, group.basis)
+      };
+    }
+  });
+  const sharedRationales = resolveOverlappingGroups(
+    manifest,
+    content.sharedRationales ?? [],
+    "shared rationale"
+  );
+  const fileNotes = resolveOverlappingGroups(
+    manifest,
+    content.fileNotes ?? [],
+    "file note"
+  );
+  let domains = [];
+  if (content.mode === "bulk") {
+    domains = resolvePartition(manifest, content.domains, {
+      label: "Domain",
+      validateGroup(group, index) {
+        if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
+          throw new WorkflowDiagnosticError(
+            "SEMANTIC_COVERAGE_INVALID",
+            `Domain group ${index + 1} has an invalid title.`
+          );
+        }
+        return {
+          title: group.title,
+          reasons: validateReasons(group.reasons, `Domain group ${index + 1}`)
+        };
+      }
+    }).resolved;
+  } else if (content.mode !== "detailed") {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message mode must be detailed or bulk."
+    );
+  } else if (content.domains !== void 0 && content.domains.length > 0) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Detailed semantic content cannot contain bulk domains."
+    );
+  }
+  return {
+    coveredIds: evidenceCoverage.assignedIds,
+    evidenceGroups: evidenceCoverage.resolved,
+    sharedRationales,
+    domains,
+    fileNotes
+  };
+}
+function compareChangeUnitsByRawPath(left, right) {
+  const destination = Buffer2.compare(
+    changeUnitPathBytes(left, "destination") ?? Buffer2.alloc(0),
+    changeUnitPathBytes(right, "destination") ?? Buffer2.alloc(0)
+  );
+  if (destination !== 0) {
+    return destination;
+  }
+  const source = Buffer2.compare(
+    changeUnitPathBytes(left, "source") ?? Buffer2.alloc(0),
+    changeUnitPathBytes(right, "source") ?? Buffer2.alloc(0)
+  );
+  if (source !== 0) {
+    return source;
+  }
+  return Buffer2.compare(Buffer2.from(left.id), Buffer2.from(right.id));
+}
+function formatMessagePath(rawPathBytes) {
+  if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
+    throw new Error("Message path identity must be raw bytes.");
+  }
+  const bytes = Buffer2.from(rawPathBytes);
+  let decoded;
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    decoded = null;
+  }
+  if (decoded !== null && decoded.length > 0 && !PROHIBITED_RENDERED_PATH_CHARACTER.test(decoded)) {
+    return `\`${decoded}\``;
+  }
+  return `\`path-bytes-base64:${bytes.toString("base64")}\``;
+}
+function formatChangeUnitPath(unit) {
+  const destination = formatMessagePath(
+    changeUnitPathBytes(unit, "destination")
+  );
+  if (unit.kind !== "renamed") {
+    return destination;
+  }
+  const source = changeUnitPathBytes(unit, "source");
+  if (source === null) {
+    throw new Error(`Rename ${unit.id} has no recorded source path.`);
+  }
+  return `${formatMessagePath(source)} -> ${destination}`;
+}
+function selectMessagePresentation({
+  changeUnitCount,
+  projectedDetailedBytes,
+  maximumBytes = MAXIMUM_CANONICAL_MESSAGE_BYTES
+}) {
+  if (!Number.isSafeInteger(changeUnitCount) || changeUnitCount < 1 || !Number.isSafeInteger(projectedDetailedBytes) || projectedDetailedBytes < 0 || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new Error("Message presentation inputs must be bounded integers.");
+  }
+  return changeUnitCount >= 50 || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
+}
+var MAXIMUM_CANONICAL_MESSAGE_BYTES, PROHIBITED_RENDERED_PATH_CHARACTER;
+var init_changeSelection2 = __esm({
+  "src/committing-to-git/message/changeSelection.js"() {
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    init_changeSelection();
+    MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
+    PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
   }
 });
 
-// src/committing-to-git/inspection/streamingPacketWriter.js
-import { createHash as createHash4, randomUUID as randomUUID2 } from "node:crypto";
-import {
-  closeSync as closeSync3,
-  existsSync as existsSync4,
-  fstatSync as fstatSync2,
-  fsyncSync,
-  mkdirSync,
-  openSync as openSync3,
-  readSync,
-  renameSync,
-  unlinkSync as unlinkSync2,
-  writeFileSync
-} from "node:fs";
-import { join as join2 } from "node:path";
-import { TextDecoder as TextDecoder3 } from "node:util";
-function ensureOutputDirectories(outputDirectory) {
-  for (const name of ["packets", "raw"]) {
-    const path = join2(outputDirectory, name);
-    if (!existsSync4(path)) {
-      mkdirSync(path);
-    }
-  }
+// src/committing-to-git/message/approvedMessage.js
+import { createHash as createHash3 } from "node:crypto";
+import { Buffer as Buffer3 } from "node:buffer";
+function fail(code, message, details = {}) {
+  throw new WorkflowDiagnosticError(code, message, { details });
 }
-function countNewlines(bytes) {
-  let count = 0;
-  for (const byte of bytes) {
-    count += byte === 10 ? 1 : 0;
-  }
-  return count;
+function scalarLength(value) {
+  return [...value].length;
 }
-function lineCount(bytes) {
-  if (bytes.length === 0) {
-    return 0;
-  }
-  const newlines = countNewlines(bytes);
-  return newlines + (bytes.at(-1) === 10 ? 0 : 1);
+function isCapitalizedDescription(description) {
+  const first = [...description][0] ?? "";
+  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
 }
-function sourceIterable(source) {
-  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
-    return (async function* bytes() {
-      yield Buffer.from(source);
-    })();
-  }
-  if (source && typeof source[Symbol.asyncIterator] === "function") {
-    return source;
-  }
-  if (source && typeof source[Symbol.iterator] === "function") {
-    return (async function* chunks() {
-      for (const chunk of source) {
-        yield chunk;
-      }
-    })();
-  }
-  throw new Error("Packet source must be bytes or an iterable byte stream.");
-}
-function sourceIterableSync(source) {
-  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
-    return [Buffer.from(source)];
-  }
-  if (source && typeof source[Symbol.iterator] === "function") {
-    return source;
-  }
-  throw new Error("Synchronous packet source must be bytes or an iterable.");
-}
-function publishTemporaryFile(temporaryPath, finalPath) {
-  if (existsSync4(finalPath)) {
-    if (!filesEqualBounded(finalPath, temporaryPath)) {
-      throw new Error(`Content-addressed packet collision at ${finalPath}.`);
-    }
-    unlinkSync2(temporaryPath);
+function validateRepositoryType(type, repositoryTypePolicy) {
+  if (repositoryTypePolicy === null || repositoryTypePolicy === void 0 || repositoryTypePolicy.allowedTypes === null || repositoryTypePolicy.allowedTypes === void 0 || Array.isArray(repositoryTypePolicy.allowedTypes) && repositoryTypePolicy.allowedTypes.length === 0) {
     return;
   }
-  renameSync(temporaryPath, finalPath);
-}
-function readChunkExactly(descriptor, buffer, length, position) {
-  let total = 0;
-  while (total < length) {
-    const count = readSync(
-      descriptor,
-      buffer,
-      total,
-      length - total,
-      position + total
+  if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
+    fail(
+      "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
+      "Repository type policy must provide an allowedTypes array or null."
     );
-    if (count === 0) {
-      break;
-    }
-    total += count;
   }
-  return total;
-}
-function filesEqualBounded(leftPath, rightPath) {
-  const left = openSync3(leftPath, "r");
-  const right = openSync3(rightPath, "r");
-  try {
-    const leftSize = Number(fstatSync2(left, { bigint: true }).size);
-    const rightSize = Number(fstatSync2(right, { bigint: true }).size);
-    if (leftSize !== rightSize) {
-      return false;
-    }
-    const leftBuffer = Buffer.alloc(MAXIMUM_PACKET_BYTES);
-    const rightBuffer = Buffer.alloc(MAXIMUM_PACKET_BYTES);
-    for (let position = 0; position < leftSize; ) {
-      const length = Math.min(MAXIMUM_PACKET_BYTES, leftSize - position);
-      const leftCount = readChunkExactly(left, leftBuffer, length, position);
-      const rightCount = readChunkExactly(right, rightBuffer, length, position);
-      if (leftCount !== length || rightCount !== length || !leftBuffer.subarray(0, length).equals(rightBuffer.subarray(0, length))) {
-        return false;
-      }
-      position += length;
-    }
-    return true;
-  } finally {
-    closeSync3(right);
-    closeSync3(left);
+  if (!repositoryTypePolicy.allowedTypes.includes(type)) {
+    fail(
+      "SUBJECT_TYPE_NOT_ALLOWED",
+      `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
+      { type, allowedTypes: repositoryTypePolicy.allowedTypes }
+    );
   }
 }
-async function spoolSource(outputDirectory, source) {
-  const temporaryPath = join2(outputDirectory, `.raw-${randomUUID2()}.tmp`);
-  const descriptor = openSync3(temporaryPath, "wx", 384);
-  const hash = createHash4("sha256");
-  const decoder = new TextDecoder3("utf-8", { fatal: true });
-  let validUtf8 = true;
-  let byteCount = 0;
-  let newlineCount = 0;
-  let complete = false;
-  try {
-    for await (const value of sourceIterable(source)) {
-      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-      if (chunk.length === 0) {
-        continue;
-      }
-      writeFileSync(descriptor, chunk);
-      hash.update(chunk);
-      byteCount += chunk.length;
-      newlineCount += countNewlines(chunk);
-      if (validUtf8) {
-        try {
-          decoder.decode(chunk, { stream: true });
-        } catch {
-          validUtf8 = false;
-        }
-      }
-    }
-    if (validUtf8) {
-      try {
-        decoder.decode();
-      } catch {
-        validUtf8 = false;
-      }
-    }
-    fsyncSync(descriptor);
-    complete = true;
-  } finally {
-    closeSync3(descriptor);
-    if (!complete && existsSync4(temporaryPath)) {
-      unlinkSync2(temporaryPath);
-    }
+function parseSubject(subjectText, repositoryTypePolicy) {
+  const match = SUBJECT_PATTERN.exec(subjectText);
+  if (!match) {
+    fail(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject must match <type>: <description> or <type>(<scope>): <description>."
+    );
   }
-  const rawSha256 = hash.digest("hex");
-  const rawArtifact = `raw/${rawSha256}.bin`;
-  const finalPath = join2(outputDirectory, rawArtifact);
-  publishTemporaryFile(temporaryPath, finalPath);
+  const { type, description } = match.groups;
+  const scope = match.groups.scope ?? null;
+  if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
+    fail(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject description must be one exact nonempty line without controls or surrounding whitespace."
+    );
+  }
+  if (!isCapitalizedDescription(description)) {
+    fail(
+      "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
+      "Subject description must begin with an uppercase Unicode cased letter."
+    );
+  }
+  if (description.endsWith(".")) {
+    fail(
+      "SUBJECT_TRAILING_PERIOD",
+      "Subject description must not end with an ASCII period."
+    );
+  }
+  if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
+    fail(
+      "SUBJECT_SCOPE_INVALID",
+      "Subject scope must be one exact nonempty value without parentheses or controls."
+    );
+  }
+  const length = scalarLength(subjectText);
+  if (length > MAXIMUM_SUBJECT_SCALARS) {
+    fail(
+      "SUBJECT_TOO_LONG",
+      `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
+      { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
+    );
+  }
+  validateRepositoryType(type, repositoryTypePolicy);
   return {
-    path: finalPath,
-    rawArtifact,
-    rawSha256,
-    byteCount,
-    newlineCount,
-    validUtf8
+    text: subjectText,
+    type,
+    scope,
+    description,
+    scalarLength: length
   };
 }
-function spoolSourceSync(outputDirectory, source) {
-  const temporaryPath = join2(outputDirectory, `.raw-${randomUUID2()}.tmp`);
-  const descriptor = openSync3(temporaryPath, "wx", 384);
-  const hash = createHash4("sha256");
-  const decoder = new TextDecoder3("utf-8", { fatal: true });
-  let validUtf8 = true;
-  let byteCount = 0;
-  let newlineCount = 0;
-  let complete = false;
-  try {
-    for (const value of sourceIterableSync(source)) {
-      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-      if (chunk.length === 0) {
-        continue;
-      }
-      writeFileSync(descriptor, chunk);
-      hash.update(chunk);
-      byteCount += chunk.length;
-      newlineCount += countNewlines(chunk);
-      if (validUtf8) {
-        try {
-          decoder.decode(chunk, { stream: true });
-        } catch {
-          validUtf8 = false;
-        }
-      }
-    }
-    if (validUtf8) {
-      try {
-        decoder.decode();
-      } catch {
-        validUtf8 = false;
-      }
-    }
-    fsyncSync(descriptor);
-    complete = true;
-  } finally {
-    closeSync3(descriptor);
-    if (!complete && existsSync4(temporaryPath)) {
-      unlinkSync2(temporaryPath);
-    }
+function canonicalBytes(value) {
+  if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
+    fail("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
   }
-  const rawSha256 = hash.digest("hex");
-  const rawArtifact = `raw/${rawSha256}.bin`;
-  const finalPath = join2(outputDirectory, rawArtifact);
-  publishTemporaryFile(temporaryPath, finalPath);
-  return {
-    path: finalPath,
-    rawArtifact,
-    rawSha256,
-    byteCount,
-    newlineCount,
-    validUtf8
-  };
+  return Buffer3.from(value);
 }
-function utf8Boundary(buffer, candidateEnd) {
-  if (candidateEnd >= buffer.length) {
-    return candidateEnd;
+function decodeCanonicalMessage(bytes) {
+  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
+      {
+        byteCount: bytes.length,
+        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+        remedy: "Shorten prose or combine truthful structured domains without changing scope."
+      }
+    );
   }
-  let boundary = candidateEnd;
-  while (boundary > 0 && buffer[boundary] >= 128 && buffer[boundary] <= 191) {
-    boundary -= 1;
+  if (bytes.length === 0 || bytes.at(-1) !== 10) {
+    fail(
+      "TERMINAL_LF_REQUIRED",
+      "Canonical message bytes must end in exactly one LF."
+    );
   }
-  return boundary > 0 ? boundary : candidateEnd;
-}
-function* readRawSegments(path, byteCount, validUtf8) {
-  const descriptor = openSync3(path, "r");
-  let start = 0;
+  if (bytes.length > 1 && bytes.at(-2) === 10) {
+    fail(
+      "MULTIPLE_TERMINAL_LF",
+      "Canonical message bytes must not end in multiple LF bytes."
+    );
+  }
+  if (bytes.includes(13)) {
+    fail(
+      "CARRIAGE_RETURN_FORBIDDEN",
+      "Canonical message bytes must not contain CR or CRLF."
+    );
+  }
+  if (bytes.includes(0)) {
+    fail("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
+  }
+  let text;
   try {
-    while (start < byteCount) {
-      const available = Math.min(
-        MAXIMUM_RAW_SEGMENT_BYTES + 4,
-        byteCount - start
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
+  }
+  for (const character of text) {
+    if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
+      fail(
+        "PROHIBITED_UNICODE_CHARACTER",
+        "Canonical message contains a prohibited Unicode control or format character."
       );
-      const buffer = Buffer.alloc(available);
-      const bytesRead = readSync(descriptor, buffer, 0, available, start);
-      if (bytesRead === 0) {
-        throw new Error(
-          "Raw packet spool ended before its recorded byte count."
+    }
+  }
+  return text;
+}
+function assertUsefulEntry(text, label) {
+  if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
+    fail("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
+  }
+}
+function parseNarrativeSection(lines, heading) {
+  const entries = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith("  - ")) {
+      const text = line.slice(4);
+      assertUsefulEntry(text, heading);
+      current = text;
+      entries.push(text);
+    } else if (line.startsWith("    ") && current !== null) {
+      const continuation = line.slice(4);
+      assertUsefulEntry(continuation, heading);
+      entries[entries.length - 1] += `
+${continuation}`;
+    } else {
+      fail(
+        "SECTION_ENTRY_FORMAT_INVALID",
+        `${heading} entries must use two-space bullets with aligned continuations.`
+      );
+    }
+  }
+  if (entries.length === 0) {
+    fail("EMPTY_SECTION", `${heading} cannot be present without entries.`);
+  }
+  return entries;
+}
+function expectedDetailedInventory(manifest) {
+  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
+    fail(
+      "INVALID_MESSAGE_MANIFEST",
+      "Approved-message validation requires one exact nonempty manifest."
+    );
+  }
+  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const width = String(units.length).length;
+  return units.map((unit, index) => ({
+    id: unit.id,
+    label: formatChangeUnitPath(unit),
+    ordinal: index + 1,
+    line: `${"  "}${String(index + 1).padStart(width, " ")}. ${formatChangeUnitPath(unit)}`
+  }));
+}
+function parseDetailedInventory(lines, manifest) {
+  if (manifest.changeUnitCount >= 50) {
+    fail(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+      "A counted bulk inventory must be derived by the structured extended finalizer.",
+      { remedy: "Extend for semantic structure or omit File Changes." }
+    );
+  }
+  const expected = expectedDetailedInventory(manifest);
+  const expectedLabels = new Set(expected.map(({ label }) => label));
+  const width = String(expected.length).length;
+  const notePrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  const listed = [];
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      const ordinal = Number(match[1]);
+      const label = match[2];
+      if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
+        fail(
+          "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+          "Free-form counted domains cannot prove manifest membership.",
+          { remedy: "Use the structured extended finalizer." }
         );
       }
-      const candidate = buffer.subarray(0, bytesRead);
-      let segmentLength = Math.min(MAXIMUM_RAW_SEGMENT_BYTES, bytesRead);
-      let newlines = 0;
-      for (let index = 0; index < segmentLength; index += 1) {
-        if (candidate[index] === 10) {
-          newlines += 1;
-          if (newlines === MAXIMUM_RAW_SEGMENT_LINES) {
-            segmentLength = index + 1;
-            break;
-          }
-        }
+      if (listed.some((entry) => entry.label === label)) {
+        fail(
+          "FILE_INVENTORY_DUPLICATE",
+          `Detailed inventory repeats ${label}.`
+        );
       }
-      if (validUtf8) {
-        segmentLength = utf8Boundary(candidate, segmentLength);
+      if (!expectedLabels.has(label)) {
+        fail(
+          "FILE_INVENTORY_UNKNOWN_PATH",
+          `Detailed inventory path ${label} does not identify a manifest change unit.`
+        );
       }
-      if (segmentLength < 1) {
-        segmentLength = Math.min(MAXIMUM_RAW_SEGMENT_BYTES, bytesRead);
-      }
-      const end = start + segmentLength;
-      yield {
-        start,
-        end,
-        bytes: Buffer.from(candidate.subarray(0, segmentLength))
+      current = { ordinal, label, notes: [], line };
+      listed.push(current);
+      continue;
+    }
+    if (line.startsWith(notePrefix) && current !== null) {
+      const note = line.slice(notePrefix.length);
+      assertUsefulEntry(note, "File Changes:");
+      current.notes.push(note);
+      continue;
+    }
+    if (line.startsWith(continuationPrefix) && current?.notes.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.notes[current.notes.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail(
+      "FILE_INVENTORY_INCOMPLETE",
+      `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
+      fail(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
+      );
+    }
+  }
+  return listed;
+}
+function parseStructuredBulkInventory(lines, manifest, structuredContent) {
+  const coverage = resolveSemanticCoverage(manifest, structuredContent);
+  const expected = coverage.domains.map((domain, index) => {
+    const count = domain.units.length;
+    const width2 = String(coverage.domains.length).length;
+    return {
+      ordinal: index + 1,
+      label: `${domain.title} (${count} ${count === 1 ? "file" : "files"})`,
+      prefix: `  ${String(index + 1).padStart(width2, " ")}. `
+    };
+  });
+  const listed = [];
+  const width = String(expected.length).length;
+  const reasonPrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      current = {
+        ordinal: Number(match[1]),
+        label: match[2],
+        reasons: [],
+        line
       };
-      start = end;
+      listed.push(current);
+      continue;
     }
-  } finally {
-    closeSync3(descriptor);
-  }
-}
-function finalByte(path, byteCount) {
-  if (byteCount === 0) {
-    return null;
-  }
-  const descriptor = openSync3(path, "r");
-  const byte = Buffer.alloc(1);
-  try {
-    readSync(descriptor, byte, 0, 1, byteCount - 1);
-    return byte[0];
-  } finally {
-    closeSync3(descriptor);
-  }
-}
-function escapedHex(bytes, absoluteStart) {
-  const lines = [];
-  for (let offset = 0; offset < bytes.length; offset += 24) {
-    const row = bytes.subarray(offset, offset + 24);
-    const hex = [...row].map((byte) => byte.toString(16).padStart(2, "0")).join(" ");
-    lines.push(`${String(absoluteStart + offset).padStart(12, "0")}: ${hex}`);
-  }
-  return Buffer.from(`${lines.join("\n")}
-`, "ascii");
-}
-function boundedIdentity(value, label) {
-  if (value === null || value === void 0) {
-    return null;
-  }
-  return safeBoundedText(Buffer.from(String(value), "utf8"), label);
-}
-function packetHeader({
-  id,
-  kind,
-  rawSha256,
-  rawByteCount,
-  rawStart,
-  rawEnd,
-  validUtf8,
-  changeUnitId,
-  pathIdentity,
-  changeUnitRanges,
-  changeUnitCount,
-  context,
-  segmentBytes
-}) {
-  const contextBytes = Buffer.from(context ?? "", "utf8");
-  const boundedContext = contextBytes.length === 0 ? null : {
-    prefix: safeBoundedText(
-      contextBytes.subarray(0, 64),
-      "context-prefix"
-    ),
-    suffix: safeBoundedText(contextBytes.subarray(-64), "context-suffix"),
-    byteCount: contextBytes.length,
-    sha256: sha256Bytes(contextBytes)
-  };
-  const metadata = {
-    id,
-    kind,
-    changeUnitId: boundedIdentity(changeUnitId, "change-unit"),
-    pathIdentity: boundedIdentity(pathIdentity, "path"),
-    changeUnitCoverage: {
-      changeUnitCount,
-      rangeCount: changeUnitRanges.length,
-      firstRange: changeUnitRanges[0] ?? null,
-      lastRange: changeUnitRanges.at(-1) ?? null,
-      rangesSha256: sha256Bytes(
-        Buffer.from(JSON.stringify(changeUnitRanges), "utf8")
-      )
-    },
-    rawByteRange: { start: rawStart, end: rawEnd },
-    rawByteCount,
-    rawSha256,
-    encoding: validUtf8 ? "utf-8" : "escaped-hex",
-    continued: rawStart > 0 || rawEnd < rawByteCount,
-    context: boundedContext,
-    hunkContext: {
-      prefix: safeBoundedText(
-        segmentBytes.subarray(0, 64),
-        "hunk-prefix-bytes"
-      ),
-      suffix: safeBoundedText(segmentBytes.subarray(-64), "hunk-suffix-bytes"),
-      byteCount: segmentBytes.length,
-      sha256: sha256Bytes(segmentBytes)
+    if (line.startsWith(reasonPrefix) && current !== null) {
+      const reason = line.slice(reasonPrefix.length);
+      assertUsefulEntry(reason, "File Changes:");
+      current.reasons.push(reason);
+      continue;
     }
+    if (line.startsWith(continuationPrefix) && current?.reasons.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.reasons[current.reasons.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail(
+      "FILE_INVENTORY_INCOMPLETE",
+      "Structured bulk rendering does not contain every derived domain."
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
+      fail(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Structured bulk rendering must preserve derived domain order, counts, and reasons."
+      );
+    }
+  }
+  return listed;
+}
+function parseSections(bodyLines, manifest, { messageSource, structuredContent }) {
+  const parsed = {
+    rationale: { present: false, entries: [] },
+    userExperience: { present: false, entries: [] },
+    fileChanges: { present: false, entries: [] }
   };
-  return Buffer.from(
-    `# Review evidence packet
-${JSON.stringify(metadata)}
----
-`,
-    "utf8"
-  );
-}
-function writePacket(outputDirectory, descriptorData, payload) {
-  const packetBytes = Buffer.concat([descriptorData.header, payload]);
-  if (packetBytes.length > descriptorData.maximumPacketBytes) {
-    throw new Error(
-      `Packet ${descriptorData.id} exceeds ${descriptorData.maximumPacketBytes} bytes.`
+  if (bodyLines.length === 0) {
+    return parsed;
+  }
+  if (bodyLines[0] !== "") {
+    fail(
+      "SECTION_SPACING_INVALID",
+      "Subject and body must be separated by exactly one blank line."
     );
   }
-  const packetLineCount = lineCount(packetBytes);
-  if (packetLineCount > descriptorData.maximumPacketLines) {
-    throw new Error(
-      `Packet ${descriptorData.id} exceeds ${descriptorData.maximumPacketLines} lines.`
-    );
-  }
-  const digest2 = sha256Bytes(packetBytes);
-  const artifact = `packets/${digest2}.packet`;
-  const temporaryPath = join2(
-    outputDirectory,
-    "packets",
-    `.packet-${randomUUID2()}.tmp`
-  );
-  writeFileSync(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
-  publishTemporaryFile(temporaryPath, join2(outputDirectory, artifact));
-  return {
-    id: descriptorData.id,
-    kind: descriptorData.kind,
-    artifact,
-    byteCount: packetBytes.length,
-    lineCount: packetLineCount,
-    sha256: digest2,
-    rawArtifact: descriptorData.rawArtifact,
-    rawByteStart: descriptorData.rawStart,
-    rawByteEnd: descriptorData.rawEnd,
-    rawByteCount: descriptorData.rawByteCount,
-    rawSha256: descriptorData.rawSha256,
-    encoding: descriptorData.validUtf8 ? "utf-8" : "escaped-hex",
-    changeUnitRanges: descriptorData.changeUnitRanges,
-    changeUnitCount: descriptorData.changeUnitCount
-  };
-}
-function validateWriterOptions({
-  idPrefix,
-  startingOrdinal,
-  maximumPacketBytes,
-  maximumPacketLines
-}) {
-  if (!/^[A-Z]$/u.test(idPrefix)) {
-    throw new Error("Packet idPrefix must be one uppercase ASCII letter.");
-  }
-  if (!Number.isSafeInteger(startingOrdinal) || startingOrdinal < 1 || !Number.isSafeInteger(maximumPacketBytes) || maximumPacketBytes < 1024 || !Number.isSafeInteger(maximumPacketLines) || maximumPacketLines < 10) {
-    throw new Error("Packet writer limits and starting ordinal are invalid.");
-  }
-}
-function packetsForSpool(outputDirectory, spooled, {
-  idPrefix,
-  startingOrdinal,
-  kind,
-  changeUnitRanges,
-  changeUnitCount,
-  changeUnitId,
-  pathIdentity,
-  context,
-  maximumPacketBytes,
-  maximumPacketLines
-}) {
-  const packets = [];
-  let index = 0;
-  for (const segment of readRawSegments(
-    spooled.path,
-    spooled.byteCount,
-    spooled.validUtf8
-  )) {
-    const id = `${idPrefix}${String(startingOrdinal + index).padStart(6, "0")}`;
-    const header = packetHeader({
-      id,
-      kind,
-      rawSha256: spooled.rawSha256,
-      rawByteCount: spooled.byteCount,
-      rawStart: segment.start,
-      rawEnd: segment.end,
-      validUtf8: spooled.validUtf8,
-      changeUnitId,
-      pathIdentity,
-      changeUnitRanges,
-      changeUnitCount,
-      context,
-      segmentBytes: segment.bytes
-    });
-    const payload = spooled.validUtf8 ? Buffer.from(STRICT_UTF8_DECODER2.decode(segment.bytes), "utf8") : escapedHex(segment.bytes, segment.start);
-    packets.push(
-      writePacket(
-        outputDirectory,
-        {
-          id,
-          kind,
-          header,
-          maximumPacketBytes,
-          maximumPacketLines,
-          rawArtifact: spooled.rawArtifact,
-          rawStart: segment.start,
-          rawEnd: segment.end,
-          rawByteCount: spooled.byteCount,
-          rawSha256: spooled.rawSha256,
-          validUtf8: spooled.validUtf8,
-          changeUnitRanges,
-          changeUnitCount
-        },
-        payload
-      )
-    );
+  let index = 1;
+  let priorOrder = -1;
+  while (index < bodyLines.length) {
+    const heading = bodyLines[index];
+    const order = SECTION_ORDER.indexOf(heading);
+    if (order < 0 || order <= priorOrder) {
+      fail(
+        "SECTION_ORDER_INVALID",
+        "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
+      );
+    }
+    priorOrder = order;
     index += 1;
+    const entries = [];
+    while (index < bodyLines.length && bodyLines[index] !== "") {
+      entries.push(bodyLines[index]);
+      index += 1;
+    }
+    if (entries.length === 0) {
+      fail("EMPTY_SECTION", `${heading} cannot be empty.`);
+    }
+    if (heading === "Rationale:") {
+      parsed.rationale = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else if (heading === "User Experience Changes:") {
+      parsed.userExperience = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else {
+      parsed.fileChanges = {
+        present: true,
+        entries: messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? parseStructuredBulkInventory(entries, manifest, structuredContent) : parseDetailedInventory(entries, manifest)
+      };
+    }
+    if (index < bodyLines.length) {
+      index += 1;
+      if (index >= bodyLines.length || bodyLines[index] === "") {
+        fail(
+          "SECTION_SPACING_INVALID",
+          "Sections must be separated by exactly one blank line."
+        );
+      }
+    }
   }
+  return parsed;
+}
+function isFileIdentityLine(line) {
+  return /^ {2,}[0-9]+\. /u.test(line);
+}
+function presentationWarnings(lines) {
+  const warnings = [];
+  lines.forEach((line, index) => {
+    const length = scalarLength(line);
+    if (index === 0 || length <= MAXIMUM_BODY_LINE_SCALARS) {
+      return;
+    }
+    const trimmed = line.trim();
+    const words = trimmed.split(/\s+/u);
+    const formattedIdentity = isFileIdentityLine(line);
+    if (!formattedIdentity && words.length > 1) {
+      const longest = Math.max(...words.map(scalarLength));
+      if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
+        fail(
+          "BODY_LINE_AVOIDABLY_OVERLONG",
+          `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
+          { lineNumber: index + 1, scalarLength: length }
+        );
+      }
+    }
+    warnings.push({
+      lineNumber: index + 1,
+      scalarLength: length,
+      reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
+    });
+  });
+  const sha25612 = warnings.length === 0 ? null : createHash3("sha256").update(JSON.stringify(warnings)).digest("hex");
   return {
-    packets,
-    rawArtifact: spooled.rawArtifact,
-    rawByteCount: spooled.byteCount,
-    rawLineCount: spooled.newlineCount + (spooled.byteCount > 0 && finalByte(spooled.path, spooled.byteCount) !== 10 ? 1 : 0),
-    rawSha256: spooled.rawSha256,
-    encoding: spooled.validUtf8 ? "utf-8" : "escaped-hex"
+    count: warnings.length,
+    samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
+    sha256: sha25612
   };
 }
-async function writePacketStream({
-  outputDirectory,
-  source,
-  idPrefix,
-  startingOrdinal = 1,
-  kind,
-  changeUnitRanges = [],
-  changeUnitCount = 0,
-  changeUnitId = null,
-  pathIdentity = null,
-  context = "",
-  maximumPacketBytes = MAXIMUM_PACKET_BYTES,
-  maximumPacketLines = MAXIMUM_PACKET_LINES
-}) {
-  const options = {
-    idPrefix,
-    startingOrdinal,
-    kind,
-    changeUnitRanges,
-    changeUnitCount,
-    changeUnitId,
-    pathIdentity,
-    context,
-    maximumPacketBytes,
-    maximumPacketLines
-  };
-  validateWriterOptions(options);
-  ensureOutputDirectories(outputDirectory);
-  const spooled = await spoolSource(outputDirectory, source);
-  return packetsForSpool(outputDirectory, spooled, options);
+function presentationDiagnostics(summary) {
+  return summary.count === 0 ? [] : [
+    createWorkflowWarning({
+      code: "MESSAGE_PRESENTATION_LIMIT",
+      message: "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
+      documentation: "references/message-format.md",
+      details: [{ kind: "limit", ...summary }]
+    })
+  ];
 }
-function writePacketChunksSync({
-  outputDirectory,
-  source,
-  idPrefix,
-  startingOrdinal = 1,
-  kind,
-  changeUnitRanges = [],
-  changeUnitCount = 0,
-  changeUnitId = null,
-  pathIdentity = null,
-  context = "",
-  maximumPacketBytes = MAXIMUM_PACKET_BYTES,
-  maximumPacketLines = MAXIMUM_PACKET_LINES
-}) {
-  const options = {
-    idPrefix,
-    startingOrdinal,
-    kind,
-    changeUnitRanges,
-    changeUnitCount,
-    changeUnitId,
-    pathIdentity,
-    context,
-    maximumPacketBytes,
-    maximumPacketLines
-  };
-  validateWriterOptions(options);
-  ensureOutputDirectories(outputDirectory);
-  const spooled = spoolSourceSync(outputDirectory, source);
-  return packetsForSpool(outputDirectory, spooled, options);
-}
-function writePacketBytesSync(options) {
-  if (!Buffer.isBuffer(options.source) && !(options.source instanceof Uint8Array)) {
-    throw new Error("Synchronous packet input must be bytes.");
+function canUseDirectSubjectTransport(subject) {
+  if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
+    return false;
   }
-  return writePacketChunksSync({ ...options, source: [options.source] });
+  try {
+    parseSubject(subject, { allowedTypes: [] });
+    return true;
+  } catch {
+    return false;
+  }
 }
-var MAXIMUM_PACKET_LINES, MAXIMUM_PACKET_BYTES, MAXIMUM_RAW_SEGMENT_BYTES, MAXIMUM_RAW_SEGMENT_LINES, STRICT_UTF8_DECODER2;
-var init_streamingPacketWriter = __esm({
-  "src/committing-to-git/inspection/streamingPacketWriter.js"() {
-    init_inlineEvidenceCapsule();
-    MAXIMUM_PACKET_LINES = 200;
-    MAXIMUM_PACKET_BYTES = 16 * 1024;
-    MAXIMUM_RAW_SEGMENT_BYTES = 4 * 1024;
-    MAXIMUM_RAW_SEGMENT_LINES = 160;
-    STRICT_UTF8_DECODER2 = new TextDecoder3("utf-8", { fatal: true });
+function validateApprovedMessage({
+  manifest,
+  route,
+  bytes: inputBytes,
+  repositoryTypePolicy,
+  messageSource,
+  structuredContent = null
+}) {
+  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
+  if (!sourceAllowed) {
+    fail(
+      "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
+      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
+    );
+  }
+  const bytes = canonicalBytes(inputBytes);
+  const displayText = decodeCanonicalMessage(bytes);
+  const withoutTerminalLf = displayText.slice(0, -1);
+  const lines = withoutTerminalLf.split("\n");
+  const subject = parseSubject(lines[0] ?? "", repositoryTypePolicy);
+  const sections = parseSections(lines.slice(1), manifest, {
+    messageSource,
+    structuredContent
+  });
+  if (messageSource === "approved-subject") {
+    if (lines.length !== 1) {
+      fail(
+        "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
+        "Direct subject transport cannot contain a body."
+      );
+    }
+    if (!canUseDirectSubjectTransport(subject.text)) {
+      fail(
+        "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
+        "Subject is valid canonical text but is outside the conservative direct transport set."
+      );
+    }
+    if (!bytes.equals(Buffer3.from(`${subject.text}
+`, "utf8"))) {
+      fail(
+        "DIRECT_SUBJECT_ENCODING_INVALID",
+        "Direct subject bytes must equal the deterministic subject plus one LF encoding."
+      );
+    }
+  }
+  const warnings = presentationWarnings(lines);
+  const messageSha256 = createHash3("sha256").update(bytes).digest("hex");
+  const presentationEntryCount = sections.fileChanges.entries.length;
+  const listedCount = messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? manifest.changeUnitCount : presentationEntryCount;
+  return {
+    schemaVersion: 1,
+    valid: true,
+    route,
+    messageSource,
+    byteCount: bytes.length,
+    messageSha256,
+    displayText,
+    subject,
+    sections: {
+      rationale: {
+        present: sections.rationale.present,
+        entryCount: sections.rationale.entries.length
+      },
+      userExperience: {
+        present: sections.userExperience.present,
+        entryCount: sections.userExperience.entries.length
+      },
+      fileChanges: {
+        present: sections.fileChanges.present,
+        entryCount: presentationEntryCount
+      }
+    },
+    files: {
+      expectedCount: manifest.changeUnitCount,
+      listedCount,
+      setMatches: !sections.fileChanges.present || listedCount === manifest.changeUnitCount,
+      orderValid: true,
+      unique: true
+    },
+    presentationWarnings: warnings
+  };
+}
+var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN;
+var init_approvedMessage = __esm({
+  "src/committing-to-git/message/approvedMessage.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_changeSelection2();
+    init_changeSelection2();
+    MAXIMUM_SUBJECT_SCALARS = 72;
+    MAXIMUM_BODY_LINE_SCALARS = 72;
+    MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
+    DIRECT_SUBJECT_TRANSPORT_PATTERN = /^[A-Za-z0-9 ():,._/+-]+$/u;
+    SUBJECT_PATTERN = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u;
+    PROHIBITED_UNICODE_CHARACTER = /[\p{Cc}\p{Cf}]/u;
+    SECTION_ORDER = Object.freeze([
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:"
+    ]);
+    PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
   }
 });
 
 // src/committing-to-git/checks/checkReceipt.js
-import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
 function assertExactKeys(value, expected, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -4871,7 +4369,7 @@ function validateOutputChannel(channel, label, expectedPaths) {
     const path = channel[`${segment}Path`];
     const byteCount = channel[`${segment}ByteCount`];
     const digest2 = channel[`${segment}Sha256`];
-    if (byteCount === 0 && (path !== null || digest2 !== null) || byteCount > 0 && (path === null || digest2 === null || resolve3(path) !== expectedPaths[segment])) {
+    if (byteCount === 0 && (path !== null || digest2 !== null) || byteCount > 0 && (path === null || digest2 === null || resolve2(path) !== expectedPaths[segment])) {
       throw new Error(
         `${label} ${segment} segment is not bound to its transaction path and digest.`
       );
@@ -4890,11 +4388,11 @@ function validateOutput(output, attempt, transaction) {
   if (output.schemaVersion !== 1) {
     throw new Error("Check output schemaVersion must be 1.");
   }
-  const directory = join3(resolve3(transaction.attemptDirectory), "process-logs");
+  const directory = join2(resolve2(transaction.attemptDirectory), "process-logs");
   for (const channel of ["stdout", "stderr"]) {
     validateOutputChannel(output[channel], `Check ${channel} output`, {
-      head: join3(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
-      tail: join3(directory, `check-${attempt.receiptId}-${channel}-tail.bin`)
+      head: join2(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
+      tail: join2(directory, `check-${attempt.receiptId}-${channel}-tail.bin`)
     });
   }
 }
@@ -5094,28 +4592,28 @@ var init_checkReceipt = __esm({
 // src/committing-to-git/transaction/transactionWorkspace.js
 import { randomUUID as systemRandomUUID } from "node:crypto";
 import {
-  closeSync as closeSync4,
-  constants as fsConstants2,
-  existsSync as existsSync5,
-  fstatSync as fstatSync3,
-  fsyncSync as fsyncSync2,
-  lstatSync as lstatSync2,
-  mkdirSync as mkdirSync2,
-  openSync as openSync4,
+  closeSync as closeSync2,
+  constants as fsConstants,
+  existsSync as existsSync3,
+  fstatSync as fstatSync2,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync as openSync2,
   readFileSync as readFileSync2,
   realpathSync,
-  renameSync as renameSync2,
+  renameSync,
   rmSync,
-  writeFileSync as writeFileSync2
+  writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   basename,
-  dirname as dirname2,
+  dirname,
   isAbsolute as isAbsolute3,
-  join as join4,
+  join as join3,
   relative,
-  resolve as resolve4
+  resolve as resolve3
 } from "node:path";
 function transactionStateKey(transaction) {
   return JSON.stringify([
@@ -5946,8 +5444,8 @@ function initialTransaction(repositoryRoot2, attemptDirectory) {
   };
 }
 function openReadOnlyNoFollow(path) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  return openSync4(path, fsConstants2.O_RDONLY + noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  return openSync2(path, fsConstants.O_RDONLY + noFollow);
 }
 function fileIdentity(stat) {
   return {
@@ -5962,13 +5460,13 @@ function identitiesMatch(left, right) {
 function readStableRegularFile(path) {
   const fd = openReadOnlyNoFollow(path);
   try {
-    const before = fstatSync3(fd, { bigint: true });
+    const before = fstatSync2(fd, { bigint: true });
     if (!before.isFile()) {
       throw new Error(`Expected a regular file at ${path}.`);
     }
     const payload = readFileSync2(fd);
-    const after = fstatSync3(fd, { bigint: true });
-    const pathStat = lstatSync2(path, { bigint: true });
+    const after = fstatSync2(fd, { bigint: true });
+    const pathStat = lstatSync(path, { bigint: true });
     if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
       throw new Error(
         `Transaction path was replaced or is not a regular file: ${path}`
@@ -5981,42 +5479,42 @@ function readStableRegularFile(path) {
     }
     return payload;
   } finally {
-    closeSync4(fd);
+    closeSync2(fd);
   }
 }
 function flushDirectory(path) {
   if (process.platform === "win32") {
     return;
   }
-  const fd = openSync4(path, fsConstants2.O_RDONLY);
+  const fd = openSync2(path, fsConstants.O_RDONLY);
   try {
-    fsyncSync2(fd);
+    fsyncSync(fd);
   } finally {
-    closeSync4(fd);
+    closeSync2(fd);
   }
 }
 function writeNewFile(path, payload) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  const fd = openSync4(
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  const fd = openSync2(
     path,
-    fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
+    fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL + noFollow,
     384
   );
   try {
-    writeFileSync2(fd, payload);
-    fsyncSync2(fd);
+    writeFileSync(fd, payload);
+    fsyncSync(fd);
   } finally {
-    closeSync4(fd);
+    closeSync2(fd);
   }
-  flushDirectory(dirname2(path));
+  flushDirectory(dirname(path));
 }
 function writeNewJson(path, value) {
   writeNewFile(path, Buffer.from(`${JSON.stringify(value, null, 2)}
 `));
 }
 function replaceJsonAtomically(path, value) {
-  const directory = dirname2(path);
-  const candidatePath = join4(
+  const directory = dirname(path);
+  const candidatePath = join3(
     directory,
     `.transaction-${systemRandomUUID()}.tmp`
   );
@@ -6025,7 +5523,7 @@ function replaceJsonAtomically(path, value) {
   while (true) {
     attempt += 1;
     try {
-      renameSync2(candidatePath, path);
+      renameSync(candidatePath, path);
       flushDirectory(directory);
       return;
     } catch (error) {
@@ -6037,7 +5535,7 @@ function replaceJsonAtomically(path, value) {
   }
 }
 function ensureDirectory(path, label) {
-  const stat = lstatSync2(path);
+  const stat = lstatSync(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} was replaced or is not a directory: ${path}`);
   }
@@ -6047,7 +5545,7 @@ function ensureDirectory(path, label) {
 }
 function validateRepositoryPath(repositoryRoot2) {
   ensureDirectory(repositoryRoot2, "Recorded repository root");
-  if (!existsSync5(join4(repositoryRoot2, ".git"))) {
+  if (!existsSync3(join3(repositoryRoot2, ".git"))) {
     throw new Error(
       `Recorded repository root is no longer a Git working tree: ${repositoryRoot2}`
     );
@@ -6064,10 +5562,10 @@ function assertOwnedPath(attemptDirectory, path) {
 function allocateAttemptDirectory({
   temporaryRoot,
   randomUuid = systemRandomUUID,
-  createDirectory = mkdirSync2,
+  createDirectory = mkdirSync,
   maximumAttempts = MAXIMUM_ALLOCATION_ATTEMPTS
 }) {
-  const absoluteTemporaryRoot = resolve4(temporaryRoot);
+  const absoluteTemporaryRoot = resolve3(temporaryRoot);
   if (!Number.isInteger(maximumAttempts) || maximumAttempts < 1) {
     throw new Error("maximumAttempts must be a positive integer.");
   }
@@ -6076,11 +5574,11 @@ function allocateAttemptDirectory({
     if (typeof uuid !== "string" || !UUID_V4_PATTERN.test(uuid)) {
       throw new Error("Transaction allocation requires a genuine UUIDv4.");
     }
-    const attemptDirectory = join4(
+    const attemptDirectory = join3(
       absoluteTemporaryRoot,
       `committing-to-git-${uuid}`
     );
-    const transactionPath = join4(attemptDirectory, TRANSACTION_FILE);
+    const transactionPath = join3(attemptDirectory, TRANSACTION_FILE);
     if (Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
       throw new Error(
         "The absolute transaction.json handle exceeds 2,048 UTF-8 bytes."
@@ -6103,8 +5601,8 @@ function createTransactionWorkspace({
   repositoryRoot: repositoryRoot2,
   temporaryRoot = tmpdir()
 }) {
-  const normalizedRepositoryRoot = realpathSync(resolve4(repositoryRoot2));
-  const normalizedTemporaryRoot = realpathSync(resolve4(temporaryRoot));
+  const normalizedRepositoryRoot = realpathSync(resolve3(repositoryRoot2));
+  const normalizedTemporaryRoot = realpathSync(resolve3(temporaryRoot));
   validateRepositoryPath(normalizedRepositoryRoot);
   ensureDirectory(normalizedTemporaryRoot, "Temporary root");
   const { attemptDirectory, transactionPath } = allocateAttemptDirectory({
@@ -6120,7 +5618,7 @@ function createTransactionWorkspace({
   return { attemptDirectory, transactionPath, transaction };
 }
 function readTransaction(transactionPath) {
-  const absoluteTransactionPath = resolve4(transactionPath);
+  const absoluteTransactionPath = resolve3(transactionPath);
   if (basename(absoluteTransactionPath) !== TRANSACTION_FILE) {
     throw new Error("Transaction handle must name transaction.json.");
   }
@@ -6137,7 +5635,7 @@ function readTransaction(transactionPath) {
     });
   }
   validateTransaction(transaction);
-  if (resolve4(transaction.attemptDirectory) !== dirname2(absoluteTransactionPath)) {
+  if (resolve3(transaction.attemptDirectory) !== dirname(absoluteTransactionPath)) {
     throw new Error(
       "Recorded attempt directory does not contain the supplied transaction path."
     );
@@ -6148,7 +5646,7 @@ function readTransaction(transactionPath) {
 }
 function fixedArtifactPath(transactionPath, name) {
   const transaction = readTransaction(transactionPath);
-  const path = join4(transaction.attemptDirectory, name);
+  const path = join3(transaction.attemptDirectory, name);
   assertOwnedPath(transaction.attemptDirectory, path);
   return path;
 }
@@ -6156,7 +5654,7 @@ function getEvidencePlanInputPath(transactionPath) {
   return fixedArtifactPath(transactionPath, "evidence-plan-input.json");
 }
 function advanceTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve4(transactionPath);
+  const absoluteTransactionPath = resolve3(transactionPath);
   const current = readTransaction(absoluteTransactionPath);
   if (current.phase !== expectedPhase) {
     throw new Error(
@@ -6182,7 +5680,7 @@ function advanceTransaction(transactionPath, expectedPhase, nextState) {
   return readTransaction(absoluteTransactionPath);
 }
 function updateTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve4(transactionPath);
+  const absoluteTransactionPath = resolve3(transactionPath);
   const current = readTransaction(absoluteTransactionPath);
   if (current.phase !== expectedPhase) {
     throw new Error(
@@ -6389,36 +5887,2252 @@ var init_transactionWorkspace = __esm({
   }
 });
 
-// src/committing-to-git/transaction/indexInstallation.js
-import { createHash as createHash5, randomUUID as randomUUID3 } from "node:crypto";
+// src/committing-to-git/message/canonicalMessageState.js
+import { createHash as createHash4, randomUUID } from "node:crypto";
+import {
+  closeSync as closeSync3,
+  constants as fsConstants2,
+  existsSync as existsSync4,
+  fstatSync as fstatSync3,
+  fsyncSync as fsyncSync2,
+  lstatSync as lstatSync2,
+  mkdirSync as mkdirSync2,
+  openSync as openSync3,
+  readSync,
+  realpathSync as realpathSync2,
+  renameSync as renameSync2,
+  rmSync as rmSync2,
+  unlinkSync,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve4, sep } from "node:path";
+import { TextDecoder as TextDecoder2 } from "node:util";
+function fail2(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function sha256(bytes) {
+  return createHash4("sha256").update(bytes).digest("hex");
+}
+function canonicalJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function flushDirectory2(path) {
+  if (process.platform === "win32") {
+    return;
+  }
+  const descriptor = openSync3(path, fsConstants2.O_RDONLY);
+  try {
+    fsyncSync2(descriptor);
+  } finally {
+    closeSync3(descriptor);
+  }
+}
+function assertContained(attemptDirectory, path) {
+  const contained = relative2(attemptDirectory, path);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute4(contained)) {
+    fail2(
+      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
+      `Derived message artifact escapes its transaction: ${path}`
+    );
+  }
+}
+function artifactPath(transaction, name) {
+  const path = join4(transaction.attemptDirectory, name);
+  assertContained(transaction.attemptDirectory, path);
+  return path;
+}
+function ensureDirectory2(path, label) {
+  const stat = lstatSync2(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    fail2(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} was replaced or is not a directory: ${path}`
+    );
+  }
+  if (realpathSync2(path) !== resolve4(path)) {
+    fail2(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} no longer resolves to its recorded path: ${path}`
+    );
+  }
+}
+function ensureMessageDirectory(transaction) {
+  const path = artifactPath(transaction, MESSAGE_DIRECTORY_NAME);
+  if (!existsSync4(path)) {
+    mkdirSync2(path, { mode: 448 });
+    flushDirectory2(transaction.attemptDirectory);
+  }
+  ensureDirectory2(path, "Canonical message directory");
+  return path;
+}
+function statIdentity(stat) {
+  const device = String(stat.dev);
+  const inode = String(stat.ino);
+  return {
+    available: inode !== "0",
+    device,
+    inode,
+    byteCount: Number(stat.size),
+    modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
+  };
+}
+function sameIdentity(left, right) {
+  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
+}
+function openReadOnlyNoFollow2(path) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
+  return openSync3(path, fsConstants2.O_RDONLY + noFollow);
+}
+function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
+  let initial;
+  try {
+    initial = lstatSync2(path, { bigint: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
+    }
+    throw error;
+  }
+  if (initial.isSymbolicLink() || !initial.isFile()) {
+    fail2(
+      "MESSAGE_INPUT_NOT_REGULAR",
+      `${label} must be a non-link regular file: ${path}`
+    );
+  }
+  if (initial.size > BigInt(maximumBytes)) {
+    fail2("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
+      details: { maximumBytes, byteCount: Number(initial.size) }
+    });
+  }
+  const descriptor = openReadOnlyNoFollow2(path);
+  try {
+    const before = fstatSync3(descriptor, { bigint: true });
+    const initialIdentity = statIdentity(initial);
+    const openedIdentity = statIdentity(before);
+    if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
+      fail2(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed before its fixed path could be opened safely.`
+      );
+    }
+    afterOpen?.({ descriptor, identity: openedIdentity, path });
+    const bytes = Buffer.alloc(openedIdentity.byteCount);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        offset,
+        Math.min(64 * 1024, bytes.length - offset),
+        null
+      );
+      if (count === 0) break;
+      offset += count;
+    }
+    const extra = readSync(descriptor, Buffer.alloc(1), 0, 1, null);
+    const after = fstatSync3(descriptor, { bigint: true });
+    const finalIdentity = statIdentity(after);
+    if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || offset !== bytes.length || extra !== 0 || bytes.length > maximumBytes) {
+      fail2(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed while its opened handle was being read.`
+      );
+    }
+    if (!allowPathReplacement) {
+      const pathStat = lstatSync2(path, { bigint: true });
+      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity(pathStat))) {
+        fail2(
+          "MESSAGE_INPUT_CHANGED",
+          `${label} path changed while its opened handle was being read.`
+        );
+      }
+    }
+    return { bytes, identity: finalIdentity, path };
+  } finally {
+    closeSync3(descriptor);
+  }
+}
+function readTransactionOwnedFile({
+  transactionPath,
+  artifactName,
+  maximumBytes,
+  label,
+  afterOpen,
+  allowPathReplacement = true
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  return {
+    transaction,
+    ...readStablePath(path, {
+      maximumBytes,
+      label,
+      afterOpen,
+      allowPathReplacement
+    })
+  };
+}
+function warning(code, message, path) {
+  return createWorkflowWarning({
+    code,
+    message,
+    details: [{ kind: "prerequisite", path }]
+  });
+}
+function cleanupTransactionOwnedInput({
+  path,
+  identity: identity2,
+  forceIdentityUnavailable = false
+}) {
+  if (forceIdentityUnavailable || identity2.available !== true) {
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_IDENTITY_UNAVAILABLE",
+        "The fixed input was retained because same-object identity is unavailable on this filesystem.",
+        path
+      )
+    };
+  }
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow2(path);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because it could not be reopened safely: ${error.message}`,
+        path
+      )
+    };
+  }
+  try {
+    const opened = fstatSync3(descriptor, { bigint: true });
+    if (!opened.isFile() || !sameIdentity(identity2, statIdentity(opened))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because its directory entry no longer identifies the opened object.",
+          path
+        )
+      };
+    }
+  } finally {
+    closeSync3(descriptor);
+  }
+  try {
+    const finalPathStat = lstatSync2(path, { bigint: true });
+    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity2, statIdentity(finalPathStat))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because it changed during cleanup.",
+          path
+        )
+      };
+    }
+    unlinkSync(path);
+    flushDirectory2(dirname2(path));
+    return { removed: true, warning: null };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because cleanup failed: ${error.message}`,
+        path
+      )
+    };
+  }
+}
+function writeNewFile2(path, bytes) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
+  const descriptor = openSync3(
+    path,
+    fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
+    384
+  );
+  try {
+    writeFileSync2(descriptor, bytes);
+    fsyncSync2(descriptor);
+  } finally {
+    closeSync3(descriptor);
+  }
+}
+function ensureTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  maximumBytes = 8 * 1024 * 1024
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  const bytes = canonicalJsonBytes(value);
+  if (bytes.length > maximumBytes) {
+    fail2(
+      "MESSAGE_ARTIFACT_TOO_LARGE",
+      `${artifactName} exceeds ${maximumBytes} bytes.`
+    );
+  }
+  if (existsSync4(path)) {
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail2(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} already exists with conflicting bytes.`
+      );
+    }
+    return path;
+  }
+  try {
+    writeNewFile2(path, bytes);
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      throw error;
+    }
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail2(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} was concurrently created with conflicting bytes.`
+      );
+    }
+  }
+  flushDirectory2(transaction.attemptDirectory);
+  return path;
+}
+function currentPathMatches(path, identity2) {
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow2(path);
+    const stat = fstatSync3(descriptor, { bigint: true });
+    return stat.isFile() && sameIdentity(identity2, statIdentity(stat));
+  } catch {
+    return false;
+  } finally {
+    if (descriptor !== void 0) {
+      closeSync3(descriptor);
+    }
+  }
+}
+function replaceTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  expectedIdentity = null
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
+    fail2(
+      "MESSAGE_INPUT_REPLACED",
+      `The fixed ${artifactName} changed before normalized content could be persisted.`
+    );
+  }
+  const candidatePath = artifactPath(
+    transaction,
+    `.${artifactName}-${randomUUID()}.tmp`
+  );
+  writeNewFile2(candidatePath, canonicalJsonBytes(value));
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      renameSync2(candidatePath, path);
+      flushDirectory2(transaction.attemptDirectory);
+      return path;
+    } catch (error) {
+      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES2.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS2;
+      if (!retryable) {
+        throw error;
+      }
+    }
+  }
+}
+function slotPaths(messageDirectory, slot) {
+  const directory = join4(messageDirectory, slot);
+  return {
+    directory,
+    messagePath: join4(directory, MESSAGE_FILE_NAME),
+    validationPath: join4(directory, VALIDATION_FILE_NAME),
+    statePath: join4(directory, STATE_FILE_NAME)
+  };
+}
+function assertExactKeys3(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail2("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `${label} contains missing or unknown members.`
+    );
+  }
+}
+function assertValidationMatches(bytes, validation, source) {
+  if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
+    fail2(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical message replacement requires one successful validation object."
+    );
+  }
+  const digest2 = sha256(bytes);
+  const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
+  if (validation.messageSha256 !== digest2 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
+    fail2(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical validation does not describe the exact replacement message bytes."
+    );
+  }
+}
+function transactionMessageState(state, stateSha256) {
+  return {
+    schemaVersion: 1,
+    revision: state.messageRevision,
+    sha256: state.messageSha256,
+    source: state.messageSource,
+    byteCount: state.byteCount,
+    stateSha256,
+    validationSha256: state.validationSha256,
+    slot: "message/current"
+  };
+}
+function writeCandidate({
+  messageDirectory,
+  bytes,
+  validation,
+  source,
+  revision,
+  failureInjector
+}) {
+  const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
+  if (existsSync4(paths.directory)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "The fixed candidate slot is occupied; recover the pending replacement first."
+    );
+  }
+  mkdirSync2(paths.directory, { mode: 448 });
+  writeNewFile2(paths.messagePath, bytes);
+  const validationBytes = canonicalJsonBytes(validation);
+  if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
+    fail2(
+      "MESSAGE_VALIDATION_TOO_LARGE",
+      `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
+    );
+  }
+  writeNewFile2(paths.validationPath, validationBytes);
+  const state = {
+    schemaVersion: 1,
+    messageRevision: revision,
+    messageSha256: sha256(bytes),
+    messageSource: source,
+    byteCount: bytes.length,
+    validationSha256: sha256(validationBytes)
+  };
+  const stateBytes = canonicalJsonBytes(state);
+  writeNewFile2(paths.statePath, stateBytes);
+  failureInjector("before-candidate-flush");
+  flushDirectory2(paths.directory);
+  flushDirectory2(messageDirectory);
+  failureInjector("after-candidate-flush");
+  return {
+    ...state,
+    stateSha256: sha256(stateBytes),
+    transactionState: transactionMessageState(state, sha256(stateBytes))
+  };
+}
+function readSlot(messageDirectory, slot) {
+  const paths = slotPaths(messageDirectory, slot);
+  if (!existsSync4(paths.directory)) {
+    return null;
+  }
+  ensureDirectory2(paths.directory, `Canonical message ${slot} slot`);
+  const message = readStablePath(paths.messagePath, {
+    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    label: `Canonical message ${slot} body`,
+    allowPathReplacement: false
+  }).bytes;
+  const validationBytes = readStablePath(paths.validationPath, {
+    maximumBytes: MAXIMUM_VALIDATION_BYTES,
+    label: `Canonical message ${slot} validation`,
+    allowPathReplacement: false
+  }).bytes;
+  const stateBytes = readStablePath(paths.statePath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES,
+    label: `Canonical message ${slot} state`,
+    allowPathReplacement: false
+  }).bytes;
+  let validation;
+  let state;
+  try {
+    validation = JSON.parse(STRICT_UTF8_DECODER.decode(validationBytes));
+    state = JSON.parse(STRICT_UTF8_DECODER.decode(stateBytes));
+  } catch (error) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} JSON is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys3(
+    state,
+    [
+      "schemaVersion",
+      "messageRevision",
+      "messageSha256",
+      "messageSource",
+      "byteCount",
+      "validationSha256"
+    ],
+    `Canonical message ${slot} state`
+  );
+  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN3.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN3.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} state does not match its artifacts.`
+    );
+  }
+  assertValidationMatches(message, validation, state.messageSource);
+  const stateSha256 = sha256(stateBytes);
+  return {
+    ...state,
+    bytes: message,
+    displayText: message.toString("utf8"),
+    validation,
+    stateSha256,
+    transactionState: transactionMessageState(state, stateSha256),
+    ...paths
+  };
+}
+function sameTransactionMessage(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function removeSlot(transaction, messageDirectory, slot) {
+  const { directory } = slotPaths(messageDirectory, slot);
+  assertContained(transaction.attemptDirectory, directory);
+  if (!existsSync4(directory)) {
+    return;
+  }
+  ensureDirectory2(directory, `Canonical message ${slot} slot`);
+  rmSync2(directory, { recursive: true, force: false });
+  flushDirectory2(messageDirectory);
+}
+function renameSlot(messageDirectory, source, destination) {
+  const sourcePath = slotPaths(messageDirectory, source).directory;
+  const destinationPath = slotPaths(messageDirectory, destination).directory;
+  if (existsSync4(destinationPath)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      `Canonical message ${destination} slot is already occupied.`
+    );
+  }
+  renameSync2(sourcePath, destinationPath);
+  flushDirectory2(messageDirectory);
+}
+function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
+  const current = readTransaction(transactionPath);
+  if (sameTransactionMessage(current.message, nextMessage)) {
+    return current;
+  }
+  if (!sameTransactionMessage(current.message, priorMessage)) {
+    fail2(
+      "MESSAGE_TRANSACTION_DRIFT",
+      "Transaction message state changed during canonical replacement."
+    );
+  }
+  if (current.phase === "message-ready") {
+    return updateTransaction(transactionPath, "message-ready", {
+      ...current,
+      phase: "message-ready",
+      status: "message-ready",
+      message: nextMessage
+    });
+  }
+  if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending", "authoring-pending"])).has(
+    current.phase
+  )) {
+    fail2(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Canonical message replacement is not allowed in phase ${current.phase}.`
+    );
+  }
+  return advanceTransaction(transactionPath, current.phase, {
+    ...current,
+    phase: "message-ready",
+    status: "message-ready",
+    message: nextMessage
+  });
+}
+function readJournal(transaction, journalPath) {
+  const bytes = readStablePath(journalPath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES,
+    label: "Canonical message replacement journal",
+    allowPathReplacement: false
+  }).bytes;
+  let journal;
+  try {
+    journal = JSON.parse(STRICT_UTF8_DECODER.decode(bytes));
+  } catch (error) {
+    fail2(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      `Canonical message replacement journal is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys3(
+    journal,
+    ["schemaVersion", "priorMessage", "nextMessage"],
+    "Canonical message replacement journal"
+  );
+  if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      "Canonical message replacement journal has invalid state references."
+    );
+  }
+  assertContained(transaction.attemptDirectory, journalPath);
+  return journal;
+}
+function safeSlot(messageDirectory, slot) {
+  try {
+    return { value: readSlot(messageDirectory, slot), error: null };
+  } catch (error) {
+    return { value: null, error };
+  }
+}
+function cleanupReplacementRemnants(transaction, messageDirectory, journalPath) {
+  removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+  removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+  if (existsSync4(journalPath)) {
+    unlinkSync(journalPath);
+    flushDirectory2(transaction.attemptDirectory);
+  }
+}
+function steadyCanonicalMessage(transaction, messageDirectory) {
+  if (transaction.message === null) {
+    return null;
+  }
+  const current = readSlot(messageDirectory, CURRENT_SLOT);
+  if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
+    fail2(
+      "CANONICAL_MESSAGE_CORRUPT",
+      "The transaction does not match its fixed current message slot."
+    );
+  }
+  return current;
+}
+function recoverCanonicalMessageReplacement(transactionPath) {
+  let transaction = readTransaction(transactionPath);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (!existsSync4(journalPath)) {
+    const current2 = safeSlot(messageDirectory, CURRENT_SLOT);
+    const candidate2 = safeSlot(messageDirectory, CANDIDATE_SLOT);
+    const previous2 = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    if (candidate2.value !== null || candidate2.error !== null) {
+      removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+    }
+    if (previous2.value !== null || previous2.error !== null) {
+      if (current2.value !== null && sameTransactionMessage(
+        current2.value.transactionState,
+        transaction.message
+      )) {
+        removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+      } else {
+        fail2(
+          "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
+          "A previous canonical slot remains without a replacement journal."
+        );
+      }
+    }
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  const journal = readJournal(transaction, journalPath);
+  let current = safeSlot(messageDirectory, CURRENT_SLOT);
+  const candidate = safeSlot(messageDirectory, CANDIDATE_SLOT);
+  let previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+  const nextMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.nextMessage);
+  const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
+  if (!nextMatches(current) && nextMatches(candidate)) {
+    if (current.value !== null && !priorMatches(current)) {
+      fail2(
+        "MESSAGE_REPLACEMENT_CORRUPT",
+        "The current message slot matches neither side of the pending replacement."
+      );
+    }
+    if (current.value !== null) {
+      if (previous.value !== null || previous.error !== null) {
+        fail2(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "Both current and previous slots are occupied during recovery."
+        );
+      }
+      renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+      previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    }
+    renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (nextMatches(current)) {
+    transaction = installTransactionMessage(
+      transactionPath,
+      journal.priorMessage,
+      journal.nextMessage
+    );
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  if (!priorMatches(current) && priorMatches(previous)) {
+    if (current.value !== null || current.error !== null) {
+      removeSlot(transaction, messageDirectory, CURRENT_SLOT);
+    }
+    renameSlot(messageDirectory, PREVIOUS_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (priorMatches(current)) {
+    if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
+      if (transaction.phase !== "message-ready") {
+        fail2(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "The transaction advanced without a recoverable canonical candidate."
+        );
+      }
+      transaction = updateTransaction(transactionPath, "message-ready", {
+        ...transaction,
+        message: journal.priorMessage
+      });
+    }
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  fail2(
+    "MESSAGE_REPLACEMENT_CORRUPT",
+    "Neither side of the pending canonical message replacement is recoverable."
+  );
+}
+function readCanonicalMessage(transactionPath) {
+  return recoverCanonicalMessageReplacement(transactionPath);
+}
+function assertReplacementRoute(transaction, source) {
+  if (!MESSAGE_SOURCES2.has(source)) {
+    fail2(
+      "MESSAGE_SOURCE_INVALID",
+      `Unknown canonical message source ${JSON.stringify(source)}.`
+    );
+  }
+  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase);
+  if (!allowed || transaction.commit !== null) {
+    fail2(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
+    );
+  }
+}
+function replaceCanonicalMessage({
+  transactionPath,
+  bytes: inputBytes,
+  validation,
+  source,
+  failureInjector = () => {
+  }
+}) {
+  if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
+    fail2("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
+  }
+  const bytes = Buffer.from(inputBytes);
+  if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail2(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
+    );
+  }
+  let transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  assertValidationMatches(bytes, validation, source);
+  const prior = recoverCanonicalMessageReplacement(transactionPath);
+  transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (existsSync4(journalPath) || existsSync4(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync4(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
+    fail2(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "Canonical replacement remnants remain after recovery."
+    );
+  }
+  const candidate = writeCandidate({
+    messageDirectory,
+    bytes,
+    validation,
+    source,
+    revision: (prior?.messageRevision ?? 0) + 1,
+    failureInjector
+  });
+  const journal = {
+    schemaVersion: 1,
+    priorMessage: prior?.transactionState ?? null,
+    nextMessage: candidate.transactionState
+  };
+  failureInjector("before-journal-flush");
+  writeNewFile2(journalPath, canonicalJsonBytes(journal));
+  flushDirectory2(transaction.attemptDirectory);
+  failureInjector("after-journal-flush");
+  failureInjector("before-current-to-previous");
+  if (prior !== null) {
+    renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+  }
+  failureInjector("after-current-to-previous");
+  failureInjector("before-candidate-to-current");
+  renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+  failureInjector("after-candidate-to-current");
+  failureInjector("before-transaction-advance");
+  transaction = installTransactionMessage(
+    transactionPath,
+    journal.priorMessage,
+    journal.nextMessage
+  );
+  failureInjector("after-transaction-advance");
+  failureInjector("before-remnant-cleanup");
+  cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+  failureInjector("after-remnant-cleanup");
+  return steadyCanonicalMessage(transaction, messageDirectory);
+}
+var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES, SHA256_PATTERN3, STRICT_UTF8_DECODER, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2;
+var init_canonicalMessageState = __esm({
+  "src/committing-to-git/message/canonicalMessageState.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_approvedMessage();
+    init_transactionWorkspace();
+    MESSAGE_DIRECTORY_NAME = "message";
+    CURRENT_SLOT = "current";
+    CANDIDATE_SLOT = "candidate";
+    PREVIOUS_SLOT = "previous";
+    PENDING_JOURNAL_NAME = "message-replacement.pending.json";
+    MESSAGE_FILE_NAME = "message.txt";
+    VALIDATION_FILE_NAME = "validation.json";
+    STATE_FILE_NAME = "state.json";
+    MAXIMUM_VALIDATION_BYTES = 80 * 1024;
+    MAXIMUM_JOURNAL_BYTES = 16 * 1024;
+    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER = new TextDecoder2("utf-8", { fatal: true });
+    WINDOWS_RENAME_RETRY_CODES2 = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
+    MAXIMUM_WINDOWS_RENAME_ATTEMPTS2 = 4;
+    MESSAGE_SOURCES2 = /* @__PURE__ */ new Set([
+      "approved-subject",
+      "checked-file",
+      "finalized-extended"
+    ]);
+  }
+});
+
+// src/committing-to-git/snapshot/recordedSnapshot.js
+import { resolve as resolve5 } from "node:path";
+function assertSnapshotCapacity(byteCount) {
+  if (byteCount > MAXIMUM_SNAPSHOT_BYTES) {
+    throw new WorkflowDiagnosticError(
+      "SNAPSHOT_CAPACITY_EXCEEDED",
+      `Recorded snapshot requires ${byteCount} bytes; native execution supports at most ${MAXIMUM_SNAPSHOT_BYTES}. Preserve the complete scope and transaction; a larger-capacity implementation is required.`,
+      {
+        disposition: "unmet-prerequisite",
+        details: { byteCount, maximumBytes: MAXIMUM_SNAPSHOT_BYTES },
+        recovery: {
+          kind: "satisfy-prerequisite",
+          automatic: false,
+          requiredInputs: [
+            "A helper implementation supporting this complete snapshot; retain existing evidence and approval. Do not shrink the message, truncate the inventory or split the commit."
+          ],
+          commands: []
+        },
+        documentation: "references/native-execution.md"
+      }
+    );
+  }
+}
+function snapshotExecution(byteCount) {
+  assertSnapshotCapacity(byteCount);
+  return {
+    kind: "native-git",
+    selection: byteCount > STANDARD_SNAPSHOT_BYTES ? "snapshot-capacity" : "standard",
+    snapshotByteCount: byteCount,
+    maximumSnapshotBytes: MAXIMUM_SNAPSHOT_BYTES,
+    arguments: ["workflow", "commit", "--execution", "native"]
+  };
+}
+function readRecordedSnapshotFile(transactionPath) {
+  try {
+    return readTransactionOwnedFile({
+      transactionPath,
+      artifactName: "snapshot.json",
+      maximumBytes: MAXIMUM_SNAPSHOT_BYTES,
+      label: "Recorded snapshot",
+      allowPathReplacement: false
+    });
+  } catch (error) {
+    if (error.code === "MESSAGE_INPUT_TOO_LARGE") {
+      try {
+        assertSnapshotCapacity(error.details.byteCount);
+      } catch (capacityError) {
+        capacityError.state = { transaction: resolve5(transactionPath) };
+        throw capacityError;
+      }
+    }
+    throw error;
+  }
+}
+var STANDARD_SNAPSHOT_BYTES, MAXIMUM_SNAPSHOT_BYTES;
+var init_recordedSnapshot = __esm({
+  "src/committing-to-git/snapshot/recordedSnapshot.js"() {
+    init_canonicalMessageState();
+    init_workflowDiagnosticError();
+    STANDARD_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+    MAXIMUM_SNAPSHOT_BYTES = 64 * 1024 * 1024;
+  }
+});
+
+// src/committing-to-git/git/gitPath.js
+function splitNul(buffer) {
+  const fields = [];
+  let start = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    if (buffer[index] !== 0) {
+      continue;
+    }
+    fields.push(buffer.subarray(start, index));
+    start = index + 1;
+  }
+  if (start < buffer.length) {
+    fields.push(buffer.subarray(start));
+  }
+  return fields.filter((field) => field.length > 0);
+}
+function comparePathBytes(left, right) {
+  return Buffer.compare(left, right);
+}
+function pathRecord(raw) {
+  const decoded = raw.toString("utf8");
+  return {
+    bytesBase64: raw.toString("base64"),
+    text: decoded,
+    display: decoded
+  };
+}
+var init_gitPath = __esm({
+  "src/committing-to-git/git/gitPath.js"() {
+  }
+});
+
+// src/committing-to-git/git/projectedIndex.js
+import { randomUUID as randomUUID2 } from "node:crypto";
+import {
+  chmodSync,
+  closeSync as closeSync4,
+  constants as fsConstants3,
+  existsSync as existsSync5,
+  lstatSync as lstatSync3,
+  openSync as openSync4,
+  unlinkSync as unlinkSync2
+} from "node:fs";
+import { dirname as dirname3, resolve as resolve6 } from "node:path";
+function validatedPathBytes(pathBytes) {
+  if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
+    throw new Error(
+      "Projected-index entries require a nonempty raw path Buffer without NUL bytes."
+    );
+  }
+  return pathBytes;
+}
+function validatedEntry(entry) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !INDEX_MODES.has(entry.mode) || !FULL_OBJECT_ID2.test(entry.oid)) {
+    throw new Error(
+      "Projected-index entries require a supported Git mode and full object ID."
+    );
+  }
+  return {
+    mode: entry.mode,
+    oid: entry.oid,
+    pathBytes: validatedPathBytes(entry.pathBytes)
+  };
+}
+function encodeIndexInfoRecords(entries) {
+  if (!Array.isArray(entries)) {
+    throw new Error("Projected-index entries must be an array.");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const records = [];
+  for (const candidate of entries) {
+    const entry = validatedEntry(candidate);
+    const identity2 = entry.pathBytes.toString("base64");
+    if (seen.has(identity2)) {
+      throw new Error(
+        "Projected-index entries contain a duplicate raw path identity."
+      );
+    }
+    seen.add(identity2);
+    records.push(
+      Buffer.from(`${entry.mode} ${entry.oid}	`, "ascii"),
+      entry.pathBytes,
+      NUL
+    );
+  }
+  return Buffer.concat(records);
+}
+function allocateProjectedIndexPath(temporaryDirectory, purpose) {
+  const canonicalDirectory = resolve6(temporaryDirectory);
+  const directoryStat = lstatSync3(canonicalDirectory);
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+    throw new Error(
+      "Projected indexes require a real helper-owned temporary directory."
+    );
+  }
+  const indexPath = resolve6(
+    canonicalDirectory,
+    `.projected-index-${purpose}-${randomUUID2()}.tmp`
+  );
+  if (dirname3(indexPath) !== canonicalDirectory) {
+    throw new Error("Projected index escaped its temporary directory.");
+  }
+  const reservation = openSync4(
+    indexPath,
+    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
+    384
+  );
+  closeSync4(reservation);
+  unlinkSync2(indexPath);
+  return indexPath;
+}
+function removeExactArtifact(path) {
+  if (existsSync5(path)) {
+    unlinkSync2(path);
+  }
+}
+async function withProjectedIndex({
+  root,
+  baselineTreeOid = null,
+  entries,
+  temporaryDirectory,
+  environment = {},
+  purpose = "projection",
+  launchers = {}
+}, useIndex) {
+  if (typeof root !== "string" || root.length === 0 || typeof temporaryDirectory !== "string" || temporaryDirectory.length === 0 || !PURPOSE.test(purpose) || baselineTreeOid !== null && !FULL_OBJECT_ID2.test(baselineTreeOid) || typeof useIndex !== "function" || launchers === null || typeof launchers !== "object" || Array.isArray(launchers) || launchers.synchronous !== void 0 && typeof launchers.synchronous !== "function") {
+    throw new Error("Projected-index invocation is invalid.");
+  }
+  const encodedEntries = encodeIndexInfoRecords(entries);
+  const indexPath = allocateProjectedIndexPath(temporaryDirectory, purpose);
+  const lockPath = `${indexPath}.lock`;
+  const projectedEnvironment = {
+    ...environment,
+    GIT_INDEX_FILE: indexPath,
+    GIT_OPTIONAL_LOCKS: "0"
+  };
+  const gitOptions = {
+    env: projectedEnvironment,
+    launcher: launchers.synchronous
+  };
+  let primaryError = null;
+  let result;
+  try {
+    runIndexMutationGit(
+      root,
+      "read-index-tree",
+      [baselineTreeOid ?? "--empty"],
+      gitOptions
+    );
+    if (encodedEntries.length > 0) {
+      runIndexMutationGit(root, "update-index-info", [], {
+        ...gitOptions,
+        input: encodedEntries
+      });
+    }
+    if (process.platform !== "win32") {
+      chmodSync(indexPath, 384);
+    }
+    result = await useIndex({
+      environment: projectedEnvironment,
+      indexPath
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  let cleanupError = null;
+  try {
+    removeExactArtifact(lockPath);
+    removeExactArtifact(indexPath);
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (primaryError !== null && cleanupError !== null) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      "Projected-index operation and exact cleanup both failed."
+    );
+  }
+  if (primaryError !== null) {
+    throw primaryError;
+  }
+  if (cleanupError !== null) {
+    throw cleanupError;
+  }
+  return result;
+}
+var FULL_OBJECT_ID2, INDEX_MODES, PURPOSE, NUL;
+var init_projectedIndex = __esm({
+  "src/committing-to-git/git/projectedIndex.js"() {
+    init_gitRepository();
+    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    INDEX_MODES = /* @__PURE__ */ new Set(["000000", "100644", "100755", "120000", "160000"]);
+    PURPOSE = /^[a-z][a-z0-9-]{0,63}$/u;
+    NUL = Buffer.from([0]);
+  }
+});
+
+// src/committing-to-git/inspection/inlineEvidenceCapsule.js
+import { createHash as createHash5 } from "node:crypto";
+import { TextDecoder as TextDecoder3 } from "node:util";
+function sha256Bytes(bytes) {
+  return createHash5("sha256").update(bytes).digest("hex");
+}
+function canonicalValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(canonicalValue);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])])
+    );
+  }
+  return value;
+}
+function stableJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(canonicalValue(value))}
+`, "utf8");
+}
+function digestableManifest(manifest) {
+  return Object.fromEntries(
+    Object.entries(manifest).filter(([key]) => !EPHEMERAL_MANIFEST_KEYS.has(key)).map(([key, value]) => [
+      key,
+      key === "changeUnits" ? value.map(
+        (unit) => Object.fromEntries(
+          Object.entries(unit).filter(
+            ([unitKey]) => !EPHEMERAL_CHANGE_UNIT_KEYS.has(unitKey)
+          )
+        )
+      ) : value
+    ])
+  );
+}
+function manifestDigest(manifest) {
+  if (/^[0-9a-f]{64}$/u.test(manifest?.manifestSha256 ?? "")) {
+    return manifest.manifestSha256;
+  }
+  return sha256Bytes(stableJsonBytes(digestableManifest(manifest)));
+}
+function strictUtf8(bytes) {
+  try {
+    return STRICT_UTF8_DECODER2.decode(bytes);
+  } catch {
+    return null;
+  }
+}
+function containsUnsafeControl(text) {
+  return [...text].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 31 || codePoint >= 127 && codePoint <= 159;
+  });
+}
+function safeBoundedText(bytes, label = "bytes") {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  const text = strictUtf8(buffer);
+  if (text !== null && !containsUnsafeControl(text) && buffer.length <= MAXIMUM_SAFE_TEXT_BYTES) {
+    return text;
+  }
+  const prefix = buffer.subarray(0, 48).toString("hex");
+  const suffix = buffer.length > 48 ? buffer.subarray(-24).toString("hex") : "";
+  return `${label}:${prefix}${suffix ? `...${suffix}` : ""};bytes=${buffer.length};sha256=${sha256Bytes(buffer)}`;
+}
+function unitPathBytes(unit) {
+  if (typeof unit.destinationPathBytesBase64 === "string") {
+    return Buffer.from(unit.destinationPathBytesBase64, "base64");
+  }
+  return Buffer.from(
+    unit.destinationPath ?? unit.displayPath ?? unit.id,
+    "utf8"
+  );
+}
+function unitPathDisplay(unit) {
+  return safeBoundedText(unitPathBytes(unit), "path-bytes");
+}
+function serializedStatistic(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? String(value) : "deferred";
+}
+function exactSynopsis(manifest, digest2) {
+  const lines = [
+    `${manifest.changeUnitCount} change unit${manifest.changeUnitCount === 1 ? "" : "s"}; manifest ${digest2}`
+  ];
+  for (const unit of manifest.changeUnits) {
+    const source = unit.sourcePathBytesBase64 ? ` from ${safeBoundedText(Buffer.from(unit.sourcePathBytesBase64, "base64"), "source-path-bytes")}` : "";
+    const statistics = unit.binary ? "binary/unavailable" : `+${serializedStatistic(unit.additions)}/-${serializedStatistic(unit.deletions)}`;
+    const exactFacts = [
+      unit.oldMode && unit.newMode ? `mode ${unit.oldMode}->${unit.newMode}` : null,
+      unit.kind === "deleted" || unit.kind === "type-changed" || unit.kind === "mode-changed" || unit.kind === "submodule-changed" || unit.binary ? `objects ${unit.oldOid ?? "unknown"}->${unit.newOid ?? "unknown"}` : null,
+      unit.renameClassification ? `rename ${unit.renameClassification}` : null,
+      `line-stat ${unit.lineStatistics ?? "unknown"}`
+    ].filter(Boolean);
+    lines.push(
+      `${unit.id} ${unit.kind}: ${unitPathDisplay(unit)}${source}; ${statistics}; ${exactFacts.join("; ")}`
+    );
+  }
+  return lines.join("\n");
+}
+function directoryComponents(bytes) {
+  const components = [];
+  let start = 0;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] === 47) {
+      components.push(bytes.subarray(start, index));
+      start = index + 1;
+    }
+  }
+  return components;
+}
+function trieNode(prefix = Buffer.alloc(0)) {
+  return { prefix, units: [], directUnits: [], children: /* @__PURE__ */ new Map() };
+}
+function pathTrie(units) {
+  const root = trieNode();
+  for (const unit of units) {
+    const path = unitPathBytes(unit);
+    let node = root;
+    node.units.push(unit);
+    for (const component of directoryComponents(path)) {
+      const key = component.toString("base64");
+      let child = node.children.get(key);
+      if (!child) {
+        child = trieNode(
+          Buffer.concat([node.prefix, component, Buffer.of(47)])
+        );
+        node.children.set(key, child);
+      }
+      child.units.push(unit);
+      node = child;
+    }
+    node.directUnits.push(unit);
+  }
+  return root;
+}
+function compressedNode(node) {
+  let current = node;
+  while (current.directUnits.length === 0 && current.children.size === 1) {
+    current = [...current.children.values()][0];
+  }
+  return current;
+}
+function pathPrefixDisplay(prefix) {
+  if (prefix.length === 0) {
+    return "(repository root)";
+  }
+  return `${safeBoundedText(prefix.subarray(0, -1), "path-prefix-bytes")}/`;
+}
+function directGroup(node) {
+  return {
+    sortKey: Buffer.concat([node.prefix, Buffer.of(0)]),
+    display: node.prefix.length === 0 ? "(repository root)" : `${pathPrefixDisplay(node.prefix)} (direct files)`,
+    units: node.directUnits,
+    node: null
+  };
+}
+function nodeGroup(node) {
+  const compressed = compressedNode(node);
+  return {
+    sortKey: compressed.prefix,
+    display: pathPrefixDisplay(compressed.prefix),
+    units: compressed.units,
+    node: compressed
+  };
+}
+function childGroups(node) {
+  const groups = [...node.children.values()].map(nodeGroup);
+  if (node.directUnits.length > 0) {
+    groups.push(directGroup(node));
+  }
+  return groups.sort(
+    (left, right) => Buffer.compare(left.sortKey, right.sortKey)
+  );
+}
+function mergeOverflowGroups(groups, maximumGroups, parent) {
+  if (groups.length <= maximumGroups) {
+    return groups;
+  }
+  const retained = groups.slice(0, maximumGroups - 1);
+  const overflow = groups.slice(maximumGroups - 1);
+  retained.push({
+    sortKey: Buffer.concat([parent.prefix, Buffer.of(255)]),
+    display: parent.prefix.length === 0 ? "(other path-prefix groups)" : `${pathPrefixDisplay(parent.prefix)} (other descendants)`,
+    units: overflow.flatMap(({ units }) => units),
+    node: null
+  });
+  return retained;
+}
+function synopsisGroups(manifest, maximumGroups) {
+  const root = compressedNode(pathTrie(manifest.changeUnits));
+  const groups = [nodeGroup(root)];
+  for (; ; ) {
+    const available = maximumGroups - groups.length + 1;
+    const candidates = groups.map((candidate2, index2) => ({ candidate: candidate2, index: index2 })).filter(
+      ({ candidate: candidate2 }) => candidate2.node !== null && childGroups(candidate2.node).length > 1 && available >= 2
+    ).sort(
+      (left, right) => right.candidate.units.length - left.candidate.units.length || Buffer.compare(left.candidate.sortKey, right.candidate.sortKey)
+    );
+    if (candidates.length === 0) {
+      break;
+    }
+    const { candidate, index } = candidates[0];
+    const replacements = mergeOverflowGroups(
+      childGroups(candidate.node),
+      available,
+      candidate.node
+    );
+    groups.splice(index, 1, ...replacements);
+  }
+  return groups.sort(
+    (left, right) => Buffer.compare(left.sortKey, right.sortKey)
+  );
+}
+function kindSummary(units) {
+  const kindCounts = /* @__PURE__ */ new Map();
+  for (const unit of units) {
+    kindCounts.set(unit.kind, (kindCounts.get(unit.kind) ?? 0) + 1);
+  }
+  return [...kindCounts.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
+}
+function orderedUnits(units) {
+  return [...units].sort(
+    (left, right) => Buffer.compare(unitPathBytes(left), unitPathBytes(right))
+  );
+}
+function countedGroupLines(manifest, maximumGroups, maximumSamples) {
+  return synopsisGroups(manifest, maximumGroups).map(({ display, units }) => {
+    const samples = orderedUnits(units).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
+    return `${display}: ${units.length} change units (${kindSummary(units)})${samples ? `; samples ${samples}` : ""}`;
+  });
+}
+function boundedWarning(warning2) {
+  return safeBoundedText(Buffer.from(String(warning2), "utf8"), "warning-bytes");
+}
+function pathHasInvalidUtf8(unit) {
+  const paths = [unitPathBytes(unit)];
+  if (unit.sourcePathBytesBase64) {
+    paths.push(Buffer.from(unit.sourcePathBytesBase64, "base64"));
+  }
+  return paths.some((path) => strictUtf8(path) === null);
+}
+function categoryLine(label, units, maximumSamples) {
+  if (units.length === 0) {
+    return null;
+  }
+  const samples = orderedUnits(units).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
+  return `${label} (${units.length})${samples ? `: examples ${samples}` : ""}`;
+}
+function quantityText(value) {
+  return typeof value === "number" || typeof value === "string" ? String(value) : "unknown";
+}
+function anomalyLines(manifest, maximumSamples) {
+  const categories = [
+    categoryLine(
+      "Non-UTF-8 paths",
+      manifest.changeUnits.filter(pathHasInvalidUtf8),
+      maximumSamples
+    ),
+    categoryLine(
+      "Type or mode changes",
+      manifest.changeUnits.filter(
+        ({ kind }) => (/* @__PURE__ */ new Set(["mode-changed", "symlink-changed", "type-changed"])).has(kind)
+      ),
+      maximumSamples
+    ),
+    categoryLine(
+      "Gitlinks",
+      manifest.changeUnits.filter(
+        ({ kind, oldMode, newMode }) => kind === "submodule-changed" || oldMode === "160000" || newMode === "160000"
+      ),
+      maximumSamples
+    ),
+    categoryLine(
+      "Deferred line statistics",
+      manifest.changeUnits.filter(
+        ({ lineStatistics }) => lineStatistics === "deferred"
+      ),
+      maximumSamples
+    )
+  ].filter(Boolean);
+  const ambiguousRenames = manifest.changeUnits.filter(
+    ({ renameClassification }) => renameClassification === "exact-rename-ambiguous"
+  );
+  const renamePolicy = manifest.diffPolicy?.rename;
+  if (ambiguousRenames.length > 0 || renamePolicy?.mode === "deferred") {
+    const samples = orderedUnits(ambiguousRenames).slice(0, maximumSamples).map(unitPathDisplay).join(", ");
+    categories.push(
+      `Rename ambiguity or deferred detection: ambiguous=${ambiguousRenames.length}, policy=${renamePolicy?.mode ?? "unknown"}, candidate-pairs=${quantityText(renamePolicy?.candidatePairs)}, maximum=${quantityText(renamePolicy?.maximumCandidatePairs)}${samples ? `; examples ${samples}` : ""}`
+    );
+  }
+  const linePolicy = manifest.diffPolicy?.lineStatistics;
+  if (linePolicy?.mode === "deferred") {
+    categories.push(
+      `Objects above eager-analysis budget: eligible blob bytes=${quantityText(linePolicy.eligibleBlobBytes)}, maximum=${quantityText(linePolicy.maximumEagerBytes)}`
+    );
+  }
+  if (Array.isArray(manifest.warnings) && manifest.warnings.length > 0) {
+    categories.push(
+      `Other deterministic anomalies (${manifest.warnings.length}): ${manifest.warnings.slice(0, maximumSamples).map(boundedWarning).join(", ")}`
+    );
+  }
+  return categories;
+}
+function bulkSynopsis(manifest, digest2) {
+  const kinds = /* @__PURE__ */ new Map();
+  let deferredStatistics = 0;
+  let binaryFiles = 0;
+  for (const unit of manifest.changeUnits) {
+    kinds.set(unit.kind, (kinds.get(unit.kind) ?? 0) + 1);
+    deferredStatistics += unit.lineStatistics === "deferred" ? 1 : 0;
+    binaryFiles += unit.binary ? 1 : 0;
+  }
+  const kindSummary2 = [...kinds.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
+  const fixedLines = [
+    `${manifest.changeUnitCount} change units; manifest ${digest2}`,
+    `Kinds: ${kindSummary2}`,
+    `Statistics: additions=${serializedStatistic(manifest.statistics?.additions)}, deletions=${serializedStatistic(manifest.statistics?.deletions)}, binary=${binaryFiles}, deferred=${deferredStatistics}`
+  ];
+  for (let maximumGroups = MAXIMUM_SYNOPSIS_GROUPS; maximumGroups >= 1; maximumGroups -= 1) {
+    for (let maximumSamples = MAXIMUM_GROUP_SAMPLES; maximumSamples >= 0; maximumSamples -= 1) {
+      const lines = [
+        ...fixedLines,
+        ...countedGroupLines(manifest, maximumGroups, maximumSamples),
+        ...anomalyLines(manifest, maximumSamples)
+      ];
+      const text = lines.join("\n");
+      if (Buffer.byteLength(text, "utf8") <= MAXIMUM_BULK_SYNOPSIS_BYTES) {
+        return text;
+      }
+    }
+  }
+  return [...fixedLines, ...anomalyLines(manifest, 0)].join("\n");
+}
+function createScopeSynopsis(manifest) {
+  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length) {
+    throw new Error("A scope synopsis requires an exact manifest.");
+  }
+  const digest2 = manifestDigest(manifest);
+  const text = typeof manifest.scopeSynopsis === "string" ? manifest.scopeSynopsis : manifest.changeUnitCount < 50 ? exactSynopsis(manifest, digest2) : bulkSynopsis(manifest, digest2);
+  return {
+    text,
+    manifestSha256: digest2,
+    changeUnitCount: manifest.changeUnitCount,
+    detailed: manifest.changeUnitCount < 50
+  };
+}
+function groupEvidenceBytes(manifest, evidencePlan, group) {
+  const sources = [
+    group.patchBytes,
+    evidencePlan.evidenceByGroupId?.[group.id],
+    manifest.evidenceByGroupId?.[group.id]
+  ];
+  const direct = sources.find((value) => value !== void 0);
+  if (direct !== void 0) {
+    if (Buffer.isBuffer(direct)) {
+      return direct;
+    }
+    if (direct instanceof Uint8Array) {
+      return Buffer.from(direct);
+    }
+    if (typeof direct === "string") {
+      return Buffer.from(direct, "utf8");
+    }
+    throw new Error(`Evidence for ${group.id} must be bytes or text.`);
+  }
+  const byUnit = manifest.evidenceByChangeUnitId;
+  if (byUnit && Array.isArray(group.changeUnitIds)) {
+    const parts = [];
+    for (const id of group.changeUnitIds) {
+      const value = byUnit[id];
+      if (value === void 0) {
+        return null;
+      }
+      parts.push(Buffer.isBuffer(value) ? value : Buffer.from(value));
+    }
+    return Buffer.concat(parts);
+  }
+  return null;
+}
+function selectionSummary(group) {
+  const selection = group.selection;
+  if (selection.all === true) {
+    return `all ${group.changeUnitCount} change units`;
+  }
+  if (selection.remaining === true) {
+    return `remaining ${group.changeUnitCount} change units`;
+  }
+  const fields = Object.entries(selection).filter(([, value]) => Array.isArray(value) && value.length > 0).map(([name, value]) => `${name}=${value.join(",")}`);
+  return `${fields.join("; ")} (${group.changeUnitCount} change units)`;
+}
+function completeResultByteCount(capsule) {
+  let byteCount = 0;
+  for (; ; ) {
+    const candidate = {
+      route: "concise",
+      capsule: { ...capsule, byteCount },
+      extendedReason: null
+    };
+    const measured = Buffer.byteLength(JSON.stringify(candidate), "utf8");
+    if (measured === byteCount) {
+      return measured;
+    }
+    byteCount = measured;
+  }
+}
+function extended(reason) {
+  return { route: "extended", capsule: null, extendedReason: reason };
+}
+function manifestExtendedReason(manifest) {
+  if (manifest.warnings?.some(
+    (warning2) => String(warning2).startsWith("required-object-unavailable:")
+  )) {
+    return "required-object-unavailable";
+  }
+  if (manifest.warnings?.length > 0) {
+    return "unresolved-anomaly";
+  }
+  return null;
+}
+function createInlineEvidenceCapsule({
+  manifest,
+  evidencePlan,
+  maximumResultBytes = MAXIMUM_CONCISE_RESULT_BYTES
+}) {
+  if (!Number.isSafeInteger(maximumResultBytes) || maximumResultBytes < 1) {
+    throw new Error("maximumResultBytes must be a positive safe integer.");
+  }
+  if (!evidencePlan || evidencePlan.manifestSha256 !== manifestDigest(manifest) || !Array.isArray(evidencePlan.groups)) {
+    throw new Error("Evidence plan does not match the exact manifest.");
+  }
+  const anomalyReason = manifestExtendedReason(manifest);
+  if (anomalyReason !== null) {
+    return extended(anomalyReason);
+  }
+  const synopsis = createScopeSynopsis(manifest);
+  const evidence = [];
+  for (const group of evidencePlan.groups) {
+    if (group.policy === "reuse") {
+      evidence.push({
+        policy: group.policy,
+        selectionSummary: selectionSummary(group),
+        basisKind: group.basis.kind,
+        basisNote: group.basis.note,
+        patchText: null,
+        patchComplete: true
+      });
+      continue;
+    }
+    const bytes = groupEvidenceBytes(manifest, evidencePlan, group);
+    if (bytes === null) {
+      return extended("required-object-unavailable");
+    }
+    const patchText = strictUtf8(bytes);
+    if (patchText === null) {
+      return extended("invalid-evidence-encoding");
+    }
+    evidence.push({
+      policy: group.policy,
+      selectionSummary: selectionSummary(group),
+      basisKind: group.basis.kind,
+      basisNote: group.basis.note,
+      patchText,
+      patchComplete: true
+    });
+  }
+  const capsule = {
+    schemaVersion: 1,
+    manifestSha256: synopsis.manifestSha256,
+    evidencePlanSha256: evidencePlan.evidencePlanSha256,
+    changeUnitCount: manifest.changeUnitCount,
+    scopeSynopsis: synopsis.text,
+    evidence,
+    unresolved: [],
+    byteCount: 0
+  };
+  const byteCount = completeResultByteCount(capsule);
+  const synopsisOnly = {
+    ...capsule,
+    evidence: evidence.map((entry) => ({
+      ...entry,
+      patchText: null,
+      patchComplete: entry.policy === "reuse"
+    }))
+  };
+  const synopsisOnlyBytes = completeResultByteCount(synopsisOnly);
+  if (byteCount > maximumResultBytes) {
+    return extended(
+      synopsisOnlyBytes > maximumResultBytes ? "scope-synopsis-over-budget" : "required-evidence-over-budget"
+    );
+  }
+  capsule.byteCount = byteCount;
+  return { route: "concise", capsule, extendedReason: null };
+}
+var MAXIMUM_CONCISE_RESULT_BYTES, MAXIMUM_SYNOPSIS_GROUPS, MAXIMUM_GROUP_SAMPLES, MAXIMUM_BULK_SYNOPSIS_BYTES, MAXIMUM_SAFE_TEXT_BYTES, STRICT_UTF8_DECODER2, EPHEMERAL_MANIFEST_KEYS, EPHEMERAL_CHANGE_UNIT_KEYS;
+var init_inlineEvidenceCapsule = __esm({
+  "src/committing-to-git/inspection/inlineEvidenceCapsule.js"() {
+    MAXIMUM_CONCISE_RESULT_BYTES = 32 * 1024;
+    MAXIMUM_SYNOPSIS_GROUPS = 24;
+    MAXIMUM_GROUP_SAMPLES = 3;
+    MAXIMUM_BULK_SYNOPSIS_BYTES = 8 * 1024 - 1;
+    MAXIMUM_SAFE_TEXT_BYTES = 192;
+    STRICT_UTF8_DECODER2 = new TextDecoder3("utf-8", { fatal: true });
+    EPHEMERAL_MANIFEST_KEYS = /* @__PURE__ */ new Set([
+      "conciseEnvelope",
+      "coveredEvidenceGroupIds",
+      "coveredSynopsis",
+      "evidenceByChangeUnitId",
+      "evidenceByGroupId",
+      "manifestSha256",
+      "preMaterializedPacketsByGroupId",
+      "scopeSynopsis"
+    ]);
+    EPHEMERAL_CHANGE_UNIT_KEYS = /* @__PURE__ */ new Set([
+      "deletedContent",
+      "evidenceBytes",
+      "evidenceBytesBase64",
+      "patchBytes",
+      "patchText"
+    ]);
+  }
+});
+
+// src/committing-to-git/inspection/streamingPacketWriter.js
+import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
 import {
   closeSync as closeSync5,
-  constants as fsConstants3,
   existsSync as existsSync6,
   fstatSync as fstatSync4,
   fsyncSync as fsyncSync3,
-  futimesSync,
-  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync3,
   openSync as openSync5,
-  readFileSync as readFileSync3,
-  realpathSync as realpathSync2,
+  readSync as readSync2,
   renameSync as renameSync3,
-  rmSync as rmSync2,
+  unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync3
 } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute4, join as join5, relative as relative2, resolve as resolve5 } from "node:path";
+import { join as join5 } from "node:path";
+import { TextDecoder as TextDecoder4 } from "node:util";
+function ensureOutputDirectories(outputDirectory) {
+  for (const name of ["packets", "raw"]) {
+    const path = join5(outputDirectory, name);
+    if (!existsSync6(path)) {
+      mkdirSync3(path);
+    }
+  }
+}
+function countNewlines(bytes) {
+  let count = 0;
+  for (const byte of bytes) {
+    count += byte === 10 ? 1 : 0;
+  }
+  return count;
+}
+function lineCount(bytes) {
+  if (bytes.length === 0) {
+    return 0;
+  }
+  const newlines = countNewlines(bytes);
+  return newlines + (bytes.at(-1) === 10 ? 0 : 1);
+}
+function sourceIterable(source) {
+  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
+    return (async function* bytes() {
+      yield Buffer.from(source);
+    })();
+  }
+  if (source && typeof source[Symbol.asyncIterator] === "function") {
+    return source;
+  }
+  if (source && typeof source[Symbol.iterator] === "function") {
+    return (async function* chunks() {
+      for (const chunk of source) {
+        yield chunk;
+      }
+    })();
+  }
+  throw new Error("Packet source must be bytes or an iterable byte stream.");
+}
+function sourceIterableSync(source) {
+  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
+    return [Buffer.from(source)];
+  }
+  if (source && typeof source[Symbol.iterator] === "function") {
+    return source;
+  }
+  throw new Error("Synchronous packet source must be bytes or an iterable.");
+}
+function publishTemporaryFile(temporaryPath, finalPath) {
+  if (existsSync6(finalPath)) {
+    if (!filesEqualBounded(finalPath, temporaryPath)) {
+      throw new Error(`Content-addressed packet collision at ${finalPath}.`);
+    }
+    unlinkSync3(temporaryPath);
+    return;
+  }
+  renameSync3(temporaryPath, finalPath);
+}
+function readChunkExactly(descriptor, buffer, length, position) {
+  let total = 0;
+  while (total < length) {
+    const count = readSync2(
+      descriptor,
+      buffer,
+      total,
+      length - total,
+      position + total
+    );
+    if (count === 0) {
+      break;
+    }
+    total += count;
+  }
+  return total;
+}
+function filesEqualBounded(leftPath, rightPath) {
+  const left = openSync5(leftPath, "r");
+  const right = openSync5(rightPath, "r");
+  try {
+    const leftSize = Number(fstatSync4(left, { bigint: true }).size);
+    const rightSize = Number(fstatSync4(right, { bigint: true }).size);
+    if (leftSize !== rightSize) {
+      return false;
+    }
+    const leftBuffer = Buffer.alloc(MAXIMUM_PACKET_BYTES);
+    const rightBuffer = Buffer.alloc(MAXIMUM_PACKET_BYTES);
+    for (let position = 0; position < leftSize; ) {
+      const length = Math.min(MAXIMUM_PACKET_BYTES, leftSize - position);
+      const leftCount = readChunkExactly(left, leftBuffer, length, position);
+      const rightCount = readChunkExactly(right, rightBuffer, length, position);
+      if (leftCount !== length || rightCount !== length || !leftBuffer.subarray(0, length).equals(rightBuffer.subarray(0, length))) {
+        return false;
+      }
+      position += length;
+    }
+    return true;
+  } finally {
+    closeSync5(right);
+    closeSync5(left);
+  }
+}
+async function spoolSource(outputDirectory, source) {
+  const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
+  const descriptor = openSync5(temporaryPath, "wx", 384);
+  const hash = createHash6("sha256");
+  const decoder = new TextDecoder4("utf-8", { fatal: true });
+  let validUtf8 = true;
+  let byteCount = 0;
+  let newlineCount = 0;
+  let complete = false;
+  try {
+    for await (const value of sourceIterable(source)) {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      if (chunk.length === 0) {
+        continue;
+      }
+      writeFileSync3(descriptor, chunk);
+      hash.update(chunk);
+      byteCount += chunk.length;
+      newlineCount += countNewlines(chunk);
+      if (validUtf8) {
+        try {
+          decoder.decode(chunk, { stream: true });
+        } catch {
+          validUtf8 = false;
+        }
+      }
+    }
+    if (validUtf8) {
+      try {
+        decoder.decode();
+      } catch {
+        validUtf8 = false;
+      }
+    }
+    fsyncSync3(descriptor);
+    complete = true;
+  } finally {
+    closeSync5(descriptor);
+    if (!complete && existsSync6(temporaryPath)) {
+      unlinkSync3(temporaryPath);
+    }
+  }
+  const rawSha256 = hash.digest("hex");
+  const rawArtifact = `raw/${rawSha256}.bin`;
+  const finalPath = join5(outputDirectory, rawArtifact);
+  publishTemporaryFile(temporaryPath, finalPath);
+  return {
+    path: finalPath,
+    rawArtifact,
+    rawSha256,
+    byteCount,
+    newlineCount,
+    validUtf8
+  };
+}
+function spoolSourceSync(outputDirectory, source) {
+  const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
+  const descriptor = openSync5(temporaryPath, "wx", 384);
+  const hash = createHash6("sha256");
+  const decoder = new TextDecoder4("utf-8", { fatal: true });
+  let validUtf8 = true;
+  let byteCount = 0;
+  let newlineCount = 0;
+  let complete = false;
+  try {
+    for (const value of sourceIterableSync(source)) {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      if (chunk.length === 0) {
+        continue;
+      }
+      writeFileSync3(descriptor, chunk);
+      hash.update(chunk);
+      byteCount += chunk.length;
+      newlineCount += countNewlines(chunk);
+      if (validUtf8) {
+        try {
+          decoder.decode(chunk, { stream: true });
+        } catch {
+          validUtf8 = false;
+        }
+      }
+    }
+    if (validUtf8) {
+      try {
+        decoder.decode();
+      } catch {
+        validUtf8 = false;
+      }
+    }
+    fsyncSync3(descriptor);
+    complete = true;
+  } finally {
+    closeSync5(descriptor);
+    if (!complete && existsSync6(temporaryPath)) {
+      unlinkSync3(temporaryPath);
+    }
+  }
+  const rawSha256 = hash.digest("hex");
+  const rawArtifact = `raw/${rawSha256}.bin`;
+  const finalPath = join5(outputDirectory, rawArtifact);
+  publishTemporaryFile(temporaryPath, finalPath);
+  return {
+    path: finalPath,
+    rawArtifact,
+    rawSha256,
+    byteCount,
+    newlineCount,
+    validUtf8
+  };
+}
+function utf8Boundary(buffer, candidateEnd) {
+  if (candidateEnd >= buffer.length) {
+    return candidateEnd;
+  }
+  let boundary = candidateEnd;
+  while (boundary > 0 && buffer[boundary] >= 128 && buffer[boundary] <= 191) {
+    boundary -= 1;
+  }
+  return boundary > 0 ? boundary : candidateEnd;
+}
+function* readRawSegments(path, byteCount, validUtf8) {
+  const descriptor = openSync5(path, "r");
+  let start = 0;
+  try {
+    while (start < byteCount) {
+      const available = Math.min(
+        MAXIMUM_RAW_SEGMENT_BYTES + 4,
+        byteCount - start
+      );
+      const buffer = Buffer.alloc(available);
+      const bytesRead = readSync2(descriptor, buffer, 0, available, start);
+      if (bytesRead === 0) {
+        throw new Error(
+          "Raw packet spool ended before its recorded byte count."
+        );
+      }
+      const candidate = buffer.subarray(0, bytesRead);
+      let segmentLength = Math.min(MAXIMUM_RAW_SEGMENT_BYTES, bytesRead);
+      let newlines = 0;
+      for (let index = 0; index < segmentLength; index += 1) {
+        if (candidate[index] === 10) {
+          newlines += 1;
+          if (newlines === MAXIMUM_RAW_SEGMENT_LINES) {
+            segmentLength = index + 1;
+            break;
+          }
+        }
+      }
+      if (validUtf8) {
+        segmentLength = utf8Boundary(candidate, segmentLength);
+      }
+      if (segmentLength < 1) {
+        segmentLength = Math.min(MAXIMUM_RAW_SEGMENT_BYTES, bytesRead);
+      }
+      const end = start + segmentLength;
+      yield {
+        start,
+        end,
+        bytes: Buffer.from(candidate.subarray(0, segmentLength))
+      };
+      start = end;
+    }
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function finalByte(path, byteCount) {
+  if (byteCount === 0) {
+    return null;
+  }
+  const descriptor = openSync5(path, "r");
+  const byte = Buffer.alloc(1);
+  try {
+    readSync2(descriptor, byte, 0, 1, byteCount - 1);
+    return byte[0];
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function escapedHex(bytes, absoluteStart) {
+  const lines = [];
+  for (let offset = 0; offset < bytes.length; offset += 24) {
+    const row = bytes.subarray(offset, offset + 24);
+    const hex = [...row].map((byte) => byte.toString(16).padStart(2, "0")).join(" ");
+    lines.push(`${String(absoluteStart + offset).padStart(12, "0")}: ${hex}`);
+  }
+  return Buffer.from(`${lines.join("\n")}
+`, "ascii");
+}
+function boundedIdentity(value, label) {
+  if (value === null || value === void 0) {
+    return null;
+  }
+  return safeBoundedText(Buffer.from(String(value), "utf8"), label);
+}
+function packetHeader({
+  id,
+  kind,
+  rawSha256,
+  rawByteCount,
+  rawStart,
+  rawEnd,
+  validUtf8,
+  changeUnitId,
+  pathIdentity,
+  changeUnitRanges,
+  changeUnitCount,
+  context,
+  segmentBytes
+}) {
+  const contextBytes = Buffer.from(context ?? "", "utf8");
+  const boundedContext = contextBytes.length === 0 ? null : {
+    prefix: safeBoundedText(
+      contextBytes.subarray(0, 64),
+      "context-prefix"
+    ),
+    suffix: safeBoundedText(contextBytes.subarray(-64), "context-suffix"),
+    byteCount: contextBytes.length,
+    sha256: sha256Bytes(contextBytes)
+  };
+  const metadata = {
+    id,
+    kind,
+    changeUnitId: boundedIdentity(changeUnitId, "change-unit"),
+    pathIdentity: boundedIdentity(pathIdentity, "path"),
+    changeUnitCoverage: {
+      changeUnitCount,
+      rangeCount: changeUnitRanges.length,
+      firstRange: changeUnitRanges[0] ?? null,
+      lastRange: changeUnitRanges.at(-1) ?? null,
+      rangesSha256: sha256Bytes(
+        Buffer.from(JSON.stringify(changeUnitRanges), "utf8")
+      )
+    },
+    rawByteRange: { start: rawStart, end: rawEnd },
+    rawByteCount,
+    rawSha256,
+    encoding: validUtf8 ? "utf-8" : "escaped-hex",
+    continued: rawStart > 0 || rawEnd < rawByteCount,
+    context: boundedContext,
+    hunkContext: {
+      prefix: safeBoundedText(
+        segmentBytes.subarray(0, 64),
+        "hunk-prefix-bytes"
+      ),
+      suffix: safeBoundedText(segmentBytes.subarray(-64), "hunk-suffix-bytes"),
+      byteCount: segmentBytes.length,
+      sha256: sha256Bytes(segmentBytes)
+    }
+  };
+  return Buffer.from(
+    `# Review evidence packet
+${JSON.stringify(metadata)}
+---
+`,
+    "utf8"
+  );
+}
+function writePacket(outputDirectory, descriptorData, payload) {
+  const packetBytes = Buffer.concat([descriptorData.header, payload]);
+  if (packetBytes.length > descriptorData.maximumPacketBytes) {
+    throw new Error(
+      `Packet ${descriptorData.id} exceeds ${descriptorData.maximumPacketBytes} bytes.`
+    );
+  }
+  const packetLineCount = lineCount(packetBytes);
+  if (packetLineCount > descriptorData.maximumPacketLines) {
+    throw new Error(
+      `Packet ${descriptorData.id} exceeds ${descriptorData.maximumPacketLines} lines.`
+    );
+  }
+  const digest2 = sha256Bytes(packetBytes);
+  const artifact = `packets/${digest2}.packet`;
+  const temporaryPath = join5(
+    outputDirectory,
+    "packets",
+    `.packet-${randomUUID3()}.tmp`
+  );
+  writeFileSync3(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
+  publishTemporaryFile(temporaryPath, join5(outputDirectory, artifact));
+  return {
+    id: descriptorData.id,
+    kind: descriptorData.kind,
+    artifact,
+    byteCount: packetBytes.length,
+    lineCount: packetLineCount,
+    sha256: digest2,
+    rawArtifact: descriptorData.rawArtifact,
+    rawByteStart: descriptorData.rawStart,
+    rawByteEnd: descriptorData.rawEnd,
+    rawByteCount: descriptorData.rawByteCount,
+    rawSha256: descriptorData.rawSha256,
+    encoding: descriptorData.validUtf8 ? "utf-8" : "escaped-hex",
+    changeUnitRanges: descriptorData.changeUnitRanges,
+    changeUnitCount: descriptorData.changeUnitCount
+  };
+}
+function validateWriterOptions({
+  idPrefix,
+  startingOrdinal,
+  maximumPacketBytes,
+  maximumPacketLines
+}) {
+  if (!/^[A-Z]$/u.test(idPrefix)) {
+    throw new Error("Packet idPrefix must be one uppercase ASCII letter.");
+  }
+  if (!Number.isSafeInteger(startingOrdinal) || startingOrdinal < 1 || !Number.isSafeInteger(maximumPacketBytes) || maximumPacketBytes < 1024 || !Number.isSafeInteger(maximumPacketLines) || maximumPacketLines < 10) {
+    throw new Error("Packet writer limits and starting ordinal are invalid.");
+  }
+}
+function packetsForSpool(outputDirectory, spooled, {
+  idPrefix,
+  startingOrdinal,
+  kind,
+  changeUnitRanges,
+  changeUnitCount,
+  changeUnitId,
+  pathIdentity,
+  context,
+  maximumPacketBytes,
+  maximumPacketLines
+}) {
+  const packets = [];
+  let index = 0;
+  for (const segment of readRawSegments(
+    spooled.path,
+    spooled.byteCount,
+    spooled.validUtf8
+  )) {
+    const id = `${idPrefix}${String(startingOrdinal + index).padStart(6, "0")}`;
+    const header = packetHeader({
+      id,
+      kind,
+      rawSha256: spooled.rawSha256,
+      rawByteCount: spooled.byteCount,
+      rawStart: segment.start,
+      rawEnd: segment.end,
+      validUtf8: spooled.validUtf8,
+      changeUnitId,
+      pathIdentity,
+      changeUnitRanges,
+      changeUnitCount,
+      context,
+      segmentBytes: segment.bytes
+    });
+    const payload = spooled.validUtf8 ? Buffer.from(STRICT_UTF8_DECODER3.decode(segment.bytes), "utf8") : escapedHex(segment.bytes, segment.start);
+    packets.push(
+      writePacket(
+        outputDirectory,
+        {
+          id,
+          kind,
+          header,
+          maximumPacketBytes,
+          maximumPacketLines,
+          rawArtifact: spooled.rawArtifact,
+          rawStart: segment.start,
+          rawEnd: segment.end,
+          rawByteCount: spooled.byteCount,
+          rawSha256: spooled.rawSha256,
+          validUtf8: spooled.validUtf8,
+          changeUnitRanges,
+          changeUnitCount
+        },
+        payload
+      )
+    );
+    index += 1;
+  }
+  return {
+    packets,
+    rawArtifact: spooled.rawArtifact,
+    rawByteCount: spooled.byteCount,
+    rawLineCount: spooled.newlineCount + (spooled.byteCount > 0 && finalByte(spooled.path, spooled.byteCount) !== 10 ? 1 : 0),
+    rawSha256: spooled.rawSha256,
+    encoding: spooled.validUtf8 ? "utf-8" : "escaped-hex"
+  };
+}
+async function writePacketStream({
+  outputDirectory,
+  source,
+  idPrefix,
+  startingOrdinal = 1,
+  kind,
+  changeUnitRanges = [],
+  changeUnitCount = 0,
+  changeUnitId = null,
+  pathIdentity = null,
+  context = "",
+  maximumPacketBytes = MAXIMUM_PACKET_BYTES,
+  maximumPacketLines = MAXIMUM_PACKET_LINES
+}) {
+  const options = {
+    idPrefix,
+    startingOrdinal,
+    kind,
+    changeUnitRanges,
+    changeUnitCount,
+    changeUnitId,
+    pathIdentity,
+    context,
+    maximumPacketBytes,
+    maximumPacketLines
+  };
+  validateWriterOptions(options);
+  ensureOutputDirectories(outputDirectory);
+  const spooled = await spoolSource(outputDirectory, source);
+  return packetsForSpool(outputDirectory, spooled, options);
+}
+function writePacketChunksSync({
+  outputDirectory,
+  source,
+  idPrefix,
+  startingOrdinal = 1,
+  kind,
+  changeUnitRanges = [],
+  changeUnitCount = 0,
+  changeUnitId = null,
+  pathIdentity = null,
+  context = "",
+  maximumPacketBytes = MAXIMUM_PACKET_BYTES,
+  maximumPacketLines = MAXIMUM_PACKET_LINES
+}) {
+  const options = {
+    idPrefix,
+    startingOrdinal,
+    kind,
+    changeUnitRanges,
+    changeUnitCount,
+    changeUnitId,
+    pathIdentity,
+    context,
+    maximumPacketBytes,
+    maximumPacketLines
+  };
+  validateWriterOptions(options);
+  ensureOutputDirectories(outputDirectory);
+  const spooled = spoolSourceSync(outputDirectory, source);
+  return packetsForSpool(outputDirectory, spooled, options);
+}
+function writePacketBytesSync(options) {
+  if (!Buffer.isBuffer(options.source) && !(options.source instanceof Uint8Array)) {
+    throw new Error("Synchronous packet input must be bytes.");
+  }
+  return writePacketChunksSync({ ...options, source: [options.source] });
+}
+var MAXIMUM_PACKET_LINES, MAXIMUM_PACKET_BYTES, MAXIMUM_RAW_SEGMENT_BYTES, MAXIMUM_RAW_SEGMENT_LINES, STRICT_UTF8_DECODER3;
+var init_streamingPacketWriter = __esm({
+  "src/committing-to-git/inspection/streamingPacketWriter.js"() {
+    init_inlineEvidenceCapsule();
+    MAXIMUM_PACKET_LINES = 200;
+    MAXIMUM_PACKET_BYTES = 16 * 1024;
+    MAXIMUM_RAW_SEGMENT_BYTES = 4 * 1024;
+    MAXIMUM_RAW_SEGMENT_LINES = 160;
+    STRICT_UTF8_DECODER3 = new TextDecoder4("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/transaction/indexInstallation.js
+import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
+import {
+  closeSync as closeSync6,
+  constants as fsConstants4,
+  existsSync as existsSync7,
+  fstatSync as fstatSync5,
+  fsyncSync as fsyncSync4,
+  futimesSync,
+  lstatSync as lstatSync4,
+  openSync as openSync6,
+  readFileSync as readFileSync3,
+  realpathSync as realpathSync3,
+  renameSync as renameSync4,
+  rmSync as rmSync3,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve7 } from "node:path";
 function samePath(left, right) {
-  const leftPath = resolve5(left);
-  const rightPath = resolve5(right);
+  const leftPath = resolve7(left);
+  const rightPath = resolve7(right);
   return process.platform === "win32" ? leftPath.toLowerCase() === rightPath.toLowerCase() : leftPath === rightPath;
 }
 function assertContainedPath(parent, candidate, label) {
-  const relation = relative2(parent, candidate);
-  if (relation.length === 0 || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute4(relation)) {
+  const relation = relative3(parent, candidate);
+  if (relation.length === 0 || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute5(relation)) {
     throw new Error(`${label} must be contained by the transaction attempt.`);
   }
 }
-function statIdentity(stat) {
+function statIdentity2(stat) {
   return {
     device: String(stat.dev),
     inode: String(stat.ino),
@@ -6430,13 +8144,13 @@ function statIdentity(stat) {
 function stableIdentityMatches(left, right) {
   return left.device === right.device && left.inode === right.inode && left.mode === right.mode && left.modifiedTimeMilliseconds === right.modifiedTimeMilliseconds && left.changeTimeMilliseconds === right.changeTimeMilliseconds;
 }
-function openReadOnlyNoFollow2(path) {
-  return openSync5(path, fsConstants3.O_RDONLY + (fsConstants3.O_NOFOLLOW ?? 0));
+function openReadOnlyNoFollow3(path) {
+  return openSync6(path, fsConstants4.O_RDONLY + (fsConstants4.O_NOFOLLOW ?? 0));
 }
 function readStableRegularFile2(path, { allowAbsent = false } = {}) {
   let pathStat;
   try {
-    pathStat = lstatSync3(path);
+    pathStat = lstatSync4(path);
   } catch (error) {
     if (allowAbsent && error.code === "ENOENT") {
       return null;
@@ -6446,18 +8160,18 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
   if (!pathStat.isFile() || pathStat.isSymbolicLink()) {
     throw new Error(`Expected a non-symbolic regular file: ${path}`);
   }
-  const descriptor = openReadOnlyNoFollow2(path);
+  const descriptor = openReadOnlyNoFollow3(path);
   try {
-    const before = fstatSync4(descriptor);
+    const before = fstatSync5(descriptor);
     if (!before.isFile()) {
       throw new Error(`Expected a regular file after opening: ${path}`);
     }
     const bytes = readFileSync3(descriptor);
-    const after = fstatSync4(descriptor);
-    const finalPathStat = lstatSync3(path);
-    const beforeIdentity = statIdentity(before);
-    const afterIdentity = statIdentity(after);
-    const finalPathIdentity = statIdentity(finalPathStat);
+    const after = fstatSync5(descriptor);
+    const finalPathStat = lstatSync4(path);
+    const beforeIdentity = statIdentity2(before);
+    const afterIdentity = statIdentity2(after);
+    const finalPathIdentity = statIdentity2(finalPathStat);
     if (!stableIdentityMatches(beforeIdentity, afterIdentity) || !stableIdentityMatches(afterIdentity, finalPathIdentity) || Number(after.size) !== bytes.length) {
       throw new Error(
         `File changed while its stable identity was read: ${path}`
@@ -6465,16 +8179,16 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
     }
     return {
       bytes,
-      modifiedTimeNanoseconds: fstatSync4(descriptor, { bigint: true }).mtimeNs,
+      modifiedTimeNanoseconds: fstatSync5(descriptor, { bigint: true }).mtimeNs,
       identity: {
         state: "file",
         byteCount: bytes.length,
-        sha256: createHash5("sha256").update(bytes).digest("hex"),
+        sha256: createHash7("sha256").update(bytes).digest("hex"),
         fileIdentity: afterIdentity
       }
     };
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
 }
 function assertIndexIdentity(identity2, label) {
@@ -6497,58 +8211,58 @@ function indexIdentitiesMatch(left, right) {
   return left.byteCount === right.byteCount && left.sha256 === right.sha256;
 }
 function readIndexIdentity(indexPath) {
-  const stableFile = readStableRegularFile2(resolve5(indexPath), {
+  const stableFile = readStableRegularFile2(resolve7(indexPath), {
     allowAbsent: true
   });
   return stableFile?.identity ?? { state: "absent" };
 }
-function flushDirectory2(path) {
+function flushDirectory3(path) {
   let descriptor;
   try {
-    descriptor = openSync5(path, fsConstants3.O_RDONLY);
-    fsyncSync3(descriptor);
+    descriptor = openSync6(path, fsConstants4.O_RDONLY);
+    fsyncSync4(descriptor);
   } catch (error) {
     if (process.platform !== "win32") {
       throw error;
     }
   } finally {
     if (descriptor !== void 0) {
-      closeSync5(descriptor);
+      closeSync6(descriptor);
     }
   }
 }
 function writeNewJson2(path, value) {
-  const descriptor = openSync5(
+  const descriptor = openSync6(
     path,
-    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
+    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
     384
   );
   try {
-    writeFileSync3(descriptor, `${JSON.stringify(value, null, 2)}
+    writeFileSync4(descriptor, `${JSON.stringify(value, null, 2)}
 `, "utf8");
-    fsyncSync3(descriptor);
+    fsyncSync4(descriptor);
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
-  flushDirectory2(dirname3(path));
+  flushDirectory3(dirname4(path));
 }
 function replaceJson(path, value) {
-  const temporaryPath = join5(
-    dirname3(path),
-    `.index-installation-${randomUUID3()}.tmp`
+  const temporaryPath = join6(
+    dirname4(path),
+    `.index-installation-${randomUUID4()}.tmp`
   );
   writeNewJson2(temporaryPath, value);
   try {
-    renameSync3(temporaryPath, path);
-    flushDirectory2(dirname3(path));
+    renameSync4(temporaryPath, path);
+    flushDirectory3(dirname4(path));
   } catch (error) {
-    rmSync2(temporaryPath, { force: true });
+    rmSync3(temporaryPath, { force: true });
     throw error;
   }
 }
-function readJournal(path) {
+function readJournal2(path) {
   const stableFile = readStableRegularFile2(path);
-  if (stableFile.bytes.length > MAXIMUM_JOURNAL_BYTES) {
+  if (stableFile.bytes.length > MAXIMUM_JOURNAL_BYTES2) {
     throw new Error(
       `Index installation journal exceeds its byte limit: ${path}`
     );
@@ -6595,7 +8309,7 @@ function validateJournal(journal) {
 }
 function resolveRealIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve5(isAbsolute4(gitPath) ? gitPath : join5(root, gitPath));
+  return resolve7(isAbsolute5(gitPath) ? gitPath : join6(root, gitPath));
 }
 function captureHeadAnchor(root) {
   const symbolic = runReadOnlyGit(root, "symbolic-head", [], {
@@ -6628,13 +8342,13 @@ function validateInvocation({
   assertIndexIdentity(originalIndexIdentity, "Original index identity");
   assertIndexIdentity(preparedIndexIdentity, "Prepared index identity");
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync2(root);
+  const canonicalRoot = realpathSync3(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error(
       "Index installation root does not match the transaction repository."
     );
   }
-  const canonicalPreparedPath = resolve5(preparedIndexPath);
+  const canonicalPreparedPath = resolve7(preparedIndexPath);
   assertContainedPath(
     transaction.attemptDirectory,
     canonicalPreparedPath,
@@ -6647,8 +8361,8 @@ function validateInvocation({
   if (!exactIdentityMatches(stablePrepared.identity, preparedIndexIdentity)) {
     throw new Error("Prepared index identity changed before installation.");
   }
-  const canonicalTransactionPath = resolve5(transactionPath);
-  const journalPath = join5(transaction.attemptDirectory, JOURNAL_FILE);
+  const canonicalTransactionPath = resolve7(transactionPath);
+  const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const indexPath = resolveRealIndexPath(canonicalRoot);
   return {
     transaction,
@@ -6693,21 +8407,21 @@ function recoveryFromJournal(journal) {
     resumeAllowed: status !== "ambiguous",
     recoveryRequired: journal.status === "pending",
     currentIndexIdentity,
-    journalPath: join5(dirname3(journal.transactionPath), JOURNAL_FILE),
+    journalPath: join6(dirname4(journal.transactionPath), JOURNAL_FILE),
     preparedIndexTreeOid: journal.preparedIndexTreeOid,
     headAnchor: journal.headAnchor
   };
 }
 function recoverIndexInstallation({ root, transactionPath }) {
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync2(root);
+  const canonicalRoot = realpathSync3(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error("Recovery root does not match the transaction repository.");
   }
-  const journalPath = join5(transaction.attemptDirectory, JOURNAL_FILE);
-  const journal = readJournal(journalPath);
+  const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
+  const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve5(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname3(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   return recoveryFromJournal(journal);
@@ -6723,22 +8437,22 @@ function performJournaledReplacement({
   let lockDescriptor;
   let lockOwned = false;
   try {
-    lockDescriptor = openSync5(
+    lockDescriptor = openSync6(
       lockPath,
-      fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
+      fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
       438
     );
     lockOwned = true;
-    writeFileSync3(lockDescriptor, preparedBytes);
+    writeFileSync4(lockDescriptor, preparedBytes);
     const timestamp = Number(preparedModifiedTimeNanoseconds / 1000000000n);
     futimesSync(lockDescriptor, timestamp, timestamp);
-    if (fstatSync4(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
+    if (fstatSync5(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
       throw new Error(
         "Installed index timestamp could not preserve native Git freshness."
       );
     }
-    fsyncSync3(lockDescriptor);
-    closeSync5(lockDescriptor);
+    fsyncSync4(lockDescriptor);
+    closeSync6(lockDescriptor);
     lockDescriptor = void 0;
     const lockedIdentity = readIndexIdentity(journal.indexPath);
     const lockedHeadAnchor = captureHeadAnchor(journal.repositoryRoot);
@@ -6747,7 +8461,7 @@ function performJournaledReplacement({
         "Repository state changed while the prepared index lock was held."
       );
     }
-    renameSync3(lockPath, journal.indexPath);
+    renameSync4(lockPath, journal.indexPath);
     lockOwned = false;
     failureInjector("after-index-replacement");
     failureInjector("before-installed-state");
@@ -6764,23 +8478,23 @@ function performJournaledReplacement({
     };
   } finally {
     if (lockDescriptor !== void 0) {
-      closeSync5(lockDescriptor);
+      closeSync6(lockDescriptor);
     }
     if (lockOwned) {
-      rmSync2(lockPath, { force: true });
+      rmSync3(lockPath, { force: true });
     }
   }
 }
 function resumePreparedIndexInstallation({ root, transactionPath }) {
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync2(root);
+  const canonicalRoot = realpathSync3(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error("Resume root does not match the transaction repository.");
   }
-  const journalPath = join5(transaction.attemptDirectory, JOURNAL_FILE);
-  const journal = readJournal(journalPath);
+  const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
+  const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve5(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname3(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   const recovery = recoveryFromJournal(journal);
@@ -6803,7 +8517,7 @@ function resumePreparedIndexInstallation({ root, transactionPath }) {
       installedIndexIdentity: recovery.currentIndexIdentity
     };
   }
-  if (existsSync6(`${journal.indexPath}.lock`)) {
+  if (existsSync7(`${journal.indexPath}.lock`)) {
     throw new Error(
       `The repository index lock already exists: ${journal.indexPath}.lock`
     );
@@ -6842,12 +8556,12 @@ function installPreparedIndex({
     preparedIndexPath,
     preparedIndexIdentity
   });
-  if (existsSync6(invocation.journalPath)) {
-    const journal2 = readJournal(invocation.journalPath);
+  if (existsSync7(invocation.journalPath)) {
+    const journal2 = readJournal2(invocation.journalPath);
     assertJournalMatchesInvocation(journal2, invocation);
     return recoveryFromJournal(journal2);
   }
-  if (existsSync6(`${invocation.indexPath}.lock`)) {
+  if (existsSync7(`${invocation.indexPath}.lock`)) {
     throw new Error(
       `The repository index lock already exists: ${invocation.indexPath}.lock`
     );
@@ -6881,22 +8595,22 @@ function installPreparedIndex({
     failureInjector
   });
 }
-var JOURNAL_FILE, MAXIMUM_JOURNAL_BYTES, FULL_OID_PATTERN3, ALLOWED_JOURNAL_STATUSES;
+var JOURNAL_FILE, MAXIMUM_JOURNAL_BYTES2, FULL_OID_PATTERN3, ALLOWED_JOURNAL_STATUSES;
 var init_indexInstallation = __esm({
   "src/committing-to-git/transaction/indexInstallation.js"() {
     init_gitRepository();
     init_transactionWorkspace();
     JOURNAL_FILE = "index-installation.json";
-    MAXIMUM_JOURNAL_BYTES = 1024 * 1024;
+    MAXIMUM_JOURNAL_BYTES2 = 1024 * 1024;
     FULL_OID_PATTERN3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
     ALLOWED_JOURNAL_STATUSES = /* @__PURE__ */ new Set(["pending", "installed"]);
   }
 });
 
 // src/committing-to-git/snapshot/commitSnapshot.js
-import { createHash as createHash6 } from "node:crypto";
-import { chmodSync as chmodSync2, existsSync as existsSync7, mkdirSync as mkdirSync3 } from "node:fs";
-import { dirname as dirname4 } from "node:path";
+import { createHash as createHash8 } from "node:crypto";
+import { chmodSync as chmodSync2, existsSync as existsSync8, mkdirSync as mkdirSync4 } from "node:fs";
+import { dirname as dirname5 } from "node:path";
 function nulPathInput(paths) {
   return Buffer.concat(
     paths.flatMap((path) => [
@@ -6912,7 +8626,7 @@ function captureStagedSourceIdentity(root, env) {
   return {
     state: "file",
     byteCount: bytes.length,
-    sha256: createHash6("sha256").update(bytes).digest("hex")
+    sha256: createHash8("sha256").update(bytes).digest("hex")
   };
 }
 function preparePromotionIndex({
@@ -6932,12 +8646,12 @@ function preparePromotionIndex({
       "Path promotion requires at least one recorded literal path."
     );
   }
-  if (existsSync7(preparedIndexPath)) {
+  if (existsSync8(preparedIndexPath)) {
     throw new Error(
       `Promotion index already exists without a recovery record: ${preparedIndexPath}`
     );
   }
-  mkdirSync3(dirname4(preparedIndexPath), { recursive: true });
+  mkdirSync4(dirname5(preparedIndexPath), { recursive: true });
   const env = {
     GIT_INDEX_FILE: preparedIndexPath,
     GIT_OPTIONAL_LOCKS: "0"
@@ -7462,14 +9176,14 @@ var init_commitSnapshot = __esm({
 import {
   chmodSync as chmodSync3,
   copyFileSync,
-  existsSync as existsSync8,
-  lstatSync as lstatSync4,
-  mkdirSync as mkdirSync4,
+  existsSync as existsSync9,
+  lstatSync as lstatSync5,
+  mkdirSync as mkdirSync5,
   readdirSync,
   utimesSync,
-  writeFileSync as writeFileSync4
+  writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname5, isAbsolute as isAbsolute5, join as join6, resolve as resolve6 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, resolve as resolve8 } from "node:path";
 function nulPathInput2(paths) {
   return Buffer.concat(
     paths.flatMap((path) => [
@@ -7480,29 +9194,29 @@ function nulPathInput2(paths) {
 }
 function resolveGitPath(root, name) {
   const path = readOnlyGitText(root, "git-path", [name]).trim();
-  return resolve6(isAbsolute5(path) ? path : join6(root, path));
+  return resolve8(isAbsolute6(path) ? path : join7(root, path));
 }
 function copyIndexFile(source, destination) {
-  const observedTime = lstatSync4(source, { bigint: true }).mtimeNs;
+  const observedTime = lstatSync5(source, { bigint: true }).mtimeNs;
   const timestamp = Number(observedTime / 1000000000n);
   copyFileSync(source, destination);
   utimesSync(destination, timestamp, timestamp);
-  if (lstatSync4(destination, { bigint: true }).mtimeNs > observedTime) {
+  if (lstatSync5(destination, { bigint: true }).mtimeNs > observedTime) {
     throw new Error(
       "Copied index timestamp could not preserve native Git freshness."
     );
   }
 }
 function copySharedIndexFiles(realIndexPath2, preparedIndexPath) {
-  const sourceDirectory = dirname5(realIndexPath2);
-  const destinationDirectory = dirname5(preparedIndexPath);
+  const sourceDirectory = dirname6(realIndexPath2);
+  const destinationDirectory = dirname6(preparedIndexPath);
   for (const name of readdirSync(sourceDirectory)) {
     if (!name.startsWith("sharedindex.")) {
       continue;
     }
-    const destination = join6(destinationDirectory, name);
-    if (!existsSync8(destination)) {
-      copyIndexFile(join6(sourceDirectory, name), destination);
+    const destination = join7(destinationDirectory, name);
+    if (!existsSync9(destination)) {
+      copyIndexFile(join7(sourceDirectory, name), destination);
       if (process.platform !== "win32") {
         chmodSync3(destination, 384);
       }
@@ -7603,16 +9317,16 @@ function formatGitAlternatePaths(paths) {
   return paths.map((path) => quoteGitAlternatePath(path, separator)).join(separator);
 }
 function createDraftObjectEnvironment({ root, attemptDirectory }) {
-  const indexPath = join6(attemptDirectory, "draft-index");
-  const objectDirectory = join6(attemptDirectory, "draft-objects");
-  if (existsSync8(indexPath) || existsSync8(objectDirectory)) {
+  const indexPath = join7(attemptDirectory, "draft-index");
+  const objectDirectory = join7(attemptDirectory, "draft-objects");
+  if (existsSync9(indexPath) || existsSync9(objectDirectory)) {
     throw new Error("Draft storage already exists in the transaction attempt.");
   }
-  mkdirSync4(objectDirectory, { mode: 448 });
+  mkdirSync5(objectDirectory, { mode: 448 });
   const primaryObjectDirectory = resolveGitPath(root, "objects");
   const inheritedAlternates = parseGitAlternatePaths(
     process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
-  ).map((path) => resolve6(isAbsolute5(path) ? path : join6(root, path)));
+  ).map((path) => resolve8(isAbsolute6(path) ? path : join7(root, path)));
   const alternates = [
     .../* @__PURE__ */ new Set([primaryObjectDirectory, ...inheritedAlternates])
   ];
@@ -7693,7 +9407,7 @@ function createSnapshot({
   if (scope === "paths" && scopePaths.length === 0) {
     throw new Error("Path scope requires at least one literal path.");
   }
-  if (existsSync8(outputPath)) {
+  if (existsSync9(outputPath)) {
     throw new Error(`Snapshot output already exists: ${outputPath}`);
   }
   assertRepositoryPreconditions(root);
@@ -7723,7 +9437,7 @@ function createSnapshot({
   if (mode === "draft") {
     draftStorage = createDraftObjectEnvironment({
       root,
-      attemptDirectory: dirname5(outputPath)
+      attemptDirectory: dirname6(outputPath)
     });
     actualPreparedIndexPath = draftStorage.indexPath;
     env = draftStorage.env;
@@ -7740,13 +9454,13 @@ function createSnapshot({
       });
     }
   } else if (scope !== "staged") {
-    actualPreparedIndexPath = preparedIndexPath ?? join6(dirname5(outputPath), "preparation-index");
-    if (existsSync8(actualPreparedIndexPath)) {
+    actualPreparedIndexPath = preparedIndexPath ?? join7(dirname6(outputPath), "preparation-index");
+    if (existsSync9(actualPreparedIndexPath)) {
       throw new Error(
         `Temporary index already exists: ${actualPreparedIndexPath}`
       );
     }
-    mkdirSync4(dirname5(actualPreparedIndexPath), { recursive: true });
+    mkdirSync5(dirname6(actualPreparedIndexPath), { recursive: true });
     env = {
       GIT_INDEX_FILE: actualPreparedIndexPath,
       GIT_OPTIONAL_LOCKS: "0"
@@ -7803,9 +9517,11 @@ function createSnapshot({
   if (snapshot.changeUnitCount === 0) {
     throw new Error("The staged scope is empty.");
   }
-  mkdirSync4(dirname5(outputPath), { recursive: true });
-  writeFileSync4(outputPath, `${JSON.stringify(snapshot, null, 2)}
-`, {
+  const serializedSnapshot = `${JSON.stringify(snapshot, null, 2)}
+`;
+  assertSnapshotCapacity(Buffer.byteLength(serializedSnapshot));
+  mkdirSync5(dirname6(outputPath), { recursive: true });
+  writeFileSync5(outputPath, serializedSnapshot, {
     flag: "wx",
     mode: 384
   });
@@ -7851,6 +9567,7 @@ function createSnapshot({
 }
 var init_createSnapshot = __esm({
   "src/committing-to-git/snapshot/createSnapshot.js"() {
+    init_recordedSnapshot();
     init_gitRepository();
     init_indexInstallation();
     init_commitSnapshot();
@@ -7858,25 +9575,25 @@ var init_createSnapshot = __esm({
 });
 
 // src/committing-to-git/inspection/reviewCatalog.js
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 import {
-  closeSync as closeSync6,
-  constants as fsConstants4,
+  closeSync as closeSync7,
+  constants as fsConstants5,
   createReadStream,
-  existsSync as existsSync9,
-  fstatSync as fstatSync5,
-  fsyncSync as fsyncSync4,
-  lstatSync as lstatSync5,
-  mkdirSync as mkdirSync5,
-  openSync as openSync6,
+  existsSync as existsSync10,
+  fstatSync as fstatSync6,
+  fsyncSync as fsyncSync5,
+  lstatSync as lstatSync6,
+  mkdirSync as mkdirSync6,
+  openSync as openSync7,
   readFileSync as readFileSync4,
   readdirSync as readdirSync2,
-  realpathSync as realpathSync3,
-  writeFileSync as writeFileSync5,
-  unlinkSync as unlinkSync3
+  realpathSync as realpathSync4,
+  writeFileSync as writeFileSync6,
+  unlinkSync as unlinkSync4
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, relative as relative3, resolve as resolve7, sep } from "node:path";
-function isPlainObject2(value) {
+import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve9, sep as sep2 } from "node:path";
+function isPlainObject3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function canonicalCatalogPayload(catalog) {
@@ -7949,7 +9666,7 @@ function canonicalizeEvidencePlan({ manifest, groups }) {
   }
   const assignedIds = /* @__PURE__ */ new Set();
   const canonicalGroups = groups.map((group, index) => {
-    if (!isPlainObject2(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
+    if (!isPlainObject3(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
       throw new WorkflowDiagnosticError(
         "INVALID_EVIDENCE_PLAN",
         `Evidence group ${index + 1} has an invalid policy.`
@@ -8072,7 +9789,7 @@ function writeNewJson3(path, value) {
   const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}
 `, "utf8");
   try {
-    writeFileSync5(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync6(path, bytes, { flag: "wx", mode: 384 });
   } catch (error) {
     if (error.code !== "EEXIST") {
       throw error;
@@ -8089,7 +9806,7 @@ function writeImmutableSmallFile(path, bytes) {
     throw new Error(`Immutable bounded artifact exceeds its budget: ${path}`);
   }
   try {
-    writeFileSync5(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync6(path, bytes, { flag: "wx", mode: 384 });
   } catch (error) {
     if (error.code !== "EEXIST") {
       throw error;
@@ -8102,7 +9819,7 @@ function writeImmutableSmallFile(path, bytes) {
   }
 }
 function relativeArtifact(outputDirectory, path) {
-  return relative3(outputDirectory, path).split(sep).join("/");
+  return relative4(outputDirectory, path).split(sep2).join("/");
 }
 function persistBaseCatalog(outputDirectory, catalog) {
   const baseIndex = {
@@ -8110,7 +9827,7 @@ function persistBaseCatalog(outputDirectory, catalog) {
     packets: catalog.packets
   };
   const baseIndexArtifact = "base-packet-index.json";
-  const baseIndexPath = join7(outputDirectory, baseIndexArtifact);
+  const baseIndexPath = join8(outputDirectory, baseIndexArtifact);
   writeNewJson3(baseIndexPath, baseIndex);
   const baseIndexSha256 = sha256Bytes(readFileSync4(baseIndexPath));
   catalog.storage = {
@@ -8121,7 +9838,7 @@ function persistBaseCatalog(outputDirectory, catalog) {
     currentRevisionArtifact: null
   };
   catalog.catalogSha256 = digestCatalog(catalog);
-  const catalogPath = join7(
+  const catalogPath = join8(
     outputDirectory,
     `catalog-${catalog.catalogSha256}.json`
   );
@@ -8132,8 +9849,8 @@ function catalogOutputDirectory(catalog) {
   if (typeof catalog.catalogPath !== "string") {
     throw new Error("Catalog is missing its immutable storage path.");
   }
-  const catalogPath = resolve7(catalog.catalogPath);
-  return dirname6(catalogPath).endsWith(`${sep}revisions`) ? dirname6(dirname6(catalogPath)) : dirname6(catalogPath);
+  const catalogPath = resolve9(catalog.catalogPath);
+  return dirname7(catalogPath).endsWith(`${sep2}revisions`) ? dirname7(dirname7(catalogPath)) : dirname7(catalogPath);
 }
 function arrayDifference(left, right) {
   const rightSet = new Set(right);
@@ -8141,9 +9858,9 @@ function arrayDifference(left, right) {
 }
 function persistCatalogRevision(priorCatalog, catalog, addedPackets) {
   const outputDirectory = catalogOutputDirectory(priorCatalog);
-  const revisionsDirectory = join7(outputDirectory, "revisions");
-  if (!existsSync9(revisionsDirectory)) {
-    mkdirSync5(revisionsDirectory);
+  const revisionsDirectory = join8(outputDirectory, "revisions");
+  if (!existsSync10(revisionsDirectory)) {
+    mkdirSync6(revisionsDirectory);
   }
   catalog.storage = {
     ...priorCatalog.storage,
@@ -8155,7 +9872,7 @@ function persistCatalogRevision(priorCatalog, catalog, addedPackets) {
   const revisionArtifact = `revisions/R${ordinal}-${catalog.catalogSha256}.json`;
   catalog.storage.currentRevisionArtifact = revisionArtifact;
   catalog.catalogSha256 = digestCatalog(catalog);
-  const revisionPath = join7(outputDirectory, revisionArtifact);
+  const revisionPath = join8(outputDirectory, revisionArtifact);
   const coveredHashes = coverageHashes(priorCatalog);
   const record = {
     revisionRecordVersion: 1,
@@ -8246,7 +9963,7 @@ function* inventoryChunks(units) {
   }
 }
 function sha256Chunks(chunks) {
-  const hash = createHash7("sha256");
+  const hash = createHash9("sha256");
   for (const chunk of chunks) {
     hash.update(chunk);
   }
@@ -8382,18 +10099,18 @@ function createReviewCatalog({
   evidencePlan
 }) {
   const preMaterialized = manifest.preMaterializedPacketsByGroupId !== void 0;
-  if (existsSync9(outputDirectory) && !preMaterialized) {
+  if (existsSync10(outputDirectory) && !preMaterialized) {
     throw new Error(`Review output already exists: ${outputDirectory}`);
   }
   if (evidencePlan.manifestSha256 !== manifestDigest(manifest)) {
     throw new Error("Evidence plan belongs to a different manifest.");
   }
-  if (!existsSync9(outputDirectory)) {
-    mkdirSync5(outputDirectory);
+  if (!existsSync10(outputDirectory)) {
+    mkdirSync6(outputDirectory);
   }
   for (const name of ["packets", "raw"]) {
-    if (!existsSync9(join7(outputDirectory, name))) {
-      mkdirSync5(join7(outputDirectory, name));
+    if (!existsSync10(join8(outputDirectory, name))) {
+      mkdirSync6(join8(outputDirectory, name));
     }
   }
   const catalog = baseCatalog(manifest, evidencePlan);
@@ -8419,7 +10136,7 @@ function applyDelta(values, additions, removals) {
   ];
 }
 function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
-  const absolutePath = resolve7(catalogPath);
+  const absolutePath = resolve9(catalogPath);
   if (visited.has(absolutePath)) {
     throw new Error("Catalog revision chain contains a cycle.");
   }
@@ -8432,8 +10149,8 @@ function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
     }
     return withCatalogIdentity(document, absolutePath);
   }
-  const outputDirectory = dirname6(dirname6(absolutePath));
-  const priorPath = resolve7(outputDirectory, document.priorCatalogArtifact);
+  const outputDirectory = dirname7(dirname7(absolutePath));
+  const priorPath = resolve9(outputDirectory, document.priorCatalogArtifact);
   const prior = loadCatalogDocument(priorPath, visited);
   if (prior.catalogSha256 !== document.priorCatalogSha256) {
     throw new Error("Catalog revision prior digest does not match.");
@@ -8474,7 +10191,7 @@ function readReviewCatalog(catalogPath) {
   return loadCatalogDocument(catalogPath);
 }
 function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
-  let currentPath = resolve7(catalogPath);
+  let currentPath = resolve9(catalogPath);
   const visited = /* @__PURE__ */ new Set();
   while (true) {
     if (visited.has(currentPath)) {
@@ -8489,8 +10206,8 @@ function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
     if (document.revisionRecordVersion !== 1) {
       return null;
     }
-    const outputDirectory = dirname6(dirname6(currentPath));
-    currentPath = resolve7(outputDirectory, document.priorCatalogArtifact);
+    const outputDirectory = dirname7(dirname7(currentPath));
+    currentPath = resolve9(outputDirectory, document.priorCatalogArtifact);
   }
 }
 function requiredReviewPacketIds(catalog) {
@@ -8553,16 +10270,16 @@ function failPacket(code, message) {
   });
 }
 function readVerifiedPacket(outputDirectory, packet) {
-  const path = resolve7(outputDirectory, packet.artifact);
-  const contained = relative3(outputDirectory, path);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute6(contained)) {
+  const path = resolve9(outputDirectory, packet.artifact);
+  const contained = relative4(outputDirectory, path);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute7(contained)) {
     failPacket(
       "REVIEW_PACKET_ESCAPES_CATALOG",
       `Review packet ${packet.id} escapes its catalog directory.`
     );
   }
-  const initial = lstatSync5(path);
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync3(path) !== path) {
+  const initial = lstatSync6(path);
+  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync4(path) !== path) {
     failPacket(
       "REVIEW_PACKET_REPLACED",
       `Review packet ${packet.id} is not a stable regular file.`
@@ -8574,22 +10291,22 @@ function readVerifiedPacket(outputDirectory, packet) {
       `Review packet ${packet.id} has an unexpected byte count.`
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants4.O_NOFOLLOW;
-  const descriptor = openSync6(path, fsConstants4.O_RDONLY | noFollow);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
+  const descriptor = openSync7(path, fsConstants5.O_RDONLY | noFollow);
   let bytes;
   try {
-    const before = fstatSync5(descriptor);
+    const before = fstatSync6(descriptor);
     bytes = readFileSync4(descriptor);
-    const after = fstatSync5(descriptor);
-    const final = lstatSync5(path);
-    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync3(path) !== path) {
+    const after = fstatSync6(descriptor);
+    const final = lstatSync6(path);
+    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync4(path) !== path) {
       failPacket(
         "REVIEW_PACKET_CHANGED",
         `Review packet ${packet.id} changed while it was read.`
       );
     }
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
   const actual = sha256Bytes(bytes);
   if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
@@ -8623,7 +10340,7 @@ function assertReceipt(receipt, catalog) {
     "requiredPacketsReviewed",
     "additionalPacketIds"
   ].sort();
-  if (!isPlainObject2(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
+  if (!isPlainObject3(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
     throw new Error(
       "Review receipt does not bind the current catalog and evidence plan."
     );
@@ -8783,9 +10500,9 @@ function writeReviewPacketQueue({
     queueKind,
     publicArtifactPrefix
   );
-  const queuesDirectory = join7(outputDirectory, "queues");
-  if (!existsSync9(queuesDirectory)) {
-    mkdirSync5(queuesDirectory);
+  const queuesDirectory = join8(outputDirectory, "queues");
+  if (!existsSync10(queuesDirectory)) {
+    mkdirSync6(queuesDirectory);
   }
   const pages2 = new Array(partitions.length);
   let nextPage = null;
@@ -8803,7 +10520,7 @@ function writeReviewPacketQueue({
     if (bytes.length > maximumPageBytes) {
       throw new Error(`Review queue page ${ordinal} exceeds its byte budget.`);
     }
-    writeImmutableSmallFile(join7(outputDirectory, storedArtifact), bytes);
+    writeImmutableSmallFile(join8(outputDirectory, storedArtifact), bytes);
     const page = {
       artifact,
       sha256: sha256Bytes(bytes),
@@ -8829,8 +10546,8 @@ function writeReviewPacketQueue({
   return summary;
 }
 function queuePagesForCatalog(outputDirectory, catalogSha256) {
-  const queuesDirectory = join7(outputDirectory, "queues");
-  if (!existsSync9(queuesDirectory)) {
+  const queuesDirectory = join8(outputDirectory, "queues");
+  if (!existsSync10(queuesDirectory)) {
     return [];
   }
   return readdirSync2(queuesDirectory).filter(
@@ -8838,7 +10555,7 @@ function queuePagesForCatalog(outputDirectory, catalogSha256) {
   ).sort(
     (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
   ).flatMap((name) => {
-    const path = join7(queuesDirectory, name);
+    const path = join8(queuesDirectory, name);
     const bytes = readFileSync4(path);
     let page;
     try {
@@ -8884,9 +10601,9 @@ function supersedePriorQueue({
   const markerBytes = stableJsonBytes(marker);
   const markerSha256 = sha256Bytes(markerBytes);
   const markerArtifact = `queues/superseded-${markerSha256}.json`;
-  writeImmutableSmallFile(join7(outputDirectory, markerArtifact), markerBytes);
+  writeImmutableSmallFile(join8(outputDirectory, markerArtifact), markerBytes);
   for (const { path } of pages2) {
-    unlinkSync3(path);
+    unlinkSync4(path);
   }
   return {
     catalogSha256: priorCatalog.catalogSha256,
@@ -9056,794 +10773,6 @@ var init_reviewCatalog = __esm({
       "text-patch": "P",
       "deleted-content": "D"
     });
-  }
-});
-
-// src/committing-to-git/message/changeSelection.js
-import { Buffer as Buffer2 } from "node:buffer";
-function isPlainObject3(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function validateReasons(reasons, label) {
-  if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
-    (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
-  )) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} requires one or more canonical reasons.`
-    );
-  }
-  if (new Set(reasons).size !== reasons.length) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} contains duplicate reasons.`
-    );
-  }
-  return [...reasons];
-}
-function resolvePartition(manifest, groups, { label, validateGroup }) {
-  if (!Array.isArray(groups) || groups.length === 0) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} groups must be a nonempty array.`
-    );
-  }
-  const assignedIds = /* @__PURE__ */ new Set();
-  const resolved = groups.map((group, index) => {
-    if (!isPlainObject3(group)) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} group ${index + 1} must be an object.`
-      );
-    }
-    const selection = normalizeSelection(group.selection);
-    if (selection.remaining === true && index !== groups.length - 1) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
-      );
-    }
-    const units = resolveSelection(manifest, selection, { assignedIds });
-    const overlap = units.find(({ id }) => assignedIds.has(id));
-    if (overlap) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} groups overlap at ${overlap.id}.`
-      );
-    }
-    units.forEach(({ id }) => assignedIds.add(id));
-    return {
-      ...validateGroup(group, index),
-      selection,
-      units
-    };
-  });
-  if (assignedIds.size !== manifest.changeUnitCount) {
-    const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
-    );
-  }
-  return { assignedIds, resolved };
-}
-function resolveOverlappingGroups(manifest, groups, label) {
-  if (groups === void 0) {
-    return [];
-  }
-  if (!Array.isArray(groups)) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} must be an array.`
-    );
-  }
-  const previouslyMatched = /* @__PURE__ */ new Set();
-  return groups.map((group, index) => {
-    if (!isPlainObject3(group)) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} entry ${index + 1} must be an object.`
-      );
-    }
-    const selection = normalizeSelection(group.selection);
-    if (selection.remaining === true && index !== groups.length - 1) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `The remaining selector is permitted only in the final ${label} entry.`
-      );
-    }
-    const units = resolveSelection(manifest, selection, {
-      assignedIds: previouslyMatched
-    });
-    units.forEach(({ id }) => previouslyMatched.add(id));
-    return {
-      selection,
-      units,
-      reasons: validateReasons(group.reasons, `${label} entry ${index + 1}`)
-    };
-  });
-}
-function resolveSemanticCoverage(manifest, content) {
-  assertChangeManifest(manifest);
-  if (!isPlainObject3(content)) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Semantic message content must be an object."
-    );
-  }
-  const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
-    label: "Evidence",
-    validateGroup(group, index) {
-      if (!EVIDENCE_POLICIES.includes(group.policy)) {
-        throw new WorkflowDiagnosticError(
-          "SEMANTIC_COVERAGE_INVALID",
-          `Evidence group ${index + 1} has an invalid policy.`
-        );
-      }
-      return {
-        policy: group.policy,
-        basis: validateEvidenceBasis(group.policy, group.basis)
-      };
-    }
-  });
-  const sharedRationales = resolveOverlappingGroups(
-    manifest,
-    content.sharedRationales ?? [],
-    "shared rationale"
-  );
-  const fileNotes = resolveOverlappingGroups(
-    manifest,
-    content.fileNotes ?? [],
-    "file note"
-  );
-  let domains = [];
-  if (content.mode === "bulk") {
-    domains = resolvePartition(manifest, content.domains, {
-      label: "Domain",
-      validateGroup(group, index) {
-        if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
-          throw new WorkflowDiagnosticError(
-            "SEMANTIC_COVERAGE_INVALID",
-            `Domain group ${index + 1} has an invalid title.`
-          );
-        }
-        return {
-          title: group.title,
-          reasons: validateReasons(group.reasons, `Domain group ${index + 1}`)
-        };
-      }
-    }).resolved;
-  } else if (content.mode !== "detailed") {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Semantic message mode must be detailed or bulk."
-    );
-  } else if (content.domains !== void 0 && content.domains.length > 0) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Detailed semantic content cannot contain bulk domains."
-    );
-  }
-  return {
-    coveredIds: evidenceCoverage.assignedIds,
-    evidenceGroups: evidenceCoverage.resolved,
-    sharedRationales,
-    domains,
-    fileNotes
-  };
-}
-function compareChangeUnitsByRawPath(left, right) {
-  const destination = Buffer2.compare(
-    changeUnitPathBytes(left, "destination") ?? Buffer2.alloc(0),
-    changeUnitPathBytes(right, "destination") ?? Buffer2.alloc(0)
-  );
-  if (destination !== 0) {
-    return destination;
-  }
-  const source = Buffer2.compare(
-    changeUnitPathBytes(left, "source") ?? Buffer2.alloc(0),
-    changeUnitPathBytes(right, "source") ?? Buffer2.alloc(0)
-  );
-  if (source !== 0) {
-    return source;
-  }
-  return Buffer2.compare(Buffer2.from(left.id), Buffer2.from(right.id));
-}
-function formatMessagePath(rawPathBytes) {
-  if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
-    throw new Error("Message path identity must be raw bytes.");
-  }
-  const bytes = Buffer2.from(rawPathBytes);
-  let decoded;
-  try {
-    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    decoded = null;
-  }
-  if (decoded !== null && decoded.length > 0 && !PROHIBITED_RENDERED_PATH_CHARACTER.test(decoded)) {
-    return `\`${decoded}\``;
-  }
-  return `\`path-bytes-base64:${bytes.toString("base64")}\``;
-}
-function formatChangeUnitPath(unit) {
-  const destination = formatMessagePath(
-    changeUnitPathBytes(unit, "destination")
-  );
-  if (unit.kind !== "renamed") {
-    return destination;
-  }
-  const source = changeUnitPathBytes(unit, "source");
-  if (source === null) {
-    throw new Error(`Rename ${unit.id} has no recorded source path.`);
-  }
-  return `${formatMessagePath(source)} -> ${destination}`;
-}
-function selectMessagePresentation({
-  changeUnitCount,
-  projectedDetailedBytes,
-  maximumBytes = MAXIMUM_CANONICAL_MESSAGE_BYTES
-}) {
-  if (!Number.isSafeInteger(changeUnitCount) || changeUnitCount < 1 || !Number.isSafeInteger(projectedDetailedBytes) || projectedDetailedBytes < 0 || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
-    throw new Error("Message presentation inputs must be bounded integers.");
-  }
-  return changeUnitCount >= 50 || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
-}
-var MAXIMUM_CANONICAL_MESSAGE_BYTES, PROHIBITED_RENDERED_PATH_CHARACTER;
-var init_changeSelection2 = __esm({
-  "src/committing-to-git/message/changeSelection.js"() {
-    init_workflowDiagnosticError();
-    init_evidenceVocabulary();
-    init_changeSelection();
-    MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
-    PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
-  }
-});
-
-// src/committing-to-git/message/approvedMessage.js
-import { createHash as createHash8 } from "node:crypto";
-import { Buffer as Buffer3 } from "node:buffer";
-function fail(code, message, details = {}) {
-  throw new WorkflowDiagnosticError(code, message, { details });
-}
-function scalarLength(value) {
-  return [...value].length;
-}
-function isCapitalizedDescription(description) {
-  const first = [...description][0] ?? "";
-  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
-}
-function validateRepositoryType(type, repositoryTypePolicy) {
-  if (repositoryTypePolicy === null || repositoryTypePolicy === void 0 || repositoryTypePolicy.allowedTypes === null || repositoryTypePolicy.allowedTypes === void 0 || Array.isArray(repositoryTypePolicy.allowedTypes) && repositoryTypePolicy.allowedTypes.length === 0) {
-    return;
-  }
-  if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
-    fail(
-      "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
-      "Repository type policy must provide an allowedTypes array or null."
-    );
-  }
-  if (!repositoryTypePolicy.allowedTypes.includes(type)) {
-    fail(
-      "SUBJECT_TYPE_NOT_ALLOWED",
-      `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
-      { type, allowedTypes: repositoryTypePolicy.allowedTypes }
-    );
-  }
-}
-function parseSubject(subjectText, repositoryTypePolicy) {
-  const match = SUBJECT_PATTERN.exec(subjectText);
-  if (!match) {
-    fail(
-      "SUBJECT_FORMAT_INVALID",
-      "Subject must match <type>: <description> or <type>(<scope>): <description>."
-    );
-  }
-  const { type, description } = match.groups;
-  const scope = match.groups.scope ?? null;
-  if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
-    fail(
-      "SUBJECT_FORMAT_INVALID",
-      "Subject description must be one exact nonempty line without controls or surrounding whitespace."
-    );
-  }
-  if (!isCapitalizedDescription(description)) {
-    fail(
-      "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
-      "Subject description must begin with an uppercase Unicode cased letter."
-    );
-  }
-  if (description.endsWith(".")) {
-    fail(
-      "SUBJECT_TRAILING_PERIOD",
-      "Subject description must not end with an ASCII period."
-    );
-  }
-  if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
-    fail(
-      "SUBJECT_SCOPE_INVALID",
-      "Subject scope must be one exact nonempty value without parentheses or controls."
-    );
-  }
-  const length = scalarLength(subjectText);
-  if (length > MAXIMUM_SUBJECT_SCALARS) {
-    fail(
-      "SUBJECT_TOO_LONG",
-      `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
-      { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
-    );
-  }
-  validateRepositoryType(type, repositoryTypePolicy);
-  return {
-    text: subjectText,
-    type,
-    scope,
-    description,
-    scalarLength: length
-  };
-}
-function canonicalBytes(value) {
-  if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
-    fail("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
-  }
-  return Buffer3.from(value);
-}
-function decodeCanonicalMessage(bytes) {
-  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail(
-      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
-      `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
-      {
-        byteCount: bytes.length,
-        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-        remedy: "Shorten prose or combine truthful structured domains without changing scope."
-      }
-    );
-  }
-  if (bytes.length === 0 || bytes.at(-1) !== 10) {
-    fail(
-      "TERMINAL_LF_REQUIRED",
-      "Canonical message bytes must end in exactly one LF."
-    );
-  }
-  if (bytes.length > 1 && bytes.at(-2) === 10) {
-    fail(
-      "MULTIPLE_TERMINAL_LF",
-      "Canonical message bytes must not end in multiple LF bytes."
-    );
-  }
-  if (bytes.includes(13)) {
-    fail(
-      "CARRIAGE_RETURN_FORBIDDEN",
-      "Canonical message bytes must not contain CR or CRLF."
-    );
-  }
-  if (bytes.includes(0)) {
-    fail("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
-  }
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    fail("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
-  }
-  for (const character of text) {
-    if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
-      fail(
-        "PROHIBITED_UNICODE_CHARACTER",
-        "Canonical message contains a prohibited Unicode control or format character."
-      );
-    }
-  }
-  return text;
-}
-function assertUsefulEntry(text, label) {
-  if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
-    fail("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
-  }
-}
-function parseNarrativeSection(lines, heading) {
-  const entries = [];
-  let current = null;
-  for (const line of lines) {
-    if (line.startsWith("  - ")) {
-      const text = line.slice(4);
-      assertUsefulEntry(text, heading);
-      current = text;
-      entries.push(text);
-    } else if (line.startsWith("    ") && current !== null) {
-      const continuation = line.slice(4);
-      assertUsefulEntry(continuation, heading);
-      entries[entries.length - 1] += `
-${continuation}`;
-    } else {
-      fail(
-        "SECTION_ENTRY_FORMAT_INVALID",
-        `${heading} entries must use two-space bullets with aligned continuations.`
-      );
-    }
-  }
-  if (entries.length === 0) {
-    fail("EMPTY_SECTION", `${heading} cannot be present without entries.`);
-  }
-  return entries;
-}
-function expectedDetailedInventory(manifest) {
-  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
-    fail(
-      "INVALID_MESSAGE_MANIFEST",
-      "Approved-message validation requires one exact nonempty manifest."
-    );
-  }
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
-  const width = String(units.length).length;
-  return units.map((unit, index) => ({
-    id: unit.id,
-    label: formatChangeUnitPath(unit),
-    ordinal: index + 1,
-    line: `${"  "}${String(index + 1).padStart(width, " ")}. ${formatChangeUnitPath(unit)}`
-  }));
-}
-function parseDetailedInventory(lines, manifest) {
-  if (manifest.changeUnitCount >= 50) {
-    fail(
-      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
-      "A counted bulk inventory must be derived by the structured extended finalizer.",
-      { remedy: "Extend for semantic structure or omit File Changes." }
-    );
-  }
-  const expected = expectedDetailedInventory(manifest);
-  const expectedLabels = new Set(expected.map(({ label }) => label));
-  const width = String(expected.length).length;
-  const notePrefix = `${" ".repeat(width + 4)}- `;
-  const continuationPrefix = " ".repeat(width + 6);
-  const listed = [];
-  let current = null;
-  for (const line of lines) {
-    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
-    if (match) {
-      const ordinal = Number(match[1]);
-      const label = match[2];
-      if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
-        fail(
-          "STRUCTURED_BULK_FINALIZATION_REQUIRED",
-          "Free-form counted domains cannot prove manifest membership.",
-          { remedy: "Use the structured extended finalizer." }
-        );
-      }
-      if (listed.some((entry) => entry.label === label)) {
-        fail(
-          "FILE_INVENTORY_DUPLICATE",
-          `Detailed inventory repeats ${label}.`
-        );
-      }
-      if (!expectedLabels.has(label)) {
-        fail(
-          "FILE_INVENTORY_UNKNOWN_PATH",
-          `Detailed inventory path ${label} does not identify a manifest change unit.`
-        );
-      }
-      current = { ordinal, label, notes: [], line };
-      listed.push(current);
-      continue;
-    }
-    if (line.startsWith(notePrefix) && current !== null) {
-      const note = line.slice(notePrefix.length);
-      assertUsefulEntry(note, "File Changes:");
-      current.notes.push(note);
-      continue;
-    }
-    if (line.startsWith(continuationPrefix) && current?.notes.length > 0) {
-      const continuation = line.slice(continuationPrefix.length);
-      assertUsefulEntry(continuation, "File Changes:");
-      current.notes[current.notes.length - 1] += `
-${continuation}`;
-      continue;
-    }
-    fail(
-      "FILE_INVENTORY_FORMAT_INVALID",
-      "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
-    );
-  }
-  if (listed.length !== expected.length) {
-    fail(
-      "FILE_INVENTORY_INCOMPLETE",
-      `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
-    );
-  }
-  for (let index = 0; index < expected.length; index += 1) {
-    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
-      fail(
-        "FILE_INVENTORY_ORDER_INVALID",
-        "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
-      );
-    }
-  }
-  return listed;
-}
-function parseStructuredBulkInventory(lines, manifest, structuredContent) {
-  const coverage = resolveSemanticCoverage(manifest, structuredContent);
-  const expected = coverage.domains.map((domain, index) => {
-    const count = domain.units.length;
-    const width2 = String(coverage.domains.length).length;
-    return {
-      ordinal: index + 1,
-      label: `${domain.title} (${count} ${count === 1 ? "file" : "files"})`,
-      prefix: `  ${String(index + 1).padStart(width2, " ")}. `
-    };
-  });
-  const listed = [];
-  const width = String(expected.length).length;
-  const reasonPrefix = `${" ".repeat(width + 4)}- `;
-  const continuationPrefix = " ".repeat(width + 6);
-  let current = null;
-  for (const line of lines) {
-    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
-    if (match) {
-      current = {
-        ordinal: Number(match[1]),
-        label: match[2],
-        reasons: [],
-        line
-      };
-      listed.push(current);
-      continue;
-    }
-    if (line.startsWith(reasonPrefix) && current !== null) {
-      const reason = line.slice(reasonPrefix.length);
-      assertUsefulEntry(reason, "File Changes:");
-      current.reasons.push(reason);
-      continue;
-    }
-    if (line.startsWith(continuationPrefix) && current?.reasons.length > 0) {
-      const continuation = line.slice(continuationPrefix.length);
-      assertUsefulEntry(continuation, "File Changes:");
-      current.reasons[current.reasons.length - 1] += `
-${continuation}`;
-      continue;
-    }
-    fail(
-      "FILE_INVENTORY_FORMAT_INVALID",
-      "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
-    );
-  }
-  if (listed.length !== expected.length) {
-    fail(
-      "FILE_INVENTORY_INCOMPLETE",
-      "Structured bulk rendering does not contain every derived domain."
-    );
-  }
-  for (let index = 0; index < expected.length; index += 1) {
-    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
-      fail(
-        "FILE_INVENTORY_ORDER_INVALID",
-        "Structured bulk rendering must preserve derived domain order, counts, and reasons."
-      );
-    }
-  }
-  return listed;
-}
-function parseSections(bodyLines, manifest, { messageSource, structuredContent }) {
-  const parsed = {
-    rationale: { present: false, entries: [] },
-    userExperience: { present: false, entries: [] },
-    fileChanges: { present: false, entries: [] }
-  };
-  if (bodyLines.length === 0) {
-    return parsed;
-  }
-  if (bodyLines[0] !== "") {
-    fail(
-      "SECTION_SPACING_INVALID",
-      "Subject and body must be separated by exactly one blank line."
-    );
-  }
-  let index = 1;
-  let priorOrder = -1;
-  while (index < bodyLines.length) {
-    const heading = bodyLines[index];
-    const order = SECTION_ORDER.indexOf(heading);
-    if (order < 0 || order <= priorOrder) {
-      fail(
-        "SECTION_ORDER_INVALID",
-        "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
-      );
-    }
-    priorOrder = order;
-    index += 1;
-    const entries = [];
-    while (index < bodyLines.length && bodyLines[index] !== "") {
-      entries.push(bodyLines[index]);
-      index += 1;
-    }
-    if (entries.length === 0) {
-      fail("EMPTY_SECTION", `${heading} cannot be empty.`);
-    }
-    if (heading === "Rationale:") {
-      parsed.rationale = {
-        present: true,
-        entries: parseNarrativeSection(entries, heading)
-      };
-    } else if (heading === "User Experience Changes:") {
-      parsed.userExperience = {
-        present: true,
-        entries: parseNarrativeSection(entries, heading)
-      };
-    } else {
-      parsed.fileChanges = {
-        present: true,
-        entries: messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? parseStructuredBulkInventory(entries, manifest, structuredContent) : parseDetailedInventory(entries, manifest)
-      };
-    }
-    if (index < bodyLines.length) {
-      index += 1;
-      if (index >= bodyLines.length || bodyLines[index] === "") {
-        fail(
-          "SECTION_SPACING_INVALID",
-          "Sections must be separated by exactly one blank line."
-        );
-      }
-    }
-  }
-  return parsed;
-}
-function isFileIdentityLine(line) {
-  return /^ {2,}[0-9]+\. /u.test(line);
-}
-function presentationWarnings(lines) {
-  const warnings = [];
-  lines.forEach((line, index) => {
-    const length = scalarLength(line);
-    if (index === 0 || length <= MAXIMUM_BODY_LINE_SCALARS) {
-      return;
-    }
-    const trimmed = line.trim();
-    const words = trimmed.split(/\s+/u);
-    const formattedIdentity = isFileIdentityLine(line);
-    if (!formattedIdentity && words.length > 1) {
-      const longest = Math.max(...words.map(scalarLength));
-      if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
-        fail(
-          "BODY_LINE_AVOIDABLY_OVERLONG",
-          `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
-          { lineNumber: index + 1, scalarLength: length }
-        );
-      }
-    }
-    warnings.push({
-      lineNumber: index + 1,
-      scalarLength: length,
-      reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
-    });
-  });
-  const sha25612 = warnings.length === 0 ? null : createHash8("sha256").update(JSON.stringify(warnings)).digest("hex");
-  return {
-    count: warnings.length,
-    samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
-    sha256: sha25612
-  };
-}
-function presentationDiagnostics(summary) {
-  return summary.count === 0 ? [] : [
-    createWorkflowWarning({
-      code: "MESSAGE_PRESENTATION_LIMIT",
-      message: "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
-      documentation: "references/message-format.md",
-      details: [{ kind: "limit", ...summary }]
-    })
-  ];
-}
-function canUseDirectSubjectTransport(subject) {
-  if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
-    return false;
-  }
-  try {
-    parseSubject(subject, { allowedTypes: [] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function validateApprovedMessage({
-  manifest,
-  route,
-  bytes: inputBytes,
-  repositoryTypePolicy,
-  messageSource,
-  structuredContent = null
-}) {
-  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
-  if (!sourceAllowed) {
-    fail(
-      "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
-      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
-    );
-  }
-  const bytes = canonicalBytes(inputBytes);
-  const displayText = decodeCanonicalMessage(bytes);
-  const withoutTerminalLf = displayText.slice(0, -1);
-  const lines = withoutTerminalLf.split("\n");
-  const subject = parseSubject(lines[0] ?? "", repositoryTypePolicy);
-  const sections = parseSections(lines.slice(1), manifest, {
-    messageSource,
-    structuredContent
-  });
-  if (messageSource === "approved-subject") {
-    if (lines.length !== 1) {
-      fail(
-        "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
-        "Direct subject transport cannot contain a body."
-      );
-    }
-    if (!canUseDirectSubjectTransport(subject.text)) {
-      fail(
-        "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
-        "Subject is valid canonical text but is outside the conservative direct transport set."
-      );
-    }
-    if (!bytes.equals(Buffer3.from(`${subject.text}
-`, "utf8"))) {
-      fail(
-        "DIRECT_SUBJECT_ENCODING_INVALID",
-        "Direct subject bytes must equal the deterministic subject plus one LF encoding."
-      );
-    }
-  }
-  const warnings = presentationWarnings(lines);
-  const messageSha256 = createHash8("sha256").update(bytes).digest("hex");
-  const presentationEntryCount = sections.fileChanges.entries.length;
-  const listedCount = messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? manifest.changeUnitCount : presentationEntryCount;
-  return {
-    schemaVersion: 1,
-    valid: true,
-    route,
-    messageSource,
-    byteCount: bytes.length,
-    messageSha256,
-    displayText,
-    subject,
-    sections: {
-      rationale: {
-        present: sections.rationale.present,
-        entryCount: sections.rationale.entries.length
-      },
-      userExperience: {
-        present: sections.userExperience.present,
-        entryCount: sections.userExperience.entries.length
-      },
-      fileChanges: {
-        present: sections.fileChanges.present,
-        entryCount: presentationEntryCount
-      }
-    },
-    files: {
-      expectedCount: manifest.changeUnitCount,
-      listedCount,
-      setMatches: !sections.fileChanges.present || listedCount === manifest.changeUnitCount,
-      orderValid: true,
-      unique: true
-    },
-    presentationWarnings: warnings
-  };
-}
-var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN;
-var init_approvedMessage = __esm({
-  "src/committing-to-git/message/approvedMessage.js"() {
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_changeSelection2();
-    init_changeSelection2();
-    MAXIMUM_SUBJECT_SCALARS = 72;
-    MAXIMUM_BODY_LINE_SCALARS = 72;
-    MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
-    DIRECT_SUBJECT_TRANSPORT_PATTERN = /^[A-Za-z0-9 ():,._/+-]+$/u;
-    SUBJECT_PATTERN = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u;
-    PROHIBITED_UNICODE_CHARACTER = /[\p{Cc}\p{Cf}]/u;
-    SECTION_ORDER = Object.freeze([
-      "Rationale:",
-      "User Experience Changes:",
-      "File Changes:"
-    ]);
-    PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
   }
 });
 
@@ -10175,851 +11104,6 @@ var init_commitMessageRenderer = __esm({
   }
 });
 
-// src/committing-to-git/message/canonicalMessageState.js
-import { createHash as createHash9, randomUUID as randomUUID4 } from "node:crypto";
-import {
-  closeSync as closeSync7,
-  constants as fsConstants5,
-  existsSync as existsSync10,
-  fstatSync as fstatSync6,
-  fsyncSync as fsyncSync5,
-  lstatSync as lstatSync6,
-  mkdirSync as mkdirSync6,
-  openSync as openSync7,
-  readFileSync as readFileSync5,
-  realpathSync as realpathSync4,
-  renameSync as renameSync4,
-  rmSync as rmSync3,
-  unlinkSync as unlinkSync4,
-  writeFileSync as writeFileSync6
-} from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve8, sep as sep2 } from "node:path";
-import { TextDecoder as TextDecoder4 } from "node:util";
-function fail2(code, message, options) {
-  throw new WorkflowDiagnosticError(code, message, options);
-}
-function sha256(bytes) {
-  return createHash9("sha256").update(bytes).digest("hex");
-}
-function canonicalJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}
-`, "utf8");
-}
-function flushDirectory3(path) {
-  if (process.platform === "win32") {
-    return;
-  }
-  const descriptor = openSync7(path, fsConstants5.O_RDONLY);
-  try {
-    fsyncSync5(descriptor);
-  } finally {
-    closeSync7(descriptor);
-  }
-}
-function assertContained(attemptDirectory, path) {
-  const contained = relative4(attemptDirectory, path);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute7(contained)) {
-    fail2(
-      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
-      `Derived message artifact escapes its transaction: ${path}`
-    );
-  }
-}
-function artifactPath(transaction, name) {
-  const path = join8(transaction.attemptDirectory, name);
-  assertContained(transaction.attemptDirectory, path);
-  return path;
-}
-function ensureDirectory2(path, label) {
-  const stat = lstatSync6(path);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail2(
-      "MESSAGE_ARTIFACT_REPLACED",
-      `${label} was replaced or is not a directory: ${path}`
-    );
-  }
-  if (realpathSync4(path) !== resolve8(path)) {
-    fail2(
-      "MESSAGE_ARTIFACT_REPLACED",
-      `${label} no longer resolves to its recorded path: ${path}`
-    );
-  }
-}
-function ensureMessageDirectory(transaction) {
-  const path = artifactPath(transaction, MESSAGE_DIRECTORY_NAME);
-  if (!existsSync10(path)) {
-    mkdirSync6(path, { mode: 448 });
-    flushDirectory3(transaction.attemptDirectory);
-  }
-  ensureDirectory2(path, "Canonical message directory");
-  return path;
-}
-function statIdentity2(stat) {
-  const device = String(stat.dev);
-  const inode = String(stat.ino);
-  return {
-    available: inode !== "0",
-    device,
-    inode,
-    byteCount: Number(stat.size),
-    modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
-  };
-}
-function sameIdentity(left, right) {
-  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
-}
-function openReadOnlyNoFollow3(path) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  return openSync7(path, fsConstants5.O_RDONLY + noFollow);
-}
-function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
-  let initial;
-  try {
-    initial = lstatSync6(path, { bigint: true });
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
-    }
-    throw error;
-  }
-  if (initial.isSymbolicLink() || !initial.isFile()) {
-    fail2(
-      "MESSAGE_INPUT_NOT_REGULAR",
-      `${label} must be a non-link regular file: ${path}`
-    );
-  }
-  if (initial.size > BigInt(maximumBytes)) {
-    fail2("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
-      details: { maximumBytes }
-    });
-  }
-  const descriptor = openReadOnlyNoFollow3(path);
-  try {
-    const before = fstatSync6(descriptor, { bigint: true });
-    const initialIdentity = statIdentity2(initial);
-    const openedIdentity = statIdentity2(before);
-    if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
-      fail2(
-        "MESSAGE_INPUT_CHANGED",
-        `${label} changed before its fixed path could be opened safely.`
-      );
-    }
-    afterOpen?.({ descriptor, identity: openedIdentity, path });
-    const bytes = readFileSync5(descriptor);
-    const after = fstatSync6(descriptor, { bigint: true });
-    const finalIdentity = statIdentity2(after);
-    if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || bytes.length > maximumBytes) {
-      fail2(
-        "MESSAGE_INPUT_CHANGED",
-        `${label} changed while its opened handle was being read.`
-      );
-    }
-    if (!allowPathReplacement) {
-      const pathStat = lstatSync6(path, { bigint: true });
-      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity2(pathStat))) {
-        fail2(
-          "MESSAGE_INPUT_CHANGED",
-          `${label} path changed while its opened handle was being read.`
-        );
-      }
-    }
-    return { bytes, identity: finalIdentity, path };
-  } finally {
-    closeSync7(descriptor);
-  }
-}
-function readTransactionOwnedFile({
-  transactionPath,
-  artifactName,
-  maximumBytes,
-  label,
-  afterOpen,
-  allowPathReplacement = true
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  return {
-    transaction,
-    ...readStablePath(path, {
-      maximumBytes,
-      label,
-      afterOpen,
-      allowPathReplacement
-    })
-  };
-}
-function warning(code, message, path) {
-  return createWorkflowWarning({
-    code,
-    message,
-    details: [{ kind: "prerequisite", path }]
-  });
-}
-function cleanupTransactionOwnedInput({
-  path,
-  identity: identity2,
-  forceIdentityUnavailable = false
-}) {
-  if (forceIdentityUnavailable || identity2.available !== true) {
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_IDENTITY_UNAVAILABLE",
-        "The fixed input was retained because same-object identity is unavailable on this filesystem.",
-        path
-      )
-    };
-  }
-  let descriptor;
-  try {
-    descriptor = openReadOnlyNoFollow3(path);
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return { removed: true, warning: null };
-    }
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_CLEANUP_FAILED",
-        `The fixed input was retained because it could not be reopened safely: ${error.message}`,
-        path
-      )
-    };
-  }
-  try {
-    const opened = fstatSync6(descriptor, { bigint: true });
-    if (!opened.isFile() || !sameIdentity(identity2, statIdentity2(opened))) {
-      return {
-        removed: false,
-        warning: warning(
-          "MESSAGE_INPUT_REPLACED",
-          "The fixed input was retained because its directory entry no longer identifies the opened object.",
-          path
-        )
-      };
-    }
-  } finally {
-    closeSync7(descriptor);
-  }
-  try {
-    const finalPathStat = lstatSync6(path, { bigint: true });
-    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity2, statIdentity2(finalPathStat))) {
-      return {
-        removed: false,
-        warning: warning(
-          "MESSAGE_INPUT_REPLACED",
-          "The fixed input was retained because it changed during cleanup.",
-          path
-        )
-      };
-    }
-    unlinkSync4(path);
-    flushDirectory3(dirname7(path));
-    return { removed: true, warning: null };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return { removed: true, warning: null };
-    }
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_CLEANUP_FAILED",
-        `The fixed input was retained because cleanup failed: ${error.message}`,
-        path
-      )
-    };
-  }
-}
-function writeNewFile2(path, bytes) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  const descriptor = openSync7(
-    path,
-    fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL + noFollow,
-    384
-  );
-  try {
-    writeFileSync6(descriptor, bytes);
-    fsyncSync5(descriptor);
-  } finally {
-    closeSync7(descriptor);
-  }
-}
-function ensureTransactionOwnedJson({
-  transactionPath,
-  artifactName,
-  value,
-  maximumBytes = 8 * 1024 * 1024
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  const bytes = canonicalJsonBytes(value);
-  if (bytes.length > maximumBytes) {
-    fail2(
-      "MESSAGE_ARTIFACT_TOO_LARGE",
-      `${artifactName} exceeds ${maximumBytes} bytes.`
-    );
-  }
-  if (existsSync10(path)) {
-    const current = readStablePath(path, {
-      maximumBytes,
-      label: `Fixed ${artifactName}`,
-      allowPathReplacement: false
-    }).bytes;
-    if (!current.equals(bytes)) {
-      fail2(
-        "MESSAGE_ARTIFACT_COLLISION",
-        `Fixed ${artifactName} already exists with conflicting bytes.`
-      );
-    }
-    return path;
-  }
-  try {
-    writeNewFile2(path, bytes);
-  } catch (error) {
-    if (error.code !== "EEXIST") {
-      throw error;
-    }
-    const current = readStablePath(path, {
-      maximumBytes,
-      label: `Fixed ${artifactName}`,
-      allowPathReplacement: false
-    }).bytes;
-    if (!current.equals(bytes)) {
-      fail2(
-        "MESSAGE_ARTIFACT_COLLISION",
-        `Fixed ${artifactName} was concurrently created with conflicting bytes.`
-      );
-    }
-  }
-  flushDirectory3(transaction.attemptDirectory);
-  return path;
-}
-function currentPathMatches(path, identity2) {
-  let descriptor;
-  try {
-    descriptor = openReadOnlyNoFollow3(path);
-    const stat = fstatSync6(descriptor, { bigint: true });
-    return stat.isFile() && sameIdentity(identity2, statIdentity2(stat));
-  } catch {
-    return false;
-  } finally {
-    if (descriptor !== void 0) {
-      closeSync7(descriptor);
-    }
-  }
-}
-function replaceTransactionOwnedJson({
-  transactionPath,
-  artifactName,
-  value,
-  expectedIdentity = null
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
-    fail2(
-      "MESSAGE_INPUT_REPLACED",
-      `The fixed ${artifactName} changed before normalized content could be persisted.`
-    );
-  }
-  const candidatePath = artifactPath(
-    transaction,
-    `.${artifactName}-${randomUUID4()}.tmp`
-  );
-  writeNewFile2(candidatePath, canonicalJsonBytes(value));
-  let attempt = 0;
-  while (true) {
-    attempt += 1;
-    try {
-      renameSync4(candidatePath, path);
-      flushDirectory3(transaction.attemptDirectory);
-      return path;
-    } catch (error) {
-      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES2.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS2;
-      if (!retryable) {
-        throw error;
-      }
-    }
-  }
-}
-function slotPaths(messageDirectory, slot) {
-  const directory = join8(messageDirectory, slot);
-  return {
-    directory,
-    messagePath: join8(directory, MESSAGE_FILE_NAME),
-    validationPath: join8(directory, VALIDATION_FILE_NAME),
-    statePath: join8(directory, STATE_FILE_NAME)
-  };
-}
-function assertExactKeys3(value, keys, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    fail2("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail2(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `${label} contains missing or unknown members.`
-    );
-  }
-}
-function assertValidationMatches(bytes, validation, source) {
-  if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
-    fail2(
-      "MESSAGE_VALIDATION_MISMATCH",
-      "Canonical message replacement requires one successful validation object."
-    );
-  }
-  const digest2 = sha256(bytes);
-  const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
-  if (validation.messageSha256 !== digest2 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
-    fail2(
-      "MESSAGE_VALIDATION_MISMATCH",
-      "Canonical validation does not describe the exact replacement message bytes."
-    );
-  }
-}
-function transactionMessageState(state, stateSha256) {
-  return {
-    schemaVersion: 1,
-    revision: state.messageRevision,
-    sha256: state.messageSha256,
-    source: state.messageSource,
-    byteCount: state.byteCount,
-    stateSha256,
-    validationSha256: state.validationSha256,
-    slot: "message/current"
-  };
-}
-function writeCandidate({
-  messageDirectory,
-  bytes,
-  validation,
-  source,
-  revision,
-  failureInjector
-}) {
-  const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
-  if (existsSync10(paths.directory)) {
-    fail2(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      "The fixed candidate slot is occupied; recover the pending replacement first."
-    );
-  }
-  mkdirSync6(paths.directory, { mode: 448 });
-  writeNewFile2(paths.messagePath, bytes);
-  const validationBytes = canonicalJsonBytes(validation);
-  if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
-    fail2(
-      "MESSAGE_VALIDATION_TOO_LARGE",
-      `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
-    );
-  }
-  writeNewFile2(paths.validationPath, validationBytes);
-  const state = {
-    schemaVersion: 1,
-    messageRevision: revision,
-    messageSha256: sha256(bytes),
-    messageSource: source,
-    byteCount: bytes.length,
-    validationSha256: sha256(validationBytes)
-  };
-  const stateBytes = canonicalJsonBytes(state);
-  writeNewFile2(paths.statePath, stateBytes);
-  failureInjector("before-candidate-flush");
-  flushDirectory3(paths.directory);
-  flushDirectory3(messageDirectory);
-  failureInjector("after-candidate-flush");
-  return {
-    ...state,
-    stateSha256: sha256(stateBytes),
-    transactionState: transactionMessageState(state, sha256(stateBytes))
-  };
-}
-function readSlot(messageDirectory, slot) {
-  const paths = slotPaths(messageDirectory, slot);
-  if (!existsSync10(paths.directory)) {
-    return null;
-  }
-  ensureDirectory2(paths.directory, `Canonical message ${slot} slot`);
-  const message = readStablePath(paths.messagePath, {
-    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-    label: `Canonical message ${slot} body`,
-    allowPathReplacement: false
-  }).bytes;
-  const validationBytes = readStablePath(paths.validationPath, {
-    maximumBytes: MAXIMUM_VALIDATION_BYTES,
-    label: `Canonical message ${slot} validation`,
-    allowPathReplacement: false
-  }).bytes;
-  const stateBytes = readStablePath(paths.statePath, {
-    maximumBytes: MAXIMUM_JOURNAL_BYTES2,
-    label: `Canonical message ${slot} state`,
-    allowPathReplacement: false
-  }).bytes;
-  let validation;
-  let state;
-  try {
-    validation = JSON.parse(STRICT_UTF8_DECODER3.decode(validationBytes));
-    state = JSON.parse(STRICT_UTF8_DECODER3.decode(stateBytes));
-  } catch (error) {
-    fail2(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `Canonical message ${slot} JSON is invalid: ${error.message}`
-    );
-  }
-  assertExactKeys3(
-    state,
-    [
-      "schemaVersion",
-      "messageRevision",
-      "messageSha256",
-      "messageSource",
-      "byteCount",
-      "validationSha256"
-    ],
-    `Canonical message ${slot} state`
-  );
-  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN3.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN3.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
-    fail2(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `Canonical message ${slot} state does not match its artifacts.`
-    );
-  }
-  assertValidationMatches(message, validation, state.messageSource);
-  const stateSha256 = sha256(stateBytes);
-  return {
-    ...state,
-    bytes: message,
-    displayText: message.toString("utf8"),
-    validation,
-    stateSha256,
-    transactionState: transactionMessageState(state, stateSha256),
-    ...paths
-  };
-}
-function sameTransactionMessage(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function removeSlot(transaction, messageDirectory, slot) {
-  const { directory } = slotPaths(messageDirectory, slot);
-  assertContained(transaction.attemptDirectory, directory);
-  if (!existsSync10(directory)) {
-    return;
-  }
-  ensureDirectory2(directory, `Canonical message ${slot} slot`);
-  rmSync3(directory, { recursive: true, force: false });
-  flushDirectory3(messageDirectory);
-}
-function renameSlot(messageDirectory, source, destination) {
-  const sourcePath = slotPaths(messageDirectory, source).directory;
-  const destinationPath = slotPaths(messageDirectory, destination).directory;
-  if (existsSync10(destinationPath)) {
-    fail2(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      `Canonical message ${destination} slot is already occupied.`
-    );
-  }
-  renameSync4(sourcePath, destinationPath);
-  flushDirectory3(messageDirectory);
-}
-function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
-  const current = readTransaction(transactionPath);
-  if (sameTransactionMessage(current.message, nextMessage)) {
-    return current;
-  }
-  if (!sameTransactionMessage(current.message, priorMessage)) {
-    fail2(
-      "MESSAGE_TRANSACTION_DRIFT",
-      "Transaction message state changed during canonical replacement."
-    );
-  }
-  if (current.phase === "message-ready") {
-    return updateTransaction(transactionPath, "message-ready", {
-      ...current,
-      phase: "message-ready",
-      status: "message-ready",
-      message: nextMessage
-    });
-  }
-  if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending", "authoring-pending"])).has(
-    current.phase
-  )) {
-    fail2(
-      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
-      `Canonical message replacement is not allowed in phase ${current.phase}.`
-    );
-  }
-  return advanceTransaction(transactionPath, current.phase, {
-    ...current,
-    phase: "message-ready",
-    status: "message-ready",
-    message: nextMessage
-  });
-}
-function readJournal2(transaction, journalPath) {
-  const bytes = readStablePath(journalPath, {
-    maximumBytes: MAXIMUM_JOURNAL_BYTES2,
-    label: "Canonical message replacement journal",
-    allowPathReplacement: false
-  }).bytes;
-  let journal;
-  try {
-    journal = JSON.parse(STRICT_UTF8_DECODER3.decode(bytes));
-  } catch (error) {
-    fail2(
-      "MESSAGE_REPLACEMENT_CORRUPT",
-      `Canonical message replacement journal is invalid: ${error.message}`
-    );
-  }
-  assertExactKeys3(
-    journal,
-    ["schemaVersion", "priorMessage", "nextMessage"],
-    "Canonical message replacement journal"
-  );
-  if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
-    fail2(
-      "MESSAGE_REPLACEMENT_CORRUPT",
-      "Canonical message replacement journal has invalid state references."
-    );
-  }
-  assertContained(transaction.attemptDirectory, journalPath);
-  return journal;
-}
-function safeSlot(messageDirectory, slot) {
-  try {
-    return { value: readSlot(messageDirectory, slot), error: null };
-  } catch (error) {
-    return { value: null, error };
-  }
-}
-function cleanupReplacementRemnants(transaction, messageDirectory, journalPath) {
-  removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
-  removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
-  if (existsSync10(journalPath)) {
-    unlinkSync4(journalPath);
-    flushDirectory3(transaction.attemptDirectory);
-  }
-}
-function steadyCanonicalMessage(transaction, messageDirectory) {
-  if (transaction.message === null) {
-    return null;
-  }
-  const current = readSlot(messageDirectory, CURRENT_SLOT);
-  if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
-    fail2(
-      "CANONICAL_MESSAGE_CORRUPT",
-      "The transaction does not match its fixed current message slot."
-    );
-  }
-  return current;
-}
-function recoverCanonicalMessageReplacement(transactionPath) {
-  let transaction = readTransaction(transactionPath);
-  const messageDirectory = ensureMessageDirectory(transaction);
-  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
-  if (!existsSync10(journalPath)) {
-    const current2 = safeSlot(messageDirectory, CURRENT_SLOT);
-    const candidate2 = safeSlot(messageDirectory, CANDIDATE_SLOT);
-    const previous2 = safeSlot(messageDirectory, PREVIOUS_SLOT);
-    if (candidate2.value !== null || candidate2.error !== null) {
-      removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
-    }
-    if (previous2.value !== null || previous2.error !== null) {
-      if (current2.value !== null && sameTransactionMessage(
-        current2.value.transactionState,
-        transaction.message
-      )) {
-        removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
-      } else {
-        fail2(
-          "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
-          "A previous canonical slot remains without a replacement journal."
-        );
-      }
-    }
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  const journal = readJournal2(transaction, journalPath);
-  let current = safeSlot(messageDirectory, CURRENT_SLOT);
-  const candidate = safeSlot(messageDirectory, CANDIDATE_SLOT);
-  let previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
-  const nextMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.nextMessage);
-  const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
-  if (!nextMatches(current) && nextMatches(candidate)) {
-    if (current.value !== null && !priorMatches(current)) {
-      fail2(
-        "MESSAGE_REPLACEMENT_CORRUPT",
-        "The current message slot matches neither side of the pending replacement."
-      );
-    }
-    if (current.value !== null) {
-      if (previous.value !== null || previous.error !== null) {
-        fail2(
-          "MESSAGE_REPLACEMENT_CORRUPT",
-          "Both current and previous slots are occupied during recovery."
-        );
-      }
-      renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
-      previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
-    }
-    renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
-    current = safeSlot(messageDirectory, CURRENT_SLOT);
-  }
-  if (nextMatches(current)) {
-    transaction = installTransactionMessage(
-      transactionPath,
-      journal.priorMessage,
-      journal.nextMessage
-    );
-    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  if (!priorMatches(current) && priorMatches(previous)) {
-    if (current.value !== null || current.error !== null) {
-      removeSlot(transaction, messageDirectory, CURRENT_SLOT);
-    }
-    renameSlot(messageDirectory, PREVIOUS_SLOT, CURRENT_SLOT);
-    current = safeSlot(messageDirectory, CURRENT_SLOT);
-  }
-  if (priorMatches(current)) {
-    if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
-      if (transaction.phase !== "message-ready") {
-        fail2(
-          "MESSAGE_REPLACEMENT_CORRUPT",
-          "The transaction advanced without a recoverable canonical candidate."
-        );
-      }
-      transaction = updateTransaction(transactionPath, "message-ready", {
-        ...transaction,
-        message: journal.priorMessage
-      });
-    }
-    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  fail2(
-    "MESSAGE_REPLACEMENT_CORRUPT",
-    "Neither side of the pending canonical message replacement is recoverable."
-  );
-}
-function readCanonicalMessage(transactionPath) {
-  return recoverCanonicalMessageReplacement(transactionPath);
-}
-function assertReplacementRoute(transaction, source) {
-  if (!MESSAGE_SOURCES2.has(source)) {
-    fail2(
-      "MESSAGE_SOURCE_INVALID",
-      `Unknown canonical message source ${JSON.stringify(source)}.`
-    );
-  }
-  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase);
-  if (!allowed || transaction.commit !== null) {
-    fail2(
-      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
-      `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
-    );
-  }
-}
-function replaceCanonicalMessage({
-  transactionPath,
-  bytes: inputBytes,
-  validation,
-  source,
-  failureInjector = () => {
-  }
-}) {
-  if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
-    fail2("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
-  }
-  const bytes = Buffer.from(inputBytes);
-  if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail2(
-      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
-      `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
-    );
-  }
-  let transaction = readTransaction(transactionPath);
-  assertReplacementRoute(transaction, source);
-  assertValidationMatches(bytes, validation, source);
-  const prior = recoverCanonicalMessageReplacement(transactionPath);
-  transaction = readTransaction(transactionPath);
-  assertReplacementRoute(transaction, source);
-  const messageDirectory = ensureMessageDirectory(transaction);
-  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
-  if (existsSync10(journalPath) || existsSync10(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync10(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
-    fail2(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      "Canonical replacement remnants remain after recovery."
-    );
-  }
-  const candidate = writeCandidate({
-    messageDirectory,
-    bytes,
-    validation,
-    source,
-    revision: (prior?.messageRevision ?? 0) + 1,
-    failureInjector
-  });
-  const journal = {
-    schemaVersion: 1,
-    priorMessage: prior?.transactionState ?? null,
-    nextMessage: candidate.transactionState
-  };
-  failureInjector("before-journal-flush");
-  writeNewFile2(journalPath, canonicalJsonBytes(journal));
-  flushDirectory3(transaction.attemptDirectory);
-  failureInjector("after-journal-flush");
-  failureInjector("before-current-to-previous");
-  if (prior !== null) {
-    renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
-  }
-  failureInjector("after-current-to-previous");
-  failureInjector("before-candidate-to-current");
-  renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
-  failureInjector("after-candidate-to-current");
-  failureInjector("before-transaction-advance");
-  transaction = installTransactionMessage(
-    transactionPath,
-    journal.priorMessage,
-    journal.nextMessage
-  );
-  failureInjector("after-transaction-advance");
-  failureInjector("before-remnant-cleanup");
-  cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-  failureInjector("after-remnant-cleanup");
-  return steadyCanonicalMessage(transaction, messageDirectory);
-}
-var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES2, SHA256_PATTERN3, STRICT_UTF8_DECODER3, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2;
-var init_canonicalMessageState = __esm({
-  "src/committing-to-git/message/canonicalMessageState.js"() {
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_approvedMessage();
-    init_transactionWorkspace();
-    MESSAGE_DIRECTORY_NAME = "message";
-    CURRENT_SLOT = "current";
-    CANDIDATE_SLOT = "candidate";
-    PREVIOUS_SLOT = "previous";
-    PENDING_JOURNAL_NAME = "message-replacement.pending.json";
-    MESSAGE_FILE_NAME = "message.txt";
-    VALIDATION_FILE_NAME = "validation.json";
-    STATE_FILE_NAME = "state.json";
-    MAXIMUM_VALIDATION_BYTES = 80 * 1024;
-    MAXIMUM_JOURNAL_BYTES2 = 16 * 1024;
-    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
-    STRICT_UTF8_DECODER3 = new TextDecoder4("utf-8", { fatal: true });
-    WINDOWS_RENAME_RETRY_CODES2 = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
-    MAXIMUM_WINDOWS_RENAME_ATTEMPTS2 = 4;
-    MESSAGE_SOURCES2 = /* @__PURE__ */ new Set([
-      "approved-subject",
-      "checked-file",
-      "finalized-extended"
-    ]);
-  }
-});
-
 // src/committing-to-git/message/semanticContentContract.js
 function selectionExample(field, value) {
   return { [field]: [value] };
@@ -11118,13 +11202,13 @@ var init_semanticContentContract = __esm({
 });
 
 // src/committing-to-git/workflow/authoringProgress.js
-import { resolve as resolve9 } from "node:path";
+import { resolve as resolve10 } from "node:path";
 function worksheetMatchesTemplate(transaction, template) {
   const expected = Buffer.from(`${JSON.stringify(template, null, 2)}
 `);
   try {
     const opened = readTransactionOwnedFile({
-      transactionPath: resolve9(
+      transactionPath: resolve10(
         transaction.attemptDirectory,
         "transaction.json"
       ),
@@ -11139,7 +11223,7 @@ function worksheetMatchesTemplate(transaction, template) {
   }
 }
 function messageAuthoringRecovery(transaction, transactionPath) {
-  const handle = resolve9(transactionPath);
+  const handle = resolve10(transactionPath);
   const concise = transaction.route === "concise" && transaction.phase === "evidence-ready";
   const extended2 = transaction.route === "extended" && ["review-pending", "authoring-pending"].includes(transaction.phase);
   if (!concise && !extended2) {
@@ -11155,7 +11239,7 @@ function messageAuthoringRecovery(transaction, transactionPath) {
   }
   const progress = concise ? {
     nextAction: "author-message",
-    messagePath: resolve9(transaction.attemptDirectory, "message-input.txt"),
+    messagePath: resolve10(transaction.attemptDirectory, "message-input.txt"),
     contentPath: null
   } : authoringProgress(transaction);
   const command = progress.nextAction === "review-next" ? ["workflow", "review-next"] : progress.nextAction === "author-content" ? ["message", "finalize"] : ["message", "check"];
@@ -11206,9 +11290,9 @@ function authoringProgress(transaction) {
       nextCursor: traversal?.nextCursor ?? null
     },
     nextAction: complete ? structuredContentRequired ? "author-content" : "author-message" : "review-next",
-    contentPath: structuredContentRequired ? resolve9(transaction.attemptDirectory, "content.json") : null,
+    contentPath: structuredContentRequired ? resolve10(transaction.attemptDirectory, "content.json") : null,
     contentContract: structuredContentRequired ? semanticContentContract(transaction.review.structuredMessageMode) : null,
-    messagePath: complete && !structuredContentRequired ? resolve9(transaction.attemptDirectory, "message-input.txt") : null
+    messagePath: complete && !structuredContentRequired ? resolve10(transaction.attemptDirectory, "message-input.txt") : null
   };
 }
 var init_authoringProgress = __esm({
@@ -11244,11 +11328,11 @@ import {
   lstatSync as lstatSync7,
   mkdirSync as mkdirSync7,
   openSync as openSync8,
-  readFileSync as readFileSync6,
+  readFileSync as readFileSync5,
   unlinkSync as unlinkSync5,
   writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname8, resolve as resolve10 } from "node:path";
+import { dirname as dirname8, resolve as resolve11 } from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
 function fail3(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -11523,7 +11607,7 @@ function normalizeEvidencePlan(payload) {
   };
 }
 function readBoundedJson(path, label) {
-  const absolutePath = resolve10(path);
+  const absolutePath = resolve11(path);
   const initialPathStat = lstatSync7(absolutePath);
   if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
     fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
@@ -11541,7 +11625,7 @@ function readBoundedJson(path, label) {
         `${label} exceeds ${MAXIMUM_INITIAL_JSON_INPUT_BYTES} bytes.`
       );
     }
-    const bytes = readFileSync6(descriptor);
+    const bytes = readFileSync5(descriptor);
     const after = fstatSync7(descriptor);
     const finalPathStat = lstatSync7(absolutePath);
     if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
@@ -12125,7 +12209,7 @@ async function spoolEvidenceGroup({
   launchers
 }) {
   const units = patchUnitsForGroup(manifest, group);
-  const path = resolve10(
+  const path = resolve11(
     attemptDirectory,
     `.evidence-${group.id}-${randomUUID5()}.tmp`
   );
@@ -12233,7 +12317,7 @@ function inlineEvidenceManifest(manifest, records, evidencePlan) {
     evidenceByGroupId: Object.fromEntries(
       records.map((record) => [
         record.group.id,
-        record.empty ? Buffer.alloc(0) : readFileSync6(record.path)
+        record.empty ? Buffer.alloc(0) : readFileSync5(record.path)
       ])
     )
   };
@@ -12269,10 +12353,10 @@ function cleanupEvidenceSpools(records) {
   }
 }
 function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
-  const path = resolve10(attemptDirectory, "evidence-plan.json");
+  const path = resolve11(attemptDirectory, "evidence-plan.json");
   const bytes = stableJsonBytes(evidencePlan);
   if (existsSync11(path)) {
-    if (!readFileSync6(path).equals(bytes)) {
+    if (!readFileSync5(path).equals(bytes)) {
       throw new Error(
         "Canonical evidence-plan artifact has conflicting bytes."
       );
@@ -12390,7 +12474,7 @@ async function routePreparedEvidence({
       );
       return completed2;
     }
-    const reviewDirectory = resolve10(transaction.attemptDirectory, "review");
+    const reviewDirectory = resolve11(transaction.attemptDirectory, "review");
     if (records.some(({ empty }) => !empty) && !existsSync11(reviewDirectory)) {
       mkdirSync7(reviewDirectory);
     }
@@ -12482,7 +12566,7 @@ function successEnvelope(transaction, summary) {
     disposition: "succeeded",
     status: "prepared",
     phase: transaction.phase,
-    transaction: resolve10(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve11(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -12496,6 +12580,9 @@ function successEnvelope(transaction, summary) {
       headAnchor: transaction.headAnchor,
       indexTreeOid: transaction.snapshot.indexTreeOid,
       changeUnitCount: transaction.snapshot.changeUnitCount,
+      commitExecution: snapshotExecution(
+        lstatSync7(transaction.snapshot.path).size
+      ),
       evidencePlanSha256: transaction.initialEvidencePlan.sha256,
       ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
         extendedReason: transaction.review.extendedReason,
@@ -12545,6 +12632,15 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
       status: "stopped",
       terminalDisposition: "no-commit-stopped"
     });
+    if (error instanceof WorkflowDiagnosticError && error.code === "SNAPSHOT_CAPACITY_EXCEEDED") {
+      error.state = {
+        transaction: transactionPath,
+        phase: stopped.phase,
+        commitState: "absent",
+        publicationState: "not-requested"
+      };
+      return error;
+    }
     const stoppedError = new WorkflowDiagnosticError(
       "PREPARATION_STOPPED",
       "Preparation stopped before index installation. Inspect the retained transaction before starting new work.",
@@ -12598,12 +12694,12 @@ async function prepareWorkflow({
   let normalizedScope = null;
   let normalizedEvidence;
   if (parsed.scope === "paths") {
-    const payload = parsed.scopeFilePath ? readBoundedJson(resolve10(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
+    const payload = parsed.scopeFilePath ? readBoundedJson(resolve11(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
     normalizedScope = normalizeScopePayload(payload);
   }
   if (parsed.evidencePlanPath) {
     normalizedEvidence = normalizeEvidencePlan(
-      readBoundedJson(resolve10(cwd, parsed.evidencePlanPath), "Evidence plan")
+      readBoundedJson(resolve11(cwd, parsed.evidencePlanPath), "Evidence plan")
     );
   } else {
     normalizedEvidence = normalizeEvidencePlan({
@@ -12710,7 +12806,7 @@ async function prepareWorkflow({
     verificationPolicy: parsed.verificationPolicy,
     signaturePreflight
   });
-  const snapshotPath = resolve10(workspace.attemptDirectory, "snapshot.json");
+  const snapshotPath = resolve11(workspace.attemptDirectory, "snapshot.json");
   let snapshotResult;
   let prepared;
   try {
@@ -12720,7 +12816,7 @@ async function prepareWorkflow({
       scope: parsed.scope,
       scopePaths: selectedPaths,
       outputPath: snapshotPath,
-      preparedIndexPath: parsed.scope === "staged" ? null : resolve10(
+      preparedIndexPath: parsed.scope === "staged" ? null : resolve11(
         workspace.attemptDirectory,
         parsed.mode === "draft" ? "temporary-index" : "preparation-index"
       ),
@@ -12741,7 +12837,7 @@ async function prepareWorkflow({
         "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB. Use the supported bulk authoring route for this scope."
       );
     }
-    const snapshotBytes = readFileSync6(snapshotPath);
+    const snapshotBytes = readFileSync5(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {
       ...allocated,
       scope: {
@@ -12826,6 +12922,7 @@ var STORAGE_OVERRIDE_NAMES, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, INLINE_S
 var init_prepareWorkflow = __esm({
   "src/committing-to-git/workflow/prepareWorkflow.js"() {
     init_commandExecution();
+    init_recordedSnapshot();
     init_workflowDiagnosticError();
     init_diagnosticContract();
     init_evidenceVocabulary();
@@ -12881,11 +12978,11 @@ var init_prepareWorkflow = __esm({
 });
 
 // src/committing-to-git/transaction/transactionDiagnosticState.js
-import { resolve as resolve11 } from "node:path";
+import { resolve as resolve12 } from "node:path";
 function transactionDiagnosticState(transaction, transactionPath) {
   const publication = transaction.publicationAttempts.at(-1);
   return {
-    transaction: resolve11(transactionPath),
+    transaction: resolve12(transactionPath),
     phase: transaction.phase,
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : transaction.phase === "commit-pending" ? "unknown" : "absent",
@@ -12927,11 +13024,11 @@ import {
   lstatSync as lstatSync8,
   mkdirSync as mkdirSync8,
   openSync as openSync9,
-  readFileSync as readFileSync7,
+  readFileSync as readFileSync6,
   unlinkSync as unlinkSync6,
   writeFileSync as writeFileSync8
 } from "node:fs";
-import { resolve as resolve12 } from "node:path";
+import { resolve as resolve13 } from "node:path";
 import { TextDecoder as TextDecoder6 } from "node:util";
 function fail4(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -12948,7 +13045,7 @@ function readFixedEvidencePlan(path) {
   const descriptor = openSync9(path, fsConstants7.O_RDONLY + noFollow);
   try {
     const before = fstatSync8(descriptor);
-    const bytes = readFileSync7(descriptor);
+    const bytes = readFileSync6(descriptor);
     const after = fstatSync8(descriptor);
     const finalPathStat = lstatSync8(path);
     if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
@@ -12988,7 +13085,9 @@ function readFixedEvidencePlan(path) {
   }
 }
 function readExactSnapshot(transaction) {
-  const bytes = readFileSync7(transaction.snapshot.path);
+  const { bytes } = readRecordedSnapshotFile(
+    resolve13(transaction.attemptDirectory, "transaction.json")
+  );
   if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
     fail4(
       "SNAPSHOT_CHANGED",
@@ -12996,7 +13095,7 @@ function readExactSnapshot(transaction) {
       {
         disposition: "rejected",
         details: {
-          transaction: resolve12(
+          transaction: resolve13(
             transaction.snapshot.path,
             "..",
             "transaction.json"
@@ -13047,13 +13146,13 @@ function initialGroups(transaction) {
   );
 }
 function writeEvidencePlanRevision(transaction, evidencePlan) {
-  const path = resolve12(
+  const path = resolve13(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   const bytes = stableJsonBytes(evidencePlan);
   if (existsSync12(path)) {
-    if (!readFileSync7(path).equals(bytes)) {
+    if (!readFileSync6(path).equals(bytes)) {
       fail4(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
@@ -13069,7 +13168,7 @@ function extensionResult(transaction) {
     disposition: "succeeded",
     status: transaction.status,
     phase: transaction.phase,
-    transaction: resolve12(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve13(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -13104,7 +13203,7 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
       `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve12(transactionPath) }
+        details: { transaction: resolve13(transactionPath) }
       }
     );
   }
@@ -13113,14 +13212,14 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
     fail4(
       "UNEXPECTED_EVIDENCE_PLAN_INPUT",
       "Semantic-structure extension forbids an evidence-plan input.",
-      { details: { transaction: resolve12(transactionPath) } }
+      { details: { transaction: resolve13(transactionPath) } }
     );
   }
   if (reason === "evidence-uncertainty" && !existsSync12(inputPath)) {
     fail4(
       "MISSING_EVIDENCE_PLAN_INPUT",
       "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
-      { details: { transaction: resolve12(transactionPath) } }
+      { details: { transaction: resolve13(transactionPath) } }
     );
   }
   const manifest = readExactSnapshot(transaction);
@@ -13128,7 +13227,7 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
   const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
   const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
   const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
-  const reviewDirectory = resolve12(transaction.attemptDirectory, "review");
+  const reviewDirectory = resolve13(transaction.attemptDirectory, "review");
   let records = [];
   try {
     if (reason === "evidence-uncertainty") {
@@ -13245,6 +13344,7 @@ var STRICT_UTF8_DECODER5, EXTENSION_REASONS;
 var init_extendReviewWorkflow = __esm({
   "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
     init_transactionDiagnosticState();
+    init_recordedSnapshot();
     init_diagnosticContract();
     init_commandExecution();
     init_workflowDiagnosticError();
@@ -13275,7 +13375,7 @@ __export(reviewNextWorkflow_exports, {
 });
 import { createHash as createHash11 } from "node:crypto";
 import { lstatSync as lstatSync9, realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve13, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve14, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder7 } from "node:util";
 function fail5(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -13291,8 +13391,8 @@ function readCurrentCatalog(transaction) {
       "The transaction has no extended review state."
     );
   }
-  const reviewDirectory = resolve13(transaction.attemptDirectory, "review");
-  const catalogPath = resolve13(transaction.review.catalogPath);
+  const reviewDirectory = resolve14(transaction.attemptDirectory, "review");
+  const catalogPath = resolve14(transaction.review.catalogPath);
   if (!isContained(transaction.attemptDirectory, catalogPath) || !isContained(reviewDirectory, catalogPath)) {
     fail5(
       "REVIEW_CATALOG_ESCAPES_TRANSACTION",
@@ -13324,7 +13424,7 @@ function assertReviewNextTransaction(transaction, transactionPath) {
       `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
         disposition: "unmet-prerequisite",
-        details: { transaction: resolve13(transactionPath) }
+        details: { transaction: resolve14(transactionPath) }
       }
     );
   }
@@ -13413,7 +13513,7 @@ function reviewResult({ transaction, transactionPath, packet, content }) {
       disposition: "succeeded",
       status: transaction.status,
       phase: transaction.phase,
-      transaction: resolve13(transactionPath),
+      transaction: resolve14(transactionPath),
       route: transaction.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -13570,8 +13670,8 @@ __export(resumePreparationWorkflow_exports, {
   runResumePreparationCommand: () => runResumePreparationCommand
 });
 import { createHash as createHash12 } from "node:crypto";
-import { existsSync as existsSync13, lstatSync as lstatSync10, readFileSync as readFileSync8, unlinkSync as unlinkSync7 } from "node:fs";
-import { join as join9, relative as relative6, resolve as resolve14 } from "node:path";
+import { existsSync as existsSync13, lstatSync as lstatSync10, unlinkSync as unlinkSync7 } from "node:fs";
+import { join as join9, relative as relative6, resolve as resolve15 } from "node:path";
 function fail6(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
@@ -13579,9 +13679,9 @@ function sha2563(bytes) {
   return createHash12("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve14(attemptDirectory, name);
+  const expected = resolve15(attemptDirectory, name);
   const relation = relative6(attemptDirectory, path);
-  if (resolve14(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+  if (resolve15(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
     fail6(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} has an invalid recorded path.`
@@ -13608,7 +13708,9 @@ function validatePersistedSnapshot(transaction) {
     snapshot.path,
     "snapshot.json"
   );
-  const bytes = readFileSync8(snapshot.path);
+  const { bytes } = readRecordedSnapshotFile(
+    resolve15(transaction.attemptDirectory, "transaction.json")
+  );
   if (sha2563(bytes) !== snapshot.sha256) {
     fail6(
       "INVALID_TRANSACTION_ARTIFACT",
@@ -13667,7 +13769,7 @@ function resultEnvelope(transaction) {
     disposition: "succeeded",
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
-    transaction: resolve14(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve15(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -13766,7 +13868,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
       `Preparation cannot resume from phase ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve14(transactionPath) }
+        details: { transaction: resolve15(transactionPath) }
       }
     );
   }
@@ -13802,7 +13904,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
           disposition: "rejected",
           cause: error,
           state: {
-            transaction: resolve14(transactionPath),
+            transaction: resolve15(transactionPath),
             phase: "allocated",
             commitState: "absent",
             publicationState: "not-requested",
@@ -13848,6 +13950,7 @@ async function runResumePreparationCommand(argv, { stdout = process.stdout } = {
 var init_resumePreparationWorkflow = __esm({
   "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
     init_transactionDiagnosticState();
+    init_recordedSnapshot();
     init_diagnosticContract();
     init_commandExecution();
     init_workflowDiagnosticError();
@@ -13869,7 +13972,7 @@ __export(promoteDraftWorkflow_exports, {
 });
 import { createHash as createHash13 } from "node:crypto";
 import { existsSync as existsSync14 } from "node:fs";
-import { isAbsolute as isAbsolute9, join as join10, resolve as resolve15 } from "node:path";
+import { isAbsolute as isAbsolute9, join as join10, resolve as resolve16 } from "node:path";
 import { TextDecoder as TextDecoder8 } from "node:util";
 function fail7(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -13878,8 +13981,8 @@ function sha2564(bytes) {
   return createHash13("sha256").update(bytes).digest("hex");
 }
 function samePath2(left, right) {
-  const normalizedLeft = resolve15(left);
-  const normalizedRight = resolve15(right);
+  const normalizedLeft = resolve16(left);
+  const normalizedRight = resolve16(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function sameValue(left, right) {
@@ -13887,16 +13990,10 @@ function sameValue(left, right) {
 }
 function realIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve15(isAbsolute9(gitPath) ? gitPath : join10(root, gitPath));
+  return resolve16(isAbsolute9(gitPath) ? gitPath : join10(root, gitPath));
 }
 function readDraftManifest(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false
-  });
+  const input = readRecordedSnapshotFile(transactionPath);
   if (!samePath2(input.path, transaction.snapshot?.path ?? "") || sha2564(input.bytes) !== transaction.snapshot?.sha256) {
     fail7(
       "SNAPSHOT_ARTIFACT_MISMATCH",
@@ -14193,7 +14290,7 @@ function successEnvelope2(transaction) {
     disposition: "succeeded",
     status: "promoted",
     phase: transaction.phase,
-    transaction: resolve15(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve16(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14237,7 +14334,7 @@ function persistRecoveryObservation({
   return updatePromotionRecord(transactionPath, transaction, { promotion });
 }
 function recoverDraftPromotion({ transactionPath }) {
-  const canonicalTransactionPath = resolve15(transactionPath);
+  const canonicalTransactionPath = resolve16(transactionPath);
   const transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   if (transaction.snapshot?.promotion === void 0 || transaction.snapshot.promotion === null) {
@@ -14409,7 +14506,7 @@ function promoteDraftWorkflow({
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
     fail7("TRANSACTION_REQUIRED", "A transaction path is required.");
   }
-  const canonicalTransactionPath = resolve15(transactionPath);
+  const canonicalTransactionPath = resolve16(transactionPath);
   let transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   const manifest = readDraftManifest(canonicalTransactionPath, transaction);
@@ -14562,6 +14659,7 @@ var init_promoteDraftWorkflow = __esm({
     init_commandExecution();
     init_workflowDiagnosticError();
     init_commandArguments();
+    init_recordedSnapshot();
     init_gitRepository();
     init_inlineEvidenceCapsule();
     init_reviewCatalog();
@@ -14675,12 +14773,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve30, reject) {
+        return new Promise(function(resolve31, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve30(is);
+              resolve31(is);
             }
           });
         });
@@ -14746,27 +14844,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve30, reject) => {
+      const step = (i) => new Promise((resolve31, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve30(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve31(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve30(subStep(p, i, 0));
+        resolve31(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve30, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve31, reject) => {
         if (ii === pathExt.length)
-          return resolve30(step(i + 1));
+          return resolve31(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve30(p + ext);
+              return resolve31(p + ext);
           }
-          return resolve30(subStep(p, i, ii + 1));
+          return resolve31(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -15090,7 +15188,7 @@ import {
   realpathSync as realpathSync6,
   writeFileSync as writeFileSync9
 } from "node:fs";
-import { join as join11, relative as relative7, resolve as resolve16 } from "node:path";
+import { join as join11, relative as relative7, resolve as resolve17 } from "node:path";
 function assertContained2(parent, child) {
   const path = relative7(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -15102,12 +15200,12 @@ function ensureDirectory3(path, label) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync6(path) !== resolve16(path)) {
+  if (realpathSync6(path) !== resolve17(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function processLogDirectory(attemptDirectory) {
-  const normalizedAttempt = resolve16(attemptDirectory);
+  const normalizedAttempt = resolve17(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
   const directory = join11(normalizedAttempt, "process-logs");
   assertContained2(normalizedAttempt, directory);
@@ -15324,7 +15422,7 @@ var init_checkOutputCapture = __esm({
 
 // src/committing-to-git/checks/checkWorkspace.js
 import { lstatSync as lstatSync12 } from "node:fs";
-import { resolve as resolve17, sep as sep4 } from "node:path";
+import { resolve as resolve18, sep as sep4 } from "node:path";
 function rawPath(value, label) {
   if (typeof value !== "string") {
     throw new Error(`${label} must be a base64-encoded raw Git path.`);
@@ -15405,7 +15503,7 @@ function objectEnvironment(manifest) {
   };
 }
 function rawFilesystemPath(root, pathBytes) {
-  const rootPrefix = Buffer.from(`${resolve17(root)}${sep4}`, "utf8");
+  const rootPrefix = Buffer.from(`${resolve18(root)}${sep4}`, "utf8");
   return Buffer.concat([rootPrefix, pathBytes]);
 }
 function pathIsAbsent(root, pathBytes) {
@@ -16447,20 +16545,20 @@ import {
   fsyncSync as fsyncSync8,
   lstatSync as lstatSync13,
   openSync as openSync11,
-  readFileSync as readFileSync9,
+  readFileSync as readFileSync7,
   readdirSync as readdirSync3,
   realpathSync as realpathSync7,
   rmSync as rmSync4,
   unlinkSync as unlinkSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute10, join as join12, relative as relative8, resolve as resolve18 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute10, join as join12, relative as relative8, resolve as resolve19 } from "node:path";
 function sha2565(bytes) {
   return createHash16("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
-  const normalizedLeft = resolve18(left);
-  const normalizedRight = resolve18(right);
+  const normalizedLeft = resolve19(left);
+  const normalizedRight = resolve19(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function assertContained3(parent, child, { allowSame = false } = {}) {
@@ -16470,7 +16568,7 @@ function assertContained3(parent, child, { allowSame = false } = {}) {
   }
 }
 function validateAttemptDirectory(transaction) {
-  const attempt = resolve18(transaction.attemptDirectory);
+  const attempt = resolve19(transaction.attemptDirectory);
   if (!ATTEMPT_PATTERN.test(basename2(attempt))) {
     throw new Error(
       "Transaction attempt directory does not contain its UUID handle."
@@ -16507,7 +16605,7 @@ function acquireTransactionStateLock({
       const stat = lstatSync13(path);
       let owner;
       try {
-        owner = JSON.parse(readFileSync9(path, "utf8"));
+        owner = JSON.parse(readFileSync7(path, "utf8"));
       } catch {
         owner = null;
       }
@@ -16573,7 +16671,7 @@ function releaseTransactionStateLock(lock) {
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error("Transaction-state lock was replaced.");
   }
-  const recorded = JSON.parse(readFileSync9(lock.path, "utf8"));
+  const recorded = JSON.parse(readFileSync7(lock.path, "utf8"));
   if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
     throw new Error("Transaction-state lock ownership changed.");
   }
@@ -16634,7 +16732,7 @@ function processStartIdentity(pid) {
     return null;
   }
   try {
-    const stat = readFileSync9(`/proc/${pid}/stat`, "utf8");
+    const stat = readFileSync7(`/proc/${pid}/stat`, "utf8");
     const closingName = stat.lastIndexOf(") ");
     const fields = stat.slice(closingName + 2).split(" ");
     return fields[19] ?? null;
@@ -17117,7 +17215,7 @@ __export(runCheckWorkflow_exports, {
 });
 import { createHash as createHash17 } from "node:crypto";
 import { lstatSync as lstatSync14, realpathSync as realpathSync8 } from "node:fs";
-import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve19 } from "node:path";
+import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve20 } from "node:path";
 function fail8(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
@@ -17125,14 +17223,8 @@ function sha2566(bytes) {
   return createHash17("sha256").update(bytes).digest("hex");
 }
 function readSnapshot(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false
-  });
-  if (resolve19(input.path) !== resolve19(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
+  const input = readRecordedSnapshotFile(transactionPath);
+  if (resolve20(input.path) !== resolve20(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
     fail8(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
@@ -17160,7 +17252,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
       { cause: error }
     );
   }
-  const candidate = resolve19(repositoryRoot2, requestedDirectory);
+  const candidate = resolve20(repositoryRoot2, requestedDirectory);
   const stat = lstatSync14(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail8(
@@ -17261,7 +17353,7 @@ function checkRecoveryResult({
     disposition,
     status,
     phase: transaction.phase,
-    transaction: resolve19(transactionPath),
+    transaction: resolve20(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17402,7 +17494,7 @@ function resultFor({
     disposition,
     status: code === null ? "check-passed" : code === "CHECK_SCOPE_DRIFT" ? "stopped" : "check-failed",
     phase: transaction.phase,
-    transaction: resolve19(transactionPath),
+    transaction: resolve20(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17464,7 +17556,7 @@ async function runCheckWorkflow({
     return createWorkflowResult({
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve19(transactionPath),
+      transaction: resolve20(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -17598,7 +17690,7 @@ async function runCheckWorkflow({
         disposition: "outcome-unknown",
         cause: error,
         state: {
-          transaction: resolve19(transactionPath),
+          transaction: resolve20(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -17615,7 +17707,7 @@ async function runCheckWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve19(transactionPath)
+                resolve20(transactionPath)
               ]
             }
           ]
@@ -17731,7 +17823,7 @@ var init_runCheckWorkflow = __esm({
     init_checkOutputCapture();
     init_checkWorkspace();
     init_checkReceipt();
-    init_canonicalMessageState();
+    init_recordedSnapshot();
     init_transactionWorkspace();
     init_transactionRecovery();
     ACTIVE_CHECK_PHASES = /* @__PURE__ */ new Set([
@@ -17759,10 +17851,10 @@ import {
   fstatSync as fstatSync9,
   lstatSync as lstatSync15,
   openSync as openSync12,
-  readFileSync as readFileSync10,
+  readFileSync as readFileSync8,
   realpathSync as realpathSync9
 } from "node:fs";
-import { join as join13, resolve as resolve20 } from "node:path";
+import { join as join13, resolve as resolve21 } from "node:path";
 function fail9(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
@@ -17833,7 +17925,7 @@ function detailResult({
     disposition: "succeeded",
     status: "check-detail",
     phase: transaction.phase,
-    transaction: resolve20(transactionPath),
+    transaction: resolve21(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
@@ -17864,11 +17956,11 @@ function readBoundSegment({
   recordedSha256
 }) {
   const expectedPath = join13(
-    resolve20(transaction.attemptDirectory),
+    resolve21(transaction.attemptDirectory),
     "process-logs",
     `check-${receiptId}-${stream}-${segment}.bin`
   );
-  if (resolve20(recordedPath) !== expectedPath) {
+  if (resolve21(recordedPath) !== expectedPath) {
     fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
@@ -17885,7 +17977,7 @@ function readBoundSegment({
       { disposition: "rejected", cause: error }
     );
   }
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve20(expectedPath)) {
+  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve21(expectedPath)) {
     fail9(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output segment was replaced or is not a regular file.",
@@ -17905,7 +17997,7 @@ function readBoundSegment({
   }
   try {
     const before = fstatSync9(descriptor, { bigint: true });
-    const bytes = readFileSync10(descriptor);
+    const bytes = readFileSync8(descriptor);
     const after = fstatSync9(descriptor, { bigint: true });
     const final = lstatSync15(expectedPath, { bigint: true });
     if (!before.isFile() || !after.isFile() || final.isSymbolicLink() || !final.isFile() || !sameIdentity2(identity(initial), identity(before)) || !sameIdentity2(identity(before), identity(after)) || !sameIdentity2(identity(after), identity(final)) || bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
@@ -18076,10 +18168,10 @@ var init_checkDetailWorkflow = __esm({
 });
 
 // src/committing-to-git/snapshot/verifySnapshot.js
-import { resolve as resolve21 } from "node:path";
+import { resolve as resolve22 } from "node:path";
 function samePath4(left, right) {
-  const normalizedLeft = resolve21(left);
-  const normalizedRight = resolve21(right);
+  const normalizedLeft = resolve22(left);
+  const normalizedRight = resolve22(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function manifestEnvironment2(manifest) {
@@ -18173,11 +18265,11 @@ import {
   lstatSync as lstatSync16,
   mkdirSync as mkdirSync10,
   openSync as openSync13,
-  readFileSync as readFileSync11,
+  readFileSync as readFileSync9,
   realpathSync as realpathSync10,
   writeSync
 } from "node:fs";
-import { dirname as dirname9, join as join14, relative as relative10, resolve as resolve22 } from "node:path";
+import { dirname as dirname9, join as join14, relative as relative10, resolve as resolve23 } from "node:path";
 function assertContained4(parent, child) {
   const path = relative10(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -18191,12 +18283,12 @@ function ensureDirectory4(path, label) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync10(path) !== resolve22(path)) {
+  if (realpathSync10(path) !== resolve23(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function openTranscript(attemptDirectory, operation, instanceId) {
-  const normalizedAttempt = resolve22(attemptDirectory);
+  const normalizedAttempt = resolve23(attemptDirectory);
   ensureDirectory4(normalizedAttempt, "Transaction attempt directory");
   const directory = join14(normalizedAttempt, "process-logs");
   assertContained4(normalizedAttempt, directory);
@@ -18240,7 +18332,7 @@ function completionDigest(value) {
 }
 function captureGitProcessTranscript({
   transactionPath,
-  attemptDirectory = dirname9(resolve22(transactionPath)),
+  attemptDirectory = dirname9(resolve23(transactionPath)),
   operation,
   instanceId = null,
   child,
@@ -18263,8 +18355,8 @@ function captureGitProcessTranscript({
       "Git transcript capture requires one streaming child process."
     );
   }
-  const normalizedAttempt = resolve22(attemptDirectory);
-  const normalizedTransactionPath = resolve22(transactionPath);
+  const normalizedAttempt = resolve23(attemptDirectory);
+  const normalizedTransactionPath = resolve23(transactionPath);
   if (dirname9(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
@@ -18610,11 +18702,11 @@ import {
   fsyncSync as fsyncSync10,
   lstatSync as lstatSync17,
   openSync as openSync14,
-  readFileSync as readFileSync12,
+  readFileSync as readFileSync10,
   renameSync as renameSync5,
   writeFileSync as writeFileSync11
 } from "node:fs";
-import { dirname as dirname10, join as join15, resolve as resolve23 } from "node:path";
+import { dirname as dirname10, join as join15, resolve as resolve24 } from "node:path";
 import { TextDecoder as TextDecoder10 } from "node:util";
 function fail10(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -18638,14 +18730,8 @@ function assertNoGitStorageOverrides2(environment) {
   }
 }
 function readSnapshot2(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false
-  });
-  if (resolve23(input.path) !== resolve23(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
+  const input = readRecordedSnapshotFile(transactionPath);
+  if (resolve24(input.path) !== resolve24(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
     fail10(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
@@ -18666,7 +18752,7 @@ function directMessage(transactionPath, transaction, manifest, approvedSubject) 
       "This message must be supplied through the fixed message-input.txt check route.",
       {
         state: {
-          transaction: resolve23(transactionPath),
+          transaction: resolve24(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -18939,7 +19025,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
     message: exitCode === 0 ? null : "The commit exists, but comparison or signature policy blocks publication.",
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: report.publication.status === "blocked" ? "blocked" : "not-requested",
@@ -18972,8 +19058,8 @@ function readRecordedReport(transactionPath) {
       "Transaction does not contain a final local report."
     );
   }
-  const report = JSON.parse(readFileSync12(transaction.report.jsonPath, "utf8"));
-  const displayText = readFileSync12(transaction.report.textPath, "utf8");
+  const report = JSON.parse(readFileSync10(transaction.report.jsonPath, "utf8"));
+  const displayText = readFileSync10(transaction.report.textPath, "utf8");
   const exitCode = transaction.status === "reported" ? 0 : 3;
   return reportResult(
     transactionPath,
@@ -19053,7 +19139,7 @@ async function completeRecordedCommit({
   let displayText = renderCommitReport(report);
   if (Buffer.byteLength(
     JSON.stringify({
-      transaction: resolve23(transactionPath),
+      transaction: resolve24(transactionPath),
       report,
       displayText
     })
@@ -19174,7 +19260,7 @@ function incompleteKnownCommitResult(transactionPath, recovery) {
     disposition: "completed-with-failure",
     status: "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: "not-requested",
@@ -19204,7 +19290,7 @@ function uncertainCommitResult(transactionPath, transaction) {
     disposition: knownCommit ? "completed-with-failure" : "outcome-unknown",
     status: knownCommit ? "commit-blocked" : "outcome-unknown",
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "unknown",
     publicationState: "not-requested",
@@ -19229,6 +19315,7 @@ function uncertainCommitResult(transactionPath, transaction) {
 }
 async function createCommitWorkflow({
   transactionPath,
+  execution = "auto",
   approvedSubject = null,
   acknowledgedFailedCheckIds = [],
   retainReviewArtifacts = false,
@@ -19242,6 +19329,12 @@ async function createCommitWorkflow({
   failureInjector = () => {
   }
 }) {
+  if (!["auto", "native"].includes(execution)) {
+    fail10(
+      "INVALID_COMMIT_EXECUTION",
+      "--execution must be auto or native; both retain normal checks, hooks, signing and outcome recovery."
+    );
+  }
   assertNoGitStorageOverrides2(environment);
   let transaction = readTransaction(transactionPath);
   if (transaction.mode !== "actual") {
@@ -19294,7 +19387,7 @@ async function createCommitWorkflow({
       disposition: "rejected",
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve23(transactionPath),
+      transaction: resolve24(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -19480,7 +19573,7 @@ function retrySignatureVerificationWorkflow({
     previousVerification: previous
   });
   const priorReport = JSON.parse(
-    readFileSync12(transaction.report.jsonPath, "utf8")
+    readFileSync10(transaction.report.jsonPath, "utf8")
   );
   const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
@@ -19507,7 +19600,7 @@ function retrySignatureVerificationWorkflow({
     message: publicationAllowed ? null : "Signature verification policy blocks publication of the recorded commit.",
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: transactionDiagnosticState(transaction, transactionPath).publicationState,
@@ -19540,6 +19633,7 @@ function parseArguments4(argv, command) {
   return {
     transactionPath,
     format,
+    execution: flags.get("execution") ?? "auto",
     approvedSubject: flags.get("message") ?? null,
     acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
     retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
@@ -19578,6 +19672,7 @@ var init_createCommitWorkflow = __esm({
     init_workflowDiagnosticError();
     init_diagnosticContract();
     init_transactionDiagnosticState();
+    init_recordedSnapshot();
     init_checkReceipt();
     init_verifySnapshot();
     init_gitProcessTranscript();
@@ -19606,8 +19701,8 @@ var init_createCommitWorkflow = __esm({
 
 // src/committing-to-git/workflow/processDiagnostics.js
 import { createHash as createHash21 } from "node:crypto";
-import { closeSync as closeSync15, openSync as openSync15, readSync as readSync2, realpathSync as realpathSync11 } from "node:fs";
-import { join as join16, resolve as resolve24 } from "node:path";
+import { closeSync as closeSync15, openSync as openSync15, readSync as readSync3, realpathSync as realpathSync11 } from "node:fs";
+import { join as join16, resolve as resolve25 } from "node:path";
 function invalid() {
   throw new WorkflowDiagnosticError(
     "PROCESS_DIAGNOSTICS_INVALID",
@@ -19615,7 +19710,7 @@ function invalid() {
   );
 }
 function previewTranscript(evidence, expectedPath) {
-  if (resolve24(evidence.path) !== expectedPath || realpathSync11(expectedPath) !== expectedPath)
+  if (resolve25(evidence.path) !== expectedPath || realpathSync11(expectedPath) !== expectedPath)
     invalid();
   const fd = openSync15(expectedPath, "r");
   const hash = createHash21("sha256");
@@ -19627,7 +19722,7 @@ function previewTranscript(evidence, expectedPath) {
     const bytes = Buffer.alloc(size);
     let count = 0;
     while (count < size) {
-      const n = readSync2(fd, bytes, count, size - count, null);
+      const n = readSync3(fd, bytes, count, size - count, null);
       if (n === 0) {
         if (allowEnd && count === 0) return null;
         invalid();
@@ -19691,7 +19786,7 @@ function readProcessDiagnostics({
   try {
     const transaction = readTransaction(transactionPath);
     const operations = [];
-    const directory = resolve24(transaction.attemptDirectory, "process-logs");
+    const directory = resolve25(transaction.attemptDirectory, "process-logs");
     const add = (operation, evidence, filename, attemptId = null) => {
       if (!evidence) return;
       operations.push({
@@ -19761,13 +19856,13 @@ import {
   lstatSync as lstatSync18,
   mkdirSync as mkdirSync11,
   openSync as openSync16,
-  readFileSync as readFileSync13,
+  readFileSync as readFileSync11,
   renameSync as renameSync6,
   rmSync as rmSync5,
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join17, resolve as resolve25 } from "node:path";
+import { join as join17, resolve as resolve26 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
 function fail11(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
@@ -19832,7 +19927,7 @@ function assertRegularFile(path, label) {
 function readJson(path, label) {
   assertRegularFile(path, label);
   try {
-    return JSON.parse(readFileSync13(path, "utf8"));
+    return JSON.parse(readFileSync11(path, "utf8"));
   } catch (error) {
     fail11(
       "DETAIL_STATE_INVALID",
@@ -19869,7 +19964,7 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve25(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve26(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
     fail11("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
@@ -20063,7 +20158,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     disposition: "succeeded",
     ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve25(transactionPath),
+    transaction: resolve26(transactionPath),
     data: {
       commitOid: transaction.commit?.commitOid ?? null,
       startingReportDigest: active.startingReportDigest,
@@ -20140,7 +20235,7 @@ function validateCompletedResult(result, transactionPath) {
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve25(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
+  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve26(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
     fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
@@ -20256,7 +20351,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve25(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve26(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -20341,10 +20436,10 @@ function readRetainedReport({
       );
     }
     const retained = (path, digest2, name) => {
-      if (resolve25(path) !== resolve25(transaction.attemptDirectory, name))
+      if (resolve26(path) !== resolve26(transaction.attemptDirectory, name))
         fail11("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
       assertRegularFile(path, name);
-      const bytes = readFileSync13(path);
+      const bytes = readFileSync11(path);
       if (sha2569(bytes) !== digest2)
         fail11("DETAIL_STATE_INVALID", "Retained report digest does not match.");
       return bytes.toString("utf8");
@@ -20440,11 +20535,11 @@ import {
   fsyncSync as fsyncSync12,
   lstatSync as lstatSync19,
   openSync as openSync17,
-  readFileSync as readFileSync14,
+  readFileSync as readFileSync12,
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname11, join as join18, resolve as resolve26 } from "node:path";
+import { dirname as dirname11, join as join18, resolve as resolve27 } from "node:path";
 function fail12(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
@@ -20574,7 +20669,7 @@ function assertPublicationAllowed(transaction) {
         disposition: transaction.commit?.commitOid ? "completed-with-failure" : "unmet-prerequisite",
         state: transactionDiagnosticState(
           transaction,
-          resolve26(transaction.attemptDirectory, "transaction.json")
+          resolve27(transaction.attemptDirectory, "transaction.json")
         )
       }
     );
@@ -20598,7 +20693,7 @@ function readPersistedReport(transaction) {
       { disposition: "unmet-prerequisite" }
     );
   }
-  const bytes = readFileSync14(transaction.report.jsonPath);
+  const bytes = readFileSync12(transaction.report.jsonPath);
   if (sha25610(bytes) !== transaction.report.jsonSha256) {
     fail12(
       "REPORT_ARTIFACT_MISMATCH",
@@ -20614,7 +20709,7 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
   }
   try {
     const textStat = lstatSync19(transaction.report.textPath);
-    return !textStat.isSymbolicLink() && textStat.isFile() && sha25610(readFileSync14(transaction.report.textPath)) === transaction.report.textSha256;
+    return !textStat.isSymbolicLink() && textStat.isFile() && sha25610(readFileSync12(transaction.report.textPath)) === transaction.report.textSha256;
   } catch (error) {
     if (error.code === "ENOENT") {
       return false;
@@ -20650,7 +20745,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
     status: publicationState === "unknown" ? "outcome-unknown" : publicationState,
     code: disposition === "succeeded" ? null : publicationState === "unknown" ? "PUBLICATION_OUTCOME_UNKNOWN" : publicationState === "blocked" ? "PUBLICATION_BLOCKED" : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    transaction: resolve26(transactionPath),
+    transaction: resolve27(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState,
@@ -20666,7 +20761,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
             "workflow",
             "recover",
             "--transaction",
-            resolve26(transactionPath)
+            resolve27(transactionPath)
           ]
         }
       ] : []
@@ -21106,7 +21201,7 @@ async function publishWorkflow({
         status: "publication-report-incomplete",
         code: "PUBLICATION_RESULT_UNAVAILABLE",
         message: "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
-        transaction: resolve26(transactionPath),
+        transaction: resolve27(transactionPath),
         phase: "publication-pending",
         route: transaction.route,
         commitState: "created",
@@ -21435,7 +21530,7 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve27 } from "node:path";
+import { resolve as resolve28 } from "node:path";
 function invalid2(code, message) {
   throw new WorkflowDiagnosticError(code, message);
 }
@@ -21488,7 +21583,7 @@ async function recoverTransactionWorkflow({
         disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        transaction: resolve27(transactionPath),
+        transaction: resolve28(transactionPath),
         route: current.route,
         commitState: "created",
         publicationState: "not-requested",
@@ -21506,7 +21601,7 @@ async function recoverTransactionWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve27(transactionPath)
+                resolve28(transactionPath)
               ]
             }
           ]
@@ -21610,7 +21705,7 @@ __export(checkMessageWorkflow_exports, {
   runCheckMessageCommand: () => runCheckMessageCommand
 });
 import { createHash as createHash24 } from "node:crypto";
-import { resolve as resolve28 } from "node:path";
+import { resolve as resolve29 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
 function fail13(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -21638,16 +21733,10 @@ function sameHeadAnchor(manifest, headAnchor) {
   return typeof manifest.headOid === "string" && headAnchor.expectedParentOids.length === 1 && headAnchor.expectedParentOids[0] === manifest.headOid;
 }
 function readExactRecordedSnapshot(transactionPath) {
-  const opened = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: SNAPSHOT_NAME,
-    maximumBytes: MAXIMUM_INITIAL_JSON_INPUT_BYTES,
-    label: "Recorded snapshot",
-    allowPathReplacement: false
-  });
+  const opened = readRecordedSnapshotFile(transactionPath);
   const { transaction, bytes } = opened;
-  const expectedPath = resolve28(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve28(transaction.snapshot?.path ?? "") !== expectedPath) {
+  const expectedPath = resolve29(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve29(transaction.snapshot?.path ?? "") !== expectedPath) {
     fail13(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
@@ -21660,7 +21749,7 @@ function readExactRecordedSnapshot(transactionPath) {
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve28(manifest.repositoryRoot) !== resolve28(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+  if (resolve29(manifest.repositoryRoot) !== resolve29(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
     fail13(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
@@ -21699,7 +21788,7 @@ function checkedResult({
     status: "message-ready",
     phase: "message-ready",
     route,
-    transaction: resolve28(transactionPath),
+    transaction: resolve29(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     warnings: [
@@ -21750,7 +21839,7 @@ function assertCheckTransaction(transaction, transactionPath) {
     fail13(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve28(transactionPath) } }
+      { details: { transaction: resolve29(transactionPath) } }
     );
   }
 }
@@ -21844,7 +21933,7 @@ var init_checkMessageWorkflow = __esm({
     init_diagnosticContract();
     init_approvedMessage();
     init_canonicalMessageState();
-    init_transactionWorkspace();
+    init_recordedSnapshot();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
     STRICT_UTF8_DECODER13 = new TextDecoder12("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
@@ -22338,11 +22427,11 @@ __export(finalizeMessageWorkflow_exports, {
 import {
   existsSync as existsSync19,
   lstatSync as lstatSync20,
-  readFileSync as readFileSync15,
+  readFileSync as readFileSync13,
   realpathSync as realpathSync12,
   writeFileSync as writeFileSync14
 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve29, sep as sep5 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve30, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
 function fail14(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -22363,7 +22452,7 @@ function decodeContent(bytes) {
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve29(path);
+  const absolute = resolve30(path);
   const contained = relative11(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute12(contained)) {
     fail14(
@@ -22397,7 +22486,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve29(transactionPath),
+          transaction: resolve30(transactionPath),
           route: transaction.route
         }
       }
@@ -22409,7 +22498,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve29(transactionPath),
+          transaction: resolve30(transactionPath),
           route: transaction.route
         }
       }
@@ -22417,7 +22506,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog2(transaction) {
-  const expectedReviewDirectory = resolve29(
+  const expectedReviewDirectory = resolve30(
     transaction.attemptDirectory,
     "review"
   );
@@ -22530,7 +22619,7 @@ function writeEvidencePlanRevision2(transaction, evidencePlan) {
   );
   const bytes = stableJsonBytes(evidencePlan);
   if (existsSync19(path)) {
-    if (!readFileSync15(path).equals(bytes)) {
+    if (!readFileSync13(path).equals(bytes)) {
       fail14(
         "EVIDENCE_PLAN_COLLISION",
         "An immutable evidence-plan revision has conflicting bytes."
@@ -22609,7 +22698,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     status: "evidence-required",
     phase: "review-pending",
     route: "extended",
-    transaction: resolve29(transactionPath),
+    transaction: resolve30(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -22624,7 +22713,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
             "workflow",
             "review-next",
             "--transaction",
-            resolve29(transactionPath)
+            resolve30(transactionPath)
           ]
         }
       ]
@@ -22634,7 +22723,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
       canonical: false,
       evidenceDelta: {
         newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-        firstQueuePage: firstPage === null ? null : resolve29(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePage: firstPage === null ? null : resolve30(transaction.attemptDirectory, firstPage.artifact),
         firstQueuePageSha256: firstPage?.sha256 ?? null
       },
       displayText: null
@@ -22657,7 +22746,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     route: "extended",
     warnings: presentationDiagnostics(rendered.presentationWarnings),
-    transaction: resolve29(transactionPath),
+    transaction: resolve30(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -22706,14 +22795,14 @@ async function finalizeMessageWorkflow({
         recovery: {
           kind: "correct-input",
           automatic: false,
-          requiredInputs: [resolve29(transaction.attemptDirectory, CONTENT_NAME)],
+          requiredInputs: [resolve30(transaction.attemptDirectory, CONTENT_NAME)],
           commands: [
             {
               arguments: [
                 "message",
                 "finalize",
                 "--transaction",
-                resolve29(transactionPath)
+                resolve30(transactionPath)
               ]
             }
           ]
@@ -22764,7 +22853,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync15(path)
+            empty ? Buffer.alloc(0) : readFileSync13(path)
           ])
         )
       };
@@ -22911,7 +23000,7 @@ init_commandExecution();
 init_diagnosticContract();
 import { fileURLToPath } from "node:url";
 import { createHash as createHash26 } from "node:crypto";
-import { readFileSync as readFileSync16, realpathSync as realpathSync13 } from "node:fs";
+import { readFileSync as readFileSync14, realpathSync as realpathSync13 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
     "workflow preflight",
@@ -23104,6 +23193,10 @@ recorded tree and approved bytes, consumes only helper-witnessed check
 receipts, verifies the exact OID, and records one bounded report. Every
 non-passing receipt requires exact acknowledgement. An unknown outcome
 requires recovery and is never replayed.
+--execution native explicitly requests the supported native signed Git route.
+Auto uses that same executor, receipts and guards, including above 8 MiB.
+Snapshots have a separate 64 MiB bound; message input limits are unchanged.
+See references/native-execution.md for existing-transaction continuation.
 `
   ],
   [
@@ -23189,7 +23282,7 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest2 = createHash26("sha256").update(readFileSync16(new URL(import.meta.url))).digest("hex");
+    const digest2 = createHash26("sha256").update(readFileSync14(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({

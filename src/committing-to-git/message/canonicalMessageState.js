@@ -10,7 +10,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -180,7 +180,7 @@ function readStablePath(
 
   if (initial.size > BigInt(maximumBytes)) {
     fail("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
-      details: { maximumBytes },
+      details: { maximumBytes, byteCount: Number(initial.size) },
     });
   }
 
@@ -199,13 +199,30 @@ function readStablePath(
     }
 
     afterOpen?.({ descriptor, identity: openedIdentity, path });
-    const bytes = readFileSync(descriptor);
+    // Allocate only the observed, budget-checked length. A growing file must
+    // never make readFileSync allocate beyond the caller's resource limit.
+    const bytes = Buffer.alloc(openedIdentity.byteCount);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        offset,
+        Math.min(64 * 1024, bytes.length - offset),
+        null,
+      );
+      if (count === 0) break;
+      offset += count;
+    }
+    const extra = readSync(descriptor, Buffer.alloc(1), 0, 1, null);
     const after = fstatSync(descriptor, { bigint: true });
     const finalIdentity = statIdentity(after);
 
     if (
       !after.isFile() ||
       !sameIdentity(openedIdentity, finalIdentity) ||
+      offset !== bytes.length ||
+      extra !== 0 ||
       bytes.length > maximumBytes
     ) {
       fail(

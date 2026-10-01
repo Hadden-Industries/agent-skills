@@ -207,6 +207,10 @@ recorded tree and approved bytes, consumes only helper-witnessed check
 receipts, verifies the exact OID, and records one bounded report. Every
 non-passing receipt requires exact acknowledgement. An unknown outcome
 requires recovery and is never replayed.
+--execution native explicitly requests the supported native signed Git route.
+Auto uses that same executor, receipts and guards, including above 8 MiB.
+Snapshots have a separate 64 MiB bound; message input limits are unchanged.
+See references/native-execution.md for existing-transaction continuation.
 `,
   ],
   [

@@ -1,11 +1,12 @@
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, unlinkSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import {
@@ -88,7 +89,9 @@ function validatePersistedSnapshot(transaction) {
     snapshot.path,
     "snapshot.json",
   );
-  const bytes = readFileSync(snapshot.path);
+  const { bytes } = readRecordedSnapshotFile(
+    resolve(transaction.attemptDirectory, "transaction.json"),
+  );
 
   if (sha256(bytes) !== snapshot.sha256) {
     fail(

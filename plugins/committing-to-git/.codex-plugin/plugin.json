@@ -6,7 +6,7 @@
   },
   "license": "MPL-2.0",
   "repository": "https://github.com/Hadden-Industries/agent-skills",
-  "version": "0.1.0-dev.g865ea5d0756c136b",
+  "version": "0.1.0-dev.gcc4c98a3b15f04c1",
   "skills": "./skills/",
   "interface": {
     "displayName": "Committing to Git",

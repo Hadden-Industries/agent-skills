@@ -21,7 +21,7 @@ import {
   readTransactionOwnedFile,
   replaceCanonicalMessage,
 } from "../message/canonicalMessageState.js";
-import { MAXIMUM_INITIAL_JSON_INPUT_BYTES } from "../transaction/transactionWorkspace.js";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 
 export const MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
 
@@ -69,13 +69,7 @@ function sameHeadAnchor(manifest, headAnchor) {
 }
 
 export function readExactRecordedSnapshot(transactionPath) {
-  const opened = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: SNAPSHOT_NAME,
-    maximumBytes: MAXIMUM_INITIAL_JSON_INPUT_BYTES,
-    label: "Recorded snapshot",
-    allowPathReplacement: false,
-  });
+  const opened = readRecordedSnapshotFile(transactionPath);
   const { transaction, bytes } = opened;
   const expectedPath = resolve(transaction.attemptDirectory, SNAPSHOT_NAME);
 

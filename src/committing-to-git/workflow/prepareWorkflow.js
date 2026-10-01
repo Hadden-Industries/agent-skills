@@ -1,4 +1,5 @@
 import { executeCommand } from "../cli/commandExecution.js";
+import { snapshotExecution } from "../snapshot/recordedSnapshot.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import {
@@ -1686,6 +1687,9 @@ function successEnvelope(transaction, summary) {
       headAnchor: transaction.headAnchor,
       indexTreeOid: transaction.snapshot.indexTreeOid,
       changeUnitCount: transaction.snapshot.changeUnitCount,
+      commitExecution: snapshotExecution(
+        lstatSync(transaction.snapshot.path).size,
+      ),
       evidencePlanSha256: transaction.initialEvidencePlan.sha256,
       ...(transaction.route === "concise"
         ? { capsule: transaction.inlineEvidence.capsule }
@@ -1743,6 +1747,20 @@ function stopAllocatedPreparation(error, transactionPath, summary) {
       status: "stopped",
       terminalDisposition: "no-commit-stopped",
     });
+    // Capacity is an implementation prerequisite, not malformed caller input.
+    // Keep its measured bound and recovery while recording the no-effect stop.
+    if (
+      error instanceof WorkflowDiagnosticError &&
+      error.code === "SNAPSHOT_CAPACITY_EXCEEDED"
+    ) {
+      error.state = {
+        transaction: transactionPath,
+        phase: stopped.phase,
+        commitState: "absent",
+        publicationState: "not-requested",
+      };
+      return error;
+    }
     const stoppedError = new WorkflowDiagnosticError(
       "PREPARATION_STOPPED",
       "Preparation stopped before index installation. Inspect the retained transaction before starting new work.",

@@ -19,7 +19,7 @@ import {
   validateCheckCommand,
   validateCheckContext,
 } from "../checks/checkReceipt.js";
-import { readTransactionOwnedFile } from "../message/canonicalMessageState.js";
+import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import {
   advanceTransaction,
   readTransaction,
@@ -48,13 +48,7 @@ function sha256(bytes) {
 }
 
 function readSnapshot(transactionPath, transaction) {
-  const input = readTransactionOwnedFile({
-    transactionPath,
-    artifactName: "snapshot.json",
-    maximumBytes: 8 * 1024 * 1024,
-    label: "Recorded snapshot",
-    allowPathReplacement: false,
-  });
+  const input = readRecordedSnapshotFile(transactionPath);
 
   if (
     resolve(input.path) !== resolve(transaction.snapshot.path) ||
