@@ -12,6 +12,8 @@ The repository follows one core rule:
 > **Edit the canonical skill under [`skills/`](./skills/) — never an installed copy under `.agents/skills/` or `.claude/skills/`.**
 > Those agent-facing directories are generated local development state and may be deleted and recreated at any time.
 
+The proposed source/distribution and evaluation modernization is documented in the [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md). These documents reconcile the original research with the repository as of 2026-10-03. They are not an implemented cutover: the current authoring locations and commands below remain in effect until the corresponding migration is delivered.
+
 ## Available Skills
 
 * **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, creates and verifies explicitly approved signed commits, and guides authorized direct or GitHub pull-request delivery. For commit-and-publish requests, it checks publication feasibility before drafting. Use for message drafts, new local commits, or their delivery; not for amending history or continuing an existing local merge, rebase, cherry-pick, or revert operation.

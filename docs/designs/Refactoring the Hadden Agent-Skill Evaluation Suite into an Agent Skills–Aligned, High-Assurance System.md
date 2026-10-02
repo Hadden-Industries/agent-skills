@@ -1,5 +1,7 @@
 # Refactoring the Hadden Agent-Skill Evaluation Suite into an Agent Skills–Aligned, High-Assurance System
 
+Editorial status, 2026-10-03: this is the original research report, retained below as the design rationale rather than a current repository inventory or implementation claim. The follow-up decisions, newer repository functionality and release-specific integration limits are reconciled in the [architecture dossier](2026-10-03-evaluation-architecture.md), [preservation ledger](2026-10-03-evaluation-preservation-ledger.md), [refreshed software research](../research/2026-10-03-evaluation-tooling.md), and [implementation plan](../plans/2026-10-03-evaluation-modernization.md). Use those documents for implementation; the original report's analysis is retained below.
+
 ## Executive summary
 
 The right refactor is **not** to replace the current Hadden evaluation harness with Alibaba `skill-up`, nor to preserve the current harness as a parallel general-purpose runner. The best architecture is a layered system in which:

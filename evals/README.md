@@ -2,9 +2,13 @@
 
 This tree contains repository-maintainer evaluation suites and evidence. It is separate from the deployable skills under `skills/`; each `evals/<name>/` suite matches one canonical `skills/<name>/` directory. Suite READMEs define domain cases, controllers, capabilities, grading, and commands. This document is the single source of truth for the shared runtime.
 
+The [2026-10-03 architecture](../docs/designs/2026-10-03-evaluation-architecture.md), [preservation ledger](../docs/designs/2026-10-03-evaluation-preservation-ledger.md), and [implementation plan](../docs/plans/2026-10-03-evaluation-modernization.md) describe the proposed migration to complete `src/<skill>` projects, generated runtime distributions and maintained evaluation consumers. That migration has not been implemented. The contracts and locations below describe the current shared runtime, not the future consumer bridge.
+
+The [naming suite's legacy runner](naming-objects-in-software-engineering/README.md) does not currently use this shared launch boundary. Its direct provider calls, heuristic grades and model-selection diagnostics must not be represented as shared-runtime assurance or actual host activation. Replacing that new-run path is an explicit modernization slice.
+
 ## Lifecycle
 
-Every new provider session crosses an explicit prepare/authorize/run boundary; a suite may insert a separately recorded zero-turn provider preflight before authorization:
+Every provider session using this shared runtime crosses an explicit prepare/authorize/run boundary; a suite may insert a separately recorded zero-turn provider preflight before authorization:
 
 1. Inspect the selected provider toolchain and build the suite-controlled inputs.
 2. Call `createTransmissionPacket(transmission)` and `prepareEvidenceSession({ destination, packet, inputs })` in a new destination. Preparation is local-only and starts no model turn.
@@ -54,6 +58,8 @@ Use these canonical arm names when a campaign measures both incremental skill va
 - `candidate-skill`: the complete proposed skill captured from the working tree when the campaign is frozen.
 
 The prompt, provider conditions, and all non-treatment inputs remain matched across arms. Capturing only `SKILL.md` is insufficient when the skill depends on references, scripts, or assets. Changing candidate bytes after preparation invalidates that candidate iteration; create a new bundle and campaign rather than modifying retained evidence. Historical two-arm names such as `with_skill` and `without_skill` remain valid only within their recorded schema and are never silently renamed.
+
+The current Git campaign uses `no-skill`, `old-skill`, and `new-skill`; the naming runner uses `no-skill` and `candidate-skill`. Preserve each experiment's actual arm names and meaning. The common naming guidance above does not authorize rewriting an existing campaign or its historical evidence.
 
 ## Compatibility and Capability Reconciliation
 
