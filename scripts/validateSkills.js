@@ -35,8 +35,25 @@ export function resolveRepositoryTool(
   toolName,
   platform = process.platform,
 ) {
-  const executableName = platform === "win32" ? `${toolName}.cmd` : toolName;
-  const executable = join(repoRoot, ".agent-tools", "bin", executableName);
+  const windowsTools = {
+    "skills-ref": join(repoRoot, ".venv", "Scripts", "skills-ref.exe"),
+    tessl: join(
+      repoRoot,
+      ".agent-tools",
+      "tessl",
+      "node_modules",
+      "@tessl",
+      "cli",
+      "bin",
+      "tessl.js",
+    ),
+  };
+  const executable =
+    platform === "win32"
+      ? windowsTools[toolName]
+      : join(repoRoot, ".agent-tools", "bin", toolName);
+
+  if (!executable) throw new Error(`Unsupported repository tool: ${toolName}`);
 
   if (!existsSync(executable)) {
     throw new Error(
@@ -48,35 +65,22 @@ export function resolveRepositoryTool(
   return executable;
 }
 
-function quoteCommandArgument(value) {
-  if (!/^[\p{L}\p{N}_./:=\\ ()-]+$/u.test(value)) {
-    throw new Error(
-      "Repository tool arguments must contain only letters, digits, spaces or safe path punctuation.",
-    );
-  }
-
-  return /^[A-Za-z0-9_./:=\\-]+$/u.test(value) ? value : `"${value}"`;
-}
-
 export function runRepositoryTool(command, args, options = {}) {
   const {
-    commandInterpreter = process.env.ComSpec ?? "cmd.exe",
     platform = process.platform,
     spawn = spawnSync,
     ...spawnOptions
   } = options;
-  const executable = platform === "win32" ? commandInterpreter : command;
-  const executableArgs =
-    platform === "win32"
-      ? [
-          "/d",
-          "/s",
-          "/c",
-          [command, ...args].map(quoteCommandArgument).join(" "),
-        ]
-      : args;
+  if (platform === "win32" && /\.(?:cmd|bat)$/iu.test(command))
+    throw new Error(
+      "Repository tools require a native executable or Node entry point, not a command script.",
+    );
+  const nodeEntryPoint = platform === "win32" && /\.m?js$/iu.test(command);
+  const executable = nodeEntryPoint ? process.execPath : command;
+  const executableArgs = nodeEntryPoint ? [command, ...args] : args;
   const result = spawn(executable, executableArgs, {
     ...spawnOptions,
+    shell: false,
     stdio: "inherit",
   });
 

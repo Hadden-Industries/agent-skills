@@ -126,23 +126,27 @@ export async function buildSkillArtifacts({
       }
   }
   // Preflight all existing destinations before writing any candidate output.
+  const existingOutputs = new Map();
   if (!checkOnly)
     for (const [skillName, files] of intended)
       for (const [relativePath, bytes] of files) {
         const outputFile = `skills/${skillName}/${relativePath}`;
         const outputPath = resolve(resolvedRepositoryRoot, outputFile);
         assertUnredirectedPath(outputPath);
-        if (!existsSync(outputPath) || readFileSync(outputPath).equals(bytes))
-          continue;
+        let existing;
+        try {
+          existing = readFileSync(outputPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        existingOutputs.set(outputFile, existing);
+        if (existing === undefined || existing.equals(bytes)) continue;
         const committed = spawnSync("git", ["show", `HEAD:${outputFile}`], {
           cwd: resolvedRepositoryRoot,
           windowsHide: true,
           maxBuffer: 16 * 1024 * 1024,
         });
-        if (
-          committed.status === 0 &&
-          !readFileSync(outputPath).equals(committed.stdout)
-        )
+        if (committed.status === 0 && !existing.equals(committed.stdout))
           throw new Error(
             `Locally modified runtime output requires disposition: ${outputFile}`,
           );
@@ -151,12 +155,16 @@ export async function buildSkillArtifacts({
     for (const [relativePath, bytes] of files) {
       const outputFile = `skills/${skillName}/${relativePath}`;
       const outputPath = resolve(resolvedRepositoryRoot, outputFile);
-      const committed = existsSync(outputPath)
-        ? readFileSync(outputPath)
-        : undefined;
-      if (committed?.equals(bytes)) continue;
-      if (checkOnly) staleArtifacts.push(outputFile);
-      else {
+      if (checkOnly) {
+        let existing;
+        try {
+          existing = readFileSync(outputPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        if (!existing?.equals(bytes)) staleArtifacts.push(outputFile);
+      } else {
+        if (existingOutputs.get(outputFile)?.equals(bytes)) continue;
         mkdirSync(dirname(outputPath), { recursive: true });
         let descriptor;
         try {
@@ -182,10 +190,13 @@ export async function buildSkillArtifacts({
               `Runtime output changed while opening: ${outputFile}`,
             );
           const actual = readFileSync(descriptor);
-          if (!actual.equals(committed ?? Buffer.alloc(0)))
+          if (
+            !actual.equals(existingOutputs.get(outputFile) ?? Buffer.alloc(0))
+          )
             throw new Error(
               `Runtime output changed before writing: ${outputFile}`,
             );
+          if (actual.equals(bytes)) continue;
           // Opening never truncates. Write through the verified descriptor at
           // offset zero, rather than resolving the destination path again.
           ftruncateSync(descriptor, 0);

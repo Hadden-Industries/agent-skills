@@ -71,8 +71,9 @@ function createRepository(t, { includeTests = true } = {}) {
     join(root, "src", "unrelated", "evals", "trigger-evals.json"),
     JSON.stringify(VALID_TRIGGERS),
   );
+  mkdirSync(join(root, ".venv", "Scripts"), { recursive: true });
   writeFileSync(
-    join(root, ".agent-tools", "bin", "skills-ref.cmd"),
+    join(root, ".venv", "Scripts", "skills-ref.exe"),
     "@echo off\n",
   );
 
@@ -145,7 +146,7 @@ test("scoped verification runs only selected checks and reports global omissions
     },
   });
 
-  const skillsRef = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const skillsRef = join(root, ".venv", "Scripts", "skills-ref.exe");
   assert.deepEqual(calls, [
     [skillsRef, ["validate", join(root, "skills", "reading-epubs")], undefined],
     [

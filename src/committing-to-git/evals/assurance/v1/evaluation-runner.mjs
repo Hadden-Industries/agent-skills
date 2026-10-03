@@ -195,22 +195,23 @@ function listWorktreeFiles(repository) {
   const files = [];
 
   function visit(directory) {
-    const names = readdirSync(directory).sort((left, right) =>
-      left.localeCompare(right, "en"),
+    const entries = readdirSync(directory, { withFileTypes: true }).sort(
+      (left, right) => left.name.localeCompare(right.name, "en"),
     );
 
-    for (const name of names) {
+    for (const entry of entries) {
+      const { name } = entry;
       if (name === ".git") {
         continue;
       }
 
       const path = join(directory, name);
-      const state = lstatSync(path);
       const repositoryPath = relative(repository, path).split(sep).join("/");
 
-      if (state.isDirectory()) {
+      if (entry.isDirectory()) {
         visit(path);
-      } else if (state.isSymbolicLink()) {
+      } else if (entry.isSymbolicLink()) {
+        const state = lstatSync(path);
         const target = readlinkSync(path);
         files.push({
           bytes: Buffer.byteLength(target),
@@ -219,16 +220,19 @@ function listWorktreeFiles(repository) {
           sha256: sha256Hex(Buffer.from(target, "utf8")),
           type: "symlink",
         });
-      } else if (state.isFile()) {
+      } else if (entry.isFile()) {
         const descriptor = openSync(
           path,
           constants.O_RDONLY + (constants.O_NOFOLLOW ?? 0),
         );
         let contents;
+        let state;
         try {
           const opened = fstatSync(descriptor);
+          state = lstatSync(path);
           if (
             !opened.isFile() ||
+            state.isSymbolicLink() ||
             opened.dev !== state.dev ||
             opened.ino !== state.ino
           )
