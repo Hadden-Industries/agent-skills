@@ -12,14 +12,14 @@ import {
 } from "../../scripts/verifySkill.js";
 
 const VALID_EVALUATION = {
-  skill_name: "selected",
+  skill_name: "reading-epubs",
   evals: [
     {
       id: 1,
       prompt: "Evaluate the selected skill.",
       expected_output: "The selected skill produces a result.",
       files: [],
-      expectations: ["The result is present."],
+      assertions: ["The result is present."],
     },
   ],
 };
@@ -33,23 +33,42 @@ function createRepository(t, { includeTests = true } = {}) {
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".agent-tools", "bin"), { recursive: true });
-  mkdirSync(join(root, "skills", "selected"), { recursive: true });
+  mkdirSync(join(root, "skills", "reading-epubs"), { recursive: true });
   mkdirSync(join(root, "skills", "unrelated"), { recursive: true });
-  mkdirSync(join(root, "evals", "selected"), { recursive: true });
-  mkdirSync(join(root, "evals", "unrelated"), { recursive: true });
-  writeFileSync(join(root, "skills", "selected", "SKILL.md"), "# Selected\n");
+  mkdirSync(join(root, "src", "reading-epubs", "evals"), { recursive: true });
+  mkdirSync(join(root, "src", "unrelated", "evals"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "reading-epubs", "SKILL.md"),
+    "# Selected\n",
+  );
+  writeFileSync(join(root, "src", "reading-epubs", "SKILL.md"), "# Selected\n");
+  writeFileSync(join(root, "src", "unrelated", "SKILL.md"), "# Unrelated\n");
+  mkdirSync(join(root, "src/reading-epubs/evals/extensions/v1"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(root, "src/reading-epubs/evals/extensions/v1/suite.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      skill_name: "reading-epubs",
+      profile: "portable-v1",
+      provenance: {},
+      protocol: { cases: {} },
+      assurance: { suite: {}, cases: {} },
+    }),
+  );
   writeFileSync(join(root, "skills", "unrelated", "SKILL.md"), "# Unrelated\n");
   writeFileSync(
-    join(root, "evals", "selected", "evals.json"),
+    join(root, "src", "reading-epubs", "evals", "evals.json"),
     JSON.stringify(VALID_EVALUATION),
   );
   writeFileSync(
-    join(root, "evals", "selected", "trigger-evals.json"),
+    join(root, "src", "reading-epubs", "evals", "trigger-evals.json"),
     JSON.stringify(VALID_TRIGGERS),
   );
-  writeFileSync(join(root, "evals", "unrelated", "evals.json"), "{");
+  writeFileSync(join(root, "src", "unrelated", "evals", "evals.json"), "{");
   writeFileSync(
-    join(root, "evals", "unrelated", "trigger-evals.json"),
+    join(root, "src", "unrelated", "evals", "trigger-evals.json"),
     JSON.stringify(VALID_TRIGGERS),
   );
   writeFileSync(
@@ -58,22 +77,22 @@ function createRepository(t, { includeTests = true } = {}) {
   );
 
   if (includeTests) {
-    mkdirSync(join(root, "tests", "selected", "nested"), {
+    mkdirSync(join(root, "tests", "reading-epubs", "nested"), {
       recursive: true,
     });
-    mkdirSync(join(root, "tests", "evals", "selected"), {
+    mkdirSync(join(root, "tests", "evals", "reading-epubs"), {
       recursive: true,
     });
     writeFileSync(
-      join(root, "tests", "selected", "nested", "zeta.test.mjs"),
+      join(root, "tests", "reading-epubs", "nested", "zeta.test.mjs"),
       "// zeta\n",
     );
     writeFileSync(
-      join(root, "tests", "evals", "selected", "alpha.test.mjs"),
+      join(root, "tests", "evals", "reading-epubs", "alpha.test.mjs"),
       "// alpha\n",
     );
     writeFileSync(
-      join(root, "tests", "selected", "ignored.mjs"),
+      join(root, "tests", "reading-epubs", "ignored.mjs"),
       "// ignored\n",
     );
   }
@@ -82,17 +101,20 @@ function createRepository(t, { includeTests = true } = {}) {
 }
 
 test("CLI parsing requires exactly one explicit skill selector", () => {
-  assert.equal(parseSkillArgument(["--skill", "selected"]), "selected");
+  assert.equal(
+    parseSkillArgument(["--skill", "reading-epubs"]),
+    "reading-epubs",
+  );
 
   for (const args of [
     [],
     ["--skill"],
-    ["--skill", "selected", "--skill", "selected"],
+    ["--skill", "reading-epubs", "--skill", "reading-epubs"],
     ["--skill", "../selected"],
     ["--skill", "nested/selected"],
     ["--skill", "nested\\selected"],
     ["--skill", "C:\\selected"],
-    ["selected"],
+    ["reading-epubs"],
   ]) {
     assert.throws(
       () => parseSkillArgument(args),
@@ -104,9 +126,9 @@ test("CLI parsing requires exactly one explicit skill selector", () => {
 test("test discovery is sorted, confined, and follows both conventions", (t) => {
   const root = createRepository(t);
 
-  assert.deepEqual(discoverSkillTests(root, "selected"), [
-    join(root, "tests", "evals", "selected", "alpha.test.mjs"),
-    join(root, "tests", "selected", "nested", "zeta.test.mjs"),
+  assert.deepEqual(discoverSkillTests(root, "reading-epubs"), [
+    join(root, "tests", "evals", "reading-epubs", "alpha.test.mjs"),
+    join(root, "tests", "reading-epubs", "nested", "zeta.test.mjs"),
   ]);
 });
 
@@ -116,7 +138,7 @@ test("scoped verification runs only selected checks and reports global omissions
 
   const result = await verifySkill({
     repositoryRoot: root,
-    skillName: "selected",
+    skillName: "reading-epubs",
     platform: "win32",
     run(command, args, options) {
       calls.push([command, args, options]);
@@ -125,13 +147,13 @@ test("scoped verification runs only selected checks and reports global omissions
 
   const skillsRef = join(root, ".agent-tools", "bin", "skills-ref.cmd");
   assert.deepEqual(calls, [
-    [skillsRef, ["validate", join(root, "skills", "selected")], undefined],
+    [skillsRef, ["validate", join(root, "skills", "reading-epubs")], undefined],
     [
       "node",
       [
         "--test",
-        join(root, "tests", "evals", "selected", "alpha.test.mjs"),
-        join(root, "tests", "selected", "nested", "zeta.test.mjs"),
+        join(root, "tests", "evals", "reading-epubs", "alpha.test.mjs"),
+        join(root, "tests", "reading-epubs", "nested", "zeta.test.mjs"),
       ],
       { cwd: root },
     ],
@@ -142,10 +164,10 @@ test("scoped verification runs only selected checks and reports global omissions
         "--check",
         "HEAD",
         "--",
-        "skills/selected",
-        "evals/selected",
-        "tests/selected",
-        "tests/evals/selected",
+        "skills/reading-epubs",
+        "src/reading-epubs",
+        "tests/reading-epubs",
+        "tests/evals/reading-epubs",
       ],
       { cwd: root },
     ],
@@ -154,7 +176,7 @@ test("scoped verification runs only selected checks and reports global omissions
     { name: "canonical ASCII", filesValidated: 1 },
     { name: "canonical Markdown wrapping", filesValidated: 1 },
     { name: "evaluation contract", suitesValidated: 1 },
-    { name: "generated artifacts", artifactsChecked: 0 },
+    { name: "generated artifacts", artifactsChecked: 1 },
     { name: "skills-ref validation", skillsValidated: 1 },
     { name: "target tests", testsDiscovered: 2 },
     { name: "target diff whitespace", pathsChecked: 4 },
@@ -173,7 +195,7 @@ test("scoped verification reports zero discovered tests without launching Node",
 
   const result = await verifySkill({
     repositoryRoot: root,
-    skillName: "selected",
+    skillName: "reading-epubs",
     platform: "win32",
     run(command, args, options) {
       calls.push([command, args, options]);
@@ -192,17 +214,17 @@ test("scoped verification reports zero discovered tests without launching Node",
 
 test("invalid selected suites fail before any process check runs", async (t) => {
   const root = createRepository(t);
-  writeFileSync(join(root, "evals", "selected", "evals.json"), "{");
+  writeFileSync(join(root, "src", "reading-epubs", "evals", "evals.json"), "{");
 
   await assert.rejects(
     verifySkill({
       repositoryRoot: root,
-      skillName: "selected",
+      skillName: "reading-epubs",
       run() {
         assert.fail("process checks must not run after contract failure");
       },
     }),
-    /evals[\\/]selected[\\/]evals\.json is not valid JSON/u,
+    /reading-epubs[\\/]evals[\\/]evals\.json/u,
   );
 });
 
@@ -228,7 +250,7 @@ test("a failed process stage prevents later checks and a success summary", async
   await assert.rejects(
     verifySkill({
       repositoryRoot: root,
-      skillName: "selected",
+      skillName: "reading-epubs",
       platform: "win32",
       run(command, args) {
         calls.push([command, args]);

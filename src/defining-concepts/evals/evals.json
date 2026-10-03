@@ -1,0 +1,216 @@
+{
+  "skill_name": "defining-concepts",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Our public-sector catalog needs a concept package for Dataset in the W3C Data Catalog Vocabulary context. Treat the dataset as the conceptual collection, not a downloadable file, serialization, API response, or distribution. Research the exact current W3C destination and state separately whether its wording may be reused verbatim.",
+      "expected_output": "A definition-first concept package that preserves the dataset/distribution boundary, verifies the exact source and version, and separates semantic reuse from wording permission.",
+      "files": [],
+      "assertions": [
+        "The responsibly formulated Dataset definition is the first substantive item.",
+        "The definition classifies Dataset as a conceptual collection of data and does not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+        "The response tests at least one positive instance, one negative instance, and one near miss against the stated boundary.",
+        "Every claim that the W3C source was verified identifies the exact destination and current version or recommendation status actually retrieved; an unvisited destination is not presented as verified.",
+        "The reuse decision uses adopt, adapt, formulate, or defer and explains source scope and authority for this claim.",
+        "Semantic match and permission to copy the source wording are reported separately; verbatim reuse is not asserted without a supported permission basis."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Define Customer Contact Preference Status for a customer master-data registry. Permitted values are Not known, No preference recorded, Email, Telephone, Post, and Do not contact. Give a concise definition answer and keep the concept distinct from its stored code, field, and value domain.",
+      "expected_output": "A definition-first answer for the recorded contact-preference condition that uses values as boundary evidence without turning them into the concept definition.",
+      "files": [],
+      "assertions": [
+        "The definition appears first and uses status, condition, preference state, or another suitable abstract superordinate rather than channel, code, or field.",
+        "The delimiting characteristics cover both a preferred contact method and recorded absence, prohibition, or uncertainty without enumerating the permitted values in the definition.",
+        "The supplied values are used only as contextual or boundary evidence.",
+        "The response does not conflate the concept with its permissible-value list, stored code, metadata field, or user-interface control.",
+        "The response is proportionate and does not force a full concept package when the compact definition and material distinctions suffice."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Audit and replace this definition of Document Language Code: 'A two-letter string written in a metadata field that tells which language the document uses.' The registry may later adopt language tags that are not two letters. Verify the applicable current language-code or language-tag source and explain the representation error.",
+      "expected_output": "A revision audit whose replacement definition treats the code or tag as a representation of document-content language, not the language, document, field, or serialized characters.",
+      "files": [],
+      "assertions": [
+        "The replacement definition appears first and rejects the unsupported permanent two-letter restriction.",
+        "The immediate superordinate remains a code, language tag, identifier, or other representation rather than the represented natural language.",
+        "The delimiting characteristics identify the language of the document's linguistic or intellectual content without defining the document itself.",
+        "Example values remain contextual evidence rather than an extensional definition.",
+        "The answer distinguishes the code or tag from the language, document, metadata field, and characters used to serialize it.",
+        "Any current-version or source-verification claim names the directly retrieved destination and applicable status."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Audit and replace this definition of Identity Verification Outcome: 'A process that checks a person's evidence and returns Pass, Fail, or Inconclusive.' The concept records the result reached by an identity-verification process; the labels belong to a separate value domain.",
+      "expected_output": "A revision audit that corrects the process/result category error and defines the outcome without embedding the value labels.",
+      "files": [],
+      "assertions": [
+        "The replacement definition appears first and uses outcome, result, determination, or another result-category superordinate rather than process or activity.",
+        "The definition connects the result to evaluation of identity evidence without embedding a definition of the verification process.",
+        "Pass, Fail, and Inconclusive are not enumerated inside the definition.",
+        "The concept is not conflated with the process, evidence artifact, stored code, or value domain.",
+        "The audit explicitly identifies the starter's process/result category error."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Replace this definition of Service Availability Status: 'The SLA status that is not an unavailable service.' The status records whether a monitored service met its agreed availability target during a reporting interval; values are Unknown, Met, and Not met.",
+      "expected_output": "A positive, non-circular, abbreviation-free definition revision that separates the recorded assessment from the service, agreement, measurement process, code, and values.",
+      "files": [],
+      "assertions": [
+        "The replacement definition appears first, is positive and non-circular, and does not depend on the uncommon abbreviation SLA.",
+        "The definition distinguishes assessment against an agreed availability target during a reporting interval from the service's momentary operational condition.",
+        "The supplied value labels are outside the definition.",
+        "The concept is not conflated with the monitored service, service-level agreement, measurement process, stored code, or value domain.",
+        "The audit names the negative, circular, abbreviation, and category defects it corrected."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Define Invoice Issue Date for a finance metadata registry. It is the date associated with the issuer's formal issuance of an invoice and must remain distinct from receipt date, delivery date, payment-due date, and payment date. Give a concise definition answer.",
+      "expected_output": "A definition-first answer using date as the immediate superordinate and formal issuance by the issuer as the delimiting characteristic.",
+      "files": [],
+      "assertions": [
+        "The definition appears first and uses date or an equivalently precise temporal superordinate.",
+        "The delimiting characteristic ties the date to formal issuance by the invoice issuer and excludes receipt, delivery, due, and payment dates.",
+        "Procedural instructions, system timestamps, formatting rules, and rationale remain outside the definition.",
+        "The compact renderer does not expose an unnecessary research diary or fixed template."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Define Charge for a physics glossary. Here it means the measurable electrostatic quantity, not a price, legal accusation, task assignment, battery state, unit, elementary-charge constant, current, or charged object. Assess whether Electric Charge is the less ambiguous designation.",
+      "expected_output": "A definition-first scientific terminology answer that resolves polysemy, separates quantity from unit and related entities, and evaluates the designation without silently renaming it.",
+      "files": [],
+      "assertions": [
+        "The definition appears first and uses physical quantity or scalar physical quantity rather than a material object, unit, or generic property.",
+        "The electric sense is distinguished from the financial, legal, assignment, and battery-state senses.",
+        "The definition does not conflate electric charge with the coulomb, elementary-charge constant, electric current, or a charged object.",
+        "Electric Charge is evaluated as a less ambiguous designation without silently replacing the supplied designation.",
+        "Equations, symbols, units, and measurement detail appear only when needed outside the definition and are not mistaken for the concept."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Create a concept package for Evidence Retention Authorization Status in a justice evidence registry. It records whether continued retention of an evidence item is authorized. A colleague says https://www.w3.org/TR/vocab-dcat-3/ is the authoritative exact definition; verify that destination and do not invent a source if it is irrelevant or inaccessible.",
+      "expected_output": "A definition-first package that verifies and rejects the false DCAT attribution, searches proportionately, and formulates or defers without fabricating exact evidence.",
+      "files": [],
+      "assertions": [
+        "The definition appears first when responsible formulation is possible; otherwise the blocker and deferral are explicit.",
+        "The W3C Data Catalog Vocabulary is not presented as an authoritative exact definition because the supplied destination does not define this concept.",
+        "A destination is called verified only if the retained evidence shows direct retrieval and supports the attributed claim; inaccessible evidence remains unverified.",
+        "The response uses formulate or defer unless a directly verified source actually matches the concept's intension, extension, scope, and authority.",
+        "The definition does not conflate authorization status with the evidence item, retention action, decision, review workflow, code, or value domain.",
+        "Negative search results are bounded and do not become proof that no definition exists."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Define bicycle parking capacity for our internal glossary. Keep it compact and tell me if any assumption materially limits the definition.",
+      "expected_output": "A compact definition-first answer that applies terminology discipline and the data-definitions fallback proportionately without claiming registry acceptance or ISO/IEC 11179 compliance.",
+      "files": [],
+      "assertions": [
+        "The compact definition appears first and distinguishes capacity from the current number of parked bicycles, occupied spaces, parking facility, and implementation field.",
+        "The fallback data-definitions profile improves superordinate and delimiting-characteristic discipline without forcing irrelevant data-element fields.",
+        "The response must not claim ISO/IEC 11179 compliance, registry acceptance, certification, or review.",
+        "Any material assumption about whether capacity means designed, lawful, or operational maximum is concise and visible.",
+        "The answer does not expand into an unnecessary full concept package."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Define discharge exceedance for our reporting glossary. The phrase is materially ambiguous across permits and measurement rules; ask only the focused question needed to settle the threshold and jurisdiction.",
+      "expected_output": "A two-turn interaction whose one focused clarification resolves the operational threshold and jurisdiction before a definition-first answer.",
+      "files": [],
+      "assertions": [
+        "Before the scripted clarification, the assistant does not silently choose a jurisdiction or threshold and asks no broader discovery interview.",
+        "After the clarification, the definition appears first and states the operational rule as strictly greater than the supplied daily-average threshold in the named permit jurisdiction.",
+        "A value equal to 50 milligrams per litre is treated as a near miss rather than an exceedance under the supplied rule.",
+        "The answer distinguishes the operational regulatory concept from a broader non-regulatory notion of excessive discharge.",
+        "Any source-version or legal applicability claim remains bounded to the supplied jurisdiction and evidence."
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Assess a proposed mapping between Scheme A's Research dataset and Scheme B's Dataset. Scheme A excludes administrative records and requires data collected for a research question; Scheme B covers any organized collection of data. Produce a concept package and choose among exact, close, broad, narrow, related, or no supported mapping. Do not infer equivalence from the labels.",
+      "expected_output": "A definition-first mapping package that compares intension, extension, scope, system position, and use, and rejects false exact equivalence.",
+      "files": [],
+      "assertions": [
+        "The target definitions or concise formulations appear before the mapping rationale.",
+        "The response does not assert exact equivalence because Scheme A's concept has a narrower extension and additional research-purpose characteristics.",
+        "The mapping direction and relation type are explicit and do not confuse broader or narrower mapping with within-scheme broader/narrower, partitive, or associative relations.",
+        "The comparison considers intension, extension, scope, system position, and intended use rather than lexical similarity alone.",
+        "Any SKOS serialization or validator result is identified as proposed or not run unless actually performed."
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Build a concept package for Digital preservation action in a formal ontology. It must answer whether an action can have multiple input information objects, whether a software execution is an action instance, and which agent bears responsibility. Separate the textual definition, necessary and sufficient conditions, constraints, and any proposed axiom; no ontology tool is available.",
+      "expected_output": "A definition-first ontology package driven by competency questions, with honest proposed/not-run states and no invented reasoning result.",
+      "files": [],
+      "assertions": [
+        "The textual definition appears first and classifies the target as an action or process rather than an information object, software artifact, or agent.",
+        "Each supplied competency question is answered or explicitly left unresolved, and a failed critical question blocks an unqualified completion.",
+        "Textual definition, necessary conditions, sufficient conditions, constraints, and mappings are kept distinct.",
+        "Any formal axiom is labeled proposed and is not reported as parser-valid, reasoner-consistent, satisfiable, or tool-validated because no tool ran.",
+        "No identifier, domain or range, cardinality, disjointness, review, or release history is invented.",
+        "Responsibility is modeled separately from mere execution or causal participation."
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "Create a multilingual terminology concept package for English accountability and French responsabilite in public-administration policy. Do not assume full equivalence from a dictionary translation or similar spelling; record any directional or partial equivalence, language variety, jurisdiction, and review need.",
+      "expected_output": "A definition-first multilingual package that starts from concepts, preserves non-equivalence, and does not invent native-speaker or community validation.",
+      "files": [],
+      "assertions": [
+        "The concept formulations appear before designation or translation recommendations.",
+        "The response does not claim full equivalence solely from dictionary translation, spelling, or machine translation and records partial, directional, pragmatic, or absent equivalence when supported.",
+        "Material language variety, script, jurisdiction, and designation status are recorded or identified as unresolved.",
+        "Native-speaker, domain, or affected-community review is recommended for consequential use but is not claimed to have occurred.",
+        "TBX, SKOS labels, or OntoLex-Lemon are proposed only if the requested representation calls for them."
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "Create a concept package for Traditional ecological knowledge for a cross-agency data catalog. One agency wants a universal interoperability definition; an Indigenous governance group says its own locally supplied definition and access rules govern use. Identify who has authority, preserve material alternatives, and defer any claim the agent cannot legitimately settle.",
+      "expected_output": "A definition-first or explicitly deferred governance-sensitive package that prioritizes local authority and does not treat interoperability as legitimacy.",
+      "files": [],
+      "assertions": [
+        "A locally governed definition is presented first when supplied and usable; otherwise the response states why formulation is provisional or deferred.",
+        "The response identifies whose knowledge, standpoint, jurisdiction, authority, and affected interests are material and does not silently universalize one agency's framing.",
+        "Local governance and access rules take priority over generic interoperability preferences; FAIR or interoperability is not presented as establishing legitimacy.",
+        "Review, co-governance, consent, or deferral is required where the agent lacks authority, and none is falsely claimed as completed.",
+        "Material alternatives and the type of disagreement - empirical, terminological, normative, or perspective-dependent - remain visible."
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Return a machine-readable concept entry for Record retention trigger as plain JSON. Include a definition first in the human preface, typed relations, evidence status, source version and wording permission, lifecycle and review status, and performed versus not-run validation. Do not invent an identifier. Unknown, not applicable, not assessed, and not found must remain distinguishable.",
+      "expected_output": "A concise definition-first preface followed by versioned plain JSON that preserves semantic states and does not imply unperformed schema, ontology, or registry validation.",
+      "files": [],
+      "assertions": [
+        "A responsibly formulated definition is the first substantive human-readable item before the serialized record.",
+        "The JSON is syntactically valid, versioned, and preserves distinct states for unknown, not applicable, not assessed, and not found.",
+        "No identifier, source version, wording permission, conformance, review, release, or validation result is invented.",
+        "Typed relations distinguish hierarchy, association, partitivity, and mapping where present.",
+        "Semantic validation and any parser, schema, SHACL, or reasoner validation are reported separately with performed, passed, failed, or not-run truthfully.",
+        "The JSON is a projection of one concept entry rather than a second inconsistent definition."
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "Define meeting cancellation reason in one or two sentences for an internal glossary. It means the circumstance that explains why a scheduled meeting was cancelled. Do not give me a research report or machine-readable package.",
+      "expected_output": "A compact definition-first answer that performs internal semantic checks without exposing a fixed template or unnecessary analysis.",
+      "files": [],
+      "assertions": [
+        "The definition appears first and classifies the target as a circumstance or rationale rather than the cancellation event, meeting, status code, or free-text field.",
+        "The answer stays within one or two sentences unless a material ambiguity blocks responsible formulation.",
+        "No fixed section template, research diary, numeric confidence, source inventory, or full concept package is exposed.",
+        "The wording remains standalone, concise, non-circular, and discriminating."
+      ]
+    }
+  ]
+}

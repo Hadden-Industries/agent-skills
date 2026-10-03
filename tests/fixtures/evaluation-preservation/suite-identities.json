@@ -1,0 +1,22 @@
+[
+  {
+    "skill": "committing-to-git",
+    "metadataSha256": "de856f643e1b88c93b61a0f93baaed3fe7d3e8939d5c374b218b40ca5b9c4789",
+    "triggerSha256": "774a02744bb83ea09f6da3904d59a14dd0d80269ed2ead0073797cc84d5e289b"
+  },
+  {
+    "skill": "defining-concepts",
+    "metadataSha256": "15942f1612bd4d2b140b88ca1ab51690fdc2f0dd27ea096ab7f6f9efd614f9c9",
+    "triggerSha256": "849853a3e4a6f65f01d766d917e706f09ebbaa93b7a745e930700f47030481ca"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "metadataSha256": "569d4d1924fac3699731a7ca3f0ae58463a96fb977b99be2cae5b5705f50ad65",
+    "triggerSha256": "6a394e135a08921d58f0d7241ac8526023ed5db1c5bfd6b39b5e720cde0fefc8"
+  },
+  {
+    "skill": "reading-epubs",
+    "metadataSha256": "35e8cd08dba9109d3fc128af7c5c496f25e84338aa44269e9376eac29dee5a76",
+    "triggerSha256": "aeaabd51f75e45ded45cbed80bed8412aa31ee672f5a7623eb55e08fea5697c8"
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_pandoc.cpython-313.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_pandoc.cpython-313.pyc",
+    "byteLength": 3319,
+    "sha256": "8b5570cb233bdbf320dc9528938934948a4d546b6e9e8dde887cf7b37c3f0150"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_pandoc.cpython-314.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_pandoc.cpython-314.pyc",
+    "byteLength": 3881,
+    "sha256": "3aa5f45df5545f1471841b69ab55e3a31028430cc22d5b5526f12615ce7490ef"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_repair.cpython-313.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_repair.cpython-313.pyc",
+    "byteLength": 6800,
+    "sha256": "e78acc1f4c20ac610af7467aedce12864defd7559e73073ef69418502f42df09"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_repair.cpython-314.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_repair.cpython-314.pyc",
+    "byteLength": 8575,
+    "sha256": "3d0e47ace5e1894dedf8dee8e30cf428e5cbd2a22cf60075be10b6f4d2cd567b"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_styles.cpython-313.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_styles.cpython-313.pyc",
+    "byteLength": 13565,
+    "sha256": "837aa29dd5bb684cb4aa95a345c045fdd25ffaf436e3dba104ddba02e900ccee"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_styles.cpython-314.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_styles.cpython-314.pyc",
+    "byteLength": 15315,
+    "sha256": "49920efbc87eea4912736c041a93a01bac4c8016cfa7026beec119323af300a8"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_toc.cpython-313.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_toc.cpython-313.pyc",
+    "byteLength": 9468,
+    "sha256": "6d739e173039862680f3ee9ebf02130889942c594ed074fc215d83211d4f7642"
+  },
+  {
+    "oldPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\skills\\reading-epubs\\scripts\\__pycache__\\_toc.cpython-314.pyc",
+    "newPath": "C:\\Users\\maksy\\GitHub\\agent-skills\\.agent-tools\\evaluation\\preexisting-runtime-cache\\reading-epubs\\_toc.cpython-314.pyc",
+    "byteLength": 10919,
+    "sha256": "058d1122679a763e8018a4cca345f335b41a2e5ab48d8a4f792283982954e9fa"
+  }
+]

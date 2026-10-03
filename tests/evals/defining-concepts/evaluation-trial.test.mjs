@@ -1,3 +1,4 @@
+import { compileSuite } from "../../../scripts/evaluation/compile-suite.js";
 import assert from "node:assert/strict";
 import {
   access,
@@ -17,7 +18,7 @@ import {
   prepareEvaluationTrial,
   runEvaluationTrial,
   verifyEvaluationTrial,
-} from "../../../evals/defining-concepts/evaluation-trial.mjs";
+} from "../../../src/defining-concepts/evals/assurance/v1/evaluation-trial.mjs";
 import {
   canonicalJsonBytes,
   consumeExternalModelLaunch,
@@ -28,12 +29,10 @@ import {
   sha256Hex,
 } from "../../../scripts/evaluation/runtime.js";
 
-const definitions = JSON.parse(
-  await readFile(
-    new URL("../../../evals/defining-concepts/evals.json", import.meta.url),
-    "utf8",
-  ),
-);
+const definitions = compileSuite({
+  repositoryRoot: path.resolve(import.meta.dirname, "../../.."),
+  skillName: "defining-concepts",
+}).definition;
 const fixtureExecutionTimeoutMs = 600_000;
 async function pathExists(target) {
   try {
@@ -202,7 +201,7 @@ function preparedPacket({
       gitTree: "3".repeat(40),
       modules: [
         {
-          path: "evals/defining-concepts/run-evaluation-session.mjs",
+          path: "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
           byteLength: 1,
           sha256: "4".repeat(64),
         },

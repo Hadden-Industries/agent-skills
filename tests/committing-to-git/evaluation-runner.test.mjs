@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -19,7 +20,7 @@ import test from "node:test";
 import {
   EXACT_COMMIT_AUTHORIZATION_REPLY,
   createCommittingToGitController,
-} from "../../evals/committing-to-git/session-controller.mjs";
+} from "../../src/committing-to-git/evals/assurance/v1/session-controller.mjs";
 import {
   BASELINE_SKILL_COMMIT,
   DEFERRED_CALIBRATION_MODEL,
@@ -40,7 +41,7 @@ import {
   preparePolicyEvaluationSession,
   resolvePushedEvaluationCandidate,
   selectEvaluationCampaignSession,
-} from "../../evals/committing-to-git/evaluation-runner.mjs";
+} from "../../src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs";
 import { inspectAntigravityCliToolchain } from "../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../scripts/evaluation/codex-app-server.js";
 import {
@@ -63,8 +64,11 @@ const FAKE_APP_SERVER = join(
 );
 const RUNNER_CLI = join(
   REPOSITORY_ROOT,
-  "evals",
+  "src",
   "committing-to-git",
+  "evals",
+  "assurance",
+  "v1",
   "run-evaluation-session.mjs",
 );
 const FAKE_ANTIGRAVITY = join(
@@ -82,11 +86,23 @@ const CURRENT_COMMIT = runGit(REPOSITORY_ROOT, [
 const TEST_CAMPAIGN_ID = "c".repeat(64);
 const PINNED_RUNNER_FILES = Object.freeze([
   "package.json",
-  "evals/committing-to-git/create-fixture-repository.mjs",
-  "evals/committing-to-git/evaluation-runner.mjs",
-  "evals/committing-to-git/evals.json",
-  "evals/committing-to-git/run-evaluation-session.mjs",
-  "evals/committing-to-git/session-controller.mjs",
+  "package-lock.json",
+  "evaluation-toolchain.json",
+  "scripts/buildSkillArtifacts.js",
+  "scripts/skillDistribution.js",
+  "scripts/evaluation/compile-suite.js",
+  "scripts/evaluation/json-contract.js",
+  "scripts/evaluation/profile-registry.js",
+  "scripts/evaluation/toolchain.js",
+  "scripts/evaluation/capability-reconciliation.js",
+  "scripts/evaluation/schemas/portable.schema.json",
+  "scripts/evaluation/schemas/extension.schema.json",
+  "src/committing-to-git/evals/extensions/v1/suite.json",
+  "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs",
+  "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
+  "src/committing-to-git/evals/evals.json",
+  "src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs",
+  "src/committing-to-git/evals/assurance/v1/session-controller.mjs",
   "scripts/evaluation/antigravity-cli.js",
   "scripts/evaluation/codex-app-server.js",
   "scripts/evaluation/evaluation-homes.js",
@@ -127,20 +143,24 @@ function createPushedCandidateRepository(t, { includeBaseline = true } = {}) {
   }
   runGit(repository, ["config", "user.email", "eval@example.test"]);
   runGit(repository, ["config", "user.name", "Evaluation Fixture"]);
-  mkdirSync(join(repository, "skills", "committing-to-git"), {
-    recursive: true,
-  });
-  writeFileSync(
-    join(repository, "skills", "committing-to-git", "SKILL.md"),
-    "---\nname: committing-to-git\ndescription: Fixture\n---\n",
-    "utf8",
-  );
+  for (const directory of ["src/committing-to-git", "skills/committing-to-git"])
+    cpSync(join(REPOSITORY_ROOT, directory), join(repository, directory), {
+      recursive: true,
+    });
   for (const path of PINNED_RUNNER_FILES) {
     const destination = join(repository, ...path.split("/"));
     mkdirSync(dirname(destination), { recursive: true });
     writeFileSync(destination, readFileSync(join(REPOSITORY_ROOT, path)));
   }
-  runGit(repository, ["add", "evals", "package.json", "scripts", "skills"]);
+  runGit(repository, [
+    "add",
+    "src",
+    "package.json",
+    "package-lock.json",
+    "evaluation-toolchain.json",
+    "scripts",
+    "skills",
+  ]);
   runGit(repository, ["commit", "-m", "test: Add candidate skill"]);
   runGit(repository, ["branch", "-M", "main"]);
   runGit(repository, ["remote", "add", "origin", remote]);
@@ -570,7 +590,7 @@ test("controller grants only fixture-scoped one-turn permissions", async (t) => 
 
 test("evaluation runner exports only the migrated orchestration surface", async () => {
   const runner =
-    await import("../../evals/committing-to-git/evaluation-runner.mjs");
+    await import("../../src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs");
   assert.deepEqual(Object.keys(runner).sort(), [
     "BASELINE_SKILL_COMMIT",
     "DEFERRED_CALIBRATION_MODEL",
@@ -638,7 +658,7 @@ test("the initial campaign schedules one matched Spark repetition and defers def
   );
   assert.equal(
     first.pinnedRepositoryPaths.includes(
-      "evals/committing-to-git/evaluation-runner.mjs",
+      "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
     ),
     true,
   );
@@ -778,7 +798,15 @@ test("candidate resolution rejects unpushed, dirty, or incomplete campaigns", (t
   const dirtyRunner = createPushedCandidateRepository(t).repository;
   const dirtyCandidate = resolvePushedEvaluationCandidate(dirtyRunner);
   writeFileSync(
-    join(dirtyRunner, "evals", "committing-to-git", "evaluation-runner.mjs"),
+    join(
+      dirtyRunner,
+      "src",
+      "committing-to-git",
+      "evals",
+      "assurance",
+      "v1",
+      "evaluation-runner.mjs",
+    ),
     "dirty runner\n",
     "utf8",
   );
@@ -1228,8 +1256,8 @@ test("preparation writes a common packet without packet-local runtime homes", as
   assert.deepEqual(
     packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
     [
-      "evals/committing-to-git/evaluation-runner.mjs",
-      "evals/committing-to-git/session-controller.mjs",
+      "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
+      "src/committing-to-git/evals/assurance/v1/session-controller.mjs",
       "scripts/evaluation/runtime.js",
       "scripts/evaluation/evaluation-homes.js",
       "scripts/evaluation/evaluation-path-metadata.js",

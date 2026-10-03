@@ -1,0 +1,557 @@
+[
+  {
+    "skill": "committing-to-git",
+    "id": 1,
+    "originalSha256": "e712be32223665258a8b0a62d65c99779d9b7d0c4b3d0a322779699fdb7b502a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 2,
+    "originalSha256": "a9cf9b36c7eba52eacc0106c2d27d1f6aa6bc335497b20c129eee2ad1c22302b"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 3,
+    "originalSha256": "e807946a8e951dd11fadbb1cceacbe49b277f93b9d2950cb71dfe329857b26de"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 4,
+    "originalSha256": "6af8d3f0a2d938bbaa61059a9a428d61246f5dc44ad23b74c76466fb2de0dfb2"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 5,
+    "originalSha256": "adbd05017bd9311294112f4386a4b9f403ae60e5d6df70794eb55cd470c793df"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 6,
+    "originalSha256": "bb5cab6f67da1f030ba35342febb46eb9840d4e453a73b5311b0f6359b059294"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 7,
+    "originalSha256": "305b7b585ea46eadecd3c06f029ace1ce4c6c5faa11f21ce84fb72bb2f4c1930"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 8,
+    "originalSha256": "4421db8b252fb71ab9cf5b3f6bd196d6af9ed618631902d3f4690c1afd2a9dc6"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 9,
+    "originalSha256": "e57bcdacd4c074c5f677e7b6f15daf66099d837a6c023859ecd5ebf48b38665a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 10,
+    "originalSha256": "a7e0768bc9035b89c016aa7382e8fcbc454ba8ab302aed6fe8a7f68f79285ec0"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 11,
+    "originalSha256": "3ea4f618db4ec5a02d8bb172c380fc44a4dc5a7de1e8a7a84c2d149703b6a753"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 12,
+    "originalSha256": "df4442f8146f80b885484e459741a6c536a13fa94629919cf394a7e0f9d61311"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 13,
+    "originalSha256": "db7d3cc20d16309c9bf12c1ad1e4ea830fa26e57e7398a94b5ae5a07803f9275"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 14,
+    "originalSha256": "80605411761d019e5f3fdc1e8523aec711f1d707448873249c2043cb3ccd6ab7"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 15,
+    "originalSha256": "35ce758b6febe430f0848aa0af0a2e41aa1a453a34728c51262b8f776122ed4f"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 16,
+    "originalSha256": "637cca745f95d260a1601c39de22f69ddeb4c722ca6aa2f9720d377d11bc1959"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 17,
+    "originalSha256": "7b7853816c3b2aec1c8a9da0de462c3d0166ed2b03b8e8b3b03b6975dab70d30"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 18,
+    "originalSha256": "fa574538e4bba642ed173edb5e016401db827a034778996def2a958ddcadc8b8"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 19,
+    "originalSha256": "a0555d56b6a3c1c336b4df196769c69bab692658188b982f6496182e11b77503"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 21,
+    "originalSha256": "50683aa06885ffe84046e11be1b5d8b865e2f2c4db2bfba847e56597438ab0bf"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 23,
+    "originalSha256": "edaa5c503b7f26fd5f32a1ea98f128640e193d5236c874ecdd501a9b841ee020"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 24,
+    "originalSha256": "2d3bb753847400d2b661a60e9aeeaa636654ad565414683061b354df928fd6f8"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 28,
+    "originalSha256": "79202eb519da26b15d6b26f5cf0b9aaaf7141144d8a80e35dde9ff1285b2c27a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 29,
+    "originalSha256": "022d57c124abd3a12d29b811a86a6aca8a4abdcc1401cff2cac7c4b00b62a03c"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 30,
+    "originalSha256": "0e3d723c2814762c94541e08116fc6c348d5666f30c6a320aab26a05061c9056"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 31,
+    "originalSha256": "e5d2341df907c9e856e625f10b84c510cacce29b6977d297519494abfa16213e"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 32,
+    "originalSha256": "f6e378fd2ac26f6015066a94315a29d1840a4223b561eb9401466e9c5ebe28d8"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 33,
+    "originalSha256": "f25e2794e8bbead71761bf36268af216ef751c694ce31ac7c9252ed0b6d70858"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 34,
+    "originalSha256": "c6aefcb0876c29bde3d8efd06104640a4baec188312b9775ababdc4d0018ac0e"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 35,
+    "originalSha256": "d1af101c000798d6fedba6b099f9bd384777c9df1753172fb5358e09419a07dc"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 36,
+    "originalSha256": "34614c6300de44d1a03bc914c41a3844e2164cf015eabaeeab164f703bc891d4"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 37,
+    "originalSha256": "a09440f253a5902ef6132820ac1857ec7b58ed17a24830e0332762f14c55a3d6"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 38,
+    "originalSha256": "51196ccc68bbaafc14ff001186cb245b6eff8dff653c585f17e84f36c71253e2"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 39,
+    "originalSha256": "fcb29a0b4127d0c5c300d6c5683e6c88ebd2462a53557df466c01c937aff3e11"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 40,
+    "originalSha256": "5f99b28ca7d3b06bfbc3f4f27653a0103103532de5c93955ba94900d1010dc8a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 41,
+    "originalSha256": "ad6a94f7862efd1af59af4d1f1b831c72b76f25a7189fd39f1b87851c121a68d"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 42,
+    "originalSha256": "2d6bab9a107b10c6f705ab65459ae5dabfcf7c645eaf88408a765413a0702439"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 43,
+    "originalSha256": "0313f78b4b32a85625769db11220d51804b3de7ffa6adc4f56947055f58ac629"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 44,
+    "originalSha256": "c42bddd9b20eb98a3cfc04a3960efdd095267df30aee0d0feefad176f1e2c55b"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 45,
+    "originalSha256": "fdfb0fbc9c57c267267e0ce4e1d03095c2aeae8538c6ffbb9724db5d995c91fd"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 46,
+    "originalSha256": "280b450935cfb512dbaf8c7d4c4d7a39feea4d2d631e7ef0a0795ceb3539dfd6"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 47,
+    "originalSha256": "47bd43494046644ddf39b8b024b3f48173fe456a933a0fe5b678de2c616ca360"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 48,
+    "originalSha256": "3579d8b57bb211b7bc0ec752e2387510b4e747d3f85ce9c0e2f407b289c24f2e"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 49,
+    "originalSha256": "984567f699097c48bc3f9a821b4c3211f6b4ff0da38d5262874e5cafd35eebf2"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 50,
+    "originalSha256": "5b38829ebec03f5877f738e9291bbd0c06d84b3203ffbb3d1b027af7cfc983ec"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 51,
+    "originalSha256": "ae2882d0a66b241ca75696007fc2b16ce3e552f51257732e36a305b55b1085e3"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 52,
+    "originalSha256": "0b8fce72e676daeac770c0108aaba50e45fb842c5972521e48a2ad5ccf7d49a1"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 53,
+    "originalSha256": "67ebeb0696e35bcc74696d4df69bb3eb044d4e4a79afc33d6cba760bbff04eb3"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 54,
+    "originalSha256": "79526f405e891f4e1aff58fb44b0a89d9d64e946dfb8861587cc94cc9a527715"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 55,
+    "originalSha256": "a17ae2dc9c849ef4f276c6ca5f62e043229596df540694abc9d47e36a72f905e"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 56,
+    "originalSha256": "edab875be5dae09a608ae950cfadb38142a8dbcb953a7c6de1ca780a496eec04"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 57,
+    "originalSha256": "a3b91e83c400fd2d0b62a0e7cfcd44042bcf099cf62b9736c893308c9acd47fc"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 58,
+    "originalSha256": "bc123da2697cd29bbd465e4c84e5aca5d7d497441134114e813f2088d76ea0af"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 59,
+    "originalSha256": "8695ecca5052250237076468cf646d517a3f136d4107a2ec285787d5a09efa8a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 60,
+    "originalSha256": "4b9739f4a1f88927f0dc72b709687cdbc35fbc6759c44ce9cecbc8022b8b6d91"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 61,
+    "originalSha256": "1947bdcfaf87cda954cbe6b2dce19de61148193c8d10a17ba9e7044bc910ba39"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 62,
+    "originalSha256": "9a936b217d8d295f908803244c76241d009673eaca54179e04d88732f4f1663e"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 63,
+    "originalSha256": "ab4df0db551b1e7fe00cefcbd883bb039b69140443322f24233086445131bd3f"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 64,
+    "originalSha256": "d7066cf3b6fb79401f576be4cbee1bbcfcc4340ab2dae2584266cd314b810a8f"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 65,
+    "originalSha256": "d66fca4937054175226f95ba582628e023d8e7700a8c882ed961beb35c1ccaec"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 66,
+    "originalSha256": "5e9065c816d20603c9b46e22baab7b4ce173e0ccd09bd0e1e56b82224246d052"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 67,
+    "originalSha256": "0756d27f3ef058b188c5f129c16925bef3dda45dcc85ff776747af9d951feb6a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 68,
+    "originalSha256": "c7b75cd7be75f2f2d3915a49dd3529b02552010c7d436be477f1ce6728fb06f8"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 69,
+    "originalSha256": "534ebb7c7d88daf3e0f832f52a392eebb3a7d6f56228e9910a40fd3ade690c95"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 70,
+    "originalSha256": "bf619e2d5567b78cf26337fa6e3b7099b4d7ca868f47cf56c6cd31db8b1aaf1a"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 71,
+    "originalSha256": "834db10bd7340f6a2f843e5f9719713b7673d34f6a9d48f598515381c507a0e0"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 72,
+    "originalSha256": "a1587811ad610dc69014ee7dcec70bb925dbb54fc778b54ad4eb93233ca2dadd"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 73,
+    "originalSha256": "17747d4d0fb8ec07ef2316a4fcda03455cc3e063bdbd76bdb486aacbfb23f692"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 74,
+    "originalSha256": "cf65247de64602c4e9b443a7ac9ec213fd93567c80db7f9964d212b95e84a1b7"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 75,
+    "originalSha256": "41d416d7e153a2ae09df791cb94ceb91acae9fb5ac96f73fccf0391df1b6b500"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 76,
+    "originalSha256": "65ce7b380e35619c9c2290eed6682da9db67ea95faaf11492e1d083203b918b3"
+  },
+  {
+    "skill": "committing-to-git",
+    "id": 77,
+    "originalSha256": "61c16c5788fc26aeb5f7604ea1bf81c2f2c2257733dace46329765c359693494"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 1,
+    "originalSha256": "804dd71f246d693a9c3b384a32a7850672c7bdbe7614f0b9c117c10eaf11da70"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 2,
+    "originalSha256": "1d77f2be756dfe49c137a47abdaef632bb7580ea8279be442c010c9729daed01"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 3,
+    "originalSha256": "0736c53e7f9b74490b0dba584af6b095228f2020e76ad562e4239d4bb1dfd859"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 4,
+    "originalSha256": "23855fe472c8c8bf8bd54beed48c01c60abf98089c9d25435d428776ed26c95c"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 5,
+    "originalSha256": "4d05e7a01ec638d81dda32dd31a5fc71d3471b34693a938734010ceb69f06047"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 6,
+    "originalSha256": "b55ed1bf7c73025a31c2679d4766d1dc61c757ffde6518f4e80a249394eedcab"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 7,
+    "originalSha256": "b2d7314f317e41b51f1888012da2b8d7c5d2381f6fe3d6b444ab251d4b201d36"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 8,
+    "originalSha256": "986734fb89a357719a934f61bda086c688194b031f3bc04e5e44e69eb049eea2"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 9,
+    "originalSha256": "424f7b3771a5a2f1b95135357c5847f57e14a7e99991519a1fdb4470dc3d9d39"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 10,
+    "originalSha256": "64e2aaee67369f5094c73c546642411b1ef9c14c3f0075b023636d598b0c8e10"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 11,
+    "originalSha256": "1e5a33c1ccf1b19d44f873d98eaf1e1379f80ec84ed3ee35ab7619752c2a11b5"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 12,
+    "originalSha256": "1e2dedabfae16820759176b21d244e66990ed44dc445c9fc46d546dc3f25282f"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 13,
+    "originalSha256": "afee881c9a23c3f00d7fafb88c79d2455433d5a0c51fa961aa05709f555412dc"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 14,
+    "originalSha256": "e86d795acdc5698d02ee87abedd72fe20914b247b7c8ff691c540c43d05556bf"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 15,
+    "originalSha256": "5d14512c16c168410b44f5bc473d255b5749b3821e51310f7a031cfb2a5befba"
+  },
+  {
+    "skill": "defining-concepts",
+    "id": 16,
+    "originalSha256": "4743a245d65e2ae094c4492fdfbfba9e3bd568c802f29e9fe5283b8c340fb2bf"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 1,
+    "originalSha256": "39393b92e97860ed7d6b5294f52086ca08bfffad3ac975b28d784c8dda411ae2"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 2,
+    "originalSha256": "f67cff0460356a5c26f00ea89b63cf2ef856d644021c2cc04fdf4478665baf78"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 3,
+    "originalSha256": "2aef6e4b958ed28045399f91e99ee876f0c27ef2506ef1ca51c43d1ec96ecc41"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 4,
+    "originalSha256": "734da24fe5ab28159667caa8b201b6ddb0cb8bf896a291b8e88e2716cb8dc389"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 5,
+    "originalSha256": "9f847dff5f1627d2693fdb8c2ff2076dbc614d75e80f306626174b1b1a44ea67"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 6,
+    "originalSha256": "02d2ca1b9fc7f7c4dec38240450aa2b8de8b71c0f12628e116a22de0898842ad"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 7,
+    "originalSha256": "3264dc4ef6b8dad9e8def8e84a9ba84c9fe4431707f5982e88fb18cf3078f3b4"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 8,
+    "originalSha256": "2a5b2832aadadfa2af5e194939ccc131dd40ca2f9827010dcf7f50bee72636d5"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 9,
+    "originalSha256": "89df405a65706a39da595b1fc8b6a713aa4283bc0aae25e94d2e835c93db1a10"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 10,
+    "originalSha256": "d4129deb2fad3cb8e74eed94b1fb11d54078d9f865705f4d0e2c4e53d430f6f1"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 11,
+    "originalSha256": "fe780f36283e9cf5c06594a0a33b59669c6351ec5d7dc340699e3b057f031344"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 12,
+    "originalSha256": "8f67017f36bf7fcaa42b3b1d43bca9b0a62824831962ce96341b4842021f0361"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 13,
+    "originalSha256": "3611c5f608cc4f34e9b45624f5e7e21c0f43a38d8435e79f99afd97668477be1"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 14,
+    "originalSha256": "ca1f67bd4c62080e73cb7f304fa3df69295022e0a62111ff5642a1f6476c42b2"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 15,
+    "originalSha256": "e0cd5e91ec94637b021e51f2af66cdbca16f8e7028f8791eb4e46263129eefe9"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 16,
+    "originalSha256": "e8c2821d0f1857a017dd5ac677ffbec44355004f3f8b4c525ae512da8cb36b96"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 17,
+    "originalSha256": "b1ac288a62cd60e40db6c453ff936d7777d75fe37a9a053db33dfb3a75456e02"
+  },
+  {
+    "skill": "naming-objects-in-software-engineering",
+    "id": 18,
+    "originalSha256": "bd71cfdca298e4a930afd3e2533bc15df5d95b747924105b8ecd6bcbd20d27b0"
+  },
+  {
+    "skill": "reading-epubs",
+    "id": 1,
+    "originalSha256": "a64b81a8ce3978681b1b6c86db34468e1eae2169f663b3d54e2eace7f6ac314f"
+  },
+  {
+    "skill": "reading-epubs",
+    "id": 2,
+    "originalSha256": "571179a70b07ed82d424c3f4dd67076f84c88507941e54aca5aef63c6fb39413"
+  },
+  {
+    "skill": "reading-epubs",
+    "id": 3,
+    "originalSha256": "36af03d0dfad69a1ac1f9b88600788f7951275ab2db9e7bbdc1cea982d4f69aa"
+  },
+  {
+    "skill": "reading-epubs",
+    "id": 4,
+    "originalSha256": "7ed54fab865bf2110ec3b9e57449a16a9b651c840af9066dd210045ebe7d041a"
+  },
+  {
+    "skill": "reading-epubs",
+    "id": 5,
+    "originalSha256": "a2a4adc512a382713fa0baa539f14a5527c8cdd802acdfcf9f954a7f94840979"
+  }
+]

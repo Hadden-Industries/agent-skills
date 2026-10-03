@@ -12,9 +12,13 @@ test("repository validation composes canonical and evaluation checks", async (t)
 
   t.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
   mkdirSync(join(repositoryRoot, "skills", "selected"), { recursive: true });
-  mkdirSync(join(repositoryRoot, "evals"), { recursive: true });
+  mkdirSync(join(repositoryRoot, "src", "selected"), { recursive: true });
   writeFileSync(
     join(repositoryRoot, "skills", "selected", "SKILL.md"),
+    "# Selected\n",
+  );
+  writeFileSync(
+    join(repositoryRoot, "src", "selected", "SKILL.md"),
     "# Selected\n",
   );
 

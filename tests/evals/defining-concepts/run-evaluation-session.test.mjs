@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDefiningConceptController } from "../../../evals/defining-concepts/session-controller.mjs";
+import { createDefiningConceptController } from "../../../src/defining-concepts/evals/assurance/v1/session-controller.mjs";
 import { initializeEvaluationHomes } from "../../../scripts/evaluation/evaluation-homes.js";
 import {
   canonicalJsonBytes,
@@ -24,9 +24,7 @@ import { normalizeEvaluationConversation } from "../../../scripts/evaluation/scr
 const root = path.resolve(import.meta.dirname, "../../..");
 const runner = path.join(
   root,
-  "evals",
-  "defining-concepts",
-  "run-evaluation-session.mjs",
+  "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
 );
 const executionTimeoutMs = 5_000;
 const fakeClaude = path.join(
@@ -992,8 +990,21 @@ test("Codex preparation binds App Server transport and a managed execution home"
   assert.deepEqual(
     packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
     [
-      "evals/defining-concepts/run-evaluation-session.mjs",
-      "evals/defining-concepts/session-controller.mjs",
+      "package-lock.json",
+      "evaluation-toolchain.json",
+      "scripts/buildSkillArtifacts.js",
+      "scripts/skillDistribution.js",
+      "scripts/evaluation/compile-suite.js",
+      "scripts/evaluation/json-contract.js",
+      "scripts/evaluation/profile-registry.js",
+      "scripts/evaluation/toolchain.js",
+      "scripts/evaluation/schemas/portable.schema.json",
+      "scripts/evaluation/schemas/extension.schema.json",
+      "src/defining-concepts/evals/evals.json",
+      "src/defining-concepts/evals/extensions/v1/suite.json",
+      "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs",
+      "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
+      "src/defining-concepts/evals/assurance/v1/session-controller.mjs",
       "scripts/evaluation/scripted-conversation.js",
       "scripts/evaluation/skill-bundle.js",
       "scripts/evaluation/capability-reconciliation.js",
@@ -1142,8 +1153,21 @@ test("Antigravity preparation binds one explicit post-activation message without
   assert.deepEqual(
     packet.transmission.runtimeFingerprint.modules.map(({ path }) => path),
     [
-      "evals/defining-concepts/run-evaluation-session.mjs",
-      "evals/defining-concepts/session-controller.mjs",
+      "package-lock.json",
+      "evaluation-toolchain.json",
+      "scripts/buildSkillArtifacts.js",
+      "scripts/skillDistribution.js",
+      "scripts/evaluation/compile-suite.js",
+      "scripts/evaluation/json-contract.js",
+      "scripts/evaluation/profile-registry.js",
+      "scripts/evaluation/toolchain.js",
+      "scripts/evaluation/schemas/portable.schema.json",
+      "scripts/evaluation/schemas/extension.schema.json",
+      "src/defining-concepts/evals/evals.json",
+      "src/defining-concepts/evals/extensions/v1/suite.json",
+      "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs",
+      "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
+      "src/defining-concepts/evals/assurance/v1/session-controller.mjs",
       "scripts/evaluation/scripted-conversation.js",
       "scripts/evaluation/skill-bundle.js",
       "scripts/evaluation/capability-reconciliation.js",

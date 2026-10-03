@@ -10,12 +10,15 @@
 
 # Skill Authoring
 
+- Edit repository-authored skill content in `src/<skill>/`. Run `npm run build` to generate the deployable `skills/<skill>/` directory and host packages; never edit generated or installed copies.
+- Keep portable cases and fixtures in `src/<skill>/evals/`, protocol and assurance metadata in `evals/extensions/v1/suite.json`, and executable suite policy in `evals/assurance/v1/`. Read `docs/evaluation-runtime.md` before preparing or executing an evaluation. Build validation does not authorize a model call.
+
 ## ASCII-Only Canonical Skill Files
 
-- Every repository-authored canonical `SKILL.md` under `skills/` MUST contain ASCII bytes only (`0x00` through `0x7F`). Use ASCII punctuation, straight quotes, and ASCII arrows or separators.
+- Every repository-authored `SKILL.md` under `src/` and its generated copy under `skills/` MUST contain ASCII bytes only (`0x00` through `0x7F`). Use ASCII punctuation, straight quotes, and ASCII arrows or separators.
 - This rule does not apply to imported or upstream skills installed under `.agents/skills/`, `.claude/skills/`, or another generated installation directory. Never modify imported skill content solely to make it ASCII-only.
-- Both `npm run build` and `npm run build:check` MUST validate every canonical `skills/**/SKILL.md` before bundling. The build fails with the file, line, column, and offending byte when non-ASCII content is present.
-- `npm run verify` includes the ASCII gate through `npm run build:check`. Use `rg --text -n "[^\x00-\x7F]" skills -g SKILL.md` only as a targeted diagnostic when the automated gate reports a violation; exit status 1 with no matches means the diagnostic found none.
+- Both `npm run build` and `npm run build:check` MUST validate every canonical `src/**/SKILL.md` and existing generated `skills/**/SKILL.md` before bundling. The build fails with the file, line, column, and offending byte when non-ASCII content is present.
+- `npm run verify` includes the ASCII gate through `npm run build:check`. Use `rg --text -n "[^\x00-\x7F]" src skills -g SKILL.md` only as a targeted diagnostic when the automated gate reports a violation; exit status 1 with no matches means the diagnostic found none.
 
 ## Completion Verification
 

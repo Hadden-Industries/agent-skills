@@ -1,0 +1,73 @@
+name: Evaluation consumer conformance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the assessed Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+
+      - name: Set up the assessed Python runtime
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14.7"
+
+      - name: Acquire locked dependencies and pinned native consumer
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/set_up_evaluation_execution_tools.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify generated distribution and deterministic consumer contracts
+        env:
+          OTEL_SDK_DISABLED: "true"
+          DO_NOT_TRACK: "1"
+          TMPDIR: ${{ runner.temp }}/evaluation-conformance
+          TEMP: ${{ runner.temp }}/evaluation-conformance
+          TMP: ${{ runner.temp }}/evaluation-conformance
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+          node --version
+          python --version
+          git rev-parse HEAD
+          npm run build:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run eval:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/scripts/evaluation-consumers.contract.mjs tests/scripts/evaluation-toolchain.test.mjs tests/scripts/evaluation-suite-compiler.test.mjs tests/scripts/evaluation-projection.test.mjs tests/scripts/skill-up-custom-engine.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Retain conformance and acquisition evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evaluation-conformance-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/evaluation-conformance/
+            .agent-tools/evaluation/acquisition-failures/
+          if-no-files-found: warn
+          retention-days: 30

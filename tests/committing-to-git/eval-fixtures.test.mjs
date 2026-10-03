@@ -1,3 +1,4 @@
+import { compileSuite } from "../../scripts/evaluation/compile-suite.js";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -22,23 +23,27 @@ import {
   fixtureScenarioNames,
   resolveSourceWorktree,
   validateEvaluationConfiguration,
-} from "../../evals/committing-to-git/create-fixture-repository.mjs";
+} from "../../src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs";
 import { git } from "./harness.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FIXTURE_GENERATOR = join(
   REPO_ROOT,
-  "evals",
-  "committing-to-git",
-  "create-fixture-repository.mjs",
+  "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs",
 );
-const EVAL_DIRECTORY = dirname(FIXTURE_GENERATOR);
+const EVAL_DIRECTORY = join(REPO_ROOT, "src/committing-to-git/evals");
+const HISTORICAL_DIRECTORY = join(
+  REPO_ROOT,
+  "evidence",
+  "historical",
+  "committing-to-git",
+);
 const EVAL_FIELDS = [
+  "assertions",
   "case_key",
   "cost_profile",
   "critical_safety",
   "execution_mode",
-  "expectations",
   "expected_output",
   "files",
   "fixture",
@@ -338,33 +343,36 @@ test("zero-packet structured fixture exposes one four-file first-pass authoring 
   assert.equal(metadata.expected.cost.highLevelHelperCalls, 4);
   assert.equal(metadata.expected.cost.approvalTurns, 1);
 
-  const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));
+  const behavior = compileSuite({
+    repositoryRoot: REPO_ROOT,
+    skillName: "committing-to-git",
+  }).definition;
   const evaluation = behavior.evals.find(({ id }) => id === 77);
 
   assert.equal(evaluation.fixture, "zero-packet-structured-message");
   assert.equal(evaluation.critical_safety, true);
   assert.equal(evaluation.cost_profile, "structured-detailed");
+  assert.match(evaluation.assertions.join("\n"), /does not call review-next/iu);
   assert.match(
-    evaluation.expectations.join("\n"),
-    /does not call review-next/iu,
-  );
-  assert.match(
-    evaluation.expectations.join("\n"),
+    evaluation.assertions.join("\n"),
     /does not inspect src, the bundled helper, or raw review artifacts/iu,
   );
   assert.match(
-    evaluation.expectations.join("\n"),
+    evaluation.assertions.join("\n"),
     /no corrective schema retry/iu,
   );
 });
 
 test("behavior and trigger definitions use their evaluator contracts", () => {
-  const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));
+  const behavior = compileSuite({
+    repositoryRoot: REPO_ROOT,
+    skillName: "committing-to-git",
+  }).definition;
   const triggers = readJson(join(EVAL_DIRECTORY, "trigger-evals.json"));
   const ids = behavior.evals.map(({ id }) => id);
   const caseKeys = behavior.evals.map(({ case_key: caseKey }) => caseKey);
 
-  assert.equal(behavior.schemaVersion, 2);
+  assert.equal(behavior.contractVersion, 1);
   assert.equal(behavior.skill_name, "committing-to-git");
   assert.ok(behavior.notes.includes("Text-only success is not evidence"));
   assert.deepEqual(behavior.metrics, METRICS);
@@ -390,7 +398,7 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
       true,
     );
 
-    for (const expectation of evaluation.expectations) {
+    for (const expectation of evaluation.assertions) {
       assert.equal(expectation, expectation.trim());
       assert.doesNotMatch(expectation, REMOVED_COMMAND);
     }
@@ -419,7 +427,10 @@ test("behavior and trigger definitions use their evaluator contracts", () => {
 });
 
 test("evaluation configuration rejects ambiguous or stale identities", () => {
-  const behavior = readJson(join(EVAL_DIRECTORY, "evals.json"));
+  const behavior = compileSuite({
+    repositoryRoot: REPO_ROOT,
+    skillName: "committing-to-git",
+  }).definition;
   const withUnknownField = structuredClone(behavior);
   const withUnknownTopLevelField = structuredClone(behavior);
   const withDuplicateId = structuredClone(behavior);
@@ -436,7 +447,7 @@ test("evaluation configuration rejects ambiguous or stale identities", () => {
   withRetiredId.evals[0].id = 20;
   withMissingFixture.evals[0].fixture = "not-a-fixture";
   withMissingCostProfile.evals[0].cost_profile = "not-a-profile";
-  withRemovedCommand.evals[0].expectations[0] =
+  withRemovedCommand.evals[0].assertions[0] =
     "Run the removed snapshot create route.";
 
   assert.throws(
@@ -825,7 +836,7 @@ test("every remaining registered fixture materializes independently", (t) => {
 
 test("the retained pilot result is arithmetically self-consistent", () => {
   const result = readJson(
-    join(EVAL_DIRECTORY, "results", "2026-08-22-luna-low-pilot.json"),
+    join(HISTORICAL_DIRECTORY, "2026-08-22-luna-low-pilot.json"),
   );
   const aggregate = result.first_repetition_aggregate;
   const collision = result.collision_repetition_aggregate;
@@ -853,8 +864,7 @@ test("the retained pilot result is arithmetically self-consistent", () => {
 test("the permission-boundary smoke result is arithmetically self-consistent", () => {
   const result = readJson(
     join(
-      EVAL_DIRECTORY,
-      "results",
+      HISTORICAL_DIRECTORY,
       "2026-08-22-luna-low-permission-boundary-smoke.json",
     ),
   );

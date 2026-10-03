@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "experiment": "abrupt-consumer-death-with-inherited-pipes",
+  "platform": "win32-x64",
+  "node": "v24.21.0",
+  "executableSha256": "515ed00c284dfca6e5960e6d5a487cba27bdd6845677f3d9a6f15c3b2a7c4006",
+  "root": "C:\\Users\\maksy\\AppData\\Local\\Temp\\consumer-process-j5Y1uf",
+  "consumerPid": 52668,
+  "engine": {
+    "pid": 99920,
+    "childPid": 179004
+  },
+  "grandchild": {
+    "pid": 179004,
+    "parentPid": 99920
+  },
+  "observations": [
+    {
+      "mode": "engine",
+      "heartbeatAfterConsumerKill": 1790988282567,
+      "observedAt": 1790988282643
+    },
+    {
+      "mode": "grandchild",
+      "heartbeatAfterConsumerKill": 1790988282582,
+      "observedAt": 1790988282644
+    }
+  ],
+  "status": "assured-cutover-blocked-descendant-survived",
+  "limitation": "One discriminating abrupt-death experiment; not the complete platform matrix."
+}

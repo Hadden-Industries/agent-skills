@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "skill_name": "reading-epubs",
+  "profile": "portable-v1",
+  "provenance": {
+    "notes": "A capable agent can already read an EPUB by unzipping it, so these cases do not test whether the text is reachable; every controlled run answered correctly with and without the skill. Grade them on the metrics below as well as the expectations, because consumption is where the difference showed: 45% fewer tokens on a weak model, 9% on a strong one. See README.md for the measured A/B."
+  },
+  "protocol": {
+    "cases": {}
+  },
+  "assurance": {
+    "suite": {
+      "metrics": [
+        "tokens_consumed: total tokens the run used, from its usage report",
+        "tool_calls: number of tool calls made",
+        "files_opened: number of distinct files read",
+        "quote_exact: quoted text matches the source character for character, including any parenthetical citations"
+      ]
+    },
+    "cases": {}
+  }
+}

@@ -4,14 +4,14 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { verifyEvaluationTrial } from "../../../evals/defining-concepts/evaluation-trial.mjs";
+import { verifyEvaluationTrial } from "../../../src/defining-concepts/evals/assurance/v1/evaluation-trial.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 const resultsRoot = path.join(
   repositoryRoot,
-  "evals",
+  "evidence",
+  "historical",
   "defining-concepts",
-  "results",
 );
 
 function readJson(...segments) {

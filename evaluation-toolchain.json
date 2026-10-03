@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": 1,
+  "projectorVersion": 1,
+  "packages": {
+    "agent-skills-eval": "0.1.1",
+    "ajv": "8.20.0",
+    "skills": "1.7.0",
+    "yaml": "2.9.1"
+  },
+  "skillUp": {
+    "version": "0.12.0",
+    "sourceCommit": "dd2ff3250074505204b969405bef2cdce4bae428",
+    "license": "Apache-2.0",
+    "platforms": {
+      "win32-x64": {
+        "qualification": "assured-disabled-descendant-survived",
+        "archive": "skill-up_0.12.0_windows_amd64.zip",
+        "byteLength": 13761039,
+        "sha256": "21595d0ccfe3bea85ce0047dbb71b13149e8d0b9bccd08e4f0ba6c9e53de53ca",
+        "executableSha256": "515ed00c284dfca6e5960e6d5a487cba27bdd6845677f3d9a6f15c3b2a7c4006",
+        "licenseSha256": "c417f515c774c00d0c6c8e6f84d3993c3e87c78e316fac6d03ea5606e20b683d",
+        "executable": "skill-up.exe"
+      },
+      "linux-x64": {
+        "qualification": "pending",
+        "archive": "skill-up_0.12.0_linux_amd64.tar.gz",
+        "byteLength": 13504264,
+        "sha256": "ec2631e45702d460b69cd700e1847f5562ef2e971f09c23be2efcec4e0f583c6",
+        "executableSha256": "0662fa12369902e7938165bdeba8d6d59a2f73123decbabeeab678681812faf4",
+        "licenseSha256": "c417f515c774c00d0c6c8e6f84d3993c3e87c78e316fac6d03ea5606e20b683d",
+        "executable": "skill-up"
+      }
+    }
+  }
+}

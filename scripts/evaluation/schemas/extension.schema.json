@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "skill_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "profile": {
+      "enum": [
+        "portable-v1",
+        "git-v1",
+        "defining-v1",
+        "scripted-v1"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "protocol": {
+      "type": "object",
+      "properties": {
+        "cases": {
+          "type": "object",
+          "patternProperties": {
+            "^[1-9][0-9]*$": {
+              "type": "object",
+              "properties": {
+                "portableCaseSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "follow_up_turns": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 31,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "prompt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required_capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "portableCaseSha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cases"
+      ],
+      "additionalProperties": false
+    },
+    "assurance": {
+      "type": "object",
+      "properties": {
+        "suite": {
+          "type": "object",
+          "properties": {
+            "capability_contract": {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "capability_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "arm_requirements": {
+                  "type": "object",
+                  "properties": {
+                    "no-skill": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    "current-skill": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    "candidate-skill": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "no-skill",
+                    "current-skill",
+                    "candidate-skill"
+                  ],
+                  "additionalProperties": false
+                },
+                "compatibility_interpretations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "arm": {
+                        "enum": [
+                          "current-skill",
+                          "candidate-skill"
+                        ]
+                      },
+                      "exact_text": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "always_required_capabilities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "uniqueItems": true
+                      },
+                      "conditional_case_capabilities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "arm",
+                      "exact_text",
+                      "always_required_capabilities",
+                      "conditional_case_capabilities"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "campaign_policy": {
+                  "type": "object",
+                  "properties": {
+                    "default": {
+                      "const": "deny"
+                    },
+                    "allowed_capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    "uniform_across_arms": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "default",
+                    "allowed_capabilities",
+                    "uniform_across_arms"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "schema_version",
+                "capability_ids",
+                "arm_requirements",
+                "compatibility_interpretations",
+                "campaign_policy"
+              ],
+              "additionalProperties": false
+            },
+            "renderers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "profiles": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "qualitative_dimensions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "critical_failure_classes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "campaigns": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "case_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "uniqueItems": true
+                  },
+                  "arms": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "repetitions": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "case_ids",
+                  "arms",
+                  "repetitions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "metrics": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "calibration_case_ids": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "cases": {
+          "type": "object",
+          "patternProperties": {
+            "^[1-9][0-9]*$": {
+              "type": "object",
+              "properties": {
+                "portableCaseSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "case_key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "execution_mode": {
+                  "enum": [
+                    "executable",
+                    "policy"
+                  ]
+                },
+                "fixture": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "critical_safety": {
+                  "type": "boolean"
+                },
+                "cost_profile": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "renderer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "research_strata": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "qualitative_dimensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "standards_scope": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "critical_assertion_indexes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "portableCaseSha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "suite",
+        "cases"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "skill_name",
+    "profile",
+    "provenance",
+    "protocol",
+    "assurance"
+  ],
+  "additionalProperties": false
+}

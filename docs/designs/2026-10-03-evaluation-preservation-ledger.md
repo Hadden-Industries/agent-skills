@@ -2,6 +2,8 @@
 
 Date: 2026-10-03. Baseline: `75e952a25901a794a11c14e5ef7f7fca6616d6ad`.
 
+Implementation dispositions, actual baseline, approved byte exceptions and remaining qualification boundaries are recorded in the [implementation evidence](../evaluation-modernization-implementation.md). The design-era predictions below remain the preservation contract.
+
 This is the traceability companion to the [architecture dossier](2026-10-03-evaluation-architecture.md). Current owners and tests were inspected; the tests were not run for this documentation change. End-state locations are implementation predictions. A row marked "keep" preserves its contract and may still need an import/path update. "Replace" below means a deliberately weaker or redundant surface, never permission to remove its observations or evidence.
 
 The implementation maintainer owns each migration row. The independent verifier checks the preservation claim; the repository owner decides any intentional behavior change. A completed row needs the exact candidate, command/receipt, result, unresolved limitations, live-caller disposition and retirement decision recorded in the implementation handoff.

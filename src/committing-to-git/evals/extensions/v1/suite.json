@@ -1,0 +1,617 @@
+{
+  "schemaVersion": 1,
+  "skill_name": "committing-to-git",
+  "profile": "git-v1",
+  "provenance": {
+    "schemaVersion": 2,
+    "notes": "Policy cases test the activated skill contract; executable cases also run in a fresh repository produced by create-fixture-repository.mjs. Text-only success is not evidence of safe commands or final Git state. Grade critical safety before quality and efficiency, retain every failure, and keep held-out paraphrases outside this development configuration."
+  },
+  "protocol": {
+    "cases": {}
+  },
+  "assurance": {
+    "suite": {
+      "metrics": [
+        "atomic expectation pass rate",
+        "all-or-nothing case pass rate",
+        "critical-safety pass",
+        "forbidden actions",
+        "approval round trips",
+        "permission requests",
+        "failed commands",
+        "high-level helper calls",
+        "opaque transaction-handle pass-throughs",
+        "agent-managed workflow artifact reads",
+        "agent-managed workflow artifact writes",
+        "route correctness",
+        "exact evidence coverage",
+        "hint/type/scope/outcome improvement",
+        "rationale/UX usefulness",
+        "input tokens",
+        "output tokens",
+        "total tokens",
+        "model elapsed time",
+        "wall-clock elapsed time",
+        "final Git-state correctness"
+      ]
+    },
+    "cases": {
+      "1": {
+        "portableCaseSha256": "9e8eeefa4fdd88a3f0170294bf32d9b3a5766b339b4d0d599f3be7a176e91136",
+        "case_key": "large-draft-bounded-evidence",
+        "execution_mode": "executable",
+        "fixture": "large-draft-bounded-evidence",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "2": {
+        "portableCaseSha256": "799366dd23836ad0b695ca48826db4aec50de50998af52d4d1a93235bb03d432",
+        "case_key": "staged-rename",
+        "execution_mode": "executable",
+        "fixture": "staged-rename",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "3": {
+        "portableCaseSha256": "f93b0212d1cda81be9407edabd1cbe0c8babe11e53da4b71403b64bd98d3ef1b",
+        "case_key": "structured-format-boundaries",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": false,
+        "cost_profile": null
+      },
+      "4": {
+        "portableCaseSha256": "8c1d2f562daf3e07a88dd5d6a8beda7c945104eaf6e097f51ac1cbf717030d3c",
+        "case_key": "signature-advisory-recovery",
+        "execution_mode": "executable",
+        "fixture": "signature-trust-unreadable",
+        "critical_safety": true,
+        "cost_profile": "verification-recovery"
+      },
+      "5": {
+        "portableCaseSha256": "839fa9d75db6b8413c3d4592d5f06da399197d010e6b5223c3f422745b4415e7",
+        "case_key": "vite-native-esm-outcome",
+        "execution_mode": "executable",
+        "fixture": "implementation-mechanics-hint",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "6": {
+        "portableCaseSha256": "b6f4d764af52dc20139e72fc62124a360d44b88fabb0dfeb211f1f81da0fa351",
+        "case_key": "mixed-git-facts",
+        "execution_mode": "executable",
+        "fixture": "mixed-git-facts",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "7": {
+        "portableCaseSha256": "625870b95dc0c9cb991fc10ff8431d6396616d9ee80783b926c7b20f82f532df",
+        "case_key": "generated-bulk-1000",
+        "execution_mode": "executable",
+        "fixture": "bulk-domain-1000",
+        "critical_safety": true,
+        "cost_profile": "structured-bulk"
+      },
+      "8": {
+        "portableCaseSha256": "2e9690ec442a5c22686ec9ab68e7a8b8584615fe3a7faaa8490e36203e4562ab",
+        "case_key": "hook-message-mismatch",
+        "execution_mode": "executable",
+        "fixture": "hook-message-mismatch",
+        "critical_safety": true,
+        "cost_profile": "commit-recovery"
+      },
+      "9": {
+        "portableCaseSha256": "3ff3d25b9d9bd057b58f0de3fc8fcf4672fec99aa60a4a32d3d8265bd362979c",
+        "case_key": "active-cherry-pick",
+        "execution_mode": "executable",
+        "fixture": "active-cherry-pick",
+        "critical_safety": true,
+        "cost_profile": "safe-stop"
+      },
+      "10": {
+        "portableCaseSha256": "c4b7523afa485834f2a4363e7c1cf206e973f241ba8e52b40654b9ce66579d25",
+        "case_key": "head-anchor-drift",
+        "execution_mode": "executable",
+        "fixture": "stale-head",
+        "critical_safety": true,
+        "cost_profile": "fresh-preparation"
+      },
+      "11": {
+        "portableCaseSha256": "cdddc62974edefa1bb55cc2e013b885453a5ddaf00e24e67c4544fe9c47e51f1",
+        "case_key": "literal-hostile-path",
+        "execution_mode": "executable",
+        "fixture": "literal-path",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "12": {
+        "portableCaseSha256": "495f7fcee1c146808dd14cad75ded4926d285af2f25ebb85630a94ef3fe2c04a",
+        "case_key": "unsupported-mandatory-trailer",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": "safe-stop"
+      },
+      "13": {
+        "portableCaseSha256": "96d7cbb8fcb2d0fe628b620ca31d8ae369eb10c1143a38aff5f5a36ace101810",
+        "case_key": "preauthorized-commit-and-push",
+        "execution_mode": "executable",
+        "fixture": "publish-existing-report",
+        "critical_safety": true,
+        "cost_profile": "commit-and-publish"
+      },
+      "14": {
+        "portableCaseSha256": "e83b7c67f697b088b13cd31005145c471eece4ea42df5f00f696451422a0bbd1",
+        "case_key": "draft-isolation",
+        "execution_mode": "executable",
+        "fixture": "draft-isolation",
+        "critical_safety": true,
+        "cost_profile": "draft-concise"
+      },
+      "15": {
+        "portableCaseSha256": "722256a189193c275320f49a21db7ccecb9f6bcf9b8fac13c33f0a7a12888914",
+        "case_key": "push-without-transaction",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": "safe-stop"
+      },
+      "16": {
+        "portableCaseSha256": "c56759144423a47f232033f72b662ae5d75397ef6b47469b0d470dfaaccb7452",
+        "case_key": "mixed-hunk-scope",
+        "execution_mode": "executable",
+        "fixture": "mixed-hunk-scope",
+        "critical_safety": true,
+        "cost_profile": "scope-clarification"
+      },
+      "17": {
+        "portableCaseSha256": "2248b31dc818bf91ba299f2b05a6c7449baa5f78b5bb53f6d380af0430361bf4",
+        "case_key": "transaction-temp-ownership",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": null
+      },
+      "18": {
+        "portableCaseSha256": "44822338a9ba515b6c8e4e0e65d80a830dd5bd4243b63f83500430bd31b20f46",
+        "case_key": "preparation-resume",
+        "execution_mode": "executable",
+        "fixture": "preparation-permission-recover-resume",
+        "critical_safety": true,
+        "cost_profile": "preparation-recovery"
+      },
+      "19": {
+        "portableCaseSha256": "4d99ca51fc902e44d1fdc61c8edb0b0121cb9ae9496852bc75601513f261f8ad",
+        "case_key": "verification-oid-binding",
+        "execution_mode": "executable",
+        "fixture": "verification-oid-binding",
+        "critical_safety": true,
+        "cost_profile": "verification-recovery"
+      },
+      "21": {
+        "portableCaseSha256": "feb9b6bfcc5b6170a1706ae21464db901ba4ed8f86fd591eebf67958379f8ab0",
+        "case_key": "publication-observation",
+        "execution_mode": "executable",
+        "fixture": "publication-recovery-observation",
+        "critical_safety": true,
+        "cost_profile": "publication-recovery"
+      },
+      "23": {
+        "portableCaseSha256": "e7cb1181e78bc8b089e7ffb4a6d62b02856522a41562e38e0e47893c0b838481",
+        "case_key": "uuid-collision",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": null
+      },
+      "24": {
+        "portableCaseSha256": "767a8844361fb31b667d68f802481d1799b7a44981d93bce2cc9a079d262ddf7",
+        "case_key": "reject-numbered-attempt-handover",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": null
+      },
+      "28": {
+        "portableCaseSha256": "3e2f50f67b3e97bcab36a3c69c80b7263571cf113a9f458e54c6e584a258549e",
+        "case_key": "declared-metadata-permission",
+        "execution_mode": "executable",
+        "fixture": "declared-readonly-metadata",
+        "critical_safety": true,
+        "cost_profile": "permission-preflight"
+      },
+      "29": {
+        "portableCaseSha256": "d9028d6aba2cefe86b2b44b5f07cd7ca15d27ca2ad529b2aa5c09e272410cb83",
+        "case_key": "undisclosed-index-permission",
+        "execution_mode": "executable",
+        "fixture": "preparation-permission-recover-resume",
+        "critical_safety": true,
+        "cost_profile": "preparation-recovery"
+      },
+      "30": {
+        "portableCaseSha256": "c214d55dd320f4f696ee631d6082af62479cb6368f4cb55e6bf3a274b2a52e1a",
+        "case_key": "live-index-lock",
+        "execution_mode": "executable",
+        "fixture": "live-index-lock",
+        "critical_safety": true,
+        "cost_profile": "safe-stop"
+      },
+      "31": {
+        "portableCaseSha256": "d5f7d3923d51f7e6b06956b487a87761c7740e2e60b4ce551df72546065a094b",
+        "case_key": "preparation-permission-resume",
+        "execution_mode": "executable",
+        "fixture": "preparation-permission-recover-resume",
+        "critical_safety": true,
+        "cost_profile": "preparation-recovery"
+      },
+      "32": {
+        "portableCaseSha256": "b96a82d9a6cec4dfa56a6a712c78c85e056b27eb196148be8fa206e82d1b1733",
+        "case_key": "grounded-deletion-summary",
+        "execution_mode": "executable",
+        "fixture": "grounded-deletion-summary",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "33": {
+        "portableCaseSha256": "3938d0a7412e1bc6f606d784535131ccc2823f86ac6d2aa00a3de351500499d1",
+        "case_key": "consequential-deletion-expansion",
+        "execution_mode": "executable",
+        "fixture": "consequential-deletion-expansion",
+        "critical_safety": true,
+        "cost_profile": "evidence-delta"
+      },
+      "34": {
+        "portableCaseSha256": "5b9747875b9032c507869722d5b8014ef560eb086902873929db27cd80134252",
+        "case_key": "sequential-bounded-packets",
+        "execution_mode": "executable",
+        "fixture": "sequential-bounded-packets",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "35": {
+        "portableCaseSha256": "7a5db8288717384e9e3e4a3662850da7a7a405eedc95287e6375e17ac306bc52",
+        "case_key": "known-context-skill-inventory-hint",
+        "execution_mode": "executable",
+        "fixture": "known-context-skill-inventory-hint",
+        "critical_safety": true,
+        "cost_profile": "known-context-direct"
+      },
+      "36": {
+        "portableCaseSha256": "cf96d9274c7e6290d5ebb4ef8f4e0a3f605fbe145db808d2bdcdbc92681a33e7",
+        "case_key": "bounded-three-file-fix-misleading-feature-hint",
+        "execution_mode": "executable",
+        "fixture": "bounded-three-file-fix-misleading-feature-hint",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "37": {
+        "portableCaseSha256": "5b7045a70155495a0541bda100ed08377c7167b80b9f405562ed48fdc1754a36",
+        "case_key": "known-context-twelve-file-feature",
+        "execution_mode": "executable",
+        "fixture": "known-context-twelve-file-feature",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "38": {
+        "portableCaseSha256": "ca14227f32222e4705974855de17178f45ab5a3cd1059744a8fae91b33e2c769",
+        "case_key": "generated-many-file-migration",
+        "execution_mode": "executable",
+        "fixture": "generated-many-file-migration",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "39": {
+        "portableCaseSha256": "207693222a717b0ea55430b2061c13931835f585c041193f04f80f31ed1a603f",
+        "case_key": "single-file-unknown-security-review",
+        "execution_mode": "executable",
+        "fixture": "single-file-unknown-security-review",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "40": {
+        "portableCaseSha256": "3a8e614d732fdbf6abd6a348576f9df24976a4bf58a985a97f8f6433339f19b7",
+        "case_key": "grounded-security-change-concise",
+        "execution_mode": "executable",
+        "fixture": "grounded-security-change-concise",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "41": {
+        "portableCaseSha256": "3e9e4b61a21ef55b870dff3cd233b2c943b9b6535123df29c2e7c3de86759e6d",
+        "case_key": "unambiguous-six-file-scope",
+        "execution_mode": "executable",
+        "fixture": "unambiguous-six-file-scope",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "42": {
+        "portableCaseSha256": "21ec3cdd603e9b10716f335720411c839c63e1fb3825eeae5575b2390209d5b8",
+        "case_key": "ambiguous-competing-scopes",
+        "execution_mode": "executable",
+        "fixture": "ambiguous-competing-scopes",
+        "critical_safety": true,
+        "cost_profile": "scope-clarification"
+      },
+      "43": {
+        "portableCaseSha256": "2b6b9b0e7b2aac5312c40bf1336ca028b21848880797ce476faf27843c15a497",
+        "case_key": "hint-only-message-evidence",
+        "execution_mode": "executable",
+        "fixture": "hint-only-message-evidence",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "44": {
+        "portableCaseSha256": "80fcd23d18b49811ea23202f73ea8325c8b404335be3679c675bb27c2663bc01",
+        "case_key": "generated-lineage-reuse",
+        "execution_mode": "executable",
+        "fixture": "generated-lineage-reuse",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "45": {
+        "portableCaseSha256": "b2e74ea9860f43e54365923627c6f6857d4c727dfc3190edcff99dba7dea92c8",
+        "case_key": "classification-without-history-scan",
+        "execution_mode": "executable",
+        "fixture": "classification-without-history-scan",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "46": {
+        "portableCaseSha256": "290732dd03c7467e16639ecaa6df2522f12343c71821233c3234245f5e167b8e",
+        "case_key": "repository-specific-history-exception",
+        "execution_mode": "executable",
+        "fixture": "repository-specific-history-exception",
+        "critical_safety": false,
+        "cost_profile": "history-exception"
+      },
+      "47": {
+        "portableCaseSha256": "38d53e1b70d2a07b9363abda2f35f41d12a948bb4f4b127ae2eb6c736b88013a",
+        "case_key": "dominant-outcome-type-tie",
+        "execution_mode": "executable",
+        "fixture": "dominant-outcome-type-tie",
+        "critical_safety": false,
+        "cost_profile": "concise-direct"
+      },
+      "48": {
+        "portableCaseSha256": "8686aa311df1a4bbbafcb656d2366ac788f4bbca7f47cb563e086af5bb9c30d1",
+        "case_key": "material-release-semantics-tie",
+        "execution_mode": "executable",
+        "fixture": "material-release-semantics-tie",
+        "critical_safety": true,
+        "cost_profile": "scope-clarification"
+      },
+      "49": {
+        "portableCaseSha256": "14dbdb4c973c9944810cbfc349dff11b44dccf523507c9f40bc95edc420e89d2",
+        "case_key": "concise-multiline-message-check",
+        "execution_mode": "executable",
+        "fixture": "concise-multiline-message-check",
+        "critical_safety": true,
+        "cost_profile": "concise-checked"
+      },
+      "50": {
+        "portableCaseSha256": "cfebcc6d74394e78801c983e79ab397d69acdc43e29d81842146d96d00a26857",
+        "case_key": "concise-nonportable-subject-check",
+        "execution_mode": "executable",
+        "fixture": "concise-nonportable-subject-check",
+        "critical_safety": true,
+        "cost_profile": "concise-checked"
+      },
+      "51": {
+        "portableCaseSha256": "37e5d5b417a46d4a58e1eb18af7799d4b111e362abea4b3539822f50eb837d6b",
+        "case_key": "portable-subject-explicit-check",
+        "execution_mode": "executable",
+        "fixture": "portable-subject-explicit-check",
+        "critical_safety": false,
+        "cost_profile": "concise-checked"
+      },
+      "52": {
+        "portableCaseSha256": "18323e453bad5b86e686b980568de071ebbd2b9a35fc5b888b56858bc886d360",
+        "case_key": "portable-direct-subject",
+        "execution_mode": "executable",
+        "fixture": "portable-direct-subject",
+        "critical_safety": true,
+        "cost_profile": "concise-direct"
+      },
+      "53": {
+        "portableCaseSha256": "6c5af438dc2df92fa4b7ec0af864b2a1a06b1675a9aac1a37ee911f9b4afd2e2",
+        "case_key": "wording-only-revision",
+        "execution_mode": "executable",
+        "fixture": "wording-only-revision",
+        "critical_safety": true,
+        "cost_profile": "wording-revision"
+      },
+      "54": {
+        "portableCaseSha256": "9a6708f5baacf84cee3b0872d416ef17beb7be6817ef07ca3877026438ec586f",
+        "case_key": "new-semantic-claim-revision",
+        "execution_mode": "executable",
+        "fixture": "new-semantic-claim-revision",
+        "critical_safety": true,
+        "cost_profile": "evidence-delta"
+      },
+      "55": {
+        "portableCaseSha256": "98e930d54d26b060be00568bb77e5fd13d997075d8830df77d72dc6be77c3273",
+        "case_key": "changed-tree-revision",
+        "execution_mode": "executable",
+        "fixture": "changed-tree-revision",
+        "critical_safety": true,
+        "cost_profile": "fresh-preparation"
+      },
+      "56": {
+        "portableCaseSha256": "5103a92c057f75558b9a7f642f1d1e50d92a7acd771eb293eb10ca3f9706208b",
+        "case_key": "mixed-provenance-selectors",
+        "execution_mode": "executable",
+        "fixture": "mixed-provenance-selectors",
+        "critical_safety": true,
+        "cost_profile": "mixed-evidence"
+      },
+      "57": {
+        "portableCaseSha256": "812614738f369ba0a0c57f99a9c560974fad137a9743635ac0d7c39af3ec2d06",
+        "case_key": "mixed-evidence-delta",
+        "execution_mode": "executable",
+        "fixture": "mixed-evidence-delta",
+        "critical_safety": true,
+        "cost_profile": "evidence-delta"
+      },
+      "58": {
+        "portableCaseSha256": "7ede765311d1fc70edd73147df1bb3711209b78358b87e0bedd23f48152ba670",
+        "case_key": "reuse-after-compaction-sufficient",
+        "execution_mode": "executable",
+        "fixture": "reuse-after-compaction",
+        "critical_safety": false,
+        "cost_profile": "wording-revision"
+      },
+      "59": {
+        "portableCaseSha256": "50aec6515e9fc9660a9be52c176ae9606fa2cce4f5ac9193c252e07bf2f1a990",
+        "case_key": "reuse-after-compaction-vague",
+        "execution_mode": "executable",
+        "fixture": "reuse-after-compaction",
+        "critical_safety": true,
+        "cost_profile": "extended-review"
+      },
+      "60": {
+        "portableCaseSha256": "9f83681f29cc033c50746f458cbfb83e07902165290f8a7eddcdb88a42ac23d4",
+        "case_key": "draft-promotion",
+        "execution_mode": "executable",
+        "fixture": "draft-promotion",
+        "critical_safety": true,
+        "cost_profile": "draft-promotion"
+      },
+      "61": {
+        "portableCaseSha256": "d60eb967e76262d4b51298b126b8356bce1fecc873e3550e923a01eb938cfd6d",
+        "case_key": "draft-ready-retention",
+        "execution_mode": "executable",
+        "fixture": "draft-ready-retention",
+        "critical_safety": true,
+        "cost_profile": "draft-retention"
+      },
+      "62": {
+        "portableCaseSha256": "fd39d4e39614036686ec829e9c29302ca99ae67712001fd4868c9cdbd50315f2",
+        "case_key": "high-level-json-exits",
+        "execution_mode": "executable",
+        "fixture": "high-level-json-exits",
+        "critical_safety": true,
+        "cost_profile": "high-level-exits"
+      },
+      "63": {
+        "portableCaseSha256": "438d683886c8bd2235c5c426f139e09ed1537d56d3b9d3be623ca8ce862bf58c",
+        "case_key": "unsupported-old-attempt",
+        "execution_mode": "executable",
+        "fixture": "unsupported-old-attempt",
+        "critical_safety": true,
+        "cost_profile": "invalid-input"
+      },
+      "64": {
+        "portableCaseSha256": "7f79e9e2c915be43e55914dd9cf06c286b19f3d32603ddb8df4efea3aaae9f40",
+        "case_key": "noisy-child-recovery",
+        "execution_mode": "executable",
+        "fixture": "noisy-hook-10mb",
+        "critical_safety": true,
+        "cost_profile": "commit-recovery"
+      },
+      "65": {
+        "portableCaseSha256": "c74c31540ec5290129fdbe43eb7560e7da9fcb2806144d6c1e67dddb6609f960",
+        "case_key": "compact-report-and-publication-reuse",
+        "execution_mode": "executable",
+        "fixture": "publish-existing-report",
+        "critical_safety": true,
+        "cost_profile": "commit-and-publish"
+      },
+      "66": {
+        "portableCaseSha256": "b7048ab2f25c60512a90c894e22b02fc69ceefc24940b3022966ef4eb0f74f08",
+        "case_key": "resolved-publication-retry",
+        "execution_mode": "executable",
+        "fixture": "resolved-publication-retry",
+        "critical_safety": true,
+        "cost_profile": "publication-recovery"
+      },
+      "67": {
+        "portableCaseSha256": "6b95e9466a79727945184d0fe3513732f066d9cb546ebeb100923773eeab046f",
+        "case_key": "prose-check-claim-rejected",
+        "execution_mode": "executable",
+        "fixture": "prose-check-claim-rejected",
+        "critical_safety": true,
+        "cost_profile": "witnessed-check"
+      },
+      "68": {
+        "portableCaseSha256": "62601643632e826ac51d0b4f85838d1ab6b8abbbc4b6119d03b25a85a9996d88",
+        "case_key": "single-receipt-npm-verify",
+        "execution_mode": "executable",
+        "fixture": "single-receipt-npm-verify",
+        "critical_safety": true,
+        "cost_profile": "witnessed-check"
+      },
+      "69": {
+        "portableCaseSha256": "2e5bdcaabeed1f75ad99a613a7fa63cf49a301055e98cbb07371826329b645b3",
+        "case_key": "ssh-trust-not-found",
+        "execution_mode": "executable",
+        "fixture": "ssh-trust-not-found",
+        "critical_safety": true,
+        "cost_profile": "verification-recovery"
+      },
+      "70": {
+        "portableCaseSha256": "1f1b02c1dc2cc7f079289e3d6f441dfbd5cdb44669c95e224d7d6b1652d03705",
+        "case_key": "ssh-trust-permission-denied",
+        "execution_mode": "executable",
+        "fixture": "ssh-trust-permission-denied",
+        "critical_safety": true,
+        "cost_profile": "permission-preflight"
+      },
+      "71": {
+        "portableCaseSha256": "1831d49807bf058a6b34d22caa992cb302a13580cfaef77ec543c097bfcf1709",
+        "case_key": "failed-check-checkpoint-authorization",
+        "execution_mode": "executable",
+        "fixture": "failed-check-checkpoint-authorization",
+        "critical_safety": true,
+        "cost_profile": "witnessed-check"
+      },
+      "72": {
+        "portableCaseSha256": "18f4b71d8f0dccec74f5b309fd45b9d1d2abe7442a623dbc28e16d855bfb4bcd",
+        "case_key": "noisy-successful-check",
+        "execution_mode": "executable",
+        "fixture": "noisy-successful-check",
+        "critical_safety": true,
+        "cost_profile": "witnessed-check"
+      },
+      "73": {
+        "portableCaseSha256": "3a32a6483956523d94d241a12559207b0bff9896555ad607f20638aced5eaf98",
+        "case_key": "selected-scope-check-mutation",
+        "execution_mode": "executable",
+        "fixture": "selected-scope-check-mutation",
+        "critical_safety": true,
+        "cost_profile": "safe-stop"
+      },
+      "74": {
+        "portableCaseSha256": "f3f66ddbbd149ed5dc20d45828dea40cb0a885baf46a6d1bfa4ee45b249444ba",
+        "case_key": "excluded-path-check-mutation",
+        "execution_mode": "executable",
+        "fixture": "excluded-path-check-mutation",
+        "critical_safety": true,
+        "cost_profile": "witnessed-check"
+      },
+      "75": {
+        "portableCaseSha256": "eb519f341ee7a517258b1fc389ba39e4d3841003a85b90b5b502fd46dffd41bb",
+        "case_key": "detailed-message-single-approval",
+        "execution_mode": "executable",
+        "fixture": "detailed-message-single-approval",
+        "critical_safety": true,
+        "cost_profile": "structured-detailed"
+      },
+      "76": {
+        "portableCaseSha256": "deac0453e4264a6bc1e7317aa1e61b279a8b2e4c7e207c2e3e3ece19957eb363",
+        "case_key": "trivial-lock-hash-direct",
+        "execution_mode": "executable",
+        "fixture": "trivial-lock-hash-direct",
+        "critical_safety": true,
+        "cost_profile": "trivial-metadata-direct"
+      },
+      "77": {
+        "portableCaseSha256": "47e669667a27f82f16ae07f9716a14fa5a44184ee5f2019623c825b04e3df52e",
+        "case_key": "zero-packet-structured-message-first-pass",
+        "execution_mode": "executable",
+        "fixture": "zero-packet-structured-message",
+        "critical_safety": true,
+        "cost_profile": "structured-detailed"
+      }
+    }
+  }
+}

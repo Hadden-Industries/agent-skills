@@ -9,10 +9,10 @@ It also contains the local tooling used to create, modify, validate, and evaluat
 The repository follows one core rule:
 
 > [!IMPORTANT]
-> **Edit the canonical skill under [`skills/`](./skills/) — never an installed copy under `.agents/skills/` or `.claude/skills/`.**
+> **Edit the canonical project under [`src/`](./src/), then run `npm run build` to generate [`skills/`](./skills/). Never edit an installed copy under `.agents/skills/` or `.claude/skills/`.**
 > Those agent-facing directories are generated local development state and may be deleted and recreated at any time.
 
-The proposed source/distribution and evaluation modernization is documented in the [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md). These documents reconcile the original research with the repository as of 2026-10-03. They are not an implemented cutover: the current authoring locations and commands below remain in effect until the corresponding migration is delivered.
+The source/distribution and evaluation contracts are documented in the [shared runtime guide](./docs/evaluation-runtime.md), [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md). Native consumer conformance, assured execution, semantic grading, and real host activation are separate acceptance claims. The assured skill-up bridge remains disabled on unqualified platforms.
 
 ## Available Skills
 
@@ -24,7 +24,7 @@ The proposed source/distribution and evaluation modernization is documented in t
 
 * **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
 
-  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/evals/reading-epubs/README.md) for the method, the null results, and the limits.
+  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/src/reading-epubs/evals/README.md) for the method, the null results, and the limits.
 
 ### What `committing-to-git` adds
 
@@ -83,7 +83,7 @@ npx skills add Hadden-Industries/agent-skills --skill committing-to-git
 
 These commands install from the default branch and prompt for target agents. Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target. The publication-routing update is available on `main`. The earlier [tagged release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271) contain that version's pinned installation command, archive, and qualification evidence; they do not qualify the newer publication-routing behavior.
 
-Each complete `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets therefore live with the skill. Maintainer evals are deliberately separate: prompts, fixtures, cost profiles, retained results, and evaluation programs under [`evals/<name>/`](./evals/README.md) test the deployable content but are not installed with it.
+Each generated `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets are authored under `src/<name>/` and copied byte-for-byte, except the existing bundled Git helper. Maintainer cases, fixtures, protocol extensions, and evaluation programs live in `src/<name>/evals/` and are excluded from the distribution. Historical results live under `evidence/historical/`; new authoritative and derived evidence use separate ignored roots. See the [evaluation guide](./docs/evaluation-runtime.md).
 
 ### Install `committing-to-git` as a host plugin
 
@@ -163,7 +163,7 @@ flowchart LR
 
 ## Repository layout
 
-This repository is structured so that compatible package managers and agents automatically crawl the root `skills/` directory to discover available capabilities. Every file beneath one `skills/<name>/` directory is treated as part of that deployable skill; repository-maintainer evaluation material is deliberately kept in the parallel top-level `evals/<name>/` tree.
+This repository is structured so that compatible package managers and agents automatically crawl the root `skills/` directory to discover available capabilities. Every file beneath one `skills/<name>/` directory is treated as part of that deployable skill; repository-maintainer evaluation material is deliberately kept in the source-only `src/<name>/evals/` tree.
 
 The important paths are:
 
@@ -235,31 +235,17 @@ agent-skills/
 │   │       └── pandoc-check.schema.json
 │   └── ...
 │
-├── evals/                               # Maintainer-only evaluation suites — COMMITTED
-│   ├── README.md                         # Deployable/evaluation boundary
-│   ├── committing-to-git/
-│   │   ├── README.md                     # Method, evidence, and limitations
-│   │   ├── create-fixture-repository.mjs # Disposable executable Git scenarios
-│   │   ├── evals.json                    # Workflow pressure scenarios
-│   │   ├── trigger-evals.json            # Should/should-not-trigger prompts
-│   │   └── results/                      # Compact retained run evidence
-│   ├── defining-concepts/
-│   │   ├── README.md                     # Concept-engineering campaign and grading protocol
-│   │   ├── evals.json                    # Sixteen stratified semantic cases
-│   │   ├── evaluation-runner.mjs         # Three-arm preparation, durable execution, status, blinding, and aggregation
-│   │   ├── run-evaluation-session.mjs    # Packet-bound provider session
-│   │   ├── session-controller.mjs        # Exact scripted-turn controller
-│   │   ├── trigger-evals.json            # Should/should-not-trigger prompts
-│   │   └── results/                      # Immutable legacy and current campaign evidence
-│   └── reading-epubs/
-│       ├── README.md                     # Method, evidence, and limitations
-│       ├── evals.json                    # Behavioral evals
-│       ├── measure_conversion.py         # Corpus resource measurement
-│       ├── trigger-evals.json            # Should/should-not-trigger prompts
-│       └── fixtures/
-│           └── sample.epub               # Generated by tests/helpers/epub.mjs
+├── evidence/                            # Historical bytes and new evidence boundaries
+│   ├── historical/                      # Tracked immutable observations
+│   └── migrations/                      # Path, byte and Git-blob reconciliation
 │
-├── src/                                  # Maintainable source for generated skill scripts
+├── src/                                 # Canonical complete skill projects
+│   ├── <skill>/
+│   │   ├── SKILL.md, references/, assets/, scripts/
+│   │   └── evals/
+│   │       ├── evals.json, trigger-evals.json, files/
+│   │       ├── extensions/v1/suite.json
+│   │       └── assurance/v1/
 │   └── committing-to-git/
 │       ├── checks/                       # Witnessed check receipts and bounded output
 │       ├── cli/                          # Published command boundary
@@ -372,7 +358,9 @@ agent-skills/
 | Path | Purpose | Commit? |
 |---|---|:---:|
 | `skills/` | Canonical deployable skill payloads maintained by this repository | **Yes** |
-| `evals/` | Maintainer-only evaluation definitions, fixtures, programs, and retained evidence | **Yes** |
+| `src/<name>/evals/` | Maintainer-only portable definitions, extensions, fixtures, and programs | **Yes** |
+| `evidence/historical/` | Byte-preserved historical observations | **Yes** |
+| `evidence/authoritative/`, `evidence/derived/` | New execution evidence and one-way reports | No |
 | `src/` | Maintainable source and schemas for generated skill executables | **Yes** |
 | `scripts/` | Repository-wide build commands and reproducible development bootstrap | **Yes** |
 | `plugins/committing-to-git/` | Generated host plugin package of the canonical skill, regenerated by `npm run build` | **Yes** |
@@ -570,22 +558,18 @@ For behavioral or discipline-oriented skills, include pressure cases where appro
 Use a lowercase, hyphenated Agent Skills name:
 
 ```text
-skills/
-└── my-skill/
-    └── SKILL.md
-```
-
-Treat that complete directory as the installable payload. Put behavioral prompts, trigger cases, evaluation fixtures, retained results, and evaluation-only programs in the matching maintainer directory instead:
-
-```text
-evals/
-└── my-skill/
+src/my-skill/
+├── SKILL.md
+├── references/, assets/, scripts/
+└── evals/
     ├── README.md
     ├── evals.json
-    └── trigger-evals.json
+    ├── trigger-evals.json
+    ├── files/
+    └── extensions/v1/suite.json
 ```
 
-Paths in an evaluation case's `files` array are relative to `evals/my-skill/`. An evaluation-only program that invokes shipped code should resolve the repository root and address `skills/my-skill/` explicitly, so moving or running the evaluator does not rely on an accidental parent-directory relationship.
+Register the skill profile and any build-only source categories, then run `npm run build`. Only SKILL.md, references, assets and runtime scripts enter `skills/my-skill/`; evals never ship. Portable file references are skill-root-relative, for example `evals/files/sample.txt`. Evaluation programs address generated runtime files explicitly under `skills/my-skill/`. See [the compiler and runtime contract](./docs/evaluation-runtime.md).
 
 The official Agent Skills specification requires the `name` to use lowercase letters, numbers, and hyphens and to be no more than 64 characters.
 
@@ -610,13 +594,13 @@ A useful starting prompt is:
 
 ```text
 Use `skill-creator` and `writing-skills` to create the Agent Skill described
-below under `skills/<skill-name>`.
+below under `src/<skill-name>`.
 
 Treat the Agent Skills specification as normative. Establish baseline behavior
 without the skill before relying on the new instructions. Keep SKILL.md focused
 and progressively disclose detailed material through references or scripts.
 Create behavioral and triggering evaluations appropriate to the skill under
-`evals/<skill-name>`, outside the deployable skill directory.
+`src/<skill-name>/evals`, outside the deployable skill directory.
 
 [Describe the required skill here.]
 ```
@@ -696,7 +680,7 @@ Identify:
 - required workflow;
 - MUST/SHOULD-style constraints;
 - scripts or external dependencies;
-- existing maintainer evals under `evals/<skill-name>/` or examples;
+- existing maintainer evals under `src/<skill-name>/evals/` or examples;
 - behavior that must remain unchanged.
 
 ## 2. Preserve a baseline
@@ -729,12 +713,12 @@ Use the [change-risk matrix](#change-risk-matrix) to decide how much evaluation 
 
 # Working on skill executables
 
-A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. Directly maintained scripts, such as the Python and Lua programs in `reading-epubs`, remain canonical under the skill. Bundled JavaScript, such as `committing-to-git`, is canonical under `src/<skill-name>/`; the file under `skills/<skill-name>/scripts/` is generated publication output.
+A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. All maintained scripts live under `src/<skill-name>/`. Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper is bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`.
 
 For an executable change:
 
 1. understand how `SKILL.md` invokes the script;
-2. identify whether its canonical implementation lives under `skills/` or `src/`;
+2. identify its canonical implementation under `src/` and the generated runtime path under `skills/`;
 3. add or update script-level tests where practical;
 4. reproduce the pre-change failure or limitation;
 5. implement the smallest fix in the canonical source;
@@ -837,13 +821,13 @@ For a recommended next workflow:
     --format markdown
 ```
 
-For material skills, Plugin Eval can also initialize and run a benchmark. The current tool writes `.plugin-eval/` beneath its target, so do not target the canonical `skills/<name>/` directory for this mutating workflow. Benchmark a UUID-named temporary copy of the deployable payload while writing the reviewable config and compact outputs under the maintainer suite:
+For material skills, Plugin Eval can also initialize and run a benchmark. The current tool writes `.plugin-eval/` beneath its target, so do not target the generated `skills/<name>/` directory for this mutating workflow. Benchmark a UUID-named temporary copy of the deployable payload while writing the reviewable config and compact outputs under the maintainer suite:
 
 ```powershell
 $BenchmarkTarget = Join-Path ([IO.Path]::GetTempPath()) ("agent-skills-plugin-eval-$Skill-" + [guid]::NewGuid().ToString())
-$BenchmarkConfig = ".\evals\$Skill\plugin-eval\benchmark.json"
-$BenchmarkUsage = ".\evals\$Skill\plugin-eval\benchmark-usage.jsonl"
-$BenchmarkResult = ".\evals\$Skill\plugin-eval\benchmark-run.json"
+$BenchmarkConfig = ".\evidence\derived\$Skill\plugin-eval\benchmark.json"
+$BenchmarkUsage = ".\evidence\derived\$Skill\plugin-eval\benchmark-usage.jsonl"
+$BenchmarkResult = ".\evidence\derived\$Skill\plugin-eval\benchmark-run.json"
 Copy-Item -Recurse -LiteralPath ".\skills\$Skill" -Destination $BenchmarkTarget
 .\.agent-tools\bin\plugin-eval.cmd init-benchmark "$BenchmarkTarget" --output "$BenchmarkConfig"
 .\.agent-tools\bin\plugin-eval.cmd benchmark "$BenchmarkTarget" --config "$BenchmarkConfig" --usage-out "$BenchmarkUsage" --result-out "$BenchmarkResult" --format markdown
@@ -853,7 +837,7 @@ Review and tailor the generated configuration before the final command: the curr
 
 ## Layer 5 — behavioral evaluation
 
-Keep committed behavioral definitions, fixtures, evaluation-only programs, and compact retained evidence under `evals/<skill-name>/`. The evaluator combines that maintainer suite with the canonical deployable skill at `skills/<skill-name>/`; it must not expect either tree to be nested inside the other. Resolve every path in an `evals.json` case's `files` array relative to its suite directory.
+Keep portable cases, fixtures, protocol extensions, and evaluation programs under `src/<skill-name>/evals/`. Compile the suite before preparation; the consumer workspace combines verified generated runtime bytes with only the referenced evaluation fixtures. Resolve portable `files` entries from the skill root, using `evals/files/...`. New authoritative evidence belongs under `evidence/authoritative/`; reports belong under `evidence/derived/`.
 
 For a **new skill**:
 
@@ -1129,8 +1113,8 @@ Avoid padding a skill with general advice the model already follows reliably.
 
 For a meaningful new or modified skill:
 
-- [ ] The canonical change is under `skills/<skill-name>/`.
-- [ ] Every file under `skills/<skill-name>/` belongs in the installed payload; maintainer-only evaluation material is under `evals/<skill-name>/`.
+- [ ] The canonical change is under `src/<skill-name>/`, with regenerated output under `skills/<skill-name>/`.
+- [ ] Every file under `skills/<skill-name>/` belongs in the installed payload; maintainer-only evaluation material is under `src/<skill-name>/evals/`.
 - [ ] Each evaluation suite names its matching canonical skill and resolves fixture paths within the suite.
 - [ ] The skill solves an observed or clearly defined behavior problem.
 - [ ] The `name` and `description` satisfy the Agent Skills specification.

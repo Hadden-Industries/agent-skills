@@ -10,7 +10,7 @@ test("repository build composes scoped validation and artifact checks", async ()
   });
 
   assert.deepEqual(result, {
-    artifactsChecked: 0,
+    artifactsChecked: 10,
     deployableSkillsValidated: 1,
     evaluationFileReferencesValidated: 0,
     evaluationSuitesValidated: 1,
@@ -27,7 +27,7 @@ test("repository build preserves full-repository validation counts", async () =>
 
   assert.deepEqual(result.staleArtifacts, []);
   assert.deepEqual(result.stalePackages, []);
-  assert.equal(result.artifactsChecked, 1);
+  assert.equal(result.artifactsChecked, 57);
   assert.equal(result.packagesChecked, 1);
   assert.equal(result.deployableSkillsValidated, 4);
   assert.equal(result.evaluationSuitesValidated, 4);

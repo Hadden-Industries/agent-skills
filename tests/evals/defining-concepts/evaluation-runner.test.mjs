@@ -24,7 +24,7 @@ import {
   resolveTrialEvaluationHomesRoot,
   runPreparedCampaign,
   withNewCampaignWorkingRoot,
-} from "../../../evals/defining-concepts/evaluation-runner.mjs";
+} from "../../../src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs";
 import {
   canonicalJsonBytes,
   EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
@@ -35,7 +35,7 @@ const arms = Object.freeze(["no-skill", "current-skill", "candidate-skill"]);
 const executionTimeoutMs = 600_000;
 const runnerPath = path.resolve(
   import.meta.dirname,
-  "../../../evals/defining-concepts/evaluation-runner.mjs",
+  "../../../src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs",
 );
 const currentCompatibility =
   "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.";
@@ -47,7 +47,7 @@ const cases = Object.freeze(
       id: index + 1,
       name: `case-${String(index + 1).padStart(2, "0")}`,
       prompt: `Define concept ${index + 1}.`,
-      expectations: [
+      assertions: [
         Object.freeze({
           id: `critical-${index + 1}`,
           text: `Preserves boundary ${index + 1}`,

@@ -1,12 +1,18 @@
 import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
 
 const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
-const SKILL_ARMS = Object.freeze(["current-skill", "candidate-skill"]);
 const CANONICAL_ARMS = Object.freeze([
   "no-skill",
   "current-skill",
   "candidate-skill",
 ]);
+const NAMING_ARMS = Object.freeze(["no-skill", "candidate-skill"]);
+
+function canonicalArms(suite) {
+  return suite === "naming-objects-in-software-engineering"
+    ? NAMING_ARMS
+    : CANONICAL_ARMS;
+}
 
 function fail(message) {
   throw new Error(message);
@@ -160,6 +166,7 @@ export function extractSkillCompatibility(bundle) {
 }
 
 function normalizedContract(value, arms) {
+  const skillArms = arms.filter((arm) => arm !== "no-skill");
   assertExactKeys(
     value,
     [
@@ -214,7 +221,7 @@ function normalizedContract(value, arms) {
       ],
       label,
     );
-    if (!SKILL_ARMS.includes(interpretation.arm)) {
+    if (!skillArms.includes(interpretation.arm)) {
       fail(`${label} has an unsupported arm`);
     }
     if (interpretationsByArm.has(interpretation.arm)) {
@@ -238,7 +245,7 @@ function normalizedContract(value, arms) {
       ),
     });
   }
-  for (const arm of SKILL_ARMS) {
+  for (const arm of skillArms) {
     if (!interpretationsByArm.has(arm)) {
       fail(`compatibility interpretation for ${arm} is required`);
     }
@@ -268,7 +275,7 @@ function normalizedContract(value, arms) {
     schemaVersion: 1,
     capabilityIds,
     armRequirements,
-    interpretations: SKILL_ARMS.map((arm) => interpretationsByArm.get(arm)),
+    interpretations: skillArms.map((arm) => interpretationsByArm.get(arm)),
     policy,
   };
 }
@@ -387,15 +394,14 @@ function normalizedProviderResolution(value, declared, required) {
   };
 }
 
-function assertCanonicalArms(arms) {
+function assertCanonicalArms(arms, suite) {
+  const expected = canonicalArms(suite);
   if (
     !Array.isArray(arms) ||
-    arms.length !== CANONICAL_ARMS.length ||
-    arms.some((arm, index) => arm !== CANONICAL_ARMS[index])
+    arms.length !== expected.length ||
+    arms.some((arm, index) => arm !== expected[index])
   ) {
-    fail(
-      "arms must use the canonical no-skill/current-skill/candidate-skill order",
-    );
+    fail(`arms must use the canonical ${expected.join("/")} order`);
   }
 }
 
@@ -413,15 +419,14 @@ export function assertEvaluationCapabilityDefinition({
       !Array.isArray(evaluationCase) &&
       Object.hasOwn(evaluationCase, "required_capabilities"),
   );
-  const usesCapabilitySchema =
-    definition.schema_version === 3 || hasContract || hasCaseDeclarations;
+  const usesCapabilitySchema = hasContract || hasCaseDeclarations;
 
   if (!usesCapabilitySchema) return null;
-  if (definition.schema_version !== 3) {
-    fail("capability declarations require evals schema_version 3");
+  if (definition.contractVersion !== 1) {
+    fail("capability declarations require compiled contractVersion 1");
   }
   if (!hasContract) {
-    fail("evals schema_version 3 requires capability_contract");
+    fail("capability declarations require capability_contract");
   }
   if (typeof skillSource !== "string") {
     fail("canonical SKILL.md source is required for capability reconciliation");
@@ -429,7 +434,7 @@ export function assertEvaluationCapabilityDefinition({
 
   const contract = normalizedContract(
     definition.capability_contract,
-    CANONICAL_ARMS,
+    canonicalArms(definition.skill_name),
   );
   const declared = new Set(contract.capabilityIds);
   const cases = normalizedCases(definition.evals, declared);
@@ -499,11 +504,15 @@ export function reconcileEvaluationCapabilities({
   providerResolution,
 }) {
   assertNonemptyString(suite, "suite");
-  assertCanonicalArms(arms);
+  assertCanonicalArms(arms, suite);
   const normalized = normalizedContract(contract, arms);
   const declared = new Set(normalized.capabilityIds);
   const caseRequirements = normalizedCases(cases, declared);
-  assertExactKeys(skillBundles, SKILL_ARMS, "skill bundles");
+  assertExactKeys(
+    skillBundles,
+    arms.filter((arm) => arm !== "no-skill"),
+    "skill bundles",
+  );
 
   const compatibility = normalized.interpretations.map((interpretation) => {
     const bundle = skillBundles[interpretation.arm];

@@ -94,7 +94,6 @@ function toGitPath(path) {
 function targetOwnedPaths(repositoryRoot, skillName) {
   return [
     join("skills", skillName),
-    join("evals", skillName),
     join("src", skillName),
     join("tests", skillName),
     join("tests", "evals", skillName),
@@ -110,9 +109,7 @@ export async function verifySkill({
   run = runRepositoryTool,
 } = {}) {
   const resolvedRepositoryRoot = resolve(repositoryRoot);
-  selectCanonicalSkillNames(join(resolvedRepositoryRoot, "skills"), [
-    skillName,
-  ]);
+  selectCanonicalSkillNames(join(resolvedRepositoryRoot, "src"), [skillName]);
 
   const buildResult = await buildRepository({
     checkOnly: true,
