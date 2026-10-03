@@ -1,5 +1,5 @@
 import { appendFile, readFile, rm } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { holdStdio } from "./held-stdio-fixture.mjs";
 
 function option(name) {
   const index = process.argv.indexOf(name);
@@ -132,18 +132,7 @@ process.stderr.write("fake claude diagnostic\n");
 
 if (scenario === "timeout" || scenario === "shutdown-ambiguous") {
   if (scenario === "shutdown-ambiguous") {
-    spawn(
-      process.execPath,
-      [
-        "-e",
-        'setTimeout(() => process.stdout.write("descendant-held-stdio\\n"), 1000)',
-      ],
-      {
-        detached: true,
-        stdio: ["ignore", "inherit", "inherit"],
-        windowsHide: true,
-      },
-    ).unref();
+    await holdStdio(recordFile);
   }
   setInterval(() => {}, 1000);
   process.once("SIGINT", () => process.exit(130));

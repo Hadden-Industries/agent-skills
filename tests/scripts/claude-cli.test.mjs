@@ -20,6 +20,7 @@ import {
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
 import * as claudeModule from "../../scripts/evaluation/claude-cli.js";
+import { releaseStdio } from "./fixtures/held-stdio-fixture.mjs";
 
 const { claudeCliAdapter, inspectClaudeCliToolchain, preflightClaudeAuth } =
   claudeModule;
@@ -102,7 +103,7 @@ async function createFixture(t, scenario = "happy", overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), "claude-cli-adapter-"));
   t.after(async () => {
     if (scenario === "shutdown-ambiguous") {
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_300));
+      await releaseStdio(join(root, "invocations.jsonl"));
     }
     await rm(root, { recursive: true, force: true });
   });
@@ -687,9 +688,7 @@ test("confirmed timeout is terminal, safe, and never retried", async (t) => {
 });
 
 test("unconfirmed timeout closure is unsafe and never retried", async (t) => {
-  const fixture = await createFixture(t, "shutdown-ambiguous", {
-    timeoutMs: 250,
-  });
+  const fixture = await createFixture(t, "shutdown-ambiguous");
   const result = await executeFixture(fixture);
   assert.equal(result.status, "failed");
   assert.equal(result.failureClass, "timed-out");
@@ -698,6 +697,7 @@ test("unconfirmed timeout closure is unsafe and never retried", async (t) => {
   );
   assert.equal(run.closure.status, "unsafe");
   assert.equal(run.closure.reasonCode, "shutdown-ambiguous");
+  assert.equal(await exists(`${fixture.recordFile}.stdio-ready`), true);
   assert.equal(
     (await recordsAt(fixture.recordFile)).filter(({ mode }) => mode === "model")
       .length,

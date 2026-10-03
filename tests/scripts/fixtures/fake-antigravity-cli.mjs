@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { holdStdio } from "./held-stdio-fixture.mjs";
 import { appendFile, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
@@ -115,18 +115,7 @@ if (scenario === "unknown-event") {
 
 if (scenario === "timeout" || scenario === "shutdown-ambiguous") {
   if (scenario === "shutdown-ambiguous") {
-    spawn(
-      process.execPath,
-      [
-        "-e",
-        'setTimeout(() => process.stdout.write("descendant-held-stdio\\n"), 1000)',
-      ],
-      {
-        detached: true,
-        stdio: ["ignore", "inherit", "inherit"],
-        windowsHide: true,
-      },
-    ).unref();
+    await holdStdio(recordFile);
   }
   setInterval(() => {}, 1_000);
   process.once("SIGINT", () => process.exit(130));
