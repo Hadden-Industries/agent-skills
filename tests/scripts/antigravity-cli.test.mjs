@@ -723,7 +723,9 @@ test("a thrown controller failure retains usage and fails the session", async (t
 });
 
 test("confirmed timeout is terminal, safe, and never retried", async (t) => {
-  const fixture = await executionFixture(t, "timeout", { timeoutMs: 75 });
+  // Allow the fake Node process to record its launch under parallel suite load;
+  // its timeout behavior still hangs until the ordinary fixture budget expires.
+  const fixture = await executionFixture(t, "timeout");
   const result = await executeFixture(fixture);
   assert.equal(result.status, "failed");
   assert.equal(result.failureClass, "timed-out");
