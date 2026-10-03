@@ -655,7 +655,9 @@ test("a real spawn failure occurs only after launch consumption", async (t) => {
 });
 
 test("confirmed timeout is terminal, safe, and never retried", async (t) => {
-  const fixture = await createFixture(t, "timeout", { timeoutMs: 75 });
+  // The budget also covers the authentication recheck. Allow startup before
+  // timing out the fake model, which waits indefinitely until interrupted.
+  const fixture = await createFixture(t, "timeout");
   const result = await executeFixture(fixture);
   const diagnosticRun = JSON.parse(
     await readFile(join(fixture.destination, "run.json"), "utf8"),
