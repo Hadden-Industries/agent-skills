@@ -44,6 +44,8 @@ const MODULES = [
   "scripts/evaluation/profile-registry.js",
   "scripts/evaluation/session-dispatch.js",
   "scripts/evaluation/prepare-consumer-carrier.js",
+  "scripts/evaluation/process-host.js",
+  "scripts/evaluation/windows-job-host.py",
   "scripts/evaluation/consumer-workspace.js",
   "scripts/evaluation/project-skill-up.js",
   "scripts/evaluation/run-skill-up.js",

@@ -237,17 +237,19 @@ renameSync(
   path.join(probeWorkspace, "retained-existing-output.json"),
 );
 assert.equal(existsSync(path.join(preparedSession, "attempt.json")), false);
+if (process.platform === "win32")
+  await assert.rejects(bridge(), /outside its prepared Windows job/u);
 assert.deepEqual(
   readFileSync(path.join(root, "fake-provider.jsonl")),
   preflightObservations,
 );
-const result = runSkillUp({ controlPath });
-assert.throws(() => runSkillUp({ controlPath }), /already attempted/u);
+const result = await runSkillUp({ controlPath });
+await assert.rejects(() => runSkillUp({ controlPath }), /already attempted/u);
 renameSync(
   path.join(carrier.receipt.consumerRoot, "invocation.json"),
   path.join(carrier.receipt.consumerRoot, "completed-invocation.json"),
 );
-assert.throws(() => runSkillUp({ controlPath }), /already attempted/u);
+await assert.rejects(() => runSkillUp({ controlPath }), /already attempted/u);
 const outcome = JSON.parse(
   readFileSync(path.join(preparedSession, "run.json"), "utf8"),
 );

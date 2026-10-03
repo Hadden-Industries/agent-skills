@@ -4,6 +4,7 @@ import { stringify } from "yaml";
 import { createConsumerWorkspace } from "./consumer-workspace.js";
 import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
 import { inspectToolchain, assertAssuredQualification } from "./toolchain.js";
+import { prepareProcessHost } from "./process-host.js";
 
 /** Allocate public carrier inputs before the Hadden packet is sealed. */
 export function prepareConsumerCarrier({
@@ -106,6 +107,7 @@ export function prepareConsumerCarrier({
     casePath,
     caseSha256: sha256Hex(Buffer.from(stringify(carrierCase))),
     executableSha256: toolchain.receipt.executableSha256,
+    processHost: prepareProcessHost(repositoryRoot),
     expectedInput,
     deadline: {
       executionTimeoutMs,
@@ -151,6 +153,7 @@ export function bindPreparedCarrier({
     configurationPath,
     configurationSha256,
     executableSha256,
+    processHost,
     expectedInput,
     deadline,
   } = carrier.receipt;
@@ -163,6 +166,7 @@ export function bindPreparedCarrier({
     configurationPath,
     configurationSha256,
     executableSha256,
+    processHost,
     expectedInput,
     deadline,
     projectionReceiptSha256: carrier.projectionReceiptSha256,

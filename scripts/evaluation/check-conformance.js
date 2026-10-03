@@ -229,6 +229,7 @@ if (
     [
       "--test",
       join(repositoryRoot, "tests/scripts/skill-up-invocation.contract.mjs"),
+      join(repositoryRoot, "tests/scripts/windows-job-host.contract.mjs"),
     ],
     {
       cwd: repositoryRoot,

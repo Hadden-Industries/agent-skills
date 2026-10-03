@@ -128,7 +128,7 @@ export async function dispatchPreparedSession({
   });
   // No catch/fallback: a failed native attempt is reconciled by the existing
   // campaign against terminal/consumption evidence, never retried here.
-  runSkillUp({ controlPath });
+  await runSkillUp({ controlPath });
   const resultPath = join(
     directory,
     evidenceLayout === "evaluation-trial-v1" ? "result.json" : "run.json",

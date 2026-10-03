@@ -10,8 +10,9 @@ import {
 } from "./toolchain.js";
 import { readContract } from "./json-contract.js";
 import { sha256Hex } from "./runtime.js";
+import { assertProcessHost, runProcessHost } from "./process-host.js";
 
-export function runSkillUp({ controlPath }) {
+export async function runSkillUp({ controlPath }) {
   const toolchain = inspectToolchain();
   assertAssuredQualification(toolchain);
   assertRegularPath(controlPath);
@@ -38,6 +39,7 @@ export function runSkillUp({ controlPath }) {
     "--output-dir",
     join(control.consumerRoot, "reports"),
   ];
+  assertProcessHost(control.processHost);
   // Claim the attempt before launching; interruption must never enable replay.
   writeFileSync(
     join(control.consumerRoot, "invocation-started.json"),
@@ -48,7 +50,7 @@ export function runSkillUp({ controlPath }) {
     }),
     { flag: "wx" },
   );
-  const execution = spawnSync(toolchain.executable, argv, {
+  const options = {
     cwd: dirname(dirname(control.configurationPath)),
     env: isolatedEnvironment(control.consumerRoot),
     timeout:
@@ -57,7 +59,22 @@ export function runSkillUp({ controlPath }) {
       10000,
     encoding: "utf8",
     windowsHide: true,
-  });
+  };
+  const execution =
+    process.platform === "win32"
+      ? await runProcessHost({
+          identity: control.processHost,
+          executable: toolchain.executable,
+          argv,
+          cwd: options.cwd,
+          env: options.env,
+          timeoutMs: options.timeout,
+          resultPath: join(
+            control.consumerRoot,
+            "process-host-observation.json",
+          ),
+        })
+      : spawnSync(toolchain.executable, argv, options);
   // This diagnostic is derived only. It never rewrites a Hadden outcome.
   const result = {
     schemaVersion: 1,
@@ -67,6 +84,8 @@ export function runSkillUp({ controlPath }) {
     stdout: execution.stdout,
     stderr: execution.stderr,
     error: execution.error?.message ?? null,
+    processHost: execution.observation ?? null,
+    reason: execution.observation?.reason ?? null,
   };
   writeFileSync(
     join(control.consumerRoot, "invocation.json"),
@@ -87,5 +106,5 @@ if (
   const [controlPath, ...extra] = process.argv.slice(2);
   if (!controlPath || extra.length)
     throw new Error("Usage: run-skill-up.js CONTROL (overrides are forbidden)");
-  runSkillUp({ controlPath });
+  await runSkillUp({ controlPath });
 }
