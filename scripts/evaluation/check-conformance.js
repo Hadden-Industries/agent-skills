@@ -257,7 +257,10 @@ if (
     0,
     bridgeFixture.stderr + bridgeFixture.stdout,
   );
+  const { checkConsumerProcesses } =
+    await import("./check-consumer-process.js");
+  const processes = await checkConsumerProcesses();
   process.stdout.write(
-    `${JSON.stringify({ ...receipt, portable, installation }, null, 2)}\n`,
+    `${JSON.stringify({ ...receipt, portable, installation, processes }, null, 2)}\n`,
   );
 }
