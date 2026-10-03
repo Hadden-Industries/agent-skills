@@ -41,7 +41,8 @@ for (const item of [
   });
 // Bounded CI diagnosis: profile only the fake Windows Git controller carrier.
 // Modify the disposable source before preparation seals its carrier/runtime
-// identities. Production source, deadlines and qualification stay untouched.
+// identities. The fake case gets time to flush the exit-only profiler. This
+// diagnostic cannot qualify the ordinary deadline or production execution.
 if (process.platform === "win32") {
   const profileRoot = path.join(root, "native-git-profile");
   mkdirSync(profileRoot);
@@ -51,13 +52,35 @@ if (process.platform === "win32") {
   );
   const source = readFileSync(carrierSource, "utf8");
   const anchor = "          args: [";
+  const deadlineAnchor = "  const maximumSeconds = Math.ceil(";
   assert.equal(source.split(anchor).length, 2);
+  assert.equal(source.split(deadlineAnchor).length, 2);
+  writeFileSync(
+    path.join(profileRoot, "diagnostic-budget.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      caseId: 35,
+      diagnosticOnly: true,
+      ordinaryStartupAllowanceMs: 10000,
+      diagnosticStartupAllowanceMs: 40000,
+      executionTimeoutMs: 10000,
+      cleanupAllowanceMs: 10000,
+      ordinaryMaximumSeconds: 30,
+      diagnosticMaximumSeconds: 60,
+    }),
+    { flag: "wx" },
+  );
   writeFileSync(
     carrierSource,
-    source.replace(
-      anchor,
-      `${anchor}\n            ...(caseId === 35 ? ["--cpu-prof", ${JSON.stringify(`--cpu-prof-dir=${profileRoot}`)}, "--cpu-prof-name=native-git.cpuprofile"] : []),`,
-    ),
+    source
+      .replace(
+        deadlineAnchor,
+        `  if (caseId === 35) startupAllowanceMs = 40000;\n${deadlineAnchor}`,
+      )
+      .replace(
+        anchor,
+        `${anchor}\n            ...(caseId === 35 ? ["--cpu-prof", ${JSON.stringify(`--cpu-prof-dir=${profileRoot}`)}, "--cpu-prof-name=native-git.cpuprofile"] : []),`,
+      ),
   );
 }
 const platform = `${process.platform}-${process.arch}`;
