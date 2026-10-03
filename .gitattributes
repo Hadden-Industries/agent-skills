@@ -2,3 +2,6 @@
 # - Auto-detect text vs binary files
 # - Normalise text files to LF on commit and keep LF on checkout
 * text=auto eol=lf
+evidence/historical/** -text
+evidence/historical/defining-concepts/2026-08-24T092645.127Z/aggregate.generated.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+evidence/historical/defining-concepts/2026-08-24T092645.127Z/aggregate.generated.md whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
