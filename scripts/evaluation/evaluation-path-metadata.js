@@ -57,6 +57,7 @@ export function openEvaluationPathMetadata({
   platform = process.platform,
   statFilesystem = statfs,
   openWindowsProbe = openWindowsPathMetadataProbe,
+  windowsSystemRoot = process.env.SystemRoot ?? process.env.WINDIR,
 } = {}) {
   if (platform === "linux") {
     return {
@@ -71,8 +72,19 @@ export function openEvaluationPathMetadata({
     error.code = "unsupported-platform";
     throw error;
   }
+  if (
+    typeof windowsSystemRoot !== "string" ||
+    !win32.isAbsolute(windowsSystemRoot)
+  )
+    throw new Error("Windows path metadata requires an absolute SystemRoot");
   const probe = openWindowsProbe({
-    executable: "powershell.exe",
+    executable: win32.join(
+      windowsSystemRoot,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    ),
     scriptPath: fileURLToPath(
       new URL("./windows-path-probe.ps1", import.meta.url),
     ),

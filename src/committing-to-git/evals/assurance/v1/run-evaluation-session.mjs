@@ -25,6 +25,24 @@ import {
 import { inspectAntigravityCliToolchain } from "../../../../../scripts/evaluation/antigravity-cli.js";
 import { inspectCodexAppServerToolchain } from "../../../../../scripts/evaluation/codex-app-server.js";
 import { evaluationHomesRootFromLocalAppData } from "../../../../../scripts/evaluation/evaluation-homes.js";
+import {
+  prepareSessionDispatch,
+  retainSessionDispatch,
+  dispatchPreparedSession,
+} from "../../../../../scripts/evaluation/session-dispatch.js";
+
+function prepareDispatch(options, repositoryRoot, caseId) {
+  return prepareSessionDispatch({
+    executionMode: options["execution-mode"] ?? "direct",
+    repositoryRoot,
+    skillName: "committing-to-git",
+    caseId,
+    executionTimeoutMs:
+      options["execution-mode"] === "skill-up"
+        ? positiveInteger(options, "execution-timeout-ms")
+        : undefined,
+  });
+}
 
 function fail(message) {
   throw new Error(message);
@@ -319,6 +337,7 @@ async function runPrepare(options) {
     "plan",
     repositoryRoot,
   );
+  const carrier = prepareDispatch(options, repositoryRoot, session.caseId);
   const catalogDocument = readJson(
     resolve(required(options, "isolation-catalog")),
     "isolation catalog",
@@ -368,6 +387,12 @@ async function runPrepare(options) {
     sequence: session.sequence,
     sourceCommit: session.sourceCommit,
     toolchain,
+    consumerProjectionSha256: carrier?.projectionReceiptSha256,
+  });
+  retainSessionDispatch({
+    preparedSession: prepared.preparedSession,
+    carrier,
+    packet: prepared.packet,
   });
 
   writeOutput({
@@ -392,6 +417,7 @@ async function runPreparePolicy(options) {
     "policy-plan",
     repositoryRoot,
   );
+  const carrier = prepareDispatch(options, repositoryRoot, session.caseId);
   const environment = environmentProfile();
   const toolchain = await inspectAntigravityCliToolchain({
     ...antigravityToolchainCommand(options),
@@ -413,6 +439,12 @@ async function runPreparePolicy(options) {
     sourceCommit: session.sourceCommit,
     toolchain,
     workingDirectory: resolve(required(options, "working-dir")),
+    consumerProjectionSha256: carrier?.projectionReceiptSha256,
+  });
+  retainSessionDispatch({
+    preparedSession: prepared.preparedSession,
+    carrier,
+    packet: prepared.packet,
   });
   writeOutput({
     arm: session.arm,
@@ -433,13 +465,14 @@ async function runPreparePolicy(options) {
 async function runExecute(options) {
   const authorizationPath = resolve(required(options, "authorization"));
   const authorization = readJson(authorizationPath, "authorization");
-  const record = await executePreparedEvaluationSession({
+  const record = await dispatchPreparedSession({
     preparedSession: resolve(required(options, "prepared-session")),
     allowExternalModelCall: options["allow-external-model-call"] === true,
-    authorization,
+    authorizationFile: authorizationPath,
+    direct: executePreparedEvaluationSession,
     timeoutMs: options["timeout-ms"]
       ? positiveInteger(options, "timeout-ms")
-      : 30_000,
+      : undefined,
   });
 
   writeOutput({
@@ -570,6 +603,8 @@ async function main() {
       "codex-entry",
       "destination",
       "evaluation-homes-root",
+      "execution-mode",
+      "execution-timeout-ms",
       "isolation-catalog",
       "predetermined-scope-id",
       "repository-root",
@@ -582,6 +617,8 @@ async function main() {
       "antigravity-prefix-arg",
       "campaign-plan",
       "destination",
+      "execution-mode",
+      "execution-timeout-ms",
       "repository-root",
       "sequence",
       "working-dir",

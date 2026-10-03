@@ -6,8 +6,8 @@ import {
   inspectToolchain,
   isolatedEnvironment,
   assertRegularPath,
+  assertAssuredQualification,
 } from "./toolchain.js";
-import { assertAssuredQualification } from "./skill-up-custom-engine.js";
 import { readContract } from "./json-contract.js";
 import { sha256Hex } from "./runtime.js";
 

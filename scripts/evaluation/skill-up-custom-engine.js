@@ -13,7 +13,11 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "./runtime.js";
-import { assertRegularPath, inspectToolchain } from "./toolchain.js";
+import {
+  assertRegularPath,
+  inspectToolchain,
+  assertAssuredQualification,
+} from "./toolchain.js";
 import { parseContract, readContract } from "./json-contract.js";
 import { preparedExecutionProfile } from "./profile-registry.js";
 import { deriveOutcomeReference } from "./derive-reports.js";
@@ -82,16 +86,6 @@ export function assertConsumerCorrelation(input, expected, deadline) {
     timeout * 1000 < deadline.executionTimeoutMs + deadline.cleanupAllowanceMs
   )
     throw new Error("Insufficient or expanded consumer deadline");
-}
-
-export function assertAssuredQualification(toolchain) {
-  if (
-    toolchain.manifest.skillUp.platforms[toolchain.platform]?.qualification !==
-    "assured-qualified"
-  )
-    throw new Error(
-      `Assured skill-up execution is disabled for ${toolchain.platform}; retain direct Hadden execution`,
-    );
 }
 
 export async function executeSkillUpBridge({

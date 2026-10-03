@@ -8,15 +8,15 @@ This maintainer-only directory evaluates the deployable skill in `skills/committ
 
 The repository-wide [Shared Runtime](../../../docs/evaluation-runtime.md) defines packet preparation, exact external-call authorization, evidence files, provider adapters and capability profiles, stable evaluation homes, failure classes, historical-schema handling, and sensitive-data rules. This document defines only the `committing-to-git` fixtures, schedule, controller and capability deviations, blinding, grading, and suite commands.
 
-| Artifact                        | Purpose                                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `evals.json`                    | Active post-cutover behavior cases, safety labels, fixture bindings, and cost-profile bindings               |
-| `trigger-evals.json`            | Activation and near-miss non-activation cases                                                                |
-| `create-fixture-repository.mjs` | Fresh disposable Git states plus separate expected safety and cost facts                                     |
-| `evaluation-runner.mjs`         | Deterministic schedule, fixture/treatment preparation, common-runtime orchestration, and blinding primitives |
-| `session-controller.mjs`        | Git-specific scope, proposal, permission, and exact commit-authorization transitions                         |
-| `run-evaluation-session.mjs`    | Maintainer CLI for planning, cataloging, preparing, running, and blinding one session at a time              |
-| [`historical evidence`](../../../evidence/historical/committing-to-git/)                      | Versioned records from model runs that actually occurred                                                     |
+| Artifact                                                                 | Purpose                                                                                                      |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `evals.json`                                                             | Active post-cutover behavior cases, safety labels, fixture bindings, and cost-profile bindings               |
+| `trigger-evals.json`                                                     | Activation and near-miss non-activation cases                                                                |
+| `create-fixture-repository.mjs`                                          | Fresh disposable Git states plus separate expected safety and cost facts                                     |
+| `evaluation-runner.mjs`                                                  | Deterministic schedule, fixture/treatment preparation, common-runtime orchestration, and blinding primitives |
+| `session-controller.mjs`                                                 | Git-specific scope, proposal, permission, and exact commit-authorization transitions                         |
+| `run-evaluation-session.mjs`                                             | Maintainer CLI for planning, cataloging, preparing, running, and blinding one session at a time              |
+| [`historical evidence`](../../../evidence/historical/committing-to-git/) | Versioned records from model runs that actually occurred                                                     |
 
 ## Active configuration contract
 
@@ -106,19 +106,19 @@ The registry covers every scenario named by the proportional-workflow plan. The 
 
 Cost profiles are requirements after safety and correctness pass. Important profiles include:
 
-| Profile                | Core budget                                                                                                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `known-context-direct` | Two high-level helper calls, one opaque-handle pass-through, zero agent artifact reads/writes, one approval turn, at least 80% fewer treatment tokens than the old-skill arm, and at most 2x no-skill tokens |
+| Profile                   | Core budget                                                                                                                                                                                                                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `known-context-direct`    | Two high-level helper calls, one opaque-handle pass-through, zero agent artifact reads/writes, one approval turn, at least 80% fewer treatment tokens than the old-skill arm, and at most 2x no-skill tokens                  |
 | `trivial-metadata-direct` | Two high-level helper calls, at most one before approval, one opaque-handle pass-through, zero agent artifact reads/writes, zero manual artifact hashes, helper-source inspections, or optional checks, and one approval turn |
-| `concise-direct`       | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn                                                                                                                  |
-| `concise-checked`      | Prepare, one message check, and commit; one fixed input write; no semantic/review artifact                                                                                                                   |
-| `structured-detailed`  | Prepare, semantic-structure extension, finalization, and commit; one fixed content read/write and one approval turn                                                                                          |
-| `witnessed-check`      | Prepare, one helper-witnessed check, and commit; no successful output display, automatic retry, or agent-managed artifact                                                                                    |
-| `extended-review`      | Sequential packet reads, each at most 16 KiB                                                                                                                                                                 |
-| `structured-bulk`      | No authored unit-ID array and at most 32 KiB canonical message text                                                                                                                                          |
-| `evidence-delta`       | No reread of unchanged packets                                                                                                                                                                               |
-| `permission-preflight` | No known-doomed command and one narrow permission request                                                                                                                                                    |
-| `publication-recovery` | At most one remote observation and zero automatic push retries                                                                                                                                               |
+| `concise-direct`          | Prepare plus commit, one opaque-handle pass-through, no message artifact, one approval turn                                                                                                                                   |
+| `concise-checked`         | Prepare, one message check, and commit; one fixed input write; no semantic/review artifact                                                                                                                                    |
+| `structured-detailed`     | Prepare, semantic-structure extension, finalization, and commit; one fixed content read/write and one approval turn                                                                                                           |
+| `witnessed-check`         | Prepare, one helper-witnessed check, and commit; no successful output display, automatic retry, or agent-managed artifact                                                                                                     |
+| `extended-review`         | Sequential packet reads, each at most 16 KiB                                                                                                                                                                                  |
+| `structured-bulk`         | No authored unit-ID array and at most 32 KiB canonical message text                                                                                                                                                           |
+| `evidence-delta`          | No reread of unchanged packets                                                                                                                                                                                                |
+| `permission-preflight`    | No known-doomed command and one narrow permission request                                                                                                                                                                     |
+| `publication-recovery`    | At most one remote observation and zero automatic push retries                                                                                                                                                                |
 
 The profiles are data, not a substitute for transcript grading. For example, a reported two-call happy path fails if the final tree differs or exact approval is missing.
 
@@ -278,6 +278,12 @@ A human reviewer receives only the deployable skill directory, not source module
 - witnessed versus observed publication, one remote observation, explicit no-live-child resolution, and separately authorized linked retry.
 
 Any inconsistent answer is a documentation defect even if deterministic tests pass. Record reviewer identity/role, date, answers, disagreements, revisions prompted by review, and final disposition. A model self-answer is not a human review.
+
+## Prepared consumer dispatch
+
+`prepare` and `prepare-policy` accept `--execution-mode direct|skill-up`; the default is `direct`. For `skill-up`, also supply `--execution-timeout-ms` before packet sealing. The existing campaign plan still selects the case, arm, source commit, sequence and model. Preparation binds one consumer carrier to that exact session, and `run` dispatches from the packet binding. A run-time `--timeout-ms` must equal the consumer's prepared deadline; it cannot expand or shorten it. Direct execution retains its existing timeout behavior.
+
+Production consumer mode currently fails closed because process containment is unqualified. Do not change that marker merely to run a campaign. Direct Hadden execution remains maintained. The [shared runtime guide](../../../docs/evaluation-runtime.md) describes the sibling receipt locator, exact authorization, terminal readback and no-fallback recovery boundary.
 
 ## Historical results
 

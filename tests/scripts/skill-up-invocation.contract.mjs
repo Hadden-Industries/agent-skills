@@ -286,3 +286,423 @@ writeFileSync(
   JSON.stringify(receipt, null, 2),
 );
 process.stdout.write(JSON.stringify(receipt) + "\n");
+
+// Exercise the operator dispatch seam against the real native consumer in the
+// disposable qualification checkout. These fake sessions are not calibration.
+const {
+  prepareSessionDispatch,
+  retainSessionDispatch,
+  dispatchPreparedSession,
+} = await load("scripts/evaluation/session-dispatch.js");
+const { inspectAntigravityCliToolchain } = await load(
+  "scripts/evaluation/antigravity-cli.js",
+);
+const { preparePolicyEvaluationSession, executePreparedEvaluationSession } =
+  await load("src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs");
+const fakeProvider = path.join(
+  repository,
+  "tests/scripts/fixtures/fake-antigravity-cli.mjs",
+);
+const dispatchResults = {};
+for (const skillName of [
+  "committing-to-git",
+  "defining-concepts",
+  "naming-objects-in-software-engineering",
+]) {
+  dispatchResults[skillName] = [];
+  for (const executionMode of ["direct", "skill-up"]) {
+    const sessionRoot = path.join(root, `${skillName}-${executionMode}`);
+    mkdirSync(sessionRoot);
+    const work = path.join(sessionRoot, "work");
+    const destination = path.join(sessionRoot, "prepared");
+    const recordFile = path.join(sessionRoot, "provider.jsonl");
+    const authPath = path.join(sessionRoot, "authorization.json");
+    if (skillName === "naming-objects-in-software-engineering") {
+      mkdirSync(work);
+      const requestPath = path.join(sessionRoot, "prepare-request.json");
+      writeFileSync(
+        requestPath,
+        canonicalJsonBytes({
+          executionMode,
+          destination,
+          caseId: 4,
+          arm: "no-skill",
+          model: "gemini-3.5-flash-low",
+          effort: "low",
+          command: process.execPath,
+          prefixArguments: [fakeProvider, "--record-file", recordFile],
+          environment,
+          workingDirectory: work,
+          timeoutMs: 10000,
+        }),
+      );
+      const preparation = spawnSync(
+        process.execPath,
+        [
+          path.join(
+            checkout,
+            "src/naming-objects-in-software-engineering/evals/assurance/v1/evaluation-runner.mjs",
+          ),
+          "prepare",
+          requestPath,
+        ],
+        { encoding: "utf8", timeout: 20000, windowsHide: true },
+      );
+      assert.equal(preparation.status, 0, preparation.stderr);
+    } else if (skillName === "committing-to-git") {
+      mkdirSync(work);
+      const dispatchCarrier = prepareSessionDispatch({
+        executionMode,
+        repositoryRoot: checkout,
+        skillName,
+        caseId: 3,
+        executionTimeoutMs: 10000,
+      });
+      const toolchain = await inspectAntigravityCliToolchain({
+        command: process.execPath,
+        prefixArguments: [fakeProvider, "--record-file", recordFile],
+        environment,
+      });
+      const prepared = await preparePolicyEvaluationSession({
+        arm: "no-skill",
+        campaignId: "c".repeat(64),
+        caseId: 3,
+        destination,
+        effort: "low",
+        environment,
+        model: "gemini-3.5-flash-low",
+        provider: "google",
+        repetition: 1,
+        repositoryRoot: checkout,
+        seed: "dispatch-equivalence",
+        sequence: 1,
+        sourceCommit: null,
+        toolchain,
+        workingDirectory: work,
+        consumerProjectionSha256: dispatchCarrier?.projectionReceiptSha256,
+      });
+      retainSessionDispatch({
+        preparedSession: destination,
+        carrier: dispatchCarrier,
+        packet: prepared.packet,
+      });
+    } else {
+      const caseFile = path.join(sessionRoot, "case.json");
+      const compiledConcepts = compileSuite({
+        repositoryRoot: checkout,
+        skillName,
+      });
+      writeFileSync(
+        caseFile,
+        canonicalJsonBytes(
+          compiledConcepts.definition.evals.find(({ id }) => id === 10),
+        ),
+      );
+      // Text-only fake-provider envelope, identical across arms; no claim of
+      // provider research capability or production campaign qualification.
+      const capabilityReceipt = {
+        suite: skillName,
+        selectedCaseIds: [10],
+        arms: ["no-skill", "current-skill", "candidate-skill"],
+        compatibility: [],
+        armEnvelopes: ["no-skill", "current-skill", "candidate-skill"].map(
+          (arm) => ({ arm, capabilities: ["bundled-skill-files"] }),
+        ),
+        providerResolution: { provider: "google" },
+        runtimeCapabilities: {
+          network: false,
+          webSearch: false,
+          tools: [],
+          providerFacilities: ["provider-default-context"],
+        },
+      };
+      const capabilityFile = path.join(sessionRoot, "capabilities.json");
+      writeFileSync(
+        capabilityFile,
+        canonicalJsonBytes({
+          schemaVersion: 1,
+          receipt: capabilityReceipt,
+          receiptSha256: sha256Hex(canonicalJsonBytes(capabilityReceipt)),
+        }),
+      );
+      const preparation = spawnSync(
+        process.execPath,
+        [
+          path.join(
+            checkout,
+            "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
+          ),
+          "prepare",
+          "--case-file",
+          caseFile,
+          "--destination",
+          destination,
+          "--working-dir",
+          work,
+          "--arm",
+          "no-skill",
+          "--repetition",
+          "1",
+          "--provider",
+          "antigravity",
+          "--model",
+          "gemini-3.5-flash-low",
+          "--effort",
+          "low",
+          "--execution-timeout-ms",
+          "10000",
+          "--capability-reconciliation-file",
+          capabilityFile,
+          "--execution-mode",
+          executionMode,
+          "--antigravity-command",
+          process.execPath,
+          "--antigravity-prefix-arg",
+          fakeProvider,
+          "--antigravity-prefix-arg",
+          "--record-file",
+          "--antigravity-prefix-arg",
+          recordFile,
+        ],
+        { encoding: "utf8", timeout: 20000, windowsHide: true },
+      );
+      assert.equal(preparation.status, 0, preparation.stderr);
+    }
+    const preparedPacket = JSON.parse(
+      readFileSync(path.join(destination, "packet.json")),
+    );
+    writeFileSync(
+      authPath,
+      canonicalJsonBytes({
+        schemaVersion: 1,
+        decision: "authorized",
+        statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+        allowExternalModel: true,
+        provider: "google",
+        model: preparedPacket.transmission.model,
+        effort: "low",
+        transmissionSha256: preparedPacket.transmissionSha256,
+      }),
+    );
+    const directExecutor =
+      skillName === "committing-to-git"
+        ? executePreparedEvaluationSession
+        : skillName === "naming-objects-in-software-engineering"
+          ? (
+              await load(
+                "src/naming-objects-in-software-engineering/evals/assurance/v1/profile.mjs",
+              )
+            ).executePreparedNamingSession
+          : (
+              await load(
+                "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs",
+              )
+            ).executePreparedDefiningSession;
+    const before = readFileSync(recordFile);
+    if (executionMode === "skill-up") {
+      await assert.rejects(
+        dispatchPreparedSession({
+          preparedSession: destination,
+          authorizationFile: authPath,
+          allowExternalModelCall: false,
+          direct: directExecutor,
+        }),
+        /literally true/u,
+      );
+      await assert.rejects(
+        dispatchPreparedSession({
+          preparedSession: destination,
+          authorizationFile: authPath,
+          allowExternalModelCall: true,
+          timeoutMs: 1,
+          direct: directExecutor,
+        }),
+        /packet-bound/u,
+      );
+      assert.deepEqual(readFileSync(recordFile), before);
+    }
+    let executed;
+    if (skillName === "naming-objects-in-software-engineering") {
+      const requestPath = path.join(sessionRoot, "run-request.json");
+      writeFileSync(
+        requestPath,
+        canonicalJsonBytes({
+          preparedSession: destination,
+          authorizationFile: authPath,
+          allowExternalModelCall: true,
+        }),
+      );
+      const execution = spawnSync(
+        process.execPath,
+        [
+          path.join(
+            checkout,
+            "src/naming-objects-in-software-engineering/evals/assurance/v1/evaluation-runner.mjs",
+          ),
+          "run",
+          requestPath,
+        ],
+        { encoding: "utf8", timeout: 45000, windowsHide: true },
+      );
+      assert.equal(execution.status, 0, execution.stderr);
+      executed = JSON.parse(execution.stdout);
+    } else
+      executed = await dispatchPreparedSession({
+        preparedSession: destination,
+        authorizationFile: authPath,
+        allowExternalModelCall: true,
+        direct: directExecutor,
+      });
+    assert.equal(executed.status, "completed", JSON.stringify(executed));
+    const providerRecords = readFileSync(recordFile, "utf8")
+      .trim()
+      .split("\n")
+      .map(JSON.parse);
+    assert.equal(
+      providerRecords.filter(({ mode }) => mode === "model").length,
+      1,
+    );
+    assert.equal(
+      providerRecords.filter(({ mode }) => mode === "input").length,
+      skillName === "committing-to-git" ? 1 : 2,
+    );
+    dispatchResults[skillName].push({
+      status: executed.status,
+      closure: executed.closure.status,
+      inputs: providerRecords
+        .filter(({ mode }) => mode === "input")
+        .map(({ message }) => message),
+      caseId: preparedPacket.transmission.session.caseId,
+      arm: preparedPacket.transmission.session.arm,
+    });
+    if (executionMode === "skill-up") {
+      await assert.rejects(
+        dispatchPreparedSession({
+          preparedSession: destination,
+          authorizationFile: authPath,
+          allowExternalModelCall: true,
+          direct() {
+            assert.fail("No direct fallback");
+          },
+        }),
+        /EEXIST|already/u,
+      );
+      assert.deepEqual(
+        readFileSync(recordFile),
+        Buffer.from(
+          providerRecords.map((value) => JSON.stringify(value)).join("\n") +
+            "\n",
+        ),
+      );
+    }
+  }
+  assert.deepEqual(
+    dispatchResults[skillName][0],
+    dispatchResults[skillName][1],
+  );
+}
+writeFileSync(
+  path.join(root, "dispatch-equivalence.json"),
+  canonicalJsonBytes(dispatchResults),
+);
+
+// Git's fixture/controller path is separate from the text-only policy profile.
+const { initializeEvaluationHomes } = await load(
+  "scripts/evaluation/evaluation-homes.js",
+);
+const { inspectCodexAppServerToolchain } = await load(
+  "scripts/evaluation/codex-app-server.js",
+);
+const { prepareEvaluationSession } = await load(
+  "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
+);
+const gitControllerResults = [];
+for (const executionMode of ["direct", "skill-up"]) {
+  const sessionRoot = path.join(root, `git-controller-${executionMode}`);
+  mkdirSync(sessionRoot);
+  const homes = path.join(sessionRoot, "homes");
+  await initializeEvaluationHomes({ root: homes });
+  const toolchain = await inspectCodexAppServerToolchain({
+    command: process.execPath,
+    prefixArguments: [
+      path.join(
+        repository,
+        "tests/committing-to-git/fixtures/fake-app-server.mjs",
+      ),
+    ],
+    scratchRoot: path.join(sessionRoot, "inspection"),
+    environment,
+  });
+  const dispatchCarrier = prepareSessionDispatch({
+    executionMode,
+    repositoryRoot: checkout,
+    skillName: "committing-to-git",
+    caseId: 35,
+    executionTimeoutMs: 10000,
+  });
+  const prepared = await prepareEvaluationSession({
+    arm: "no-skill",
+    authorizationEligible: true,
+    campaignId: "d".repeat(64),
+    caseId: 35,
+    destination: path.join(sessionRoot, "prepared"),
+    effort: "low",
+    evaluationHomesRoot: homes,
+    environment,
+    model: "gpt-5.6-luna",
+    provider: "openai",
+    repetition: 1,
+    repositoryRoot: checkout,
+    runtimeIsolationCatalog: {
+      appIds: [],
+      mcpServerIds: [],
+      pluginIds: [],
+      skillPaths: [],
+    },
+    runtimeIsolationDiscovery: null,
+    seed: "controller-equivalence",
+    sequence: 1,
+    sourceCommit: null,
+    toolchain,
+    consumerProjectionSha256: dispatchCarrier?.projectionReceiptSha256,
+  });
+  retainSessionDispatch({
+    preparedSession: prepared.preparedSession,
+    carrier: dispatchCarrier,
+    packet: prepared.packet,
+  });
+  const authPath = path.join(sessionRoot, "authorization.json");
+  writeFileSync(
+    authPath,
+    canonicalJsonBytes({
+      schemaVersion: 1,
+      decision: "authorized",
+      statement: EXTERNAL_MODEL_AUTHORIZATION_STATEMENT,
+      allowExternalModel: true,
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      effort: "low",
+      transmissionSha256: prepared.packet.transmissionSha256,
+    }),
+  );
+  const result = await dispatchPreparedSession({
+    preparedSession: prepared.preparedSession,
+    authorizationFile: authPath,
+    allowExternalModelCall: true,
+    direct: executePreparedEvaluationSession,
+  });
+  assert.equal(result.status, "completed", JSON.stringify(result));
+  assert.equal(result.suiteResult.commitAuthorization.status, "sent");
+  gitControllerResults.push({
+    status: result.status,
+    closure: result.closure.status,
+    authorization: result.suiteResult.commitAuthorization.status,
+    caseId: prepared.packet.transmission.session.caseId,
+    arm: prepared.packet.transmission.session.arm,
+  });
+}
+assert.deepEqual(gitControllerResults[0], gitControllerResults[1]);
+writeFileSync(
+  path.join(root, "git-controller-equivalence.json"),
+  canonicalJsonBytes(gitControllerResults),
+);

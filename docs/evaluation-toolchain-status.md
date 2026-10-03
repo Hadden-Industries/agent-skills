@@ -9,7 +9,7 @@ Observed locally on Windows x64, Node 24.21.0 and Python 3.14.7. Exact acquisiti
 | skills 1.7.0 | All four distributions install byte-exactly through explicit, default and full-depth discovery in a disposable checkout | Local Codex installation layout; no client activation experiment |
 | skill-up to Hadden bridge | One normal native invocation executes two fake Antigravity turns and derives an artifact-checked outcome reference | Disposable test-only qualification override; does not qualify production containment |
 | Windows assured bridge | Disabled after engine and grandchild heartbeats continued after abrupt consumer death | Task-owned processes were subsequently stopped and all three observed PIDs were absent on readback |
-| Linux assured bridge | Disabled; archive and executable identity inspected, runtime not yet observed on Linux | CI conformance cannot establish the full process-failure matrix by itself |
+| Linux assured bridge | Disabled; pinned native functional conformance passed on Ubuntu 24.04 in CI run `37120653530` | Functional execution does not establish the process-failure matrix |
 | Network boundary | OTel disabled; credentials/config excluded from owned consumer environment; installer Node network APIs denied | No complete OS-level egress observation or isolation claim |
 | Real models and host activation | Not run | Require their own prepared authority and observations |
 

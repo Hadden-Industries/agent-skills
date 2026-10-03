@@ -77,6 +77,16 @@ export function inspectToolchain(root = repositoryRoot) {
   return { manifest, receipt, executable, platform };
 }
 
+export function assertAssuredQualification(toolchain) {
+  if (
+    toolchain.manifest.skillUp.platforms[toolchain.platform]?.qualification !==
+    "assured-qualified"
+  )
+    throw new Error(
+      `Assured skill-up execution is disabled for ${toolchain.platform}; retain direct Hadden execution`,
+    );
+}
+
 export function isolatedEnvironment(root, ambient = process.env) {
   const env = {};
   for (const key of ["SystemRoot", "WINDIR", "COMSPEC"]) {

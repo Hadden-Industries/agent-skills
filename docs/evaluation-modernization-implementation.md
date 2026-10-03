@@ -1,6 +1,6 @@
 # Evaluation modernization implementation evidence
 
-Implementation baseline: `0c59a3877b58de234347e2c19488e0b407c8ee9d`; branch `evaluation-modernization`. The earlier design baseline remains historical. This record describes implemented boundaries and observed checks; final governed verification, independent verification and delivery are separate gates.
+Implementation baseline: `0c59a3877b58de234347e2c19488e0b407c8ee9d`; branch `evaluation-modernization`. The earlier design baseline remains historical. The initial implementation and CI repair passed governed verification and independent review through `c4fcb9ea7438ea4815cb8f46fc3593ee48ff9546`; Windows/Linux conformance and CodeQL passed on that commit. This record separates those completed checks from subsequent dispatch work and still-unqualified platform behavior.
 
 ## Preserved identities and approved exceptions
 
@@ -56,6 +56,16 @@ Every row retains its original acceptance meaning. Test paths below identify det
 | KEEP-034 | Naming direct-launch bypass retired; registered prepared profile, exact follow-ups, legacy diagnostic characterization | Keyword scores cannot become semantic grades |
 | KEEP-035 | Trigger bytes/labels retained; trigger contract and frozen suite identities | Selection and body injection do not prove activation |
 | KEEP-036 | History manifest, byte/hash inventory, explicit readers and preservation tests | Staged Git-blob reconciliation required before history commit |
+
+The initial independent verification completed the historical Git-blob reconciliation and exact distribution readback. Governed run `b1f91b23-e694-4483-a6f3-1a7b3dcbd22d` verified clean commit `c4fcb9e`: 1,135 tests passed, six skipped, none failed. CI runs `37120653530` and `37120651300` passed functional conformance and CodeQL respectively. These receipts do not cover later changed source bytes.
+
+### Dispatch continuation and remaining qualification
+
+The plan audit after CI found that registered profiles and manual carrier construction did not yet provide the promised operator campaign-dispatch mode. The continuation adds explicit preparation-time mode selection to Git sessions, defining-concepts campaigns/sessions and naming requests, with a shared packet-bound dispatcher. Existing campaign schedules, reconciliation, provider adapters, controllers and grading remain the owners of their behavior. A consumer error has no direct fallback, and successful readback comes from artifact-checked Hadden evidence.
+
+The native fake-provider contract now compares direct versus consumer dispatch for Git policy case 3, Git fixture/controller case 35, defining case 10 and naming case 4. It exercises exact follow-up counts, one provider launch, rejection of missing approval and timeout overrides, replay refusal and Git's commit-approval transition. The added Git path exposed a Windows metadata-probe PATH dependency; the probe now locates PowerShell under the inherited absolute Windows system root without broadening the consumer PATH. Qualification checks belong to the toolchain module, avoiding an executable-entry-point import cycle.
+
+Production native dispatch remains disabled. QA-002's Windows abrupt-death failure is a stop condition under Phase 3, not an instruction to add an unreviewed process host or weaken the gate. Linux process-failure and complete OS-level egress observations remain pending; green functional CI cannot close them. A lifecycle design revision and its specific approval are required before introducing a new process-host service, transport or sandbox to repair containment. Real-provider calibration, host activation and human evaluation also remain separate authorized experiments. No duplicate safety orchestration is retired before these equivalence and qualification conditions are met.
 
 ## Acceptance and quality evidence
 

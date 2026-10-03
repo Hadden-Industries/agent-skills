@@ -1,5 +1,10 @@
 import { pathToFileURL } from "node:url";
 import { compileSuite } from "../../../../../scripts/evaluation/compile-suite.js";
+import {
+  prepareSessionDispatch,
+  retainSessionDispatch,
+  dispatchPreparedSession,
+} from "../../../../../scripts/evaluation/session-dispatch.js";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -81,6 +86,13 @@ const COMMON_RUNTIME_MODULES = [
   "scripts/evaluation/compile-suite.js",
   "scripts/evaluation/json-contract.js",
   "scripts/evaluation/profile-registry.js",
+  "scripts/evaluation/session-dispatch.js",
+  "scripts/evaluation/prepare-consumer-carrier.js",
+  "scripts/evaluation/consumer-workspace.js",
+  "scripts/evaluation/project-skill-up.js",
+  "scripts/evaluation/run-skill-up.js",
+  "scripts/evaluation/skill-up-custom-engine.js",
+  "scripts/evaluation/derive-reports.js",
   "scripts/evaluation/toolchain.js",
   "scripts/evaluation/schemas/portable.schema.json",
   "scripts/evaluation/schemas/extension.schema.json",
@@ -493,7 +505,11 @@ function preparedInputs(transmission) {
 
 async function prepare(options) {
   const { values, repeated } = options;
-  const consumerProjectionSha256 = values.get("--consumer-projection-sha256");
+  let consumerProjectionSha256 = values.get("--consumer-projection-sha256");
+  if (values.has("--execution-mode") && consumerProjectionSha256 !== undefined)
+    fail(
+      "Execution mode cannot be combined with a caller-supplied carrier digest",
+    );
   if (
     consumerProjectionSha256 !== undefined &&
     !/^[a-f0-9]{64}$/u.test(consumerProjectionSha256)
@@ -537,6 +553,14 @@ async function prepare(options) {
 
   const evaluationCase = readJsonFile(casePath, "evaluation case");
   const evalId = positiveInteger(evaluationCase.id, "evaluation case id");
+  const carrier = prepareSessionDispatch({
+    executionMode: values.get("--execution-mode") ?? "direct",
+    repositoryRoot: REPOSITORY_ROOT,
+    skillName: "defining-concepts",
+    caseId: evalId,
+    executionTimeoutMs,
+  });
+  consumerProjectionSha256 ??= carrier?.projectionReceiptSha256;
   const declaredConversation = normalizeEvaluationConversation(evaluationCase);
   if (providerOption === "claude" && declaredConversation.length > 1) {
     fail(
@@ -831,6 +855,7 @@ async function prepare(options) {
     packet,
     inputs: preparedInputs(transmission),
   });
+  retainSessionDispatch({ preparedSession: destination, carrier, packet });
   process.stdout.write(`${JSON.stringify(prepared)}\n`);
 }
 
@@ -977,15 +1002,10 @@ async function run(options) {
   if (!new Set(["legacy-v1", "evaluation-trial-v1"]).has(evidenceLayout)) {
     fail("The evidence layout must be legacy-v1 or evaluation-trial-v1");
   }
-  let authorization;
-  try {
-    authorization = JSON.parse(readFileSync(authorizationPath, "utf8"));
-  } catch (error) {
-    fail(`Unable to read authorization file: ${error.message}`);
-  }
-  const result = await executePreparedDefiningSession({
+  const result = await dispatchPreparedSession({
     preparedSession,
-    authorization,
+    authorizationFile: authorizationPath,
+    direct: executePreparedDefiningSession,
     allowExternalModelCall: true,
     evidenceLayout,
   });

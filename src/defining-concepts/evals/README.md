@@ -31,15 +31,15 @@ The suite does not certify ISO, W3C, OBO, CIDOC CRM, FAIR, CARE, TBX, OntoLex-Le
 
 ## Suite surfaces
 
-| File | Responsibility |
-| --- | --- |
-| [`evals.json`](./evals.json) | Sixteen behavioral cases, renderers, profiles, research strata, applicable qualitative dimensions, critical expectation indexes, and the calibration selection. |
-| [`trigger-evals.json`](./trigger-evals.json) | Positive and negative activation prompts for the skill description, separate from behavioral quality. |
-| [`evaluation-runner.mjs`](./evaluation-runner.mjs) | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, preflight, durable execution, read-only status inspection, grading-packet preparation, and aggregation. |
-| [`evaluation-trial.mjs`](./evaluation-trial.mjs) | Atomic one-trial preparation, immutable artifact validation, retained zero-turn preflight, exact authorization enforcement, durable execution-state interpretation, and read-only verification. |
-| [`run-evaluation-session.mjs`](./run-evaluation-session.mjs) | One packet-bound provider session with an immutable case, optional skill bundle, exact conversation, runtime fingerprint, evidence directory, and authorization boundary. |
-| [`session-controller.mjs`](./session-controller.mjs) | Suite wrapper around the shared scripted-conversation controller; it rejects approval requests and supplies only committed follow-up turns. |
-| [`historical evidence`](../../../evidence/historical/defining-concepts/) | Immutable provider evidence and separate derived grading or aggregation artifacts, versioned by a filesystem-safe UTC start timestamp. |
+| File                                                                     | Responsibility                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`evals.json`](./evals.json)                                             | Sixteen behavioral cases, renderers, profiles, research strata, applicable qualitative dimensions, critical expectation indexes, and the calibration selection.                                                                                            |
+| [`trigger-evals.json`](./trigger-evals.json)                             | Positive and negative activation prompts for the skill description, separate from behavioral quality.                                                                                                                                                      |
+| [`evaluation-runner.mjs`](./evaluation-runner.mjs)                       | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, preflight, durable execution, read-only status inspection, grading-packet preparation, and aggregation. |
+| [`evaluation-trial.mjs`](./evaluation-trial.mjs)                         | Atomic one-trial preparation, immutable artifact validation, retained zero-turn preflight, exact authorization enforcement, durable execution-state interpretation, and read-only verification.                                                            |
+| [`run-evaluation-session.mjs`](./run-evaluation-session.mjs)             | One packet-bound provider session with an immutable case, optional skill bundle, exact conversation, runtime fingerprint, evidence directory, and authorization boundary.                                                                                  |
+| [`session-controller.mjs`](./session-controller.mjs)                     | Suite wrapper around the shared scripted-conversation controller; it rejects approval requests and supplies only committed follow-up turns.                                                                                                                |
+| [`historical evidence`](../../../evidence/historical/defining-concepts/) | Immutable provider evidence and separate derived grading or aggregation artifacts, versioned by a filesystem-safe UTC start timestamp.                                                                                                                     |
 
 Passing trigger cases says nothing about semantic quality. Passing deterministic behavioral-contract tests says nothing about model behavior. A provider run without complete retained evidence cannot establish the claims that its evidence omits.
 
@@ -62,24 +62,24 @@ When a host can spawn subagents, independent multi-step evidence or validation l
 
 The committed suite contains 16 distinct semantic pressure tests. `definition-answer`, `revision-audit`, and `concept-package` are presentation projections, not different semantic records. `terminology-core` is always active; the other profiles compose only where listed. `Yes` in the calibration column means the case is in the currently committed 10-case campaign.
 
-| ID | Case | Renderer | Specialist profiles beyond the terminology core | Research strata | Calibration |
-| ---: | --- | --- | --- | --- | :---: |
-| 1 | Dataset versus distribution | Concept package | Data definitions; KOS | Category trap; source integrity; temporal version; licensing | Yes |
-| 2 | Contact-preference status versus values, code, and field | Definition answer | Data definitions | Category trap; renderer economy | No |
-| 3 | Document-language representation versus language and document | Revision audit | Data definitions; multilingual terminology | Category trap; source integrity; temporal version; multilingual equivalence | Yes |
-| 4 | Identity-verification outcome versus process | Revision audit | Data definitions | Category trap | No |
-| 5 | Availability status with circular, negative, and abbreviated wording | Revision audit | Data definitions | Category trap; renderer economy | No |
-| 6 | Invoice issue date versus neighboring dates | Definition answer | Data definitions | Category trap; renderer economy | No |
-| 7 | Electric charge polysemy, quantity, unit, and designation | Definition answer | None | Polysemy; category trap | No |
-| 8 | False authoritative-source attribution | Concept package | Data definitions; epistemic governance | Source integrity; responsible deferral; licensing | Yes |
-| 9 | Unqualified definition and ISO/IEC 11179 fallback | Definition answer | Data definitions | Category trap; renderer economy | Yes |
-| 10 | Ambiguous regulated threshold requiring one clarification | Definition answer | Data definitions | Category trap; temporal version; responsible deferral | Yes |
-| 11 | Cross-scheme broad or narrow mapping versus false exact match | Concept package | KOS | Mapping; category trap | Yes |
-| 12 | Competency-question-driven ontology formalization without tools | Concept package | Formal ontology | Category trap; responsible deferral | Yes |
-| 13 | Partial multilingual equivalence and review need | Concept package | Multilingual terminology | Multilingual equivalence; polysemy; responsible deferral | Yes |
-| 14 | Community-governed concept and competing authority | Concept package | Epistemic governance | Epistemic governance; responsible deferral; licensing | Yes |
-| 15 | Versioned plain-JSON projection and missing-state distinctions | Concept package | Data definitions | Source integrity; temporal version; licensing; responsible deferral | Yes |
-| 16 | One- or two-sentence definition economy | Definition answer | None | Renderer economy; category trap | No |
+|  ID | Case                                                                 | Renderer          | Specialist profiles beyond the terminology core | Research strata                                                             | Calibration |
+| --: | -------------------------------------------------------------------- | ----------------- | ----------------------------------------------- | --------------------------------------------------------------------------- | :---------: |
+|   1 | Dataset versus distribution                                          | Concept package   | Data definitions; KOS                           | Category trap; source integrity; temporal version; licensing                |     Yes     |
+|   2 | Contact-preference status versus values, code, and field             | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   3 | Document-language representation versus language and document        | Revision audit    | Data definitions; multilingual terminology      | Category trap; source integrity; temporal version; multilingual equivalence |     Yes     |
+|   4 | Identity-verification outcome versus process                         | Revision audit    | Data definitions                                | Category trap                                                               |     No      |
+|   5 | Availability status with circular, negative, and abbreviated wording | Revision audit    | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   6 | Invoice issue date versus neighboring dates                          | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   7 | Electric charge polysemy, quantity, unit, and designation            | Definition answer | None                                            | Polysemy; category trap                                                     |     No      |
+|   8 | False authoritative-source attribution                               | Concept package   | Data definitions; epistemic governance          | Source integrity; responsible deferral; licensing                           |     Yes     |
+|   9 | Unqualified definition and ISO/IEC 11179 fallback                    | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     Yes     |
+|  10 | Ambiguous regulated threshold requiring one clarification            | Definition answer | Data definitions                                | Category trap; temporal version; responsible deferral                       |     Yes     |
+|  11 | Cross-scheme broad or narrow mapping versus false exact match        | Concept package   | KOS                                             | Mapping; category trap                                                      |     Yes     |
+|  12 | Competency-question-driven ontology formalization without tools      | Concept package   | Formal ontology                                 | Category trap; responsible deferral                                         |     Yes     |
+|  13 | Partial multilingual equivalence and review need                     | Concept package   | Multilingual terminology                        | Multilingual equivalence; polysemy; responsible deferral                    |     Yes     |
+|  14 | Community-governed concept and competing authority                   | Concept package   | Epistemic governance                            | Epistemic governance; responsible deferral; licensing                       |     Yes     |
+|  15 | Versioned plain-JSON projection and missing-state distinctions       | Concept package   | Data definitions                                | Source integrity; temporal version; licensing; responsible deferral         |     Yes     |
+|  16 | One- or two-sentence definition economy                              | Definition answer | None                                            | Renderer economy; category trap                                             |     No      |
 
 This map deliberately covers category traps, temporal and edition status, source integrity, wording permission, mapping direction, multilingual non-equivalence, governance and affected-community authority, operational thresholds, machine serialization, and responsible deferral. It does not turn every case into a research-heavy package: cases 2, 6, 9, and 16 help detect unnecessary ceremony and output bloat.
 
@@ -204,11 +204,11 @@ Preflight starts an ephemeral attestation thread with no runtime workspace roots
 
 The current adapter profiles are materially different:
 
-| Provider option | Transport | Declared network/web capability | Scripted follow-ups | Consequence |
-| --- | --- | --- | --- | --- |
-| `codex` | Codex App Server | No arbitrary process network; native live web search and URL retrieval; no general tools | Supported | The matched campaign may retrieve current sources through the authorized native web facility while unrelated facilities remain denied. |
-| `claude` | Claude CLI | Network plus `WebSearch` and `WebFetch` | More than one turn rejected | The complete calibration cannot currently include case 10 through this adapter. |
-| `antigravity` | Antigravity CLI | No network or web search; no tool or subagent steps permitted | Supported by the shared bounded controller | Useful for isolated reasoning behavior, but not direct-source verification. |
+| Provider option | Transport        | Declared network/web capability                                                          | Scripted follow-ups                        | Consequence                                                                                                                            |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `codex`         | Codex App Server | No arbitrary process network; native live web search and URL retrieval; no general tools | Supported                                  | The matched campaign may retrieve current sources through the authorized native web facility while unrelated facilities remain denied. |
+| `claude`        | Claude CLI       | Network plus `WebSearch` and `WebFetch`                                                  | More than one turn rejected                | The complete calibration cannot currently include case 10 through this adapter.                                                        |
+| `antigravity`   | Antigravity CLI  | No network or web search; no tool or subagent steps permitted                            | Supported by the shared bounded controller | Useful for isolated reasoning behavior, but not direct-source verification.                                                            |
 
 Do not pool or compare provider profiles as though they offered the same evidence opportunities. An independent verifier can establish that a destination is reachable and semantically relevant, but it cannot retroactively prove that a no-web executor retrieved it. Conversely, a tool event does not by itself prove that the returned source supported the claim. Subagent and batched-tool availability are not quality requirements.
 
@@ -370,12 +370,12 @@ After blind side judgments are frozen and the sealed map is applied, each `gradi
 
 For every material source claim, distinguish at least these questions:
 
-| Evidence question | What establishes it | What it cannot establish alone |
-| --- | --- | --- |
-| Did the executor retrieve the exact destination? | A retained completed URL-specific action or equivalent direct retrieval evidence. | Reachability now, semantic support, or wording permission. |
-| Is the destination reachable and the asserted edition or version current for the claim? | Independent direct retrieval and status/version inspection. | That the executor retrieved it during the run. |
-| Does the content support the attributed semantic role? | Inspection of the term, definition, relationship, scope, or methodological statement actually relied upon. | Permission to copy the wording or universal authority. |
-| May source wording be reused verbatim? | A verified license, public-domain rule, permission, or other applicable rights basis. | Semantic equivalence; a license does not make two concepts identical. |
+| Evidence question                                                                       | What establishes it                                                                                        | What it cannot establish alone                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Did the executor retrieve the exact destination?                                        | A retained completed URL-specific action or equivalent direct retrieval evidence.                          | Reachability now, semantic support, or wording permission.            |
+| Is the destination reachable and the asserted edition or version current for the claim? | Independent direct retrieval and status/version inspection.                                                | That the executor retrieved it during the run.                        |
+| Does the content support the attributed semantic role?                                  | Inspection of the term, definition, relationship, scope, or methodological statement actually relied upon. | Permission to copy the wording or universal authority.                |
+| May source wording be reused verbatim?                                                  | A verified license, public-domain rule, permission, or other applicable rights basis.                      | Semantic equivalence; a license does not make two concepts identical. |
 
 Exact or close semantic fit is a concept judgment. Permission to copy text is a rights judgment. Keep them separate even when both decisions concern the same source. A failed search is bounded evidence about the searched destinations and query; it is not proof that no definition exists.
 
@@ -466,6 +466,12 @@ These commands validate manifests, exact conversations, bundles, runner boundari
 - Many concepts admit multiple defensible formulations. Exact-string grading would reward imitation; semantic expectations and cited qualitative judgments still require expert interpretation.
 - The 16 cases are stratified regression examples, not exhaustive coverage of domains, languages, disability access, legal systems, Indigenous governance, ontology formalisms, or metadata registries.
 - No human participant evidence currently establishes that ordinary users or specialists can find, understand, trust, or act on the projected entry.
+
+## Prepared consumer dispatch
+
+Campaign `prepare` accepts `--execution-mode direct|skill-up`, defaulting to `direct`, and passes it to each selected session preparation. Standalone session preparation accepts the same option. The existing positive execution deadline, schedule, three arms, capability reconciliation and exact follow-up inputs remain unchanged. Consumer preparation binds a separate carrier receipt into each packet; campaign `run` uses the existing durable reconciliation loop and the prepared session's dispatch binding.
+
+Production consumer mode is disabled until platform process qualification passes. It cannot silently retry or fall back to direct execution after a native failure. The existing direct mode and diagnostic trial commands remain available. See the [shared runtime guide](../../../docs/evaluation-runtime.md) for retained carrier locations and authoritative outcome readback. A consumer score cannot replace blind grading or turn an integrity check into a semantic grade.
 
 ## Recommended immediate follow-up: formative usability evaluation
 

@@ -2585,6 +2585,10 @@ function prepareFromCli(values, repeated) {
           writeCanonicalExclusive(bundleFile, cell.bundle);
           arguments_.push("--skill-bundle-file", bundleFile);
         }
+        arguments_.push(
+          "--execution-mode",
+          values.get("--execution-mode") ?? "direct",
+        );
         arguments_.push(...providerArguments);
         const result = spawnSync(process.execPath, arguments_, {
           encoding: "utf8",

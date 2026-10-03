@@ -6,15 +6,15 @@ New sessions use the [shared runtime](../../../docs/evaluation-runtime.md), its 
 
 ## Surfaces
 
-| File | Purpose |
-| --- | --- |
-| `evals.json` | Eighteen behavioral cases testing conceptual discrimination, verb precision, web stacks, Python typing, PowerShell cmdlets, XSLT namespaces, and policy precedence. |
-| `trigger-evals.json` | Thirty-two balanced positive and negative selection queries; the dataset itself does not prove activation. |
-| `extensions/v1/suite.json` | Preserved calibration IDs and exact follow-up turns, bound to portable case identity. |
-| `assurance/v1/evaluation-runner.mjs`, `profile.mjs` | Prepared sessions through the shared runtime; explicit model, effort, executable, environment and deadline. |
-| `assurance/v1/grading-contract.mjs` | Complete, ordered reviewed semantic judgments tied to authoritative outcome identity. |
-| `analysis/legacy-diagnostics.mjs` | Retained keyword heuristic without a provider-launch path. |
-| Repository-root `evals/naming-objects-in-software-engineering/results/` | Pre-existing ignored historical outputs retained at their original paths, not new-run output. |
+| File                                                                    | Purpose                                                                                                                                                             |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `evals.json`                                                            | Eighteen behavioral cases testing conceptual discrimination, verb precision, web stacks, Python typing, PowerShell cmdlets, XSLT namespaces, and policy precedence. |
+| `trigger-evals.json`                                                    | Thirty-two balanced positive and negative selection queries; the dataset itself does not prove activation.                                                          |
+| `extensions/v1/suite.json`                                              | Preserved calibration IDs and exact follow-up turns, bound to portable case identity.                                                                               |
+| `assurance/v1/evaluation-runner.mjs`, `profile.mjs`                     | Prepared sessions through the shared runtime; explicit model, effort, executable, environment and deadline.                                                         |
+| `assurance/v1/grading-contract.mjs`                                     | Complete, ordered reviewed semantic judgments tied to authoritative outcome identity.                                                                               |
+| `analysis/legacy-diagnostics.mjs`                                       | Retained keyword heuristic without a provider-launch path.                                                                                                          |
+| Repository-root `evals/naming-objects-in-software-engineering/results/` | Pre-existing ignored historical outputs retained at their original paths, not new-run output.                                                                       |
 
 ## Model Tiers & Roles
 
@@ -46,6 +46,8 @@ The case 4 and 7 follow-ups are normative ordered inputs. First-turn-only execut
 The supported protocol is Google Antigravity CLI's reviewed streamed conversation contract. The uniform policy enables packet-injected bundle text with no tools or web search. The optional Python checker is not executed by that treatment. Candidate instructions include all bundle files; the no-skill arm receives none. A model answer cannot prove that a reference or checker was used.
 
 Review `packet.json` and create the exact authorization described in the shared runtime guide. A run request contains `preparedSession`, the authorization object, and literal `allowExternalModelCall: true`; optional `evidenceLayout` is `legacy-v1` or `evaluation-trial-v1`. No default model, command, authority or retry is inferred. Failed or consumed sessions retain evidence and cannot be relaunched by resubmitting the request.
+
+Preparation also accepts `executionMode: "direct"` (the default) or `executionMode: "skill-up"`. Consumer mode binds a carrier receipt before sealing the packet and remains disabled on unqualified production platforms. Its run request uses `authorizationFile` instead of an inline `authorization` object, plus literal `allowExternalModelCall: true`. Both forms together are rejected. A consumer-bound packet cannot use the inline direct route. Direct requests retain their existing interface; neither mode retries failed or consumed sessions. Keep the sibling `<preparedSession>.consumer.json` locator and its referenced carrier with the evidence.
 
 ## Separate evidence categories
 

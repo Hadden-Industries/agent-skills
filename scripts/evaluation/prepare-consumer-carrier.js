@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import { createConsumerWorkspace } from "./consumer-workspace.js";
 import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
-import { inspectToolchain } from "./toolchain.js";
-import { assertAssuredQualification } from "./skill-up-custom-engine.js";
+import { inspectToolchain, assertAssuredQualification } from "./toolchain.js";
 
 /** Allocate public carrier inputs before the Hadden packet is sealed. */
 export function prepareConsumerCarrier({

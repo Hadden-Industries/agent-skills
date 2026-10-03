@@ -69,19 +69,26 @@ test("the native Windows probe is normalized once and closed by its owner", asyn
   let closed = false;
   const probe = openEvaluationPathMetadata({
     platform: "win32",
-    openWindowsProbe: () => ({
-      read: async (path) => ({
-        schemaVersion: 1,
-        exists: true,
-        fullPath: path,
-        isContainer: true,
-        attributes: ["Directory", "ReparsePoint"],
-        drive: { root: "C:\\", driveType: "Fixed" },
-      }),
-      close: async () => {
-        closed = true;
-      },
-    }),
+    windowsSystemRoot: "D:\\Windows",
+    openWindowsProbe: ({ executable }) => {
+      assert.equal(
+        executable,
+        "D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      );
+      return {
+        read: async (path) => ({
+          schemaVersion: 1,
+          exists: true,
+          fullPath: path,
+          isContainer: true,
+          attributes: ["Directory", "ReparsePoint"],
+          drive: { root: "C:\\", driveType: "Fixed" },
+        }),
+        close: async () => {
+          closed = true;
+        },
+      };
+    },
   });
   const observation = await probe.read("C:\\fixture");
   assert.deepEqual(observation, {
@@ -94,4 +101,19 @@ test("the native Windows probe is normalized once and closed by its owner", asyn
   });
   await probe.close();
   assert.equal(closed, true);
+});
+
+test("Windows metadata refuses missing or relative system roots before launch", () => {
+  for (const windowsSystemRoot of ["", "relative", null])
+    assert.throws(
+      () =>
+        openEvaluationPathMetadata({
+          platform: "win32",
+          windowsSystemRoot,
+          openWindowsProbe() {
+            assert.fail("No PATH-based fallback");
+          },
+        }),
+      /absolute SystemRoot/u,
+    );
 });

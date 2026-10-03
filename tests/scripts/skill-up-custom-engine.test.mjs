@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { parseContract } from "../../scripts/evaluation/json-contract.js";
 import {
   assertConsumerCorrelation,
-  assertAssuredQualification,
   assertConsumerOutput,
 } from "../../scripts/evaluation/skill-up-custom-engine.js";
+import { assertAssuredQualification } from "../../scripts/evaluation/toolchain.js";
 
 test("consumer output refuses existing files and late directory redirection", (t) => {
   const root = mkdtempSync(join(tmpdir(), "consumer-output-boundary-"));
