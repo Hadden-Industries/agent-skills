@@ -46,6 +46,62 @@ for (const item of [
 if (process.platform === "win32") {
   const profileRoot = path.join(root, "native-git-profile");
   mkdirSync(profileRoot);
+  // [DEBUG-ps-first-response] Durable boundaries in the disposable worker.
+  // No request paths or environment values are recorded.
+  const probeSource = path.join(
+    checkout,
+    "scripts/evaluation/windows-path-probe.ps1",
+  );
+  const traceRoot = profileRoot.replaceAll("'", "''");
+  const trace = (event) => `Write-DiagnosticBoundary '${event}'`;
+  let probe = readFileSync(probeSource, "utf8");
+  const boundaries = [
+    ["$ErrorActionPreference", "script-start"],
+    ["        $request = $line | ConvertFrom-Json", "json-before"],
+    ["        if (", "json-after"],
+    ["        $item = Get-Item -LiteralPath $fullPath -Force", "item-before"],
+    ["        $fullPath = $item.FullName", "item-after"],
+    ["    $drive = [System.IO.DriveInfo]::new($driveRoot)", "drive-before"],
+    ["    return [ordered]@{", "drive-after"],
+    ["        [Console]::Out.WriteLine", "serialize-before"],
+    ["        [Console]::Out.Flush()", "serialize-after"],
+  ];
+  for (const [boundary, event] of boundaries) {
+    assert.equal(probe.split(boundary).length, 2);
+    if (event !== "script-start") {
+      probe = probe.replace(boundary, `${trace(event)}\n${boundary}`);
+    }
+  }
+  writeFileSync(
+    probeSource,
+    `$diagnosticFile = '${traceRoot}/powershell-' + $PID + '.log'\n` +
+      `function Write-DiagnosticBoundary([string]$Event) {\n` +
+      `    [System.IO.File]::AppendAllText($diagnosticFile, '[DEBUG-ps-first-response] ' + [DateTime]::UtcNow.ToString('O') + ' ' + $Event + [Environment]::NewLine)\n` +
+      `}\n${trace("script-start")}\n${probe}`,
+  );
+  const clientSource = path.join(
+    checkout,
+    "scripts/evaluation/windows-path-metadata.js",
+  );
+  const client = readFileSync(clientSource, "utf8");
+  const launchAnchor = "  const child = spawnProcess(";
+  const launchedAnchor = "  if (child.stdin === null";
+  assert.equal(client.split(launchAnchor).length, 2);
+  assert.equal(client.split(launchedAnchor).length, 2);
+  const traceFile = JSON.stringify(path.join(profileRoot, "node-launch.log"));
+  writeFileSync(
+    clientSource,
+    `import { appendFileSync } from "node:fs";\n` +
+      client
+        .replace(
+          launchAnchor,
+          `  appendFileSync(${traceFile}, '[DEBUG-ps-first-response] ' + new Date().toISOString() + ' launch-before\\n');\n${launchAnchor}`,
+        )
+        .replace(
+          launchedAnchor,
+          `  appendFileSync(${traceFile}, '[DEBUG-ps-first-response] ' + new Date().toISOString() + ' launched-pid=' + child.pid + '\\n');\n${launchedAnchor}`,
+        ),
+  );
   const carrierSource = path.join(
     checkout,
     "scripts/evaluation/prepare-consumer-carrier.js",
