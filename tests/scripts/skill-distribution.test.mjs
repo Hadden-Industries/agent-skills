@@ -56,6 +56,14 @@ test("fresh distribution builds are deterministic and check mode is read-only", 
     ["skills/reading-epubs/SKILL.md"],
   );
   assert.equal(readFileSync(file, "utf8"), "stale");
+  // Rebuilding an existing file must replace from offset zero, without a hole
+  // after the descriptor read or leftover bytes from the previous payload.
+  await buildSkillArtifacts({ repositoryRoot: roots[0] });
+  assert.deepEqual(
+    readFileSync(file),
+    readFileSync(join(roots[0], "src/reading-epubs/SKILL.md")),
+  );
+  writeFileSync(file, "stale");
   writeFileSync(
     join(roots[0], "skills/reading-epubs/unexpected.txt"),
     "preserve me",

@@ -168,3 +168,30 @@ test("Windows wrappers use an explicit command interpreter without shell mode", 
     ],
   ]);
 });
+
+test("Windows wrapper arguments reject expansion and command syntax before spawn", () => {
+  for (const value of [
+    "%PATH%",
+    "!PATH!",
+    "x&whoami",
+    "x|whoami",
+    "x>out",
+    "x^y",
+    'x"y',
+    "x\ny",
+  ]) {
+    let launched = false;
+    assert.throws(
+      () =>
+        runRepositoryTool("C:\\tools\\skills-ref.cmd", ["validate", value], {
+          platform: "win32",
+          spawn() {
+            launched = true;
+            return { status: 0 };
+          },
+        }),
+      /safe path punctuation/u,
+    );
+    assert.equal(launched, false);
+  }
+});

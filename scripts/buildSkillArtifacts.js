@@ -1,4 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  ftruncateSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -147,7 +158,51 @@ export async function buildSkillArtifacts({
       if (checkOnly) staleArtifacts.push(outputFile);
       else {
         mkdirSync(dirname(outputPath), { recursive: true });
-        writeFileSync(outputPath, bytes);
+        let descriptor;
+        try {
+          descriptor = openSync(
+            outputPath,
+            constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+          );
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          descriptor = openSync(outputPath, "wx+");
+        }
+        try {
+          const opened = fstatSync(descriptor);
+          const current = lstatSync(outputPath);
+          assertUnredirectedPath(outputPath);
+          if (
+            !opened.isFile() ||
+            current.isSymbolicLink() ||
+            opened.dev !== current.dev ||
+            opened.ino !== current.ino
+          )
+            throw new Error(
+              `Runtime output changed while opening: ${outputFile}`,
+            );
+          const actual = readFileSync(descriptor);
+          if (!actual.equals(committed ?? Buffer.alloc(0)))
+            throw new Error(
+              `Runtime output changed before writing: ${outputFile}`,
+            );
+          // Opening never truncates. Write through the verified descriptor at
+          // offset zero, rather than resolving the destination path again.
+          ftruncateSync(descriptor, 0);
+          // readFileSync advanced the offset; positional writes avoid a gap.
+          let written = 0;
+          while (written < bytes.length) {
+            written += writeSync(
+              descriptor,
+              bytes,
+              written,
+              bytes.length - written,
+              written,
+            );
+          }
+        } finally {
+          closeSync(descriptor);
+        }
         process.stdout.write(`Built ${outputFile}\n`);
       }
     }

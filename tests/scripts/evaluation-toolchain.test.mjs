@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   inspectToolchain,
@@ -119,6 +119,12 @@ test("isolated environment is an allowlist without credential or config authorit
   assert.equal(environment.OTEL_SDK_DISABLED, "true");
   assert.equal(environment.TMPDIR, "owned-home");
   assert.notEqual(environment.PATH, "ambient-path");
+  assert.equal(
+    environment.PATH,
+    process.platform === "win32"
+      ? dirname(process.execPath)
+      : `${dirname(process.execPath)}:/usr/bin:/bin`,
+  );
   for (const name of [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",

@@ -94,7 +94,12 @@ export function isolatedEnvironment(root, ambient = process.env) {
     TEMP: root,
     TMP: root,
     TMPDIR: root,
-    PATH: dirname(process.execPath),
+    // skill-up invokes sh and standard utilities on POSIX. Do not inherit
+    // ambient PATH entries, which could select user-controlled executables.
+    PATH:
+      process.platform === "win32"
+        ? dirname(process.execPath)
+        : `${dirname(process.execPath)}:/usr/bin:/bin`,
     OTEL_SDK_DISABLED: "true",
     DO_NOT_TRACK: "1",
     CI: "1",

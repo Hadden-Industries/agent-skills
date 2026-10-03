@@ -49,9 +49,9 @@ export function resolveRepositoryTool(
 }
 
 function quoteCommandArgument(value) {
-  if (/[\r\n\0"]/u.test(value)) {
+  if (!/^[\p{L}\p{N}_./:=\\ ()-]+$/u.test(value)) {
     throw new Error(
-      "Repository tool arguments cannot contain quotes or control characters.",
+      "Repository tool arguments must contain only letters, digits, spaces or safe path punctuation.",
     );
   }
 

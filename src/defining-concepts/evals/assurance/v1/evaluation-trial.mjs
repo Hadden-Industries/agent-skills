@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { constants } from "node:fs";
 import {
   access,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -341,8 +343,24 @@ async function assertArtifactDescriptor(
   let stats;
   let bytes;
   try {
-    stats = await lstat(target);
-    bytes = await readFile(target);
+    const handle = await open(
+      target,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      stats = await handle.stat();
+      const current = await lstat(target);
+      if (
+        current.isSymbolicLink() ||
+        current.dev !== stats.dev ||
+        current.ino !== stats.ino
+      )
+        fail(`${label} artifact changed while opening`);
+      if (!stats.isFile()) fail(`${label} artifact requires a regular file`);
+      bytes = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
     fail(`${label} artifact integrity check failed: ${error.message}`);
   }

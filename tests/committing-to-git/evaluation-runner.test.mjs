@@ -1463,6 +1463,24 @@ test("catalog discovery remains read-only and deterministic", (t) => {
   assert.equal(existsSync(codexHome), false);
 });
 
+test("catalog discovery handles escaped and unterminated quoted keys", (t) => {
+  const root = temporaryRoot(t);
+  const codexHome = join(root, "codex-home");
+  mkdirSync(codexHome);
+  writeFileSync(
+    join(codexHome, "config.toml"),
+    '[apps."escaped\\\\key"]\n[apps."' +
+      "\\!".repeat(128) +
+      "\n[plugins.good]\n",
+  );
+  const catalog = discoverRuntimeIsolationCatalog({
+    codexHome,
+    repositoryRoot: join(root, "repository"),
+  });
+  assert.deepEqual(catalog.appIds, ["escaped\\key"]);
+  assert.deepEqual(catalog.pluginIds, ["good"]);
+});
+
 test("CLI plan freezes the freshly observed pushed candidate without model execution", (t) => {
   const { repository } = createPushedCandidateRepository(t);
   const result = spawnSync(

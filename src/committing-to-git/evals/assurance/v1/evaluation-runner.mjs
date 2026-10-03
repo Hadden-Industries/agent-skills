@@ -3,9 +3,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readlinkSync,
   readdirSync,
@@ -216,7 +220,25 @@ function listWorktreeFiles(repository) {
           type: "symlink",
         });
       } else if (state.isFile()) {
-        const contents = readFileSync(path);
+        const descriptor = openSync(
+          path,
+          constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+        );
+        let contents;
+        try {
+          const opened = fstatSync(descriptor);
+          if (
+            !opened.isFile() ||
+            opened.dev !== state.dev ||
+            opened.ino !== state.ino
+          )
+            throw new Error(
+              `Snapshot file changed while opening: ${repositoryPath}`,
+            );
+          contents = readFileSync(descriptor);
+        } finally {
+          closeSync(descriptor);
+        }
         files.push({
           bytes: contents.byteLength,
           mode: state.mode % 0o1000,
@@ -742,7 +764,7 @@ function configuredExternalIds(configuration) {
     plugins: ids.pluginIds,
   };
   const header =
-    /^\s*\[\s*(apps|mcp_servers|plugins)\.(?:"((?:\\.|[^"])*)"|'([^']*)'|([A-Za-z0-9_-]+))/u;
+    /^\s*\[\s*(apps|mcp_servers|plugins)\.(?:"((?:\\.|[^"\\])*)"|'([^']*)'|([A-Za-z0-9_-]+))/u;
 
   for (const line of configuration.split(/\r?\n/u)) {
     const match = line.match(header);
