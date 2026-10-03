@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -685,12 +686,63 @@ for (const executionMode of ["direct", "skill-up"]) {
       transmissionSha256: prepared.packet.transmissionSha256,
     }),
   );
-  const result = await dispatchPreparedSession({
-    preparedSession: prepared.preparedSession,
-    authorizationFile: authPath,
-    allowExternalModelCall: true,
-    direct: executePreparedEvaluationSession,
-  });
+  let result;
+  const dispatchStarted = Date.now();
+  try {
+    result = await dispatchPreparedSession({
+      preparedSession: prepared.preparedSession,
+      authorizationFile: authPath,
+      allowExternalModelCall: true,
+      direct: executePreparedEvaluationSession,
+    });
+  } catch (error) {
+    // CI artifact upload omits hidden home journals. Retain only phase/timing
+    // observations from this disposable fake-provider fixture, never auth bytes.
+    try {
+      const diagnostic = {
+        tag: "git-controller-dispatch-failure",
+        executionMode,
+        elapsedMs: Date.now() - dispatchStarted,
+        error: String(error?.message ?? error),
+        homeJournals: [],
+      };
+      for (const directory of [".leases", ".history"]) {
+        const journalRoot = path.join(homes, directory);
+        if (!existsSync(journalRoot)) continue;
+        for (const entry of readdirSync(journalRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const journalPath = path.join(
+            journalRoot,
+            entry.name,
+            "journal.jsonl",
+          );
+          if (!existsSync(journalPath)) continue;
+          const phases = readFileSync(journalPath, "utf8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              try {
+                const { phase, timestamp } = JSON.parse(line);
+                return { phase, timestamp };
+              } catch {
+                return { phase: "incomplete-journal-line" };
+              }
+            });
+          diagnostic.homeJournals.push({ directory, name: entry.name, phases });
+        }
+      }
+      writeFileSync(
+        path.join(sessionRoot, "dispatch-failure.json"),
+        canonicalJsonBytes(diagnostic),
+      );
+      process.stderr.write(`${JSON.stringify(diagnostic)}\n`);
+    } catch {
+      // Cleanup may race with journal reads. Never replace the dispatch failure
+      // with a diagnostic read, serialization or write error.
+    }
+    throw error;
+  }
   assert.equal(result.status, "completed", JSON.stringify(result));
   assert.equal(result.suiteResult.commitAuthorization.status, "sent");
   gitControllerResults.push({
