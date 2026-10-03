@@ -39,6 +39,27 @@ for (const item of [
   cpSync(path.join(repository, item), path.join(checkout, item), {
     recursive: true,
   });
+// Bounded CI diagnosis: profile only the fake Windows Git controller carrier.
+// Modify the disposable source before preparation seals its carrier/runtime
+// identities. Production source, deadlines and qualification stay untouched.
+if (process.platform === "win32") {
+  const profileRoot = path.join(root, "native-git-profile");
+  mkdirSync(profileRoot);
+  const carrierSource = path.join(
+    checkout,
+    "scripts/evaluation/prepare-consumer-carrier.js",
+  );
+  const source = readFileSync(carrierSource, "utf8");
+  const anchor = "          args: [";
+  assert.equal(source.split(anchor).length, 2);
+  writeFileSync(
+    carrierSource,
+    source.replace(
+      anchor,
+      `${anchor}\n            ...(caseId === 35 ? ["--cpu-prof", ${JSON.stringify(`--cpu-prof-dir=${profileRoot}`)}, "--cpu-prof-name=native-git.cpuprofile"] : []),`,
+    ),
+  );
+}
 const platform = `${process.platform}-${process.arch}`;
 const manifest = JSON.parse(
   readFileSync(path.join(checkout, "evaluation-toolchain.json"), "utf8"),
