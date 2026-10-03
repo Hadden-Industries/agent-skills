@@ -222,7 +222,7 @@ function listWorktreeFiles(repository) {
       } else if (state.isFile()) {
         const descriptor = openSync(
           path,
-          constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+          constants.O_RDONLY + (constants.O_NOFOLLOW ?? 0),
         );
         let contents;
         try {

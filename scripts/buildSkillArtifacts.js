@@ -162,7 +162,7 @@ export async function buildSkillArtifacts({
         try {
           descriptor = openSync(
             outputPath,
-            constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+            constants.O_RDWR + (constants.O_NOFOLLOW ?? 0),
           );
         } catch (error) {
           if (error.code !== "ENOENT") throw error;

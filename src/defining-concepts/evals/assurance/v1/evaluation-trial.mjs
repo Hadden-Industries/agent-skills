@@ -345,7 +345,7 @@ async function assertArtifactDescriptor(
   try {
     const handle = await open(
       target,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY + (constants.O_NOFOLLOW ?? 0),
     );
     try {
       stats = await handle.stat();
