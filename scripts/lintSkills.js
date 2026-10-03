@@ -13,7 +13,10 @@ export function lintSkills({
 } = {}) {
   const tessl = resolveRepositoryTool(repoRoot, "tessl", platform);
 
-  run(tessl, ["skill", "lint", "."], { cwd: repoRoot });
+  run(tessl, ["skill", "lint", "."], {
+    cwd: repoRoot,
+    env: { ...process.env, TESSL_AUTO_UPDATE_INTERVAL_MINUTES: "0" },
+  });
 }
 
 function isMainModule() {

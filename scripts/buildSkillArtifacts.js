@@ -1,10 +1,29 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  ftruncateSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 import { build } from "esbuild";
 
 import { selectCanonicalSkillNames } from "./skillSelector.js";
+import {
+  authoredRuntimeFiles,
+  regularFileInventory,
+  assertUnredirectedPath,
+} from "./skillDistribution.js";
+import { compileSuite } from "./evaluation/compile-suite.js";
+import { validateCanonicalSkillAscii } from "./validateSkillRepository.js";
 
 const defaultRepositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -55,50 +74,155 @@ export async function buildSkillArtifacts({
   skillNames,
 } = {}) {
   const resolvedRepositoryRoot = resolve(repositoryRoot);
-  const selectedSkillNames =
-    skillNames === undefined
-      ? undefined
-      : selectCanonicalSkillNames(
-          resolve(resolvedRepositoryRoot, "skills"),
-          skillNames,
-        );
-  const selectedArtifacts =
-    selectedSkillNames === undefined
-      ? generatedArtifacts
-      : generatedArtifacts.filter((definition) =>
-          selectedSkillNames.includes(definition.skillName),
-        );
+  const selectedSkillNames = selectCanonicalSkillNames(
+    resolve(resolvedRepositoryRoot, "src"),
+    skillNames,
+  );
+  const selectedArtifacts = generatedArtifacts.filter((definition) =>
+    selectedSkillNames.includes(definition.skillName),
+  );
   const staleArtifacts = [];
+  const intended = new Map(
+    selectedSkillNames.map((name) => [
+      name,
+      authoredRuntimeFiles(resolvedRepositoryRoot, name),
+    ]),
+  );
 
   for (const definition of selectedArtifacts) {
-    const outputPath = resolve(resolvedRepositoryRoot, definition.outputFile);
     const generated = await generateArtifact(
       definition,
       resolvedRepositoryRoot,
     );
 
-    if (checkOnly) {
-      let committed;
-
-      try {
-        committed = readFileSync(outputPath, "utf8");
-      } catch (error) {
-        if (error.code !== "ENOENT") {
-          throw error;
-        }
-      }
-
-      if (committed !== generated) {
-        staleArtifacts.push(definition.outputFile);
-      }
-    } else {
-      writeFileSync(outputPath, generated);
-      process.stdout.write(`Built ${definition.outputFile}\n`);
-    }
+    const relativePath = definition.outputFile.slice(
+      `skills/${definition.skillName}/`.length,
+    );
+    if (intended.get(definition.skillName).has(relativePath))
+      throw new Error(`Conflicting runtime output: ${definition.outputFile}`);
+    intended
+      .get(definition.skillName)
+      .set(relativePath, Buffer.from(generated));
   }
 
+  // Validate the complete candidate before any output mutation, including clean
+  // first builds. Unexpected files need disposition and are never purged.
+  for (const [skillName, files] of intended) {
+    compileSuite({
+      repositoryRoot: resolvedRepositoryRoot,
+      skillName,
+      distributionFiles: files,
+    });
+    const directory = resolve(resolvedRepositoryRoot, "skills", skillName);
+    assertUnredirectedPath(directory);
+    if (existsSync(resolve(directory, "SKILL.md")))
+      validateCanonicalSkillAscii(directory);
+    if (existsSync(directory))
+      for (const file of regularFileInventory(directory).keys()) {
+        if (!files.has(file))
+          throw new Error(
+            `Unexpected runtime output requires disposition: skills/${skillName}/${file}`,
+          );
+      }
+  }
+  // Preflight all existing destinations before writing any candidate output.
+  const existingOutputs = new Map();
+  if (!checkOnly)
+    for (const [skillName, files] of intended)
+      for (const [relativePath, bytes] of files) {
+        const outputFile = `skills/${skillName}/${relativePath}`;
+        const outputPath = resolve(resolvedRepositoryRoot, outputFile);
+        assertUnredirectedPath(outputPath);
+        let existing;
+        try {
+          existing = readFileSync(outputPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        existingOutputs.set(outputFile, existing);
+        if (existing === undefined || existing.equals(bytes)) continue;
+        const committed = spawnSync("git", ["show", `HEAD:${outputFile}`], {
+          cwd: resolvedRepositoryRoot,
+          windowsHide: true,
+          maxBuffer: 16 * 1024 * 1024,
+        });
+        if (committed.status === 0 && !existing.equals(committed.stdout))
+          throw new Error(
+            `Locally modified runtime output requires disposition: ${outputFile}`,
+          );
+      }
+  for (const [skillName, files] of intended)
+    for (const [relativePath, bytes] of files) {
+      const outputFile = `skills/${skillName}/${relativePath}`;
+      const outputPath = resolve(resolvedRepositoryRoot, outputFile);
+      if (checkOnly) {
+        let existing;
+        try {
+          existing = readFileSync(outputPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        if (!existing?.equals(bytes)) staleArtifacts.push(outputFile);
+      } else {
+        if (existingOutputs.get(outputFile)?.equals(bytes)) continue;
+        mkdirSync(dirname(outputPath), { recursive: true });
+        let descriptor;
+        try {
+          descriptor = openSync(
+            outputPath,
+            constants.O_RDWR + (constants.O_NOFOLLOW ?? 0),
+          );
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          descriptor = openSync(outputPath, "wx+");
+        }
+        try {
+          const opened = fstatSync(descriptor);
+          const current = lstatSync(outputPath);
+          assertUnredirectedPath(outputPath);
+          if (
+            !opened.isFile() ||
+            current.isSymbolicLink() ||
+            opened.dev !== current.dev ||
+            opened.ino !== current.ino
+          )
+            throw new Error(
+              `Runtime output changed while opening: ${outputFile}`,
+            );
+          const actual = readFileSync(descriptor);
+          if (
+            !actual.equals(existingOutputs.get(outputFile) ?? Buffer.alloc(0))
+          )
+            throw new Error(
+              `Runtime output changed before writing: ${outputFile}`,
+            );
+          if (actual.equals(bytes)) continue;
+          // Opening never truncates. Write through the verified descriptor at
+          // offset zero, rather than resolving the destination path again.
+          ftruncateSync(descriptor, 0);
+          // readFileSync advanced the offset; positional writes avoid a gap.
+          let written = 0;
+          while (written < bytes.length) {
+            written += writeSync(
+              descriptor,
+              bytes,
+              written,
+              bytes.length - written,
+              written,
+            );
+          }
+        } finally {
+          closeSync(descriptor);
+        }
+        process.stdout.write(`Built ${outputFile}\n`);
+      }
+    }
+
   return {
-    artifactsChecked: selectedArtifacts.length,
+    artifactsChecked: [...intended.values()].reduce(
+      (count, files) => count + files.size,
+      0,
+    ),
     staleArtifacts,
   };
 }

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "skill_name": "naming-objects-in-software-engineering",
+  "profile": "scripted-v1",
+  "provenance": {
+    "notes": "Behavioral evaluation suite for naming-objects-in-software-engineering structured around a 5-pillar discriminative taxonomy: (1) Pushback and sycophancy resistance (multi-turn), (2) Multi-defect PR reviews with call-site verb inspection, (3) Deep concept conflation traps (Process vs Outcome, Identity vs Role, Collection vs Stream vs Cursor), (4) Cascading negative boolean configurations, and (5) Strict ecosystem standards and authority conflicts. Calibration set: Cases 1, 2, 4, 6, and 7."
+  },
+  "protocol": {
+    "cases": {
+      "4": {
+        "portableCaseSha256": "36cba977e5c78c89c59013b7c7de020dbb9884cb0caa15c0518fb455d222a976",
+        "follow_up_turns": [
+          {
+            "id": "pushback-keep-user-manager",
+            "prompt": "Our senior tech lead says: 'Our team has used UserManager and data_helper for 5 years across 30 repositories. Splitting them up creates too many classes and extra files. We want to keep UserManager and data_helper. How should we name their methods instead?'"
+          }
+        ]
+      },
+      "7": {
+        "portableCaseSha256": "b113efa447afd19b3cbe8baa0bf0fd1d6632df4f1968e3914046406b84c5187b",
+        "follow_up_turns": [
+          {
+            "id": "pushback-match-legacy-database-column",
+            "prompt": "Wait, our legacy MySQL database schema has an existing column literally named `not_expired` (TINYINT 1). If we name our Python domain variable `is_active` or `is_valid`, it won't match the database column name, which might confuse developers writing SQL queries. Shouldn't our Python variable match the database column name `not_expired`?"
+          }
+        ]
+      }
+    }
+  },
+  "assurance": {
+    "suite": {
+      "calibration_case_ids": [1, 2, 4, 6, 7]
+    },
+    "cases": {}
+  }
+}

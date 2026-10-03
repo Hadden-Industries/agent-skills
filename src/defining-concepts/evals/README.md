@@ -1,0 +1,487 @@
+# Evaluating `defining-concepts`
+
+This maintainer-only suite evaluates the deployable [`defining-concepts`](../../../skills/defining-concepts/SKILL.md) skill as a concept-engineering workflow. It tests whether the skill identifies the intended concept, distinguishes neighboring concepts and representations, makes conservative reuse and mapping decisions, uses evidence honestly, composes only applicable specialist profiles, validates what it can actually validate, and presents the definition before supporting material whenever responsible formulation is possible.
+
+The suite is not installed with the skill. The repository-wide [evaluation runtime](../../../docs/evaluation-runtime.md) owns packet preparation, skill-bundle capture, exact external-call authorization, provider adapters, evidence retention, failure classes, and historical-schema handling. This document owns only the `defining-concepts` cases, campaign policy, semantic grading, promotion rules, and operator procedure. The normative architecture and semantic decisions are in the [concept-engineering design](../../../docs/designs/defining-concepts/2026-08-29-concept-engineering.md); the [implementation plan](../../../docs/plans/defining-concepts/2026-08-29-concept-engineering.md) records the test-first delivery sequence and campaign checkpoints.
+
+## Status
+
+The 16-case schema, bounded single-trial lifecycle, durable three-arm campaign runner, scripted follow-up controller, immutable bundle capture, mandatory zero-turn preflight, blinded grading-packet preparation, aggregation contract, and concept-engineering skill are implemented. Five bounded Spark-low trial sessions established retained provider-path operability. The one-trial progression path is now retired in favor of fixed 30-session campaigns with immediate per-session outcome retention. Deterministic validation is separate from provider-backed behavioral evidence.
+
+The retained directories [`2026-08-24T092645.127Z`](../../../evidence/historical/defining-concepts/2026-08-24T092645.127Z/) and [`2026-08-24T141214.748Z`](../../../evidence/historical/defining-concepts/2026-08-24T141214.748Z/) are immutable legacy evidence from the earlier eight-case, two-arm protocol. Their `with_skill` and `without_skill` arm names, five-section output assumptions, runner behavior, and recorded limitations remain historical facts; they are not rewritten to resemble the current `no-skill`, `current-skill`, and `candidate-skill` protocol. The later legacy run diagnosed critical exact-URL trace failures and did not accept that candidate. Neither legacy run supports a general performance claim.
+
+No current 30-session calibration, confirmatory campaign, trigger study, or participant usability study has been completed merely because the deterministic suite passes. A newly prepared campaign requires exact authorization before any model transmission.
+
+## Goals and non-goals
+
+The suite is designed to expose differences that fluent prose can hide:
+
+- concept identity, ontological category, scope, granularity, and extension;
+- discriminating characteristics, siblings, positive instances, negative instances, and near misses;
+- source authority, retrieval, edition or version, attributed evidence role, conflict, and negative-search limits;
+- the difference between semantic match and permission to reproduce source wording;
+- `adopt`, `adapt`, `formulate`, and `defer` decisions;
+- exact, close, broad, narrow, related, or unsupported mappings without label-based equivalence;
+- appropriate use of the data-definition, formal-ontology, knowledge-organization-system, multilingual-terminology, and epistemic-governance profiles;
+- definition-first projection through a compact answer, revision audit, or full concept package;
+- honest separation of semantic checks from parser, schema, SHACL, reasoner, registry, or other tool-dependent checks; and
+- responsible clarification or deferral when identity, authority, evidence, or operational thresholds are not yet settled.
+
+The suite does not certify ISO, W3C, OBO, CIDOC CRM, FAIR, CARE, TBX, OntoLex-Lemon, registry, ontology, legal, or community-governance conformance. It does not establish universal concept quality, provider-independent performance, expert consensus, calibrated confidence, statistical significance, within-cell variance, or human usability. It does not grade whether a host happened to expose subagents or batched tools; those are optional execution accelerators, not quality criteria.
+
+## Suite surfaces
+
+| File                                                                     | Responsibility                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`evals.json`](./evals.json)                                             | Sixteen behavioral cases, renderers, profiles, research strata, applicable qualitative dimensions, critical expectation indexes, and the calibration selection.                                                                                            |
+| [`trigger-evals.json`](./trigger-evals.json)                             | Positive and negative activation prompts for the skill description, separate from behavioral quality.                                                                                                                                                      |
+| [`evaluation-runner.mjs`](./evaluation-runner.mjs)                       | Public entry point for bounded `trial prepare`, `trial preflight`, `trial run`, and `trial verify` operations plus three-arm campaign preparation, preflight, durable execution, read-only status inspection, grading-packet preparation, and aggregation. |
+| [`evaluation-trial.mjs`](./evaluation-trial.mjs)                         | Atomic one-trial preparation, immutable artifact validation, retained zero-turn preflight, exact authorization enforcement, durable execution-state interpretation, and read-only verification.                                                            |
+| [`run-evaluation-session.mjs`](./run-evaluation-session.mjs)             | One packet-bound provider session with an immutable case, optional skill bundle, exact conversation, runtime fingerprint, evidence directory, and authorization boundary.                                                                                  |
+| [`session-controller.mjs`](./session-controller.mjs)                     | Suite wrapper around the shared scripted-conversation controller; it rejects approval requests and supplies only committed follow-up turns.                                                                                                                |
+| [`historical evidence`](../../../evidence/historical/defining-concepts/) | Immutable provider evidence and separate derived grading or aggregation artifacts, versioned by a filesystem-safe UTC start timestamp.                                                                                                                     |
+
+Passing trigger cases says nothing about semantic quality. Passing deterministic behavioral-contract tests says nothing about model behavior. A provider run without complete retained evidence cannot establish the claims that its evidence omits.
+
+## Semantic operating protocol
+
+The grader evaluates the observable result of the same workflow the skill directs. The internal work is proportional: a one-sentence glossary request should not expose a registry workbench, while an authority-sensitive concept package should not skip the decisions on which responsible reuse depends.
+
+1. **Route.** Identify the candidate concept, task, requested renderer or machine representation, applicable specialist profiles, and any ambiguity that blocks responsible work. An otherwise-unqualified deliberate request to define a concept uses the terminology core plus the ISO/IEC 11179 data-definitions profile as a disciplined fallback, without pretending that the concept is a registered metadata object or claiming standards compliance.
+2. **Frame.** Build a proportional ConceptBrief covering only material purpose, use and non-use, scope, audience, jurisdiction or scheme, granularity, time or version context, stakeholders and affected communities, assumptions, qualitative risk, and competency questions. Ask one focused clarification when a material ambiguity cannot be resolved safely; do not conduct a generic intake interview.
+3. **Research.** Plan bounded evidence lanes for governing standards, authoritative registries, domain sources, neighboring concepts, version history, mappings, licensing, and community or jurisdictional authority. Record the exact destination, source role, edition or version, retrieval status, supported claim, boundary evidence, wording permission when material, and conflicts or uncertainty. A search result, worker summary, or topical homepage is not automatically evidence for the claimed proposition.
+4. **Model.** Keep concept identity separate from designations, definitions, codes, fields, value domains, permissible values, documents, carriers, datasets, distributions, processes, results, agents, roles, quantities, units, and serializations. Model essential characteristics, positive and negative boundaries, near misses, siblings, and typed relations only to the depth needed to answer the competency questions.
+5. **Decide.** Compare candidate sources for intension, extension, scope, granularity, authority, version, system position, intended use, and wording permission. Choose and justify `adopt`, `adapt`, `formulate`, or `defer`. Record semantic relationship separately from mapping predicate and separately again from permission to copy wording.
+6. **Define.** Select a suitable strategy rather than forcing genus-and-differentia where operational, extensional, partitive, functional, relational, ostensive, or mixed formulation is better. Keep the wording standalone, positive where possible, non-circular, category-correct, discriminating, and free from accidental implementation details.
+7. **Validate.** Always perform the semantic checks available through reasoning: identity, category, scope, substitutability, sibling and boundary discrimination, competency-question coverage, evidence-role fit, mapping conservatism, active-profile rules, cross-renderer consistency, and non-invention. Run parser, JSON Schema, SHACL, reasoner, registry, or other tool checks only when the tool and representation actually exist; report each as `performed`, `passed`, `failed`, or `not run` rather than implying execution.
+8. **Present.** Project one internal concept entry through the requested renderer. Put a responsibly available definition first, keep warnings ahead of it only when proceeding would otherwise mislead, distinguish examples from near misses, place citations beside supported claims, expose unresolved issues and next actions, and keep identity, status, disposition, evidence, and blockers consistent across human and machine views.
+
+When a host can spawn subagents, independent multi-step evidence or validation lanes may run in parallel if their scopes do not overlap and coordination is worthwhile. Batched tool calls suit shallow independent lookups. The coordinating agent still owns identity, clarification, profile selection, source eligibility, conflict resolution, reuse and mapping decisions, synthesis, validation, and the final answer. Sequential work is fully valid, and neither subagent nor batching availability is required or graded.
+
+## Case taxonomy and coverage
+
+The committed suite contains 16 distinct semantic pressure tests. `definition-answer`, `revision-audit`, and `concept-package` are presentation projections, not different semantic records. `terminology-core` is always active; the other profiles compose only where listed. `Yes` in the calibration column means the case is in the currently committed 10-case campaign.
+
+|  ID | Case                                                                 | Renderer          | Specialist profiles beyond the terminology core | Research strata                                                             | Calibration |
+| --: | -------------------------------------------------------------------- | ----------------- | ----------------------------------------------- | --------------------------------------------------------------------------- | :---------: |
+|   1 | Dataset versus distribution                                          | Concept package   | Data definitions; KOS                           | Category trap; source integrity; temporal version; licensing                |     Yes     |
+|   2 | Contact-preference status versus values, code, and field             | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   3 | Document-language representation versus language and document        | Revision audit    | Data definitions; multilingual terminology      | Category trap; source integrity; temporal version; multilingual equivalence |     Yes     |
+|   4 | Identity-verification outcome versus process                         | Revision audit    | Data definitions                                | Category trap                                                               |     No      |
+|   5 | Availability status with circular, negative, and abbreviated wording | Revision audit    | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   6 | Invoice issue date versus neighboring dates                          | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     No      |
+|   7 | Electric charge polysemy, quantity, unit, and designation            | Definition answer | None                                            | Polysemy; category trap                                                     |     No      |
+|   8 | False authoritative-source attribution                               | Concept package   | Data definitions; epistemic governance          | Source integrity; responsible deferral; licensing                           |     Yes     |
+|   9 | Unqualified definition and ISO/IEC 11179 fallback                    | Definition answer | Data definitions                                | Category trap; renderer economy                                             |     Yes     |
+|  10 | Ambiguous regulated threshold requiring one clarification            | Definition answer | Data definitions                                | Category trap; temporal version; responsible deferral                       |     Yes     |
+|  11 | Cross-scheme broad or narrow mapping versus false exact match        | Concept package   | KOS                                             | Mapping; category trap                                                      |     Yes     |
+|  12 | Competency-question-driven ontology formalization without tools      | Concept package   | Formal ontology                                 | Category trap; responsible deferral                                         |     Yes     |
+|  13 | Partial multilingual equivalence and review need                     | Concept package   | Multilingual terminology                        | Multilingual equivalence; polysemy; responsible deferral                    |     Yes     |
+|  14 | Community-governed concept and competing authority                   | Concept package   | Epistemic governance                            | Epistemic governance; responsible deferral; licensing                       |     Yes     |
+|  15 | Versioned plain-JSON projection and missing-state distinctions       | Concept package   | Data definitions                                | Source integrity; temporal version; licensing; responsible deferral         |     Yes     |
+|  16 | One- or two-sentence definition economy                              | Definition answer | None                                            | Renderer economy; category trap                                             |     No      |
+
+This map deliberately covers category traps, temporal and edition status, source integrity, wording permission, mapping direction, multilingual non-equivalence, governance and affected-community authority, operational thresholds, machine serialization, and responsible deferral. It does not turn every case into a research-heavy package: cases 2, 6, 9, and 16 help detect unnecessary ceremony and output bloat.
+
+Case 10 declares one `follow_up_turns` item. The first turn must elicit only the focused threshold and jurisdiction clarification. The controller then sends the exact committed follow-up bytes; it neither improvises a response nor allows the model to choose a different branch. All other cases are single-turn conversations.
+
+## Retained bounded single-trial diagnostics
+
+This path was used to establish provider operability one retained trial at a time while the campaign runner still had an all-or-nothing parent-retention defect. Five authorized Spark-low model sessions now retain independently verifiable terminal evidence. The prepared sixth trial under `evidence/historical/defining-concepts/trials/2026-08-29T124830.684Z/` was never authorized or executed and remains unchanged as diagnostic history. Do not request another one-packet approval merely to advance the campaign; use the durable campaign protocol below.
+
+The trial lifecycle remains available for bounded harness diagnosis. Authorization consumption and provider stream files are written before and during its one external call, while `result.json` is written only after a known terminal outcome. It is not the normal mechanism for building the 90-session calibration and its outcomes are not aggregate-eligible.
+
+The recommended first diagnostic is case 1, `candidate-skill`, `gpt-5.3-codex-spark`, and `low`. Case 1 directly exercises the skill's required live web-search and URL-retrieval facilities, while the Spark/low arm is the least expensive committed execution profile. The full capability reconciliation still evaluates the canonical `no-skill`, `current-skill`, and `candidate-skill` requirements before freezing the selected trial, so a convenient single-arm launch cannot weaken the uniform reviewed capability envelope.
+
+Use a new destination under `evidence/authoritative/defining-concepts/trials/` and a fresh non-repository working root. `--created-at` retains the punctuated RFC 3339 timestamp; the destination basename removes only the colons so it remains sortable, collision-resistant to milliseconds, and valid on Windows.
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs trial prepare --output-dir <absolute-repository/evidence/authoritative/defining-concepts/trials/2026-08-29T123456.789Z> --case-id 1 --skill-arm candidate-skill --trial-index 1 --adapter codex-app-server --model gpt-5.3-codex-spark --reasoning-effort low --execution-timeout-ms <reviewed-positive-integer> --created-at 2026-08-29T12:34:56.789Z --working-root <absolute-fresh-non-repository-working-root> --baseline-revision <full-commit-oid>
+```
+
+Preparation is local, initializes the established managed evaluation-home boundary under `%LOCALAPPDATA%\OpenAI\Codex\EvaluationHomes\v1`, keeps the fresh non-repository working root separate as the packet's execution workspace, captures both comparison bundles for capability reconciliation, retains only the selected arm's bundle as `skill-bundle.json`, freezes the packet and ordered inputs, and uses zero model turns. `--execution-timeout-ms` is mandatory: it is a positive whole-session execution deadline, is recorded in the schema-version-2 trial manifest, and is retained in schema-version-2 `runner-settings` inside the transmission. Changing it changes the transmission SHA-256 and therefore requires a newly prepared packet and exact authorization. It is separate from the zero-turn preflight timeout. It returns the exact transmission SHA-256, but that disclosure does not authorize a provider call. The managed home is stable so it can reuse the operator's authenticated Codex state; its per-trial lease prevents concurrent mutation, and preflight or execution may require permission to write that lease outside the repository sandbox.
+
+Run and inspect the mandatory zero-turn preflight, then verify the named directory locally:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs trial preflight --trial-dir <absolute-trial-directory>
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs trial verify --trial-dir <absolute-trial-directory>
+```
+
+Preflight retains provider-native evidence under `preflight/` and seals its digests in root `preflight.json`. It must report `status: "completed"`, `modelTurns: 0`, the frozen provider, model, and effort, and the required web-search capability. Preparation and verification make no provider call; preflight performs no model turn and consumes no per-packet authorization.
+
+After reviewing the manifest, packet, complete selected skill bundle, exact prompt, capability receipt, provider, adapter, model, effort, execution timeout, maximum turns, and transmission SHA-256, obtain a new authorization for that exact packet. Earlier campaign, manifest, profile, or conversational authorizations do not apply. Store the exact canonical authorization object in a separate file. The input may have no terminator or one conventional terminal LF or CRLF; execution validates the semantic binding and otherwise-canonical bytes, then retains `authorization.json` as terminator-free canonical JSON evidence:
+
+```json
+{
+  "allowExternalModel": true,
+  "decision": "authorized",
+  "effort": "low",
+  "model": "gpt-5.3-codex-spark",
+  "provider": "openai",
+  "schemaVersion": 1,
+  "statement": "I authorize exactly one external model session for this provider, model, effort, and transmission SHA-256.",
+  "transmissionSha256": "<exact-64-character-lowercase-SHA-256>"
+}
+```
+
+The explicit call gate and exact authorization file are both required:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs trial run --trial-dir <absolute-trial-directory> --authorization-file <absolute-authorization-file> --allow-external-model-call
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs trial verify --trial-dir <absolute-trial-directory>
+```
+
+The trial directory uses this evidence contract:
+
+```text
+manifest.json
+case.json
+skill-bundle.json                         # absent for no-skill
+capability-reconciliation.json
+packet.json
+preflight.json
+authorization.json
+authorization-consumption.json
+result.json
+metrics.json
+timing.json
+inputs/
+    manifest.json
+    <ordered packet inputs>
+outputs/
+    response.md
+    provider-transcript.jsonl
+    events.jsonl
+    stderr.log
+preflight/
+    <provider-native zero-turn evidence>
+```
+
+`outputs/provider-transcript.jsonl` is the byte-faithful provider record and remains the source for exact-output provenance. `outputs/response.md` is a derived repository-safe projection for convenient review: it uses LF line endings, converts Markdown hard breaks expressed as two or more trailing spaces to `<br>`, and removes other trailing horizontal whitespace. Never use the projection to claim byte identity with the provider stream.
+
+Interpret verification dimensions independently:
+
+- `artifactIntegrity` is `verified` when every applicable sealed digest matches, `incomplete` when an interrupted execution left unsealed stream evidence, and `failed` when retained evidence is missing, malformed, or changed.
+- `executionStatus` is `not-started`, `completed`, `failed`, or `indeterminate`. `completed` means the authorized provider session reached its transport-level completion contract; it is not a semantic pass.
+- `providerOutcome` is `not-started`, `completed`, `failed`, or `undetermined` and does not substitute for concept-quality grading.
+- `gradeStatus` remains `not-graded` until a separately defined and authorized grading workflow evaluates the answer.
+- `retryPermitted` is false after authorization consumption, after a terminal result, or whenever execution state is indeterminate. A consumed authorization without `result.json` is reported as `indeterminate`, never guessed to be `interrupted`, because the retained artifacts alone cannot prove that no provider child remains alive.
+
+Every trial has `aggregateEligible: false`. The retained matched trial pair supports only a bounded lifecycle-repeatability observation; the additional retained trials diagnosed and checked harness or skill changes. They do not establish provider-independent reproducibility, semantic correctness, or campaign-level quality. Further campaign evidence must use the fixed, durable campaign lifecycle rather than extending the diagnostic series one authorization at a time.
+
+## Three-arm campaign
+
+The calibration declaration freezes case IDs `1, 3, 8, 9, 10, 11, 12, 13, 14, 15`, canonical arms `no-skill`, `current-skill`, and `candidate-skill`, and exactly one repetition. The arithmetic is therefore 10 cases x 3 arms x 1 repetition = **30 externally executed model sessions**.
+
+The arms answer different questions:
+
+- `no-skill` receives the identical task and harness but no defining-concepts bundle. It estimates what the isolated model does from first principles.
+- `current-skill` receives an immutable complete skill-directory bundle captured from the operator-selected baseline Git revision. It represents the deployed comparison point, not whatever happens to be at `HEAD` later.
+- `candidate-skill` receives an immutable complete bundle captured from the working tree at preparation time. It represents the exact proposed bytes under evaluation.
+
+Each bundle contains the full deployable skill inventory, per-file byte lengths and SHA-256 values, source identity, and an aggregate SHA-256. The treatment is the rendered bundle, not only `SKILL.md`; otherwise reference-heavy skills would be evaluated incompletely. The campaign manifest captures each case record, prompt and follow-up conversation digest, runtime fingerprint, provider, model, effort, packet-bound execution timeout, blind alias, arm, repetition, bundle digest, capability-reconciliation receipt digest, and transmission SHA-256.
+
+The recorded seed deterministically orders cells and creates opaque aliases. The private arm mapping remains under `sealed/`; graders receive aliases and outputs without arm labels. `prepare` refuses an existing destination, a non-timestamp destination, a repeated campaign cell, identical current/candidate bundles, or a campaign other than the declared canonical matrix.
+
+## Compatibility and capability reconciliation
+
+The skill's standard `compatibility` field is portable human-readable prose, not a private machine grammar. The schema-v3 `capability_contract` therefore records reviewed exact-text interpretations for the frozen current and candidate skill arms. Preparation reads the field from each complete bundle and rejects any missing, duplicated, malformed, changed, or unreviewed text; it never infers permission from words such as "web", invokes another model to interpret the field, or treats a requirement as a grant.
+
+Every case declares `required_capabilities`. Cases 1, 3, and 8 require both `web-search` and `url-fetch`; the remaining cases declare an empty list. Skill-bearing arms require `bundled-skill-files`. Reconciliation unions those declarations, checks the suite's deny-by-default allowlist, requires exact provider support and bindings, and applies the same resolved envelope to all three arms. For the OpenAI campaign that envelope is `bundled-skill-files`, `web-search`, and `url-fetch`, implemented as harness-controlled bundle input plus Codex native web retrieval. Arbitrary process network, general tools, MCP and app calls, image generation, provider-default context, and automatic delegation remain denied.
+
+The resulting `capability-reconciliation.json` records the bundle and skill-file digests, exact compatibility interpretations, selected cases, arm and case requirements, policy, provider bindings, runtime capabilities, and matched arm envelopes. Its receipt digest is bound into `manifest.json`, every session record, and every transmission. Any mismatch fails before a model call.
+
+## Provider capability preflight
+
+Provider choice is part of the treatment and must be frozen before authorization. Preparation locally inspects the selected executable and adapter contract, freezes the working directory, runtime files, declared session policy, and transmissions, and launches no model turn. It does not prove that the authenticated provider is currently usable.
+
+For a prepared OpenAI campaign, `preflight` deterministically selects the manifest's unique sequence-1 session and performs one Codex App Server protocol check with zero model turns. It revalidates the frozen executable, runtime, policy, managed-home boundary, authentication, model availability, provider capability availability, disabled hook state, minimal ephemeral thread isolation, cleanup, and confirmed process closure. The campaign-level `preflight.json` binds the complete terminal result to the manifest digest and selected transmission. A missing, failed, nonzero-turn, overwritten, or stale record blocks all 30 executions; a failed campaign is not preflighted again or reused.
+
+Codex `modelProvider/capabilities/read` booleans describe facilities the provider can make available. They are not assertions that those facilities are active in the prepared thread or that every listed model will successfully use them. Likewise, `skills/list` and `app/installed` enumerate host or provider inventory rather than proving thread activation, so preflight neither queries nor retains those potentially unrelated inventories. Because App Server binds the selected model and effort only at `turn/start`, a zero-turn preflight can establish exact model availability plus provider-web availability but cannot truthfully establish model-specific web use. Retain that limitation and let fail-closed execution evidence distinguish an unsupported provider/model path; do not invent a stronger attestation. A provider availability value of `true` is compatible with a packet policy that disables the facility. Hooks are different because an enabled hook may run without model tool selection: preflight accepts well-formed disabled hooks, rejects enabled hooks, and treats malformed hook state as a protocol failure.
+
+Preflight starts an ephemeral attestation thread with no runtime workspace roots, instruction sources, selected capability roots, dynamic tools, or environments, plus read-only sandboxing, no process network, and explicit-request-only multi-agent mode. App Server's experimental protocol capability is enabled only so the reviewed runtime-workspace-root fields are accepted; it does not enable a model facility. The adapter binds native web explicitly through the supported thread configuration: `config.web_search` is `"live"` when authorized and `"disabled"` otherwise. The execution phase binds the exact packet model, effort, runtime workspace roots, workspace sandbox policy, and input at `turn/start`. Runtime event enforcement remains fail-closed if an unrequested tool, search, image-generation, MCP, delegation, command, or file-change event nevertheless appears. Thread preflight and turn execution are complementary attestations; fields that the live protocol reports only at turn start must not be invented in the preflight thread response contract.
+
+The current adapter profiles are materially different:
+
+| Provider option | Transport        | Declared network/web capability                                                          | Scripted follow-ups                        | Consequence                                                                                                                            |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `codex`         | Codex App Server | No arbitrary process network; native live web search and URL retrieval; no general tools | Supported                                  | The matched campaign may retrieve current sources through the authorized native web facility while unrelated facilities remain denied. |
+| `claude`        | Claude CLI       | Network plus `WebSearch` and `WebFetch`                                                  | More than one turn rejected                | The complete calibration cannot currently include case 10 through this adapter.                                                        |
+| `antigravity`   | Antigravity CLI  | No network or web search; no tool or subagent steps permitted                            | Supported by the shared bounded controller | Useful for isolated reasoning behavior, but not direct-source verification.                                                            |
+
+Do not pool or compare provider profiles as though they offered the same evidence opportunities. An independent verifier can establish that a destination is reachable and semantically relevant, but it cannot retroactively prove that a no-web executor retrieved it. Conversely, a tool event does not by itself prove that the returned source supported the claim. Subagent and batched-tool availability are not quality requirements.
+
+### Model-execution profiles
+
+The 2026-08-29 calibration protocol uses three separately frozen OpenAI profiles with identical cases, arms, bundles, and single-agent provider policy:
+
+- the representative profile uses exact model `gpt-5.6-sol` at the installed Codex catalog's declared default effort, `low` when this iteration was designed;
+- the capability-ceiling profile uses exact model `gpt-5.6-sol` at `max`, the catalog's maximum reasoning-depth setting that preserves the same single-agent topology; and
+- the portability-stress profile uses exact model `gpt-5.3-codex-spark` at deliberately constrained effort `low`, below that catalog's declared Spark default of `high`.
+
+The two Sol profiles form the matched effort comparison. Spark-low is a different-model robustness condition, not another point on the Sol effort axis, a repetition, or a representative Spark default. OpenAI describes Spark as a smaller research-preview model optimized for real-time coding and a lightweight working style; use this profile to test whether the skill remains usable under a latency-first, constrained execution regime. Keep its results separate and do not attribute Spark-versus-Sol differences to effort alone. The labels are specific to the frozen installed Codex catalog rather than universal API defaults. See [OpenAI's GPT-5.3-Codex-Spark announcement](https://openai.com/index/introducing-gpt-5-3-codex-spark/) and [current GPT-5.6 Sol model documentation](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
+
+The Sol catalog also exposes `ultra`, described as maximum reasoning with automatic task delegation. That is a different capability treatment, not merely a higher value on the matched single-agent effort axis. Do not use it as the ceiling profile, silently permit delegation in the existing no-tools policy, or pool a future `ultra` campaign with these results. An `ultra` evaluation requires its own preregistered capability declaration, adapter review, authorization, grading, and limitations.
+
+Prepare, authorize, execute, grade, and aggregate the representative, capability-ceiling, and portability-stress profiles as three campaign directories. Each profile has 10 cases x 3 arms x 1 repetition = 30 sessions and at most 33 turns; together they have 90 sessions and at most 99 turns. One repetition is enforced per case/arm/model-execution-profile cell. Profiles are conditions, not repetitions, and their scores remain separate.
+
+## Prepare, preflight, review, authorize, and run
+
+Preparation is local-only and launches zero model turns. Use a new filesystem-safe UTC directory name derived from the same `--started-at` value, for example `2026-08-29T123456.789Z`; the colons are omitted only from the directory name. Use a fresh non-repository `--working-root`. For Codex, bind the reviewed executable and name the initialized managed evaluation-homes root.
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs prepare --campaign calibration --destination <absolute-results/UTC-timestamp-directory> --baseline-revision <full-commit-oid> --provider codex --model <exact-model-id> --effort <exact-effort> --execution-timeout-ms <reviewed-positive-integer> --seed <reviewed-stable-seed> --started-at <RFC-3339-UTC-timestamp> --working-root <absolute-fresh-working-root> --codex-command <absolute-reviewed-codex-executable> --evaluation-homes-root <absolute-managed-evaluation-homes-root>
+```
+
+Provider-specific preparation may additionally use the repeatable prefix arguments accepted by the runner. On Windows, `--codex-command` must resolve directly to a native `.exe` or `.com`; command wrappers and scripts are rejected because closing a wrapper does not prove that its App Server descendant has closed. Do not substitute a mutable label such as `latest` for an exact model identifier when the provider offers a stable exact ID.
+
+There is no implicit campaign execution timeout. Select a reviewed positive millisecond value before preparation. The value applies to the packet's complete scripted model interaction, including every allowed follow-up turn; provider cleanup remains separately bounded. Preparation copies the exact value into `manifest.json` protocol metadata and every packet's schema-version-2 `runner-settings`, then verifies equality before retaining the campaign. `run` consumes only that frozen value and rejects `--timeout-ms`, so an operator cannot lengthen or shorten the authorized session after hashing. Use one value across all arms in a campaign. For cross-profile comparisons, prefer one non-binding value across profiles; if a profile needs a different deadline, preregister it and report the resulting comparability limitation rather than describing effort as the only changed condition.
+
+Before disclosing transmission hashes or creating authorization artifacts, run the mandatory campaign preflight. It starts no model turn and consumes no per-packet model authorization:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs preflight --campaign-dir <absolute-campaign-directory>
+```
+
+Review the resulting `preflight.json` and the selected session's `prepared/preflight/` evidence. Require `status: "completed"`, `modelTurns: 0`, an exact manifest and transmission binding, the frozen model and effort, well-formed disabled hooks, a read-only and process-networkless ephemeral thread with no instruction sources or workspace roots, the exact reconciled `config.web_search` mode at `thread/start`, clean managed-home retirement, and confirmed App Server closure. Confirm separately that the prepared packet binds its intended execution roots, workspace sandbox, disabled facilities, exact model, and effort for `turn/start`. If preflight fails, retain that directory as immutable diagnostic evidence, repair the harness or environment as appropriate, and prepare a fresh timestamped campaign. Never add authorization artifacts to make a failed preflight executable.
+
+Before execution of any profile, review and disclose:
+
+1. the campaign destination, `manifest.json`, successful `preflight.json`, and selected zero-turn preflight evidence;
+2. both bundle inventories, their source identities, every file digest, and both aggregate hashes;
+3. all ten exact initial prompts and the exact case-10 follow-up;
+4. provider, model, effort, execution timeout, toolchain, runtime fingerprint, isolation, and capability declaration;
+5. all 30 transmission SHA-256 values and the intended call and turn count for that profile; and
+6. the enforced one-repetition limitation.
+
+Preparation, successful preflight, implementation approval, login, an earlier campaign authorization, authorization of another model-execution profile, and authorization of one cell do not authorize any of the 30 transmissions in a profile. Retain one exact authorization artifact for **every** prepared session. The user need not approve 90 packets in 90 conversational turns: one consolidated statement may authorize all three profiles when it explicitly identifies all three manifest digests, every exact model and effort, the three disclosed transmission-hash lists, the 90-session and 99-turn ceilings, permitted provider-native web search and URL retrieval, denied facilities, and whether any grading calls are included. Materialize that one approval into the 90 canonical per-packet authorization artifacts. `run` validates the complete 30-artifact set for its profile before every invocation can launch a provider session, so a missing or mismatched prerequisite cannot create a partially authorized campaign.
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs run --campaign-dir <absolute-campaign-directory> --authorization-dir <absolute-authorization-directory>
+```
+
+Immediately before the first authorized provider launch, `run` atomically creates schema-version-2 `execution-start.json`, bound to the manifest, capability receipt, complete authorization set, and their canonical digests. That record freezes the only valid execution identity for the campaign; it does not claim that all 30 packet authorizations have already been consumed. Each returned or reconciled terminal session is written immediately to `execution/session-outcomes/<blind-alias>.json` before the controller considers the next session.
+
+If the controller stops, inspect the directory without launching a model:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs status --campaign-dir <absolute-campaign-directory>
+```
+
+`status` reports total, pending, completed, failed, and indeterminate sessions; how many low-level outcomes need parent reconciliation; whether aggregate finalization remains; how many provider launches remain; exact-identity continuation eligibility; and integrity blockers. It is read-only and requires neither an authorization directory nor provider access.
+
+Invoke the same `run` command again to continue only when `status` reports continuation is permitted. The runner revalidates the complete authorization set and existing execution identity, then applies this order for each session:
+
+1. validate and skip an immutable parent outcome;
+2. promote valid low-level `run.json`, metrics, timing, and transcript evidence into a parent outcome without a provider call;
+3. classify `attempt.json` without terminal evidence as `indeterminate`, retain that outcome, and never launch the transmission again; or
+4. launch once only when neither authorization-consumption nor terminal evidence exists.
+
+A newly observed failed or indeterminate session stops that invocation after its outcome is durable. A later exact invocation skips it and may process other pending sessions. A callback interruption before authorization consumption leaves the packet pending; after consumption, no interruption, process restart, or missing parent aggregate can make it launch-eligible again. This is continuation of one frozen campaign, not a model retry or another repetition. `executed.json` is derived from all 30 immutable outcomes after every session is terminal. Grading preparation rejects an aggregate containing any failed or indeterminate session.
+
+The retained 2026-08-29 Sol-max diagnostic campaign demonstrates why the deadline is now packet-bound. Its first two authorized sessions each continued producing reasoning and native-web events until the former unstated 120,000 ms runner default interrupted the active turn; both terminal failures were retained, no packet was retried, and the other 28 authorizations remained unconsumed. Preserve that directory unchanged. Any replacement must use a fresh timestamp, an explicitly reviewed execution timeout, new transmission hashes, a successful zero-turn preflight, and new exact authorization.
+
+Schema-version-1 `execution-start.json` and `execution-failed.json` remain historical, non-resumable evidence. Campaigns or trials prepared with schema-version-1 runner settings also remain immutable historical evidence; they have no packet-bound execution deadline and must not be continued with the current runtime. Never rewrite or continue those directories under the durable protocol. A material candidate, packet, capability, model, effort, execution timeout, or authorization change still requires a new timestamped campaign and new authorization.
+
+## Blind grading protocol
+
+### Freeze the evidence before grading
+
+After execution, prepare the packets locally:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs prepare-grading --campaign-dir <absolute-campaign-directory>
+```
+
+This writes one critical packet per session and one randomized current-versus-candidate pair per case. It also seals the pairwise side mapping. The no-skill arm receives critical and applicable-dimension grading but is not part of the primary current-versus-candidate pairwise comparison.
+
+If a human grades locally, record the method and reviewer. If an external model grades, freeze the exact grader instructions, model, effort, packets, runtime, and transmission hashes and obtain separate exact authorization for every grader transmission. Authorization of the 30 execution sessions never authorizes grading calls. Do not reveal arm mappings until all blind judgments and disagreement records are frozen.
+
+### Apply critical gates first
+
+Every expectation named by `critical_expectation_indexes` requires a pass/fail judgment, an output or transcript excerpt, and a concise reason. The suite-level critical-failure register is non-compensable:
+
+1. wrong identity, category, scope, or extension;
+2. circular or non-discriminating definition;
+3. fabricated, inaccessible, superseded, or misattributed evidence;
+4. unsupported verbatim reuse;
+5. false equivalence or relation confusion;
+6. invented identifier, conformance, validation, or history;
+7. failed critical competency question or boundary case;
+8. inappropriate profile or out-of-scope compliance claim;
+9. illegitimate universalization or authority claim; or
+10. failure to put a responsibly available definition first.
+
+A fluent answer, favorable pairwise preference, or strong result on another dimension cannot compensate for any applicable critical failure. Report critical outcomes separately and preserve the exact case expectation that triggered each one.
+
+### Grade only applicable qualitative dimensions
+
+The case manifest selects among seven qualitative dimensions:
+
+- `semantic-accuracy`;
+- `boundary-discrimination`;
+- `evidence-adequacy`;
+- `reuse-and-licensing-judgment`;
+- `profile-correctness`;
+- `validation-honesty`; and
+- `presentation-economy`.
+
+Judge each selected dimension qualitatively with cited evidence. Do not force a score for a profile or capability the case does not exercise, convert missing evidence into a middling numeric score, sum dimensions into model confidence, or describe an aggregate as a calibrated probability. Record ambiguity and grader disagreement rather than resolving it through undocumented averaging.
+
+Each `grading/grades/<blind-alias>.json` record must contain the exact frozen critical-expectation IDs and exact applicable dimension IDs for that session. Every judgment needs a nonempty excerpt and reason; critical outcomes are Boolean, while qualitative ratings remain concise labels chosen by the frozen grader protocol. Tokens and duration come from the retained execution evidence and may be `null` only when the provider did not expose them.
+
+```json
+{
+  "blindAlias": "sample-0123456789abcdef",
+  "critical": [
+    {
+      "expectationId": "expectation-01",
+      "passed": true,
+      "excerpt": "The exact supporting output excerpt.",
+      "reason": "Why the excerpt passes the frozen critical expectation."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "semantic-accuracy",
+      "rating": "meets",
+      "excerpt": "The exact supporting output excerpt.",
+      "reason": "Why this qualitative judgment follows."
+    }
+  ],
+  "tokens": 1234,
+  "durationMs": 5678
+}
+```
+
+After blind side judgments are frozen and the sealed map is applied, each `grading/pairwise-grades/<case-id>.json` contains exactly one committed case ID, an outcome of `candidate`, `current`, or `tie`, and a nonempty excerpt and reason. Aggregation rejects missing, duplicate, extra, uncited, or structurally invalid session and pairwise grades.
+
+```json
+{
+  "caseId": 1,
+  "outcome": "candidate",
+  "excerpt": "The difference that determined the comparison.",
+  "reason": "Why the candidate is preferred under the frozen criteria."
+}
+```
+
+### Preserve evidence roles
+
+For every material source claim, distinguish at least these questions:
+
+| Evidence question                                                                       | What establishes it                                                                                        | What it cannot establish alone                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Did the executor retrieve the exact destination?                                        | A retained completed URL-specific action or equivalent direct retrieval evidence.                          | Reachability now, semantic support, or wording permission.            |
+| Is the destination reachable and the asserted edition or version current for the claim? | Independent direct retrieval and status/version inspection.                                                | That the executor retrieved it during the run.                        |
+| Does the content support the attributed semantic role?                                  | Inspection of the term, definition, relationship, scope, or methodological statement actually relied upon. | Permission to copy the wording or universal authority.                |
+| May source wording be reused verbatim?                                                  | A verified license, public-domain rule, permission, or other applicable rights basis.                      | Semantic equivalence; a license does not make two concepts identical. |
+
+Exact or close semantic fit is a concept judgment. Permission to copy text is a rights judgment. Keep them separate even when both decisions concern the same source. A failed search is bounded evidence about the searched destinations and query; it is not proof that no definition exists.
+
+### Compare current and candidate blindly
+
+For each case, judge the randomized pair as candidate-preferred, current-preferred, or tied only after applying critical gates and the case's applicable dimensions. Cite the output differences that determine the result. Use the sealed mapping only after judgments are frozen. Report exact, close, broad, narrow, related, and unsupported mapping behavior separately where a labeled case permits it; do not collapse all mapping correctness into generic prose quality.
+
+## Aggregate construction and decision rules
+
+Place one complete grade record per blind session in `grading/grades/`, one pairwise outcome per case in `grading/pairwise-grades/`, and any adjudication or unresolved disagreement in `grading/disagreements.json`. Then run:
+
+```text
+node src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs aggregate --campaign-dir <absolute-campaign-directory>
+```
+
+Each generated aggregate reports critical totals and whether the candidate has any critical failure; dimension-observation counts; coverage by case, skill profile, and research stratum; candidate/current/tie pairwise totals; disagreement records; retained token and elapsed-time totals; and the one-repetition, no-variance, no-human-usability, and no-calibrated-pass-probability limitations. Freeze all three profile aggregates before producing a bounded cross-profile synthesis. Never pool the scores, treat profiles as repetitions, attribute a Spark-versus-Sol difference to effort alone, or let strong output in one profile compensate for a candidate critical failure in another. Distinguish candidate defects from provider/model failures through retained evidence. Raw packets, outputs, transcripts, provider evidence, and individual grades remain authoritative. Each aggregate is a derived index, not a substitute for reading failures.
+
+Calibration is diagnostic. Separate candidate defects from case ambiguity, grader ambiguity, provider failure, and absent evidence. If a critical failure or material design defect requires any candidate skill byte to change, close that iteration: keep its campaign immutable, make the change through a new test-first cycle, capture a new bundle, prepare a new timestamped campaign, and obtain new authorization. Never overwrite or relabel the prior campaign.
+
+Confirmation uses independent scenarios selected only after calibration diagnosis. Freeze its cases, arms, one repetition, graders, critical gates, pairwise rule, all three exact model-execution profiles, runtime, and transmission hashes before execution, then obtain new execution and grading authorization. Preserve the representative, capability-ceiling, and portability-stress distinctions unless a reviewed design change explicitly narrows the claim. Do not reuse calibration prompts as confirmatory repetitions or borrow calibration authorization.
+
+Promote a candidate only when deterministic gates pass, calibration and confirmation are complete, no unresolved candidate critical failure remains, preregistered primary comparisons improve over `current-skill`, no semantic capability stratum materially regresses, negative-trigger precision is preserved, and the evidence record is complete. Bound any final claim to the tested cases, exact model and provider profile, one repetition, and lack of participant evidence.
+
+## Trigger protocol
+
+`trigger-evals.json` evaluates the frontmatter description, not an already-loaded skill body. Positive cases cover deliberate concept definition, audit, concept-package, mapping, ontology, multilingual, governance, and machine-readable entry requests. Negative near misses cover adjacent explanation, coding, translation, naming-only, formatting, value-domain, and unrelated work.
+
+Record activation decisions and report precision, recall, false-positive rate, and false-negative rate. The current one-repetition behavioral rule does not create a trigger reliability estimate. If activation wording is optimized, keep a separately frozen held-out paraphrase set; selecting and reporting against the same development prompts measures prompt fitting rather than generalization.
+
+## Result layout and historical immutability
+
+New trial and campaign directories use the filesystem-safe UTC timestamp at which preparation freezes the candidate, formatted `YYYY-MM-DDTHHmmss.SSSZ`. The full RFC 3339 value with punctuation remains in `manifest.json`. The timestamp alone is collision-resistant to milliseconds, portable on Windows, and semantically preferable to repeating mutable provider or purpose labels in the directory name. New bounded trials live under `evidence/authoritative/defining-concepts/trials/<UTC-timestamp>/`; new campaigns use `evidence/authoritative/defining-concepts/<UTC-timestamp>/`. Retained evidence lives under `evidence/historical/defining-concepts/` and is never a destination for new runs.
+
+Current prepared campaigns use this high-level layout:
+
+```text
+evidence/authoritative/defining-concepts/<UTC-timestamp>/
+    manifest.json
+    bundles/
+        current-skill.json
+        candidate-skill.json
+    cases/
+        case-<id>.json
+    sessions/
+        sample-<blind-id>/
+            case.json
+            skill-bundle.json       # absent for no-skill
+            packet.json
+            prepared/
+    sealed/
+        blind-mapping.json
+        pairwise-mapping.json       # after grading preparation
+    preflight.json                  # mandatory zero-turn campaign gate
+    execution-start.json            # immutable schema-v2 execution identity
+    execution/
+        session-outcomes/
+            sample-<blind-id>.json  # immutable immediately after a terminal outcome
+    executed.json                   # derived after every session has an outcome
+    grading/
+        critical/
+        pairwise/
+        grades/
+        pairwise-grades/
+        disagreements.json
+    grading-prepared.json
+    aggregate.generated.json
+```
+
+Historical schema-version-1 campaign executions may additionally contain `execution-failed.json` and `invalid-attempts/`; those paths are not produced by durable schema-version-2 execution. Historical result schemas are read by explicit version branches. Do not rename their arms, retrofit new packet guarantees, rewrite raw outputs, recompute old hashes in place, or treat an absent current field as proof that the old run satisfied it. The legacy `2026-08-24T092645.127Z` generated aggregate contains known repetition and token-accounting defects; its retained raw run and timing artifacts remain the authority. Corrections to any campaign create a new derived record naming what it supersedes.
+
+## Deterministic verification
+
+Run the focused suite before repository-wide verification:
+
+```text
+node --test tests/evals/defining-concepts/skill-structure.test.mjs tests/evals/defining-concepts/eval-definitions.test.mjs tests/evals/defining-concepts/evaluation-trial.test.mjs tests/evals/defining-concepts/evaluation-runner.test.mjs tests/evals/defining-concepts/run-evaluation-session.test.mjs tests/evals/defining-concepts/results.test.mjs tests/scripts/codex-app-server.test.mjs tests/scripts/evaluation-scripted-conversation.test.mjs tests/scripts/evaluation-skill-bundle.test.mjs tests/scripts/skill-repository-validation-contracts.test.mjs tests/scripts/evaluation-runtime.test.mjs
+node scripts/verifySkill.js --skill defining-concepts
+npm run verify
+```
+
+These commands validate manifests, exact conversations, bundles, runner boundaries, historical fixture compatibility, skill structure, ASCII and physical-line policy, generated-artifact currency, repository tests, lint, and whitespace. They do not call a provider, grade concept quality, verify live sources, estimate trigger reliability, or establish user comprehension.
+
+## Known limitations
+
+- One repetition supplies no within-cell variance, standard deviation, calibrated pass probability, or statistical significance. Pairwise results are observations for the exact frozen sessions.
+- Live standards status, vocabulary destinations, licensing, jurisdictional rules, and source content can change. A run is evidence only for its recorded time and retrieval state.
+- Provider adapters expose different tools, isolation guarantees, native instructions, model-identity evidence, and transcript detail. Requested model identity is not provider-confirmed identity when the provider does not echo it.
+- Many concepts admit multiple defensible formulations. Exact-string grading would reward imitation; semantic expectations and cited qualitative judgments still require expert interpretation.
+- The 16 cases are stratified regression examples, not exhaustive coverage of domains, languages, disability access, legal systems, Indigenous governance, ontology formalisms, or metadata registries.
+- No human participant evidence currently establishes that ordinary users or specialists can find, understand, trust, or act on the projected entry.
+
+## Prepared consumer dispatch
+
+Campaign `prepare` accepts `--execution-mode direct|skill-up`, defaulting to `direct`, and passes it to each selected session preparation. Standalone session preparation accepts the same option. The existing positive execution deadline, schedule, three arms, capability reconciliation and exact follow-up inputs remain unchanged. Consumer preparation binds a separate carrier receipt into each packet; campaign `run` uses the existing durable reconciliation loop and the prepared session's dispatch binding.
+
+Production consumer mode is disabled until platform process qualification passes. It cannot silently retry or fall back to direct execution after a native failure. The existing direct mode and diagnostic trial commands remain available. See the [shared runtime guide](../../../docs/evaluation-runtime.md) for retained carrier locations and authoritative outcome readback. A consumer score cannot replace blind grading or turn an integrity check into a semantic grade.
+
+## Recommended immediate follow-up: formative usability evaluation
+
+This study is deliberately non-blocking and was not executed as part of implementation or promotion. Run it as soon as practical after the machine-evaluation protocol is stable:
+
+- conduct two iterative rounds, revising the presentation between rounds;
+- recruit four ordinary likely users and four terminology, metadata, KOS, or ontology specialists per round;
+- include relevant disability and assistive-technology needs where recruitment permits, and record access needs without unnecessary personal data;
+- give each participant no more than five neutral, realistic tasks covering definition discovery, scope and status, examples versus near misses, source/profile interpretation, and the next action;
+- capture informed consent, task outcomes, observed confusion, severity, accessibility findings, and redesign decisions; and
+- report the small qualitative sample as formative evidence, never as statistically representative usability validation.
+
+Until such a study is completed, every campaign and promotion report must state `humanUsabilityEvaluated: false` and avoid claims about end-user usability.

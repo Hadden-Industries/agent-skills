@@ -13,6 +13,7 @@ import {
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
 import * as antigravityModule from "../../scripts/evaluation/antigravity-cli.js";
+import { releaseStdio } from "./fixtures/held-stdio-fixture.mjs";
 
 const { antigravityCliAdapter, inspectAntigravityCliToolchain } =
   antigravityModule;
@@ -133,7 +134,7 @@ async function executionFixture(
   const root = await mkdtemp(join(tmpdir(), "antigravity-adapter-"));
   t.after(async () => {
     if (scenario === "shutdown-ambiguous") {
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_300));
+      await releaseStdio(join(root, "invocations.jsonl"));
     }
     await rm(root, { recursive: true, force: true });
   });
@@ -723,7 +724,9 @@ test("a thrown controller failure retains usage and fails the session", async (t
 });
 
 test("confirmed timeout is terminal, safe, and never retried", async (t) => {
-  const fixture = await executionFixture(t, "timeout", { timeoutMs: 75 });
+  // Allow the fake Node process to record its launch under parallel suite load;
+  // its timeout behavior still hangs until the ordinary fixture budget expires.
+  const fixture = await executionFixture(t, "timeout");
   const result = await executeFixture(fixture);
   assert.equal(result.status, "failed");
   assert.equal(result.failureClass, "timed-out");
@@ -737,14 +740,13 @@ test("confirmed timeout is terminal, safe, and never retried", async (t) => {
 });
 
 test("unconfirmed timeout closure is unsafe and never retried", async (t) => {
-  const fixture = await executionFixture(t, "shutdown-ambiguous", {
-    timeoutMs: 250,
-  });
+  const fixture = await executionFixture(t, "shutdown-ambiguous");
   const result = await executeFixture(fixture);
   assert.equal(result.status, "failed");
   assert.equal(result.failureClass, "timed-out");
   assert.equal(result.closure.status, "unsafe");
   assert.equal(result.closure.reasonCode, "shutdown-ambiguous");
+  assert.equal(await exists(`${fixture.recordFile}.stdio-ready`), true);
   assert.equal(
     (await recordsAt(fixture.recordFile)).filter(({ mode }) => mode === "model")
       .length,

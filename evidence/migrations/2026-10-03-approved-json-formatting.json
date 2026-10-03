@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "decision": "User explicitly required repository JSON formatting instead of formatter exclusions on 2026-10-03. Only whitespace changes; parsed values independently compared before regeneration.",
+  "files": [
+    {
+      "path": "skills/naming-objects-in-software-engineering/assets/naming-policy.json",
+      "sourcePath": "src/naming-objects-in-software-engineering/assets/naming-policy.json",
+      "originalSha256": "09d6936916f245ea799345e729b9173f2010dc6a1906f4709434ee47bdc4ca0a",
+      "sha256": "4fb45619247034d4b423bbf6e440f3655072dc7b3d3c4de8bb58143fe7053e34",
+      "byteLength": 42777,
+      "canonicalValueSha256": "50e886dc6b9b78000ba22ebb32a8de6c7c6928ac12ae1566d2045bace3ac4a07"
+    },
+    {
+      "path": "skills/reading-epubs/scripts/conversion-result.schema.json",
+      "sourcePath": "src/reading-epubs/scripts/conversion-result.schema.json",
+      "originalSha256": "7950232c026e21368dd1c4db910bef969927b73ccc357637b76afe7c583f51e5",
+      "sha256": "d72e2288a68e69546d2942764d1c3e920b181d971af1ca06407968ba5d6af375",
+      "byteLength": 3417,
+      "canonicalValueSha256": "f427fc2bf6f1d97b253bf9649b6405c8c5907951365be3418096860d5261b1f2"
+    }
+  ]
+}

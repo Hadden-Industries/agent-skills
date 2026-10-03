@@ -16,3 +16,5 @@ plugins/plugin-eval
 
 # Evaluation run outputs and raw evidence
 evals/*/results/
+evidence/authoritative/
+evidence/derived/

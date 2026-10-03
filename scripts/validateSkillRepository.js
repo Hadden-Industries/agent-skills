@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import markdown from "prettier/plugins/markdown";
 
+import { compileSuite } from "./evaluation/compile-suite.js";
 import { assertEvaluationCapabilityDefinition } from "./evaluation/capability-reconciliation.js";
 import { selectCanonicalSkillNames } from "./skillSelector.js";
 
@@ -64,13 +65,6 @@ function softWrappedTextNodes(node) {
   }
 
   return node.children.flatMap((child) => softWrappedTextNodes(child));
-}
-
-function childDirectories(directory) {
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right, "en"));
 }
 
 function pathEscapes(directory, candidate) {
@@ -251,23 +245,23 @@ function validateBehavioralEvaluations({
       violations,
     });
 
-    if (Object.hasOwn(evaluation, "assertions")) {
+    if (Object.hasOwn(evaluation, "expectations")) {
       violations.push(
-        `${displayPath} ${evaluationLabel} must use expectations instead of assertions`,
+        `${displayPath} ${evaluationLabel} must use assertions instead of expectations`,
       );
     }
 
     if (
-      !Array.isArray(evaluation.expectations) ||
-      evaluation.expectations.length === 0
+      !Array.isArray(evaluation.assertions) ||
+      evaluation.assertions.length === 0
     ) {
       violations.push(
-        `${displayPath} ${evaluationLabel} must contain a non-empty expectations array`,
+        `${displayPath} ${evaluationLabel} must contain a non-empty assertions array`,
       );
     } else {
       const expectations = new Set();
 
-      for (const expectation of evaluation.expectations) {
+      for (const expectation of evaluation.assertions) {
         if (!isNonEmptyString(expectation)) {
           violations.push(
             `${displayPath} ${evaluationLabel} contains an expectation that is not a non-empty string`,
@@ -406,117 +400,81 @@ function validateTriggerEvaluations({ definition, displayPath, violations }) {
 
 export function validateRepositoryEvaluationLayout({
   skillsRoot,
-  evaluationsRoot,
+  sourcesRoot,
   skillNames,
+  validateContracts = true,
 }) {
-  const resolvedSkillsRoot = resolve(skillsRoot);
-  const resolvedEvaluationsRoot = resolve(evaluationsRoot);
-  const repositoryRoot = resolve(resolvedSkillsRoot, "..");
+  const repositoryRoot = resolve(sourcesRoot, "..");
+  const selectedSkillNames = selectCanonicalSkillNames(sourcesRoot, skillNames);
   const violations = [];
   let evaluationFileReferencesValidated = 0;
-
-  const selectedSkillNames =
-    skillNames === undefined
-      ? childDirectories(resolvedSkillsRoot)
-      : selectCanonicalSkillNames(resolvedSkillsRoot, skillNames);
-
-  for (const skillName of selectedSkillNames) {
-    for (const maintainerOnlyChild of maintainerOnlySkillChildren) {
-      const packagedMaintainerContent = join(
-        resolvedSkillsRoot,
-        skillName,
-        maintainerOnlyChild,
-      );
-
-      if (existsSync(packagedMaintainerContent)) {
+  let evaluationSuitesValidated = 0;
+  if (skillNames === undefined)
+    for (const entry of readdirSync(sourcesRoot, { withFileTypes: true })) {
+      if (
+        entry.isDirectory() &&
+        existsSync(join(sourcesRoot, entry.name, "evals")) &&
+        !existsSync(join(sourcesRoot, entry.name, "SKILL.md"))
+      )
         violations.push(
-          `${relative(repositoryRoot, packagedMaintainerContent)} is maintainer-only content inside a deployable skill directory`,
+          `${join(sourcesRoot, entry.name, "evals")} has no canonical ${join(sourcesRoot, entry.name, "SKILL.md")}`,
         );
-      }
     }
-  }
-
-  const evaluationSuiteNames =
-    skillNames === undefined
-      ? childDirectories(resolvedEvaluationsRoot)
-      : selectedSkillNames.filter((skillName) =>
-          existsSync(join(resolvedEvaluationsRoot, skillName)),
+  for (const skillName of selectedSkillNames) {
+    const skillRoot = join(sourcesRoot, skillName);
+    const evaluationSuite = join(skillRoot, "evals");
+    for (const child of maintainerOnlySkillChildren) {
+      const path = join(skillsRoot, skillName, child);
+      if (existsSync(path))
+        violations.push(
+          path +
+            " is maintainer-only content inside a deployable skill directory",
         );
-
-  for (const skillName of evaluationSuiteNames) {
-    const evaluationSuite = join(resolvedEvaluationsRoot, skillName);
-    const realEvaluationSuite = realpathSync(evaluationSuite);
-    const canonicalSkill = join(resolvedSkillsRoot, skillName, "SKILL.md");
-    const evaluationDefinition = join(evaluationSuite, "evals.json");
-    const triggerDefinition = join(evaluationSuite, "trigger-evals.json");
-    const evaluationDisplayPath = relative(
-      repositoryRoot,
-      evaluationDefinition,
-    );
-    const triggerDisplayPath = relative(repositoryRoot, triggerDefinition);
-
-    if (!existsSync(canonicalSkill)) {
-      violations.push(
-        `${relative(repositoryRoot, evaluationSuite)} has no canonical ${relative(repositoryRoot, canonicalSkill)}`,
-      );
     }
-
-    if (!existsSync(evaluationDefinition)) {
-      violations.push(
-        `${relative(repositoryRoot, evaluationSuite)} has no evals.json`,
-      );
-    } else {
-      const parsedEvaluation = readJson(
-        evaluationDefinition,
-        evaluationDisplayPath,
-        violations,
-      );
-
-      if (parsedEvaluation.parsed) {
+    if (!existsSync(evaluationSuite)) continue;
+    evaluationSuitesValidated += 1;
+    const evaluationPath = join(evaluationSuite, "evals.json");
+    if (!existsSync(evaluationPath))
+      violations.push(evaluationPath + " is required");
+    else {
+      try {
+        const definition = validateContracts
+          ? compileSuite({ repositoryRoot, skillName }).definition
+          : JSON.parse(readFileSync(evaluationPath, "utf8"));
         evaluationFileReferencesValidated += validateBehavioralEvaluations({
-          definition: parsedEvaluation.value,
-          displayPath: evaluationDisplayPath,
-          evaluationSuite,
-          realEvaluationSuite,
-          skillSource: existsSync(canonicalSkill)
-            ? readFileSync(canonicalSkill, "utf8")
-            : undefined,
+          definition,
+          displayPath: evaluationPath,
+          evaluationSuite: skillRoot,
+          realEvaluationSuite: realpathSync(skillRoot),
+          skillSource: readFileSync(join(skillRoot, "SKILL.md"), "utf8"),
           skillName,
           violations,
         });
+      } catch (error) {
+        violations.push(evaluationPath + ": " + error.message);
       }
     }
-
-    if (!existsSync(triggerDefinition)) {
-      violations.push(`${triggerDisplayPath} is required`);
-    } else {
-      const parsedTriggers = readJson(
-        triggerDefinition,
-        triggerDisplayPath,
-        violations,
-      );
-
-      if (parsedTriggers.parsed) {
+    const triggerPath = join(evaluationSuite, "trigger-evals.json");
+    if (!existsSync(triggerPath)) violations.push(triggerPath + " is required");
+    else {
+      const parsed = readJson(triggerPath, triggerPath, violations);
+      if (parsed.parsed)
         validateTriggerEvaluations({
-          definition: parsedTriggers.value,
-          displayPath: triggerDisplayPath,
+          definition: parsed.value,
+          displayPath: triggerPath,
           violations,
         });
-      }
     }
   }
-
-  if (violations.length > 0) {
+  if (violations.length)
     throw new Error(
       "Repository evaluation layout is invalid:\n" +
-        violations.map((violation) => `- ${violation}`).join("\n"),
+        violations.map((value) => "- " + value).join("\n"),
     );
-  }
-
   return {
     deployableSkillsValidated: selectedSkillNames.length,
     evaluationFileReferencesValidated,
-    evaluationSuitesValidated: evaluationSuiteNames.length,
+    evaluationSuitesValidated,
   };
 }
 
@@ -599,16 +557,18 @@ export async function validateCanonicalSkillMarkdownWrapping(
 export async function validateSkillRepository({
   repositoryRoot = defaultRepositoryRoot,
   skillNames,
+  validateContracts = true,
 } = {}) {
   const resolvedRepositoryRoot = resolve(repositoryRoot);
-  const skillsRoot = resolve(resolvedRepositoryRoot, "skills");
+  const skillsRoot = resolve(resolvedRepositoryRoot, "src");
   const selectedSkillNames =
     skillNames === undefined
       ? undefined
       : selectCanonicalSkillNames(skillsRoot, skillNames);
   const evaluationLayout = validateRepositoryEvaluationLayout({
-    skillsRoot,
-    evaluationsRoot: resolve(resolvedRepositoryRoot, "evals"),
+    skillsRoot: resolve(resolvedRepositoryRoot, "skills"),
+    sourcesRoot: skillsRoot,
+    validateContracts,
     skillNames: selectedSkillNames,
   });
   const skillFilesValidated = validateCanonicalSkillAscii(skillsRoot, {

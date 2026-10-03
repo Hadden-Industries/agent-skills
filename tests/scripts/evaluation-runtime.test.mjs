@@ -33,7 +33,7 @@ test("production evaluation modules use the shared SHA-256 owner", async () => {
   for (const relativePath of [
     "../../scripts/evaluation/antigravity-cli.js",
     "../../scripts/evaluation/claude-cli.js",
-    "../../evals/committing-to-git/evaluation-runner.mjs",
+    "../../src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
   ]) {
     const source = await readFile(
       new URL(relativePath, import.meta.url),

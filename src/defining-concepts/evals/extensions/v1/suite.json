@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 1,
+  "skill_name": "defining-concepts",
+  "profile": "defining-v1",
+  "provenance": {
+    "schema_version": 3,
+    "notes": "Definition-first concept-engineering regression suite. Grade only applicable dimensions, apply critical gates before aggregate quality, and distinguish semantic relationship from permission to reuse wording. One run per case and arm provides no within-cell variance or pass probability. Provider-backed grading requires direct evidence for source, version, licensing, conformance, and validation claims."
+  },
+  "protocol": {
+    "cases": {
+      "1": {
+        "portableCaseSha256": "67e4e076e54ba2aba5acb6c94cf6215d3b7a64cab95de68ea37b15837e691408",
+        "required_capabilities": ["url-fetch", "web-search"]
+      },
+      "2": {
+        "portableCaseSha256": "5b20a0f91695d4acde46e39cfc7660906bdf29913477903461a22ccbda8aaf9f",
+        "required_capabilities": []
+      },
+      "3": {
+        "portableCaseSha256": "e9c1fdd8cd34392f97c18e5870c125157ab7295de8355b60303938b826cfd668",
+        "required_capabilities": ["url-fetch", "web-search"]
+      },
+      "4": {
+        "portableCaseSha256": "7c94e1119008ed36caf888fb672f0eeef1993ca16bbc47805fc45090f2061818",
+        "required_capabilities": []
+      },
+      "5": {
+        "portableCaseSha256": "2715448dbd9f44777e53cf79ae946d8b9381b95911c2ba0339a2fd90e8f6928d",
+        "required_capabilities": []
+      },
+      "6": {
+        "portableCaseSha256": "fb66be57e13dd74e5c9e4a0848f52a126bb8f9bf8529cb83793761252c4236b7",
+        "required_capabilities": []
+      },
+      "7": {
+        "portableCaseSha256": "bcfd3f035fcb9b5f0f5ba747598327f85441730c1975398043ee7f97897055da",
+        "required_capabilities": []
+      },
+      "8": {
+        "portableCaseSha256": "0a1c5534d090cbfa31cc81977d85d39a9675180fbcf4743262fcc99bb025143f",
+        "required_capabilities": ["url-fetch", "web-search"]
+      },
+      "9": {
+        "portableCaseSha256": "ff65e3ba13680ada059d32d8121be4414827340139a00cea47e1e272e42d1c69",
+        "required_capabilities": []
+      },
+      "10": {
+        "portableCaseSha256": "4fccba34529c0b26a60f5e091d069602ebacaad38e187ae4bb82031fc012ce6e",
+        "follow_up_turns": [
+          {
+            "id": "select-regulatory-threshold",
+            "prompt": "Use the environmental regulator's reporting sense: a discharge exceedance begins when the measured daily average is strictly greater than 50 milligrams per litre in the named permit jurisdiction."
+          }
+        ],
+        "required_capabilities": []
+      },
+      "11": {
+        "portableCaseSha256": "52f4006230a887e1416ec105eba73aa12e9b0f06013a2b4417e98fcf0a504bbe",
+        "required_capabilities": []
+      },
+      "12": {
+        "portableCaseSha256": "f2ee5841f78a8f094da2e6b728736aafaabc40e5437bf94d84d50e301916daca",
+        "required_capabilities": []
+      },
+      "13": {
+        "portableCaseSha256": "1f474a747e266036017f75df20dac469cc025f3d604a96279b3261a66b1e49a1",
+        "required_capabilities": []
+      },
+      "14": {
+        "portableCaseSha256": "64742869065f53ef84cb2587a5841a6d403a73f74ad3077496362dc6f78886d7",
+        "required_capabilities": []
+      },
+      "15": {
+        "portableCaseSha256": "6ee71c7fb7500be629bcca25bb8713756cb3f0f6b46240a1ed6689fc102fb1b6",
+        "required_capabilities": []
+      },
+      "16": {
+        "portableCaseSha256": "95cc2d7be12a7580f5baefc0b90b26fb72f5a1bd9be03f0b7526f9d6e059c75b",
+        "required_capabilities": []
+      }
+    }
+  },
+  "assurance": {
+    "suite": {
+      "capability_contract": {
+        "schema_version": 1,
+        "capability_ids": ["bundled-skill-files", "url-fetch", "web-search"],
+        "arm_requirements": {
+          "no-skill": [],
+          "current-skill": ["bundled-skill-files"],
+          "candidate-skill": ["bundled-skill-files"]
+        },
+        "compatibility_interpretations": [
+          {
+            "arm": "current-skill",
+            "exact_text": "Requires an agent with web search and URL-fetching tools for vocabulary research and source verification; no bundled scripts or additional runtimes.",
+            "always_required_capabilities": [],
+            "conditional_case_capabilities": ["url-fetch", "web-search"]
+          },
+          {
+            "arm": "candidate-skill",
+            "exact_text": "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.",
+            "always_required_capabilities": ["bundled-skill-files"],
+            "conditional_case_capabilities": ["url-fetch", "web-search"]
+          }
+        ],
+        "campaign_policy": {
+          "default": "deny",
+          "allowed_capabilities": [
+            "bundled-skill-files",
+            "url-fetch",
+            "web-search"
+          ],
+          "uniform_across_arms": true
+        }
+      },
+      "renderers": ["definition-answer", "revision-audit", "concept-package"],
+      "profiles": [
+        "terminology-core",
+        "data-definitions",
+        "epistemic-governance",
+        "formal-ontology",
+        "knowledge-organization-systems",
+        "multilingual-terminology"
+      ],
+      "qualitative_dimensions": [
+        "semantic-accuracy",
+        "boundary-discrimination",
+        "evidence-adequacy",
+        "reuse-and-licensing-judgment",
+        "profile-correctness",
+        "validation-honesty",
+        "presentation-economy"
+      ],
+      "critical_failure_classes": [
+        "wrong-identity-category-scope-or-extension",
+        "circular-or-nondiscriminating-definition",
+        "fabricated-inaccessible-superseded-or-misattributed-evidence",
+        "unsupported-verbatim-reuse",
+        "false-equivalence-or-relation-confusion",
+        "invented-identifier-conformance-validation-or-history",
+        "failed-critical-competency-question-or-boundary-case",
+        "inappropriate-profile-or-out-of-scope-compliance-claim",
+        "illegitimate-universalization-or-authority-claim",
+        "definition-not-first-when-responsibly-available"
+      ],
+      "campaigns": {
+        "calibration": {
+          "case_ids": [1, 3, 8, 9, 10, 11, 12, 13, 14, 15],
+          "arms": ["no-skill", "current-skill", "candidate-skill"],
+          "repetitions": 1
+        }
+      },
+      "metrics": [
+        "critical expectation outcomes with cited output excerpts and reasons",
+        "applicable qualitative-dimension judgments rather than forced scores",
+        "per-case, per-profile, and per-research-stratum summaries",
+        "blind current-versus-candidate pairwise outcomes",
+        "disagreement, provider-failure, invalid-attempt, token, and elapsed-time records",
+        "explicit one-repetition and no-human-usability limitations"
+      ]
+    },
+    "cases": {
+      "1": {
+        "portableCaseSha256": "67e4e076e54ba2aba5acb6c94cf6215d3b7a64cab95de68ea37b15837e691408",
+        "name": "dataset-distribution-boundary",
+        "renderer": "concept-package",
+        "profiles": [
+          "terminology-core",
+          "data-definitions",
+          "knowledge-organization-systems"
+        ],
+        "research_strata": [
+          "category-trap",
+          "source-integrity",
+          "temporal-version",
+          "licensing"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "evidence-adequacy",
+          "reuse-and-licensing-judgment"
+        ],
+        "critical_assertion_indexes": [0, 1, 3, 5]
+      },
+      "2": {
+        "portableCaseSha256": "5b20a0f91695d4acde46e39cfc7660906bdf29913477903461a22ccbda8aaf9f",
+        "name": "contact-preference-status-values",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": ["category-trap", "renderer-economy"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 3]
+      },
+      "3": {
+        "portableCaseSha256": "e9c1fdd8cd34392f97c18e5870c125157ab7295de8355b60303938b826cfd668",
+        "name": "document-language-code-representation",
+        "renderer": "revision-audit",
+        "profiles": [
+          "terminology-core",
+          "data-definitions",
+          "multilingual-terminology"
+        ],
+        "research_strata": [
+          "category-trap",
+          "source-integrity",
+          "temporal-version",
+          "multilingual-equivalence"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "evidence-adequacy",
+          "profile-correctness"
+        ],
+        "critical_assertion_indexes": [0, 1, 4]
+      },
+      "4": {
+        "portableCaseSha256": "7c94e1119008ed36caf888fb672f0eeef1993ca16bbc47805fc45090f2061818",
+        "name": "identity-verification-outcome-process",
+        "renderer": "revision-audit",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": ["category-trap"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 3]
+      },
+      "5": {
+        "portableCaseSha256": "2715448dbd9f44777e53cf79ae946d8b9381b95911c2ba0339a2fd90e8f6928d",
+        "name": "service-availability-status-defects",
+        "renderer": "revision-audit",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": ["category-trap", "renderer-economy"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 3]
+      },
+      "6": {
+        "portableCaseSha256": "fb66be57e13dd74e5c9e4a0848f52a126bb8f9bf8529cb83793761252c4236b7",
+        "name": "invoice-issue-date-neighbors",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": ["category-trap", "renderer-economy"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1]
+      },
+      "7": {
+        "portableCaseSha256": "bcfd3f035fcb9b5f0f5ba747598327f85441730c1975398043ee7f97897055da",
+        "name": "electric-charge-polysemy",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core"],
+        "research_strata": ["polysemy", "category-trap"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 2]
+      },
+      "8": {
+        "portableCaseSha256": "0a1c5534d090cbfa31cc81977d85d39a9675180fbcf4743262fcc99bb025143f",
+        "name": "false-source-attribution",
+        "renderer": "concept-package",
+        "profiles": [
+          "terminology-core",
+          "data-definitions",
+          "epistemic-governance"
+        ],
+        "research_strata": [
+          "source-integrity",
+          "responsible-deferral",
+          "licensing"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "evidence-adequacy",
+          "reuse-and-licensing-judgment",
+          "validation-honesty"
+        ],
+        "critical_assertion_indexes": [0, 1, 2, 4]
+      },
+      "9": {
+        "portableCaseSha256": "ff65e3ba13680ada059d32d8121be4414827340139a00cea47e1e272e42d1c69",
+        "name": "unqualified-definition-fallback",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core", "data-definitions"],
+        "standards_scope": "fallback-without-compliance-claim",
+        "research_strata": ["category-trap", "renderer-economy"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "profile-correctness",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 2]
+      },
+      "10": {
+        "portableCaseSha256": "4fccba34529c0b26a60f5e091d069602ebacaad38e187ae4bb82031fc012ce6e",
+        "name": "clarified-retention-threshold",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": [
+          "category-trap",
+          "temporal-version",
+          "responsible-deferral"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 2]
+      },
+      "11": {
+        "portableCaseSha256": "52f4006230a887e1416ec105eba73aa12e9b0f06013a2b4417e98fcf0a504bbe",
+        "name": "cross-scheme-concept-mapping",
+        "renderer": "concept-package",
+        "profiles": ["terminology-core", "knowledge-organization-systems"],
+        "research_strata": ["mapping", "category-trap"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "profile-correctness",
+          "validation-honesty"
+        ],
+        "critical_assertion_indexes": [0, 1, 2]
+      },
+      "12": {
+        "portableCaseSha256": "f2ee5841f78a8f094da2e6b728736aafaabc40e5437bf94d84d50e301916daca",
+        "name": "competency-question-formalization",
+        "renderer": "concept-package",
+        "profiles": ["terminology-core", "formal-ontology"],
+        "research_strata": ["category-trap", "responsible-deferral"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "profile-correctness",
+          "validation-honesty"
+        ],
+        "critical_assertion_indexes": [0, 1, 3, 4]
+      },
+      "13": {
+        "portableCaseSha256": "1f474a747e266036017f75df20dac469cc025f3d604a96279b3261a66b1e49a1",
+        "name": "partial-multilingual-equivalence",
+        "renderer": "concept-package",
+        "profiles": ["terminology-core", "multilingual-terminology"],
+        "research_strata": [
+          "multilingual-equivalence",
+          "polysemy",
+          "responsible-deferral"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "profile-correctness",
+          "validation-honesty"
+        ],
+        "critical_assertion_indexes": [0, 1, 3]
+      },
+      "14": {
+        "portableCaseSha256": "64742869065f53ef84cb2587a5841a6d403a73f74ad3077496362dc6f78886d7",
+        "name": "community-governed-concept",
+        "renderer": "concept-package",
+        "profiles": ["terminology-core", "epistemic-governance"],
+        "research_strata": [
+          "epistemic-governance",
+          "responsible-deferral",
+          "licensing"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "evidence-adequacy",
+          "profile-correctness",
+          "validation-honesty"
+        ],
+        "critical_assertion_indexes": [0, 1, 2, 3]
+      },
+      "15": {
+        "portableCaseSha256": "6ee71c7fb7500be629bcca25bb8713756cb3f0f6b46240a1ed6689fc102fb1b6",
+        "name": "machine-readable-concept-entry",
+        "renderer": "concept-package",
+        "profiles": ["terminology-core", "data-definitions"],
+        "research_strata": [
+          "source-integrity",
+          "temporal-version",
+          "licensing",
+          "responsible-deferral"
+        ],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "evidence-adequacy",
+          "validation-honesty",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1, 2, 4]
+      },
+      "16": {
+        "portableCaseSha256": "95cc2d7be12a7580f5baefc0b90b26fb72f5a1bd9be03f0b7526f9d6e059c75b",
+        "name": "compact-definition-economy",
+        "renderer": "definition-answer",
+        "profiles": ["terminology-core"],
+        "research_strata": ["renderer-economy", "category-trap"],
+        "qualitative_dimensions": [
+          "semantic-accuracy",
+          "boundary-discrimination",
+          "presentation-economy"
+        ],
+        "critical_assertion_indexes": [0, 1]
+      }
+    }
+  }
+}

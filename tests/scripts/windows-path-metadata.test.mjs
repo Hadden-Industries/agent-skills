@@ -2,6 +2,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rm,
   writeFile,
@@ -58,6 +59,31 @@ async function scriptedProbe(t, source, options = {}) {
     ...options,
   });
 }
+
+test(
+  "the OS metadata worker resolves its dependencies without module autoloading",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const source = await readFile(PROBE_PATH, "utf8");
+    const probe = await scriptedProbe(
+      t,
+      // Reproduce the dependency boundary without a flaky timing threshold.
+      // This fresh worker cannot discover cmdlets through ambient module paths.
+      "$PSModuleAutoLoadingPreference = 'None'\n$env:PSModulePath = ''\n" +
+        source,
+    );
+    t.after(() => probe.close());
+
+    const target = await realpath(tmpdir());
+    const metadata = await probe.read(target);
+    assert.equal(metadata.exists, true);
+    assert.equal(metadata.fullPath, target);
+    assert.equal(metadata.isContainer, true);
+    assert.deepEqual(metadata.attributes, ["Directory"]);
+    assert.equal(metadata.drive.driveType, "Fixed");
+    await probe.close();
+  },
+);
 
 test(
   "one metadata client reuses one real PowerShell process for many paths",

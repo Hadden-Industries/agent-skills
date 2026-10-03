@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "moves": [
+    {
+      "oldPath": "evals/README.md",
+      "newPath": "docs/evaluation-runtime.md"
+    },
+    {
+      "oldPath": "evals/committing-to-git/README.md",
+      "newPath": "src/committing-to-git/evals/README.md"
+    },
+    {
+      "oldPath": "evals/committing-to-git/create-fixture-repository.mjs",
+      "newPath": "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs"
+    },
+    {
+      "oldPath": "evals/committing-to-git/evals.json",
+      "newPath": "src/committing-to-git/evals/evals.json"
+    },
+    {
+      "oldPath": "evals/committing-to-git/evaluation-runner.mjs",
+      "newPath": "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs"
+    },
+    {
+      "oldPath": "evals/committing-to-git/reviewed-change-host.json",
+      "newPath": "src/committing-to-git/evals/assurance/v1/reviewed-change-host.json"
+    },
+    {
+      "oldPath": "evals/committing-to-git/reviewed-change-host.md",
+      "newPath": "src/committing-to-git/evals/assurance/v1/reviewed-change-host.md"
+    },
+    {
+      "oldPath": "evals/committing-to-git/reviewed-change-host.mjs",
+      "newPath": "src/committing-to-git/evals/assurance/v1/reviewed-change-host.mjs"
+    },
+    {
+      "oldPath": "evals/committing-to-git/run-evaluation-session.mjs",
+      "newPath": "src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs"
+    },
+    {
+      "oldPath": "evals/committing-to-git/session-controller.mjs",
+      "newPath": "src/committing-to-git/evals/assurance/v1/session-controller.mjs"
+    },
+    {
+      "oldPath": "evals/committing-to-git/trigger-evals.json",
+      "newPath": "src/committing-to-git/evals/trigger-evals.json"
+    },
+    {
+      "oldPath": "evals/defining-concepts/README.md",
+      "newPath": "src/defining-concepts/evals/README.md"
+    },
+    {
+      "oldPath": "evals/defining-concepts/evals.json",
+      "newPath": "src/defining-concepts/evals/evals.json"
+    },
+    {
+      "oldPath": "evals/defining-concepts/evaluation-runner.mjs",
+      "newPath": "src/defining-concepts/evals/assurance/v1/evaluation-runner.mjs"
+    },
+    {
+      "oldPath": "evals/defining-concepts/evaluation-trial.mjs",
+      "newPath": "src/defining-concepts/evals/assurance/v1/evaluation-trial.mjs"
+    },
+    {
+      "oldPath": "evals/defining-concepts/run-evaluation-session.mjs",
+      "newPath": "src/defining-concepts/evals/assurance/v1/run-evaluation-session.mjs"
+    },
+    {
+      "oldPath": "evals/defining-concepts/session-controller.mjs",
+      "newPath": "src/defining-concepts/evals/assurance/v1/session-controller.mjs"
+    },
+    {
+      "oldPath": "evals/defining-concepts/trigger-evals.json",
+      "newPath": "src/defining-concepts/evals/trigger-evals.json"
+    },
+    {
+      "oldPath": "evals/naming-objects-in-software-engineering/README.md",
+      "newPath": "src/naming-objects-in-software-engineering/evals/README.md"
+    },
+    {
+      "oldPath": "evals/naming-objects-in-software-engineering/evals.json",
+      "newPath": "src/naming-objects-in-software-engineering/evals/evals.json"
+    },
+    {
+      "oldPath": "evals/naming-objects-in-software-engineering/evaluation-runner.mjs",
+      "newPath": "src/naming-objects-in-software-engineering/evals/assurance/v1/evaluation-runner.mjs"
+    },
+    {
+      "oldPath": "evals/naming-objects-in-software-engineering/trigger-evals.json",
+      "newPath": "src/naming-objects-in-software-engineering/evals/trigger-evals.json"
+    },
+    {
+      "oldPath": "evals/reading-epubs/README.md",
+      "newPath": "src/reading-epubs/evals/README.md"
+    },
+    {
+      "oldPath": "evals/reading-epubs/evals.json",
+      "newPath": "src/reading-epubs/evals/evals.json"
+    },
+    {
+      "oldPath": "evals/reading-epubs/fixtures/sample.epub",
+      "newPath": "src/reading-epubs/evals/files/sample.epub"
+    },
+    {
+      "oldPath": "evals/reading-epubs/measure_conversion.py",
+      "newPath": "src/reading-epubs/evals/analysis/measure_conversion.py"
+    },
+    {
+      "oldPath": "evals/reading-epubs/trigger-evals.json",
+      "newPath": "src/reading-epubs/evals/trigger-evals.json"
+    }
+  ]
+}

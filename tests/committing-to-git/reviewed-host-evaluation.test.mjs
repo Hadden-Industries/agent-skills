@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 async function subject() {
-  return import("../../evals/committing-to-git/reviewed-change-host.mjs");
+  return import("../../src/committing-to-git/evals/assurance/v1/reviewed-change-host.mjs");
 }
 
 function record() {
@@ -164,7 +164,7 @@ test("the host fixture has five reviewed docs, real prior check evidence and an 
   const child = spawnSync(
     process.execPath,
     [
-      "evals/committing-to-git/create-fixture-repository.mjs",
+      "src/committing-to-git/evals/assurance/v1/create-fixture-repository.mjs",
       "--scenario",
       "reviewed-docs-orchestration",
       "--destination",

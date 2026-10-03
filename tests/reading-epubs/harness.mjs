@@ -38,7 +38,7 @@ export function runScript(script, args = [], options = {}) {
 
   const result = spawnSync(
     command,
-    [...prefix, join(SCRIPT_DIR, script), ...args],
+    [...prefix, "-B", join(SCRIPT_DIR, script), ...args],
     {
       cwd: options.cwd ?? tmpdir(),
       encoding: "utf8",

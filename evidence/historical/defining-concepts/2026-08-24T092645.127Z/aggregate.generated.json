@@ -1,0 +1,610 @@
+{
+  "metadata": {
+    "skill_name": "defining-concepts",
+    "skill_path": "skills/defining-concepts",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-08-24T09:35:31Z",
+    "evals_run": [
+      1,
+      4,
+      7,
+      8
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 8,
+        "failed": 2,
+        "total": 10,
+        "time_seconds": 58.654,
+        "tokens": 4141,
+        "tool_calls": 4,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": true,
+          "evidence": "final.md contains exactly the ordered headings '1. Semantic Analysis', '2. Standardization & Reuse Check', '3. The Formulated Definition', '4. ISO/IEC 11179-4 Compliance Audit', and '5. Verified Sources'. Section 3 contains the definition, and no prefatory or closing conversational filler appears in the final answer."
+        },
+        {
+          "text": "The transcript shows established vocabulary research before the final definition is settled.",
+          "passed": true,
+          "evidence": "Before the final agent_message, transcript.jsonl records completed searches for the W3C DCAT 3 Dataset definition, the DCMI Dataset definition, ISO terminology, and lexicographic/etymological sources. An intermediate progress message then reports the W3C dataset/distribution distinction before link validation and the final artifact."
+        },
+        {
+          "text": "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+          "passed": true,
+          "evidence": "In addition to the initial site search, transcript.jsonl item_3 is a completed web_search item whose query is the exact deep link https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset. This is the strongest fetch/open evidence exposed by this Codex JSONL schema, and it targets the Dataset entry rather than only the DCAT homepage."
+        },
+        {
+          "text": "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
+          "passed": true,
+          "evidence": "Section 2 explicitly says 'Path A - reuse of the normative W3C definition' and contrasts the W3C wording with DCMI's narrower 'Data encoded in a defined structure' wording. The transcript records completed W3C and DCMI searches before the final response, and both quoted definitions match those authoritative pages."
+        },
+        {
+          "text": "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
+          "passed": true,
+          "evidence": "Section 3 begins 'A collection of data', and section 1 independently labels the genus 'Collection of data'."
+        },
+        {
+          "text": "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+          "passed": true,
+          "evidence": "Section 1 states that the dataset is the conceptual collection and distinguishes a downloadable file or serialization as a distribution and an API response as a representation returned through a data service. Section 4 repeats that files, serializations, and service responses remain representations rather than the dataset."
+        },
+        {
+          "text": "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
+          "passed": true,
+          "evidence": "The single-sentence definition is a positive genus-differentia noun phrase beginning 'A collection of data'. It does not use 'Dataset' circularly, contains no abbreviation, does not define constituent terms, and is concise and understandable independently of the surrounding notes."
+        },
+        {
+          "text": "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
+          "passed": true,
+          "evidence": "Section 4 explicitly evaluates all five required properties: 'singular', 'states positively what the concept is', 'forms a complete descriptive phrase', 'contains no abbreviations', and 'does not embed definitions of constituent concepts'."
+        },
+        {
+          "text": "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
+          "passed": false,
+          "evidence": "The raw transcript does evidence searches covering W3C, DCMI, ISO, and lexicographic/etymological resources named in Repositories Queried. However, the final note claims all listed URLs were verified as active, while the JSONL shows an exact-URL completed event only for the W3C Dataset deep link and no exact-URL open/fetch event for the DCMI, Merriam-Webster, Etymonline, Distribution, or Data Service links. The claimed verification process is therefore not evidenced."
+        },
+        {
+          "text": "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it.",
+          "passed": false,
+          "evidence": "Verified Sources lists six URLs. transcript.jsonl contains a completed exact-URL event only for https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset; the other five exact URLs were not opened in the recorded run. Independent grading-time checks confirm the listed pages currently support the attributed semantics, but that cannot substitute for the assertion's required during-run opens."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 8,
+        "failed": 2,
+        "total": 10,
+        "time_seconds": 54.333,
+        "tokens": 3375,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": true,
+          "evidence": "final.md contains exactly the five ordered headings from '### 1. Semantic Analysis' through '### 5. Verified Sources'; section 3 contains the formulated definition."
+        },
+        {
+          "text": "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+          "passed": true,
+          "evidence": "Before the final answer, transcript web-search queries target NIST identity verification and outcome/result entries at ISO and FIBO. The final analysis then distinguishes NIST's process semantics from the result-category genus 'Determination'."
+        },
+        {
+          "text": "The reuse decision states whether a source definition is reused, adapted, or insufficient and ties that decision to fetched evidence.",
+          "passed": false,
+          "evidence": "The final states Path C and names NIST and an ISO outcome entry, but the JSONL records search actions only. It does not expose a fetched page or page content that proves the claimed evidence was retrieved."
+        },
+        {
+          "text": "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+          "passed": true,
+          "evidence": "Section 1 names the genus 'Determination', and section 3 begins 'A determination reached by...'."
+        },
+        {
+          "text": "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+          "passed": true,
+          "evidence": "The definition delimits the determination as concerning 'the association between an individual and presented identity evidence' without defining the verification process."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+          "passed": true,
+          "evidence": "The definition describes a determination reached by a process; it is not phrased as a process, artifact, code, or value domain."
+        },
+        {
+          "text": "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+          "passed": true,
+          "evidence": "None of those labels appears in section 3. They appear only in section 4's refinement explanation."
+        },
+        {
+          "text": "The compliance audit identifies and explains the corrected process-result category error.",
+          "passed": true,
+          "evidence": "Section 4 explicitly says the starter's process-category error was removed because the concept is a determination produced by a process."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+          "passed": true,
+          "evidence": "The output explicitly says no exact reusable definition for 'Identity Verification Outcome' was located; it does not attribute that exact compound term to a source. The named repositories correspond to visible site-targeted search queries."
+        },
+        {
+          "text": "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports.",
+          "passed": false,
+          "evidence": "Six final URLs are followed by the blanket claim that they were verified, but the JSONL exposes no URL-specific open/fetch result or destination content for any of them. Liveness and exact semantic support therefore cannot be verified from the retained evidence."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 7,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.7,
+        "passed": 7,
+        "failed": 3,
+        "total": 10,
+        "time_seconds": 79.108,
+        "tokens": 4866,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": true,
+          "evidence": "final.md has exactly the numbered top-level sections 1. Semantic Analysis, 2. Standardization & Reuse Check, 3. The Formulated Definition, 4. ISO/IEC 11179-4 Compliance Audit, and 5. Verified Sources, in that order. Section 3 contains the bold Electric charge definition, and final.md contains no preamble or conversational filler."
+        },
+        {
+          "text": "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+          "passed": false,
+          "evidence": "The raw transcript records searches for IUPAC, IEC, BIPM, VIM, and related sources, but it contains no page-fetch/open event and no returned term-bearing entry. The final answer's descriptions of IUPAC, IEC, and BIPM therefore cannot establish that those entries or metrology materials were actually fetched and checked."
+        },
+        {
+          "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+          "passed": true,
+          "evidence": "Section 1 explicitly labels the evaluated designation as Charge, explains its financial, legal, custodial, and task-related polysemy, recommends Electric charge for a domain-independent registry, and retains charge as an admitted synonym or scoped short label."
+        },
+        {
+          "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+          "passed": true,
+          "evidence": "Both Section 1 and the Section 3 definition use the genus Scalar physical quantity. Section 4 also explicitly distinguishes the quantity from its physical-system bearer."
+        },
+        {
+          "text": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+          "passed": true,
+          "evidence": "The differentia invoke net electric current, identifying the electric sense. Sections 1 and 4 expressly reject the financial/price, legal/accusation, assigned-duty/task, and battery-condition senses."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+          "passed": true,
+          "evidence": "Section 3 identifies electric charge as a scalar physical quantity of a system. Electric current occurs only in a relation that delimits change in charge; the coulomb is separately labeled as the SI unit in Section 4; the elementary charge constant is not used as the concept; and the physical system is the bearer rather than the quantity itself."
+        },
+        {
+          "text": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+          "passed": true,
+          "evidence": "The definition uses only the current-time relationship needed for the stated delimitation and remains a single declarative noun phrase. Section 4 separately identifies the SI unit and says measurement procedures, unit-realization details, force consequences, conservation, and quantization were excluded."
+        },
+        {
+          "text": "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
+          "passed": true,
+          "evidence": "Section 2 explicitly chooses Path B - Adapt and explains that it added an immediate genus, identified the bearer as a physical system, and reframed the integral relationship for independent intelligibility rather than claiming exact reuse."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
+          "passed": false,
+          "evidence": "The transcript visibly searches the named scientific repositories, but no fetched/opened page is visible. In particular, the claims that specific IUPAC and IEC formulations were adapted and that BIPM corroborates the metrology are not supported by a page-fetch event or captured page content."
+        },
+        {
+          "text": "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it.",
+          "passed": false,
+          "evidence": "final.md lists five source URLs and asserts they are active, but transcript.jsonl shows no URL fetch/open and no source-page content. Search-query events alone are insufficient to verify that each exact final URL was live and supported its attributed claim."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 8,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 8,
+        "failed": 2,
+        "total": 10,
+        "time_seconds": 53.144,
+        "tokens": 3328,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": true,
+          "evidence": "final.md contains exactly the five ordered headings from '### 1. Semantic Analysis' through '### 5. Verified Sources'; section 3 contains the formulated definition and the retained final answer has no prefatory conversation."
+        },
+        {
+          "text": "The agent opens the supplied W3C Data Catalog Vocabulary URL and checks its content instead of accepting the colleague's attribution.",
+          "passed": true,
+          "evidence": "Before the answer, transcript.jsonl records a completed web_search action whose query is the exact supplied URL, followed by an exact-term/site search. The final then explicitly rejects the claimed attribution."
+        },
+        {
+          "text": "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
+          "passed": true,
+          "evidence": "Section 2 says DCAT 'does not define or mention the exact term' and 'is not authoritative for this justice-evidence concept'; the W3C entry in section 5 is retained only as a rejected attribution."
+        },
+        {
+          "text": "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
+          "passed": true,
+          "evidence": "The raw JSONL shows a pre-answer search batch containing 'justice evidence retention authorization status vocabulary' and 'evidence retention authorized refused expired status', in addition to the exact compound and W3C site query."
+        },
+        {
+          "text": "Path C is selected unless a fetched authoritative source actually supplies an extensionally and intensionally matching definition; any different path is justified with direct evidence.",
+          "passed": true,
+          "evidence": "Section 2 explicitly selects 'Path C - new definition created' after reporting that the supplied DCAT destination does not define the exact term. No source is claimed to supply a matching reusable definition."
+        },
+        {
+          "text": "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
+          "passed": true,
+          "evidence": "Section 1 names the genus 'Status', and section 3 begins 'A status that indicates...'."
+        },
+        {
+          "text": "The differentia concern authorization for continued retention and do not enumerate Unknown, Pending review, Authorized, Refused, or Expired in the final definition.",
+          "passed": true,
+          "evidence": "Section 3 delimits the status by 'whether continued retention of an evidence item is authorized' and contains none of the five value labels."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
+          "passed": true,
+          "evidence": "The definition's subject is an abstract status that indicates an authorization condition. It does not define the concept as the item, an action or decision, a workflow, a field, a code, or the set of permissible values."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried, Source Provenance, and URL-verification claims report only actions and semantic support evidenced by the transcript.",
+          "passed": false,
+          "evidence": "The transcript evidences broad justice-domain searches and a URL-specific W3C action, but it contains no URL-specific access to the Evidence Management Institute, Department of Justice, or Merriam-Webster pages. The final nevertheless claims the first two were queried/used and says all four URLs were verified as active, exceeding the retained execution evidence."
+        },
+        {
+          "text": "[CRITICAL] Every URL retained in Verified Sources resolves and supports the exact compound or constituent meaning for which it is cited.",
+          "passed": false,
+          "evidence": "Four URLs are retained, but the raw JSONL evidences URL-specific access only to the supplied W3C page. It does not contain completed URL-specific actions or destination content for the Evidence Management Institute, DOJ, or Merriam-Webster citations, so resolution and semantic support for every retained URL are not established by the run."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4,
+        "passed": 4,
+        "failed": 6,
+        "total": 10,
+        "time_seconds": 35.187,
+        "tokens": 3659,
+        "tool_calls": 1,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": false,
+          "evidence": "final.md uses a registry table, examples, and a Turtle block. It does not contain the five required numbered top-level sections or place the formulated definition in section 3."
+        },
+        {
+          "text": "The transcript shows established vocabulary research before the final definition is settled.",
+          "passed": true,
+          "evidence": "Before the final response, transcript.jsonl records a completed search of the W3C DCAT 3 Dataset definition, Distribution, Data Service, and conceptual-entity material."
+        },
+        {
+          "text": "The agent fetches the authoritative W3C Data Catalog Vocabulary Dataset entry rather than relying only on a search-result excerpt or a vocabulary homepage.",
+          "passed": false,
+          "evidence": "The only web event is a site-restricted search query. The JSONL contains no completed exact-URL open/fetch event for https://www.w3.org/TR/vocab-dcat-3/#Class:Dataset, so the run could have relied on search results."
+        },
+        {
+          "text": "The reuse section identifies Path A, B, or C and explains that choice from the definitions actually found instead of assuming reuse from the prompt.",
+          "passed": false,
+          "evidence": "The final answer has no Standardization & Reuse Check section, identifies none of Path A, B, or C, and does not compare candidate vocabulary definitions."
+        },
+        {
+          "text": "The definition classifies Dataset as a collection of data or an equally immediate superordinate concept.",
+          "passed": true,
+          "evidence": "The registry Definition field begins 'A conceptual collection of data'."
+        },
+        {
+          "text": "The differentia preserve the conceptual dataset and do not conflate it with a distribution, downloadable file, serialization, metadata record, or API response.",
+          "passed": true,
+          "evidence": "The definition says 'conceptual collection', while the scope and exclusion notes explicitly distinguish files, serializations, API endpoints and responses, and catalog metadata records. The examples apply the same distinctions consistently."
+        },
+        {
+          "text": "The final definition is singular, positive, standalone, non-circular, concise, and free of uncommon abbreviations and embedded definitions.",
+          "passed": true,
+          "evidence": "The Definition field is one concise positive noun phrase beginning 'A conceptual collection of data'. It does not use Dataset circularly, contains no abbreviation, does not embed definitions of constituent concepts, and can be understood without the surrounding notes."
+        },
+        {
+          "text": "The compliance audit evaluates each of the five mandatory ISO/IEC 11179-4 requirements explicitly rather than reporting an unsupported blanket pass.",
+          "passed": false,
+          "evidence": "No ISO/IEC 11179-4 compliance audit appears, and none of the five mandatory requirements is explicitly evaluated."
+        },
+        {
+          "text": "[CRITICAL] Every source named in Repositories Queried was actually queried, and no repository, search, or verification action is fabricated.",
+          "passed": false,
+          "evidence": "The required Repositories Queried field is absent. Treating the assertion as vacuously true would reward omission of the auditable provenance surface that the expectation is meant to test."
+        },
+        {
+          "text": "[CRITICAL] Every URL in Verified Sources was opened successfully during the run and its destination supports the exact semantic claim attributed to it.",
+          "passed": false,
+          "evidence": "The required Verified Sources section is absent. The final answer nevertheless includes W3C deep links, but the transcript records only one site search and no exact-URL open/fetch events for those links."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4,
+        "passed": 4,
+        "failed": 6,
+        "total": 10,
+        "time_seconds": 7.846,
+        "tokens": 296,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": false,
+          "evidence": "The response is a three-field preferred-designation/definition/note answer and contains none of the required numbered sections."
+        },
+        {
+          "text": "The agent researches identity-verification terminology and distinguishes sources defining the process from sources defining an outcome or result.",
+          "passed": false,
+          "evidence": "The transcript contains no web action or research step; it proceeds directly to the answer."
+        },
+        {
+          "text": "The reuse decision states whether a source definition is reused, adapted, or insufficient and ties that decision to fetched evidence.",
+          "passed": false,
+          "evidence": "There is no reuse decision, source, or fetched evidence."
+        },
+        {
+          "text": "The genus is outcome, result, determination, or an equally immediate result-category concept rather than process or activity.",
+          "passed": true,
+          "evidence": "The definition begins 'Result reached by...', using an immediate result-category genus."
+        },
+        {
+          "text": "The differentia connect the result to evaluation of identity evidence without embedding a definition of identity verification.",
+          "passed": true,
+          "evidence": "The definition says the result is reached after evaluating a person's identity evidence and does not embed a separate definition of identity verification."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not describe the concept as the verification process, evidence artifact, stored code, or value domain.",
+          "passed": true,
+          "evidence": "The concept is a result reached by a process, not the process, evidence, code, or value domain."
+        },
+        {
+          "text": "Pass, Fail, and Inconclusive do not appear as an enumerated list inside the final definition.",
+          "passed": true,
+          "evidence": "The labels appear only in a separate note, not inside the definition."
+        },
+        {
+          "text": "The compliance audit identifies and explains the corrected process-result category error.",
+          "passed": false,
+          "evidence": "No compliance audit or category-error explanation is present."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried and Source Provenance make no unsupported claim of an exact standardized compound term.",
+          "passed": false,
+          "evidence": "The required Repositories Queried and Source Provenance fields are absent, leaving no substantive provenance evidence to grade."
+        },
+        {
+          "text": "[CRITICAL] Every final citation is live, fetched, and semantically relevant to the claim it supports.",
+          "passed": false,
+          "evidence": "The response provides no final citations and the transcript records no retrieval."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 7,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4,
+        "passed": 4,
+        "failed": 6,
+        "total": 10,
+        "time_seconds": 23.24,
+        "tokens": 2670,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": false,
+          "evidence": "final.md uses an unnumbered Standardized semantic artifact heading followed by YAML and a prose precision assessment. It does not contain the five required numbered top-level sections or place the formulated definition in Section 3."
+        },
+        {
+          "text": "The research fetches a term-bearing entry from an authoritative scientific vocabulary such as IUPAC or IEC and checks relevant metrology material where used.",
+          "passed": false,
+          "evidence": "transcript.jsonl contains no web-search or page-fetch events, and final.md provides no scientific-vocabulary or metrology source."
+        },
+        {
+          "text": "The semantic analysis addresses the polysemy of Charge and evaluates Electric Charge as a more precise designation without silently changing the user's designation.",
+          "passed": true,
+          "evidence": "The YAML preserves registry_designation: Charge, marks electric charge as preferred and charge as an admitted short form, lists excluded non-physics senses, and explicitly concludes that Charge is not precise enough when unqualified."
+        },
+        {
+          "text": "The genus is physical quantity or scalar physical quantity rather than a generic property or material object.",
+          "passed": true,
+          "evidence": "concept_type is physical_quantity, and the definition begins Scalar physical quantity. The body or particle is described as the bearer whose interaction is characterized, not as the concept itself."
+        },
+        {
+          "text": "The differentia identify the electric or electrostatic sense and exclude the financial, legal, assignment, and battery-state senses.",
+          "passed": true,
+          "evidence": "The definition identifies electromagnetic interaction, while excluded_concepts explicitly lists price or fee, legal accusation, assigned duty or responsibility, and battery state of charge."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not conflate electric charge with the coulomb, another unit, the elementary charge constant, electric current, or a charged physical object.",
+          "passed": true,
+          "evidence": "The definition identifies a scalar physical quantity that characterizes a body's or particle's interaction. The YAML separately labels the coulomb as si_unit, elementary charge as reference_constant, electric current as a related concept/current relation, and the body or particle as the bearer."
+        },
+        {
+          "text": "Any formula or measurement detail appears only when essential and does not turn the definition into a procedure.",
+          "passed": false,
+          "evidence": "The artifact includes Coulomb's law, I = dQ/dt, a dimensional formula, an exact elementary-charge value, unit expression, quantization detail, and multiple symbols. It gives no rationale that all of these are essential to the concept definition, and several are explanatory consequences or reference data rather than delimiting characteristics. The definition is not procedural, but the assertion's essential-only condition is not met."
+        },
+        {
+          "text": "The reuse action distinguishes exact scientific reuse from adaptation needed for ISO/IEC 11179-4 form.",
+          "passed": false,
+          "evidence": "The answer cites no reused definition, identifies no source formulation, and provides no reuse-versus-adaptation action or account of changes for ISO/IEC 11179-4 form."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried and provenance claims correspond to visible searches and fetched pages.",
+          "passed": false,
+          "evidence": "The answer has no Repositories Queried or provenance account, and the raw transcript contains no searches or fetched pages."
+        },
+        {
+          "text": "[CRITICAL] Every final source is live and directly discusses the scientific term or constituent concept attributed to it.",
+          "passed": false,
+          "evidence": "No final sources are supplied, and the transcript contains no source-verification activity. The required source evidence is absent rather than vacuously satisfied."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 8,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.6,
+        "passed": 6,
+        "failed": 4,
+        "total": 10,
+        "time_seconds": 24.02,
+        "tokens": 1016,
+        "tool_calls": 2,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "[CRITICAL] The final response contains the formulated definition in section 3 and uses the five required numbered top-level sections in order without conversational filler.",
+          "passed": false,
+          "evidence": "The response presents a definition, a five-value list, and a source-verification paragraph, but none of the five required numbered top-level sections or a section 3 definition."
+        },
+        {
+          "text": "The agent opens the supplied W3C Data Catalog Vocabulary URL and checks its content instead of accepting the colleague's attribution.",
+          "passed": true,
+          "evidence": "Before the final answer, transcript.jsonl records a completed web_search action whose query is the exact supplied W3C URL, followed by a separate exact-compound action. The final rejects the attribution."
+        },
+        {
+          "text": "[CRITICAL] The W3C Data Catalog Vocabulary is not presented as an authoritative definition of Evidence Retention Authorization Status because its destination does not define that exact term.",
+          "passed": true,
+          "evidence": "The final explicitly says DCAT 3 does not define the exact term, evidence retention, or the value set and must not be cited as the authoritative source."
+        },
+        {
+          "text": "The agent searches relevant justice, records-management, archival, or metadata vocabularies before selecting a reuse path.",
+          "passed": false,
+          "evidence": "The only raw web actions target the supplied W3C URL and the exact compound. No broader justice, records-management, archival, or metadata-vocabulary search is recorded."
+        },
+        {
+          "text": "Path C is selected unless a fetched authoritative source actually supplies an extensionally and intensionally matching definition; any different path is justified with direct evidence.",
+          "passed": true,
+          "evidence": "Although it does not use the label 'Path C', the answer substantively chooses that path: it calls the output a proposed justice-registry definition after finding that the supplied source does not define the term, and it neither reuses nor adapts DCAT wording."
+        },
+        {
+          "text": "The genus is authorization status, recorded condition, determination status, or another abstract status concept rather than evidence item or review process.",
+          "passed": true,
+          "evidence": "The definition begins with the abstract genus 'The current state', not an evidence item or review activity."
+        },
+        {
+          "text": "The differentia concern authorization for continued retention and do not enumerate Unknown, Pending review, Authorized, Refused, or Expired in the final definition.",
+          "passed": true,
+          "evidence": "The definition sentence concerns whether an evidence item may continue to be retained under applicable authority and contains none of the five labels. The labels are enumerated only after the definition."
+        },
+        {
+          "text": "[CRITICAL] The final definition does not conflate the status with the evidence item, retention action, authorization decision, review workflow, database field, stored code, or value domain.",
+          "passed": false,
+          "evidence": "The definition describes the concept as 'the current state of the decision', making it a state of an authorization decision rather than directly modeling the recorded authorization status. This is the decision/status conflation the assertion prohibits."
+        },
+        {
+          "text": "[CRITICAL] Repositories Queried, Source Provenance, and URL-verification claims report only actions and semantic support evidenced by the transcript.",
+          "passed": false,
+          "evidence": "The required Repositories Queried and Source Provenance fields are absent, so there is no substantive repository/provenance report to verify. The narrower W3C URL-verification claim is supported by the URL-specific web action, but that alone does not establish the full assertion."
+        },
+        {
+          "text": "[CRITICAL] Every URL retained in Verified Sources resolves and supports the exact compound or constituent meaning for which it is cited.",
+          "passed": true,
+          "evidence": "The answer retains only the supplied W3C URL. The transcript records a completed URL-specific action for it, and the cited purpose is a negative verification: DCAT's data-catalog scope does not supply the claimed exact justice-registry term."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 0.775,
+        "stddev": 0.05,
+        "min": 0.7,
+        "max": 0.8
+      },
+      "time_seconds": {
+        "mean": 61.3098,
+        "stddev": 12.0994,
+        "min": 53.144,
+        "max": 79.108
+      },
+      "tokens": {
+        "mean": 3927.5,
+        "stddev": 728.2447,
+        "min": 3328,
+        "max": 4866
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.45,
+        "stddev": 0.1,
+        "min": 0.4,
+        "max": 0.6
+      },
+      "time_seconds": {
+        "mean": 22.5732,
+        "stddev": 11.2329,
+        "min": 7.846,
+        "max": 35.187
+      },
+      "tokens": {
+        "mean": 1910.25,
+        "stddev": 1531.974,
+        "min": 296,
+        "max": 3659
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.33",
+      "time_seconds": "+38.7",
+      "tokens": "+2017"
+    }
+  },
+  "notes": []
+}

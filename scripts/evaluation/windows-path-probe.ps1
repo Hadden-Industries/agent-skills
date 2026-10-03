@@ -1,5 +1,12 @@
 $ErrorActionPreference = "Stop"
 
+# Resolve the worker's OS dependencies directly. First-use cmdlet discovery can
+# scan ambient module locations under a fresh isolated home before parsing the
+# first request. PSHOME belongs to the absolute Windows PowerShell executable
+# selected by the caller; module names alone would still search PSModulePath.
+Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
+Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Management/Microsoft.PowerShell.Management.psd1" -ErrorAction Stop
+
 function Get-WindowsPathMetadata {
     param(
         [Parameter(Mandatory = $true)]

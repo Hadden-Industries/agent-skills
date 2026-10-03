@@ -614,10 +614,8 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
         finishTurn();
       } else if (message.method === "turn/interrupt") {
         if (scenario === "cleanup-response-timeout") {
-          if (!state.cleanupExitScheduled) {
-            state.cleanupExitScheduled = true;
-            setTimeout(() => process.exit(0), 750);
-          }
+          // Stay alive until stdin EOF. Only the adapter's bounded cleanup
+          // deadlines can advance unanswered requests to normal shutdown.
           return;
         }
         writeMessage({ id: message.id, result: {} });

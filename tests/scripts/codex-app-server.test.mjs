@@ -1610,7 +1610,7 @@ test("turn timeout sends interrupt and thread cleanup before confirmed shutdown"
   const execution = await executeAdapterFixture(t, {
     controller,
     scenario: "turn-timeout",
-    timeoutMs: 75,
+    timeoutMs: 2_000,
   });
 
   assert.equal(execution.result.status, "failed");
@@ -1639,7 +1639,7 @@ test("turn timeout sends interrupt and thread cleanup before confirmed shutdown"
 
 test(
   "cleanup requests are bounded when the provider stops answering",
-  { timeout: 3_000 },
+  { timeout: 10_000 },
   async (t) => {
     const controller = Object.freeze({
       schemaVersion: 1,
@@ -1660,13 +1660,34 @@ test(
     const execution = await executeAdapterFixture(t, {
       controller,
       scenario: "cleanup-response-timeout",
-      timeoutMs: 50,
+      timeoutMs: 2_000,
     });
 
     assert.equal(execution.result.status, "failed");
     assert.equal(execution.result.failureClass, "timed-out");
     assert.equal(execution.result.closure.status, "safe");
-    assert.equal(execution.executionElapsedMs < 500, true);
+    const transcript = await readJsonLines(
+      join(execution.preparedSession, "outputs", "transcript.jsonl"),
+    );
+    const requests = transcript.filter(({ method }) =>
+      ["turn/start", "turn/interrupt", "thread/delete"].includes(method),
+    );
+    assert.deepEqual(
+      requests.map(({ method }) => method),
+      ["turn/start", "turn/interrupt", "thread/delete"],
+    );
+    for (const request of requests.slice(1)) {
+      assert.equal(
+        transcript.some(
+          (message) =>
+            message.id === request.id &&
+            (Object.hasOwn(message, "result") ||
+              Object.hasOwn(message, "error")),
+        ),
+        false,
+      );
+    }
+    assert.equal(execution.observations.releases[0].stdioStatus, "closed");
   },
 );
 

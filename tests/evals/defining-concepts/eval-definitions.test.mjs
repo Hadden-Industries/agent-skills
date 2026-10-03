@@ -1,18 +1,17 @@
+import { compileSuite } from "../../../scripts/evaluation/compile-suite.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../../..");
-const definitions = JSON.parse(
-  readFileSync(
-    path.join(root, "evals", "defining-concepts", "evals.json"),
-    "utf8",
-  ),
-);
+const definitions = compileSuite({
+  repositoryRoot: root,
+  skillName: "defining-concepts",
+}).definition;
 const triggers = JSON.parse(
   readFileSync(
-    path.join(root, "evals", "defining-concepts", "trigger-evals.json"),
+    path.join(root, "src/defining-concepts/evals/trigger-evals.json"),
     "utf8",
   ),
 );
@@ -54,7 +53,7 @@ const candidateCompatibility =
   "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.";
 
 test("behavioral manifest declares the approved 16-case three-arm protocol", () => {
-  assert.equal(definitions.schema_version, 3);
+  assert.equal(definitions.contractVersion, 1);
   assert.equal(definitions.skill_name, "defining-concepts");
   assert.deepEqual(
     definitions.evals.map(({ id }) => id),
@@ -77,13 +76,13 @@ test("behavioral manifest declares the approved 16-case three-arm protocol", () 
     );
     assert.ok(evaluationCase.research_strata.length > 0);
     assert.ok(evaluationCase.qualitative_dimensions.length > 0);
-    assert.ok(evaluationCase.critical_expectation_indexes.length > 0);
+    assert.ok(evaluationCase.critical_assertion_indexes.length > 0);
     assert.ok(
-      evaluationCase.critical_expectation_indexes.every(
+      evaluationCase.critical_assertion_indexes.every(
         (index) =>
           Number.isSafeInteger(index) &&
           index >= 0 &&
-          index < evaluationCase.expectations.length,
+          index < evaluationCase.assertions.length,
       ),
     );
   }
@@ -142,10 +141,10 @@ test("legacy cases preserve semantic concerns without the obsolete fixed rendere
   for (const evaluationCase of legacy) {
     assert.match(evaluationCase.expected_output, /defin/iu);
   }
-  assert.match(legacy[0].expectations.join("\n"), /distribution/iu);
-  assert.match(legacy[2].expectations.join("\n"), /representation|code|tag/iu);
-  assert.match(legacy[3].expectations.join("\n"), /process|outcome|result/iu);
-  assert.match(legacy[7].expectations.join("\n"), /attribution|source|DCAT/iu);
+  assert.match(legacy[0].assertions.join("\n"), /distribution/iu);
+  assert.match(legacy[2].assertions.join("\n"), /representation|code|tag/iu);
+  assert.match(legacy[3].assertions.join("\n"), /process|outcome|result/iu);
+  assert.match(legacy[7].assertions.join("\n"), /attribution|source|DCAT/iu);
 });
 
 test("ISO fallback remains proportional and profile scope is explicit", () => {
@@ -153,7 +152,7 @@ test("ISO fallback remains proportional and profile scope is explicit", () => {
   assert.deepEqual(fallback.profiles, ["terminology-core", "data-definitions"]);
   assert.equal(fallback.standards_scope, "fallback-without-compliance-claim");
   assert.match(
-    fallback.expectations.join("\n"),
+    fallback.assertions.join("\n"),
     /must not claim ISO\/IEC 11179 compliance/iu,
   );
 
@@ -178,7 +177,7 @@ test("ISO fallback remains proportional and profile scope is explicit", () => {
   ]);
   for (const id of [11, 12, 13, 14]) {
     assert.doesNotMatch(
-      profileCases.get(id).expectations.join("\n"),
+      profileCases.get(id).assertions.join("\n"),
       /11179 compliance/iu,
     );
   }

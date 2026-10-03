@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +24,11 @@ function createRepository(t) {
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".agent-tools", "bin"), { recursive: true });
+  mkdirSync(join(root, ".venv", "Scripts"), { recursive: true });
+  mkdirSync(
+    join(root, ".agent-tools", "tessl", "node_modules", "@tessl", "cli", "bin"),
+    { recursive: true },
+  );
   mkdirSync(join(root, "skills", "zebra"), { recursive: true });
   mkdirSync(join(root, "skills", "alpha", "nested"), { recursive: true });
   writeFileSync(join(root, "skills", "zebra", "SKILL.md"), "# Zebra\n");
@@ -36,9 +47,9 @@ test("canonical skills are discovered recursively in stable path order", (t) => 
   ]);
 });
 
-test("repository tools resolve to the platform-specific managed wrapper", (t) => {
+test("repository tools resolve to native Windows tools and POSIX wrappers", (t) => {
   const root = createRepository(t);
-  const windowsWrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const windowsWrapper = join(root, ".venv", "Scripts", "skills-ref.exe");
   const posixWrapper = join(root, ".agent-tools", "bin", "skills-ref");
   writeFileSync(windowsWrapper, "@echo off\n");
   writeFileSync(posixWrapper, "#!/usr/bin/env sh\n");
@@ -55,7 +66,7 @@ test("repository tools resolve to the platform-specific managed wrapper", (t) =>
 
 test("skill validation invokes skills-ref once per canonical skill", (t) => {
   const root = createRepository(t);
-  const wrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const wrapper = join(root, ".venv", "Scripts", "skills-ref.exe");
   const calls = [];
   writeFileSync(wrapper, "@echo off\n");
 
@@ -75,7 +86,7 @@ test("skill validation invokes skills-ref once per canonical skill", (t) => {
 
 test("skill validation invokes skills-ref only for selected canonical skills", (t) => {
   const root = createRepository(t);
-  const wrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const wrapper = join(root, ".venv", "Scripts", "skills-ref.exe");
   const calls = [];
   writeFileSync(wrapper, "@echo off\n");
 
@@ -96,7 +107,7 @@ test("skill validation invokes skills-ref only for selected canonical skills", (
 
 test("skill validation rejects unknown selected canonical skills", (t) => {
   const root = createRepository(t);
-  const wrapper = join(root, ".agent-tools", "bin", "skills-ref.cmd");
+  const wrapper = join(root, ".venv", "Scripts", "skills-ref.exe");
   writeFileSync(wrapper, "@echo off\n");
 
   assert.throws(
@@ -115,7 +126,16 @@ test("skill validation rejects unknown selected canonical skills", (t) => {
 
 test("skill lint invokes Tessl against the repository plugin root", (t) => {
   const root = createRepository(t);
-  const wrapper = join(root, ".agent-tools", "bin", "tessl.cmd");
+  const wrapper = join(
+    root,
+    ".agent-tools",
+    "tessl",
+    "node_modules",
+    "@tessl",
+    "cli",
+    "bin",
+    "tessl.js",
+  );
   const calls = [];
   writeFileSync(wrapper, "@echo off\n");
 
@@ -127,7 +147,16 @@ test("skill lint invokes Tessl against the repository plugin root", (t) => {
     },
   });
 
-  assert.deepEqual(calls, [[wrapper, ["skill", "lint", "."], { cwd: root }]]);
+  assert.deepEqual(calls, [
+    [
+      wrapper,
+      ["skill", "lint", "."],
+      {
+        cwd: root,
+        env: { ...process.env, TESSL_AUTO_UPDATE_INTERVAL_MINUTES: "0" },
+      },
+    ],
+  ]);
 });
 
 test("missing managed wrappers produce an actionable setup error", (t) => {
@@ -139,32 +168,66 @@ test("missing managed wrappers produce an actionable setup error", (t) => {
   );
 });
 
-test("Windows wrappers use an explicit command interpreter without shell mode", () => {
+test("Windows Node entry points use the current Node executable without a shell", () => {
   const calls = [];
 
-  runRepositoryTool(
-    "C:\\repo tools\\skills-ref.cmd",
-    ["validate", "skill path"],
-    {
-      commandInterpreter: "C:\\Windows\\System32\\cmd.exe",
-      platform: "win32",
-      spawn(command, args, options) {
-        calls.push([command, args, options]);
-        return { status: 0 };
-      },
+  runRepositoryTool("C:\\repo tools\\tessl.js", ["validate", "skill path"], {
+    platform: "win32",
+    spawn(command, args, options) {
+      calls.push([command, args, options]);
+      return { status: 0 };
     },
-  );
+  });
 
   assert.deepEqual(calls, [
     [
-      "C:\\Windows\\System32\\cmd.exe",
-      [
-        "/d",
-        "/s",
-        "/c",
-        '"C:\\repo tools\\skills-ref.cmd" validate "skill path"',
-      ],
-      { stdio: "inherit" },
+      process.execPath,
+      ["C:\\repo tools\\tessl.js", "validate", "skill path"],
+      { shell: false, stdio: "inherit" },
     ],
   ]);
+});
+
+test("Windows command scripts are rejected before spawn", () => {
+  for (const command of ["C:\\tools\\skills-ref.cmd", "C:\\tools\\other.BAT"]) {
+    let launched = false;
+    assert.throws(
+      () =>
+        runRepositoryTool(command, ["validate"], {
+          platform: "win32",
+          spawn() {
+            launched = true;
+            return { status: 0 };
+          },
+        }),
+      /native executable or Node entry point/u,
+    );
+    assert.equal(launched, false);
+  }
+});
+
+test("native tools receive shell metacharacters as literal arguments", (t) => {
+  const root = createRepository(t);
+  const script = join(root, "record-arguments.cjs");
+  const output = join(root, "arguments.json");
+  const values = [
+    "%PATH%",
+    "!PATH!",
+    "x&whoami",
+    "x|whoami",
+    "x>out",
+    "x^y",
+    'x"y',
+    "x\ny",
+    "dir with space\\",
+    "",
+  ];
+  writeFileSync(
+    script,
+    'require("node:fs").writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)));',
+  );
+  runRepositoryTool(process.execPath, [script, output, ...values], {
+    platform: "win32",
+  });
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), values);
 });

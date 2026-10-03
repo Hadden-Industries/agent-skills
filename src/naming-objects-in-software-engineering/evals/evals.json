@@ -1,0 +1,233 @@
+{
+  "skill_name": "naming-objects-in-software-engineering",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a Python function in our order-management service named `def process_data(data):`. It takes an incoming raw order payload dictionary from the checkout queue, validates the schema against our domain rules, calculates tax and shipping totals, and returns an immutable `OrderRecord`. Recommend a semantically precise name for this function and explain what defects the original name had.",
+      "expected_output": "The model rejects process_data, identifying 'process' and 'data' as vague forbidden tokens under the skill. It recommends a discriminated designation such as create_order_record_from_checkout_payload or build_order_record (replacing 'data' with the exact entity 'order' and specifying the action), and explains the semantic defect.",
+      "files": [],
+      "assertions": [
+        "Identifies 'process' and 'data' as vague tokens that conceal the real concept.",
+        "Names the entity being operated on as Order or Checkout Payload.",
+        "Proposes a semantically precise function name using snake_case for Python (e.g. create_order_record_from_checkout_payload, build_order_record, or process_order_payload).",
+        "Distinguishes the input entity (raw checkout payload) from the output entity (OrderRecord).",
+        "Does not propose generic alternatives like handle_data, do_processing, or run_order."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We are designing an account service interface in TypeScript. We have three methods: 1) One that looks up a customer profile in an in-memory Redis cache; 2) One that calls an external Stripe billing HTTP API to retrieve payment methods; 3) One that computes the customer's discount tier based on order history. What should each method be named according to strict verb conventions?",
+      "expected_output": "The model uses 'get' for the in-memory cache lookup (getCustomerProfile), 'fetch' for the remote HTTP network call (fetchPaymentMethods), and 'calculate' or 'derive' for the pure computation (calculateDiscountTier), explaining the I/O and operational distinction of each verb.",
+      "files": [],
+      "assertions": [
+        "Uses 'get' for the in-memory or cached lookup (e.g. getCustomerProfile).",
+        "Uses 'fetch' for the remote network/HTTP operation (e.g. fetchPaymentMethods).",
+        "Uses 'calculate' or 'derive' for the computation (e.g. calculateDiscountTier or deriveDiscountTier).",
+        "Explains the verb distinction between in-memory access, remote I/O, and pure computation.",
+        "Formats method names in camelCase per TypeScript conventions without Hungarian or type prefixes."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "In our repository, we have two Python files: 1) An executable standalone CLI script that operators run manually to backfill missing transaction records; 2) An importable library module containing reusable database query helpers for transactions. What should each file be named?",
+      "expected_output": "The model names the standalone script with kebab-case (backfill-transactions.py) and the importable module with snake_case (transaction_queries.py), explaining the policy distinction between standalone scripts and importable modules.",
+      "files": [],
+      "assertions": [
+        "Names the standalone CLI script using kebab-case with .py extension (e.g. backfill-transactions.py).",
+        "Names the importable library module using snake_case with .py extension (e.g. transaction_queries.py).",
+        "Explicitly explains that standalone executable Python scripts follow kebab-case while importable modules follow snake_case under repository policy.",
+        "Does not use camelCase or mixed separators for either Python file."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "In our core backend services, we have two classes: 1) `UserManager`, which handles password hashing, JWT creation, database querying for user profiles, and sending welcome emails; 2) `data_helper`, which converts dictionaries to JSON, parses CSV exports, and formats dates. Critique these names and recommend how they should be refactored for bounded responsibility.",
+      "expected_output": "The model identifies 'UserManager' and 'data_helper' as vague bucket nouns / god objects that conceal unbounded responsibilities. When pushed back by the lead, it refuses to sycophantically fold or endorse keeping the vague bucket nouns; it explains the maintainability hazard, and constructively proposes pragmatic options (like a scoped facade or transition coordinator) while keeping method verbs explicitly discriminated.",
+      "files": [],
+      "assertions": [
+        "Identifies 'UserManager' and 'data_helper' as vague bucket nouns / god objects that conceal unbounded responsibilities.",
+        "Recommends decomposing into cohesive, single-responsibility services (e.g. UserAuthenticationService, UserProfileRepository, UserNotifier, JsonFormatter).",
+        "In the follow-up turn, stands firm against sycophantic fold-over: does not unconditionally endorse keeping 'UserManager' and 'data_helper'.",
+        "Explains the maintainability and cognitive costs of bucket nouns ('Manager', 'Helper') when under user pushback.",
+        "Constructively proposes pragmatic options (such as a scoped facade or transition coordinator) while keeping method verbs explicitly discriminated."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In our microservice deployment configuration, we have these boolean flags in `deploy_config.py`:\n`disable_telemetry = False`\n`skip_ssl_validation = False`\n`not_authorized = False`\n`ignore_rate_limits = True`\nAt our call sites, engineers are writing logic like `if not disable_telemetry and not not_authorized:`. Identify the defect hazards with these names, refactor each to affirmative propositions, and show how call-site logic is simplified.",
+      "expected_output": "The model identifies negative boolean anti-patterns that induce double negatives ('not not_authorized', 'not disable_telemetry'). It refactors them to affirmative propositions: enable_telemetry = True, enforce_ssl_validation = True, is_authorized = True, enforce_rate_limits = False, and demonstrates simplified call-site logic.",
+      "files": [],
+      "assertions": [
+        "Flags negative boolean anti-patterns (disable_telemetry, skip_ssl_validation, not_authorized, ignore_rate_limits) that induce double negatives.",
+        "Refactors to affirmative propositions (e.g. enable_telemetry, enforce_ssl_validation, is_authorized, enforce_rate_limits or bypass_rate_limits).",
+        "Demonstrates how affirmative flags simplify call-site conditionals (e.g. 'if enable_telemetry and is_authorized:').",
+        "Explains the cognitive reduction and defect prevention achieved by eliminating negation at call sites."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "We are designing a PostgreSQL relational schema for an e-commerce platform. We need names for: 1) A table storing registered customer accounts; 2) A view showing only active customers; 3) A table partition storing 2026 transactions; 4) A boolean column indicating if email is verified; 5) A timestamp column recording when the account was created in milliseconds since UNIX epoch.",
+      "expected_output": "The model recommends singular snake_case for the table (customer_account or customer), snake_case for the view (active_customer), partition naming indicating boundary (customer_transaction_2026 or transaction_p2026), a predicate prefix for the boolean column (is_email_verified), and an explicit unit suffix for the timestamp (created_at_epoch_ms).",
+      "files": [],
+      "assertions": [
+        "Recommends a singular snake_case noun for the table representing row entities (e.g. customer_account or customer).",
+        "Recommends snake_case for the database view (e.g. active_customer).",
+        "Recommends a clear partition designation indicating parent and boundary (e.g. customer_transaction_2026 or transaction_p2026).",
+        "Prefixes the boolean column with an assertive predicate like 'is_' (e.g. is_email_verified).",
+        "Appends explicit unit and representation suffix to the timestamp column (e.g. created_at_epoch_ms)."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "In our Python payment worker, we have a boolean variable: `is_not_expired = True` indicating whether a customer's subscription voucher is still valid. Critique this name and propose the standard conformant designation.",
+      "expected_output": "The model flags is_not_expired as a negative boolean anti-pattern causing double negatives. When pushed back to match the legacy database column name, it applies Section 16 (Preserve external designations at boundaries): explains that the legacy database column name is preserved at the SQL mapping boundary, but must NOT leak into the domain layer, keeping domain state as affirmative is_active or is_valid.",
+      "files": [],
+      "assertions": [
+        "Flags 'is_not_expired' as a negative boolean anti-pattern causing double negatives ('if not is_not_expired').",
+        "Proposes affirmative replacement such as 'is_valid' or 'is_active'.",
+        "In the follow-up turn, refuses to let the legacy database column name leak into the domain layer.",
+        "Applies the boundary preservation pattern: map the legacy column at the database adapter boundary while maintaining affirmative domain state.",
+        "Explains that internal code clarity outranks matching legacy database schema spelling."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "In a configuration object, we have three boolean flags: `not_empty = false`, `disable_cache = false`, and `valid = true`. What issues exist with these names, and how should they be refactored?",
+      "expected_output": "The model identifies negative naming in not_empty and disable_cache (which cause double negatives when checked or negated) and the vague bare adjective valid. It refactors them to positive assertive predicates such as is_populated, enable_cache, and is_authorized or is_syntactically_valid.",
+      "files": [],
+      "assertions": [
+        "Flags 'not_empty' and 'disable_cache' as negative boolean anti-patterns causing double negatives.",
+        "Proposes positive assertive boolean replacements (e.g. is_populated / has_items, enable_cache / use_cache).",
+        "Flags 'valid' as underspecified and clarifies what kind of validity is checked (e.g. is_valid, is_authorized, is_verified).",
+        "Prefixes boolean predicates with standard auxiliary verbs (is, has, can, enable)."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "In a high-throughput transaction auditing service, a developer authored four data structures in Python:\n1) An in-memory list holding 50 parsed transactions: `transaction_list`\n2) A lazy generator yielding transactions line-by-line from an S3 bucket: `get_transactions()`\n3) An opaque cursor string for paginating through the next batch of records: `transactions_page`\n4) A hash map storing transactions indexed by their UUID: `transactions_map`\nEvaluate these designations for Hungarian type leakage, misleading verbs, and cardinality, and provide semantically precise designations.",
+      "expected_output": "The model critiques Hungarian type encoding (_list, _map), misleading verb get on a lazy generator, and misleading cardinality on the cursor. It replaces them with plural transactions, iter_transactions() or stream_transactions(), transaction_cursor or pagination_cursor, and key-qualified transactions_by_id.",
+      "files": [],
+      "assertions": [
+        "Replaces Hungarian 'transaction_list' with a natural plural noun (e.g. 'transactions').",
+        "Flags 'get_transactions' on a generator and replaces it with 'iter_transactions' or 'stream_transactions'.",
+        "Flags 'transactions_page' for an opaque cursor and replaces it with 'transaction_cursor' or 'pagination_cursor'.",
+        "Replaces Hungarian 'transactions_map' with a key-qualified noun (e.g. 'transactions_by_id').",
+        "Explains the semantic difference between materialized collections, lazy streams, and indexed lookup structures."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Our team is debating how to name an internal Python package module that wraps a third-party C library named 'FastParser_v2'. The repository README specifies that all files must use kebab-case, PEP 8 specifies snake_case without hyphens for importable modules, and Python's import syntax rejects hyphens (e.g., `import fast-parser` is a syntax error). How should this conflict be resolved according to the policy precedence ladder?",
+      "expected_output": "The model resolves the conflict using the precedence ladder: Language/runtime/syntax validity (Level 1) overrides repository instructions (Level 2). Because Python import syntax rejects hyphens, the importable module must use snake_case (fast_parser.py), not kebab-case.",
+      "files": [],
+      "assertions": [
+        "Applies the policy precedence ladder: language/runtime validity sits above repository instructions.",
+        "Notes that hyphens in Python module names cause syntax errors on import statements.",
+        "Concludes that the importable module must use snake_case (e.g. fast_parser.py), overriding the repository's kebab-case rule.",
+        "Explains that syntax validity is non-negotiable and not a mere stylistic preference."
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "In our public payment API, an endpoint JSON response field is currently named `cust_nbr`. We want to rename it to `customer_account_id` to eliminate the abbreviation. Several external clients consume this endpoint in production. How should this rename be executed safely without breaking clients?",
+      "expected_output": "The model recognizes that cust_nbr is an external contract that cannot be modified atomically. It recommends introducing customer_account_id alongside a compatibility alias/mapping for cust_nbr, deprecating cust_nbr with a versioned migration window, and updating internal code first before retiring the legacy field.",
+      "files": [],
+      "assertions": [
+        "Identifies that the field is an externally observable contract and cannot be renamed via a direct destructive change.",
+        "Recommends introducing the precise internal name with a compatibility mapping/alias.",
+        "Proposes a versioned deprecation or migration strategy allowing external consumers to transition.",
+        "Warns against breaking external callers synchronously."
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Review this diff chunk from a PR for naming issues and provide structured findings using the format `[semantic | lexical | authority | compatibility] current -> proposed -> reason -> evidence`:\n```diff\n- def get_user_by_email(email: str):\n+ def handle_user_data(user_info, check_not_empty=False):\n+     result = fetch_cached_profile(user_info)\n+     return result\n```",
+      "expected_output": "The model identifies multiple issues: replacement of specific get_user_by_email with vague handle_user_data, vague parameter user_info, negative boolean parameter check_not_empty, and improper verb fetch for an in-memory cached profile (get_cached_profile). It structures the review with the requested tags and fields.",
+      "files": [],
+      "assertions": [
+        "Uses the structured review format [semantic | lexical | authority | compatibility].",
+        "Identifies vague tokens in 'handle_user_data' and 'user_info'.",
+        "Flags 'check_not_empty' as a negative boolean parameter anti-pattern.",
+        "Inspects the function body call site and flags verb misuse in 'fetch_cached_profile' for an in-memory cache lookup (should be 'get').",
+        "Proposes semantically precise replacements with clear justifications."
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "In a modern Node.js/JavaScript ESM web application repository, we need to create four new files: (1) a domain parsing module for customer invoices, (2) an automation/build script executed by an npm script that rebuilds search indices, (3) a unit test file for the invoice parser, and (4) an architectural seam test verifying domain boundaries. What are the correct file names for these four artefacts under modern best practices and why?",
+      "expected_output": "The model distinguishes the artefact kinds: (1) domain ESM module uses lowerCamelCase.js (e.g. invoiceParser.js), (2) standalone build/automation script uses kebab-case.mjs (e.g. rebuild-index.mjs), (3) faceted unit test uses <module>.<facet>.test.js (e.g. invoiceParser.unit.test.js), and (4) architectural seam test uses <seam>.architecture.test.js (e.g. domainBoundaries.architecture.test.js). It explains the distinction between importable domain modules and standalone CLI scripts.",
+      "files": [],
+      "assertions": [
+        "Assigns lowerCamelCase.js (e.g., invoiceParser.js) to the domain module.",
+        "Assigns kebab-case.mjs (e.g., rebuild-index.mjs) to the standalone automation/build script.",
+        "Assigns a faceted or unit test extension (e.g., invoiceParser.unit.test.js or invoiceParser.test.js) to the test file.",
+        "Assigns an architectural seam test extension (e.g., domainBoundaries.architecture.test.js or seam.architecture.test.js).",
+        "Explicitly contrasts importable ESM modules with standalone executable scripts."
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "We are developing a React billing checkout form. A developer drafted these props and handlers:\n(1) A callback prop passed to `<CheckoutModal />` that triggers when payment completes: `handlePaymentSuccess`\n(2) The internal event handler function defined inside `<CheckoutForm />` that handles form submit: `onFormSubmit`\n(3) A boolean prop passed to disable the submit button: `noSubmit={true}`\n(4) A custom hook that queries and synchronizes billing payment methods: `getPaymentMethods()`\nCritique these designations against React standards and naming principles, and provide the conformant designations.",
+      "expected_output": "The model identifies: (1) Prop vs handler inversion: callback prop must use onPaymentSuccess (not handle), while internal handler must use handleFormSubmit (not on). (2) Negative boolean prop noSubmit creates double negatives; replace with affirmative isDisabled or state-derived isSubmitting. (3) Hook must start with use (e.g. usePaymentMethods) per React Rules of Hooks, and avoid get for reactive subscriptions.",
+      "files": [],
+      "assertions": [
+        "Identifies prop vs handler inversion: callback prop must use 'onPaymentSuccess' (not handle).",
+        "Identifies internal handler inversion: internal function must use 'handleFormSubmit' (not on).",
+        "Flags negative boolean prop 'noSubmit' and replaces with affirmative predicate (e.g. 'isDisabled' or 'isSubmitting').",
+        "Identifies hook rule violation in 'getPaymentMethods' and replaces with 'usePaymentMethods'.",
+        "Explains the distinction between callback prop contracts (onEvent) and internal implementation handlers (handleEvent)."
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "In a web design system, we are implementing a reusable invoice summary card. We need designations for: (1) a CSS custom property (variable) defining the primary brand theme color, (2) a CSS class for the card container, the card's header sub-element, and a highlighted variation of the card container using BEM methodology, and (3) an HTML custom data attribute placed on the DOM element to store the customer ID for end-to-end testing and analytics. Provide the exact designations and cite the governing specifications.",
+      "expected_output": "The model specifies: (1) CSS custom property using --kebab-case (e.g. --color-primary), citing W3C CSS Custom Properties Level 1. (2) BEM classes using block__element--modifier: block invoice-card, element invoice-card__header, modifier invoice-card--highlighted. (3) HTML data attribute using data-kebab-case (e.g. data-customer-id), citing the W3C HTML5 specification.",
+      "files": [],
+      "assertions": [
+        "Names the CSS custom property starting with '--' in kebab-case (e.g. --color-primary).",
+        "Applies BEM syntax (block__element--modifier) for container, sub-element, and modifier (e.g. invoice-card, invoice-card__header, invoice-card--highlighted).",
+        "Names the HTML data attribute starting with 'data-' in kebab-case (e.g. data-customer-id).",
+        "Cites authoritative standards (W3C CSS Custom Properties Level 1, W3C HTML5 data-* specification, BEM methodology)."
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "In a Python billing microservice, a developer proposed: (1) an exception class named `InvoiceNotFoundException`, (2) a generic TypeVar named `type_t`, (3) a function returning a lazy generator that yields invoices one-by-one named `get_invoices()`, and (4) a materialized in-memory list of invoices named `invoice_generator`. Evaluate these designations, identify any violations of Python standards, and provide the correct designations.",
+      "expected_output": "The model critiques all four: (1) PEP 8 requires custom exception classes to end with Error, not Exception; rename to InvoiceNotFoundError. (2) PEP 484/695 requires TypeVars to use UpperCamelCase; rename to T, KeyT, or InvoiceT. (3) Lazy generators yielding over time should be named with iter_* or stream_* (e.g. iter_invoices()), while get_* implies a direct lookup or value return. (4) In-memory lists should not be called generator; rename to a plural noun or collection name (e.g. invoices or invoice_list).",
+      "files": [],
+      "assertions": [
+        "Rejects 'InvoiceNotFoundException' and specifies the mandatory 'Error' suffix (e.g. InvoiceNotFoundError) per PEP 8.",
+        "Replaces 'type_t' with an UpperCamelCase TypeVar name (e.g. T, InvoiceT, or KeyT) per PEP 484/695.",
+        "Recommends an iter_* or stream_* prefix (e.g. iter_invoices) for the lazy generator yielding items.",
+        "Replaces 'invoice_generator' with a plural noun or collection descriptor (e.g. invoices or invoice_list) for the materialized in-memory collection.",
+        "Explicitly articulates the semantic difference between lazy generators and materialized collections."
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "We are implementing a PowerShell administrative module for managing cloud virtual machines. A developer proposed these designations:\n(1) A function that checks whether a virtual machine is reachable, named `Check-VirtualMachine`.\n(2) A function that provisions and initializes a new virtual machine, named `Create-VirtualMachine`.\n(3) A parameter for the virtual machine shutdown timeout, named `-timeout` (storing seconds).\n(4) A switch parameter to bypass disk caching during transfer, named `-NoCache`.\nEvaluate these designations according to official Microsoft PowerShell cmdlet design guidelines and approved verbs. Identify any violations and provide the standard conformant designations.",
+      "expected_output": "The model critiques all four: (1) 'Check' is an unapproved PowerShell verb; replace with approved Diagnostic verb 'Test' (e.g. Test-VirtualMachine). (2) 'Create' is unapproved; replace with approved Lifecycle/Creation verb 'New' (e.g. New-VirtualMachine). (3) Parameters must use PascalCase and explicit units (e.g. -TimeoutSeconds). (4) Switch parameters must use affirmative phrasing, rejecting negative switches like -NoCache (replace with -SkipCache, -Force, or -BypassCache).",
+      "files": [],
+      "assertions": [
+        "Flags 'Check' as an unapproved PowerShell verb and replaces it with approved Diagnostic verb 'Test' (e.g. Test-VirtualMachine).",
+        "Flags 'Create' as an unapproved PowerShell verb and replaces it with approved verb 'New' (e.g. New-VirtualMachine).",
+        "Replaces '-timeout' with a PascalCase parameter encoding explicit units (e.g. -TimeoutSeconds).",
+        "Flags '-NoCache' as a negative switch anti-pattern and recommends affirmative switch phrasing (e.g. -SkipCache or -BypassCache).",
+        "Cites Microsoft Approved Verbs for PowerShell Commands and singular PascalCase noun rules."
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "We are developing an XSLT 3.0 transformation stylesheet converting customer invoices into an XHTML report. A developer authored these declarations:\n(1) A user-defined stylesheet function that formats an ISO date string into a localized display date, declared as `<xsl:function name=\"format-date\">`.\n(2) A named template that renders customer billing summary rows, named `<xsl:template name=\"RenderCustomerBillingSummary\">`.\n(3) A template mode used for generating compact preview cards, declared as `<xsl:template match=\"invoice\" mode=\"PREVIEW_CARD\">`.\n(4) A stylesheet parameter storing the maximum number of items per page, declared as `<xsl:param name=\"page_size\">`.\nEvaluate these designations according to W3C XSLT 2.0/3.0 recommendations and XML namespaces standards. Identify defects and provide conformant designations.",
+      "expected_output": "The model critiques all four: (1) Un-namespaced functions in XSLT 2.0+ are illegal (reserved for system/XPath functions); user functions MUST include a namespace prefix (e.g. f:format-date). (2) Named templates should follow consistent kebab-case or lowerCamelCase (e.g. render-customer-billing-summary or renderCustomerBillingSummary) rather than PascalCase. (3) Template modes should use kebab-case or lowerCamelCase (e.g. preview-card), not UPPER_SNAKE_CASE. (4) Stylesheet parameters follow kebab-case or lowerCamelCase (e.g. page-size or pageSize), not snake_case.",
+      "files": [],
+      "assertions": [
+        "Explains that un-namespaced stylesheet functions ('format-date') are illegal in XSLT 2.0+ and requires an explicit QName namespace prefix (e.g. f:format-date).",
+        "Recommends kebab-case or lowerCamelCase for named templates (e.g. format-billing-summary or renderCustomerBillingSummary) rather than PascalCase.",
+        "Flags 'PREVIEW_CARD' in template mode as non-idiomatic UPPER_SNAKE_CASE and recommends kebab-case (e.g. preview-card).",
+        "Recommends kebab-case or lowerCamelCase for stylesheet parameters (e.g. page-size or pageSize) rather than snake_case.",
+        "Cites W3C XSLT Recommendations and XML Namespaces specification requirements."
+      ]
+    }
+  ]
+}

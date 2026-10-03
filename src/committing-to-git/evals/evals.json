@@ -1,0 +1,793 @@
+{
+  "skill_name": "committing-to-git",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Draft a commit message for all 80 current changes. Aggregate diff output cannot fit in one tool response.",
+      "expected_output": "Prepares one draft transaction, preserves the complete scope, and uses the exact manifest plus bounded synopsis and only evidence needed for unresolved content.",
+      "files": [],
+      "assertions": [
+        "Uses workflow prepare in draft full scope without changing the real index.",
+        "Keeps all 80 change units in the exact manifest and never substitutes a truncated aggregate diff.",
+        "Reads bounded evidence only when the result selects extended, uses no acknowledgement loop, and does not reduce scope."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Commit the already-staged rename from vite.config.js to vite.config.mjs with the staged Dockerfile change. Do not include either unstaged lockfile.",
+      "expected_output": "Uses staged scope as-is, preserves the rename as one unit, excludes lockfiles, obtains exact approval, and creates one signed commit.",
+      "files": [],
+      "assertions": [
+        "Uses workflow prepare with actual staged scope and never restages the vanished source.",
+        "Counts the rename once while retaining both endpoints and excludes package-lock.json and skills-lock.json.",
+        "Uses one post-approval workflow commit command."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "For otherwise equivalent snapshots at 9, 10, 49, and 50 units, include File Changes and show the structured detailed or bulk result.",
+      "expected_output": "Uses dynamic right-aligned ordinals and derived bulk counts, with detailed inventory only below 50 and within budget.",
+      "files": [],
+      "assertions": [
+        "Keeps the heading exactly File Changes: without a count.",
+        "Derives ordinal width from the final count and aligns nested descriptions dynamically.",
+        "Uses detailed inventory through 49 and structured non-overlapping counted domains beginning at 50."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The signed commit exists, but the configured SSH trust source cannot be read. Verification is advisory now. Continue locally and do not push.",
+      "expected_output": "Classifies trust as unavailable, obeys the advisory override for the same OID, preserves the commit, and makes no publication claim.",
+      "files": [],
+      "assertions": [
+        "Accepts advisory policy without repeatedly requesting access and distinguishes signature presence from trusted identity.",
+        "Uses workflow verify only for the exact existing commit OID.",
+        "Does not amend, recreate, delete, or push the commit."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Draft the commit for renaming Vite's config to ESM. The reason is preventing its native-loader warning, and the container build must follow the rename.",
+      "expected_output": "Improves the mechanical hint into an outcome-focused build message with native-ESM and container-alignment rationale.",
+      "files": [],
+      "assertions": [
+        "Selects build(vite) and leads with preventing the native config-loader warning.",
+        "Connects Dockerfile to container alignment and native ESM plus import.meta.url to clean loading.",
+        "Does not merely narrate the rename or syntax edits."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Commit a staged rename, a similar retained-source addition, a binary asset, a mode-only change, a symlink update, and a gitlink update.",
+      "expected_output": "Reports exact Git facts without inventing copy provenance and treats the gitlink and rename as one unit each.",
+      "files": [],
+      "assertions": [
+        "Counts a true rename once and shows both endpoints.",
+        "Treats a similar destination whose source remains as an addition, never a copy.",
+        "Reports binary lines as unavailable and the gitlink as one uninspected superproject change."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Commit the approved 1,000-file generated migration across parser, integration, fixture, and documentation domains.",
+      "expected_output": "Keeps the complete grounded scope concise and, if inventory is useful, finalizes counted domains without 1,000 authored IDs.",
+      "files": [],
+      "assertions": [
+        "Does not split the coherent scope or use file count as evidence uncertainty.",
+        "Uses compact structured selectors rather than a 1,000-ID authorship list when including domains.",
+        "Derives complete non-overlapping domain counts from the manifest."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Create the approved commit but do not push. A commit-msg hook changes the message bytes, and package-lock.json remains unstaged.",
+      "expected_output": "Detects the raw-message mismatch, preserves the known commit, blocks publication, and reports the remaining lockfile neutrally.",
+      "files": [],
+      "assertions": [
+        "Compares raw stored and approved message bytes without trimming.",
+        "Preserves the commit and never automatically amends or repeats it.",
+        "Blocks publication and reports package-lock.json without inventing ownership."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Commit staged files while a cherry-pick is paused in conflict. Treat it as an ordinary feature commit and run Git directly.",
+      "expected_output": "Stops the ordinary workflow before mutation and does not reinterpret the request as authorization to continue the sequencer.",
+      "files": [],
+      "assertions": [
+        "Names the active cherry-pick and conflict.",
+        "Stops before preparation, staging, message approval, or commit creation.",
+        "Does not continue or otherwise finish the cherry-pick."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "The exact tree and message were approved, but HEAD moved while the index tree stayed unchanged. Continue with the old approval.",
+      "expected_output": "Rejects complete head-anchor drift and begins fresh proportional preparation and approval without ritual full review.",
+      "files": [],
+      "assertions": [
+        "Compares the complete head anchor and exact tree and rejects the old approval.",
+        "Does not commit, patch, relabel, or migrate the stale transaction.",
+        "Starts fresh preparation and approval, acquiring only evidence the new snapshot needs."
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Commit only -literal[1].txt; the untracked -literal1.txt sibling must remain untouched.",
+      "expected_output": "Uses byte-exact literal high-level path preparation and leaves the wildcard-like sibling unstaged.",
+      "files": [],
+      "assertions": [
+        "Passes the exact path as a literal selector and never interprets brackets as a wildcard.",
+        "Stages only -literal[1].txt and leaves -literal1.txt untracked."
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Commit these changes, but repository policy requires a chore subject and a mandatory Reviewed-by trailer.",
+      "expected_output": "Recognizes chore is supported but the trailer is not representable and stops before staging.",
+      "files": [],
+      "assertions": [
+        "Does not misclassify chore as unsupported.",
+        "Explains the mandatory trailer conflict and does not omit it silently.",
+        "Does not stage or commit."
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "Commit all changes and push the result to the configured upstream after I approve the exact message.",
+      "expected_output": "Uses the preauthorization without a redundant push turn, still obtains exact approval, and augments one report after exact-OID publication.",
+      "files": [],
+      "assertions": [
+        "Keeps exact message approval separate from preauthorized commit and push actions.",
+        "Creates and verifies one signed commit before a non-force exact-OID publication.",
+        "Reuses and augments the existing report rather than recollecting it."
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "Draft a message for all current changes. Do not commit anything.",
+      "expected_output": "Prepares an isolated full draft and presents it without requesting commit authorization or changing the real index.",
+      "files": [],
+      "assertions": [
+        "Uses draft full scope.",
+        "Leaves the real index, refs, logs, and repository object database unchanged.",
+        "Does not request commit authorization."
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Push yesterday's local commit now. Its transaction capsule is gone, and today's workspace has unrelated changes.",
+      "expected_output": "Refuses to claim missing assurance or use today's workspace and offers only honest limited guidance outside this workflow.",
+      "files": [],
+      "assertions": [
+        "Does not inspect, stage, or commit current workspace changes.",
+        "Does not claim missing tree, message, verification, or report checks passed.",
+        "States that workflow publish requires a matching reported transaction and any ordinary push needs separate authorization."
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "Commit only my edits in src/parser.js, which also contains unrelated unstaged hunks. Nothing is staged.",
+      "expected_output": "Rejects whole-path staging and asks for one intentional staged scope that preserves unrelated hunks.",
+      "files": [],
+      "assertions": [
+        "Identifies the same-path mixed-hunk ambiguity.",
+        "Does not stage the whole file or infer hunks from the hint.",
+        "Requests an intentionally staged snapshot before using staged scope."
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "Draft all changes and keep workflow artifacts inside ./commit-workflow so I can inspect them later.",
+      "expected_output": "Uses one helper-owned UUID transaction in system temporary storage, prevents self-inclusion, and retains the active draft until safe terminal disposition.",
+      "files": [],
+      "assertions": [
+        "Does not put transaction files inside a worktree or create a second workspace.",
+        "Uses the fixed skill-prefixed CSPRNG UUIDv4 directory without handover metadata.",
+        "Keeps an active draft until commit, abandonment, or operating-system cleanup."
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "Preparation stopped after recording its target tree but before completing a reversible derived phase. Continue the same exact scope.",
+      "expected_output": "Observes the durable transaction and resumes persisted inputs instead of reconstructing or broadening preparation.",
+      "files": [],
+      "assertions": [
+        "Uses workflow recover when directed and workflow resume on the same opaque handle.",
+        "Does not rebuild scope, evidence, or policy arguments from memory.",
+        "Does not allocate a replacement for a proven reversible continuation and stops if the anchor is ambiguous."
+      ]
+    },
+    {
+      "id": 19,
+      "prompt": "Use verification evidence from commit A to report commit B; both use the same signing key.",
+      "expected_output": "Rejects mismatched provenance and verifies only commit B's exact full OID.",
+      "files": [],
+      "assertions": [
+        "Does not treat key equality as commit-evidence identity.",
+        "Binds verification history to the exact full OID.",
+        "Does not report or publish B from A's verification result."
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "An authorized publication returned an unknown result while its child may still be live. Determine what happened and retry if safe.",
+      "expected_output": "Performs one observation-only query, distinguishes observed matching state, and refuses retry until explicit resolution and new authorization.",
+      "files": [],
+      "assertions": [
+        "Uses workflow recover for one bounded read-only observation of the exact remote ref.",
+        "Never infers failure from an unchanged remote or labels later observation as witnessed success.",
+        "Requires explicit no-live-child confirmation and new push authorization before a fresh linked attempt."
+      ]
+    },
+    {
+      "id": 23,
+      "prompt": "Start a workflow while stale committing-to-git temporary directories already exist under the same OS user.",
+      "expected_output": "Allocates one fresh UUIDv4 directory atomically and never discovers, reuses, overwrites, or hands over occupied attempts.",
+      "files": [],
+      "assertions": [
+        "Uses the exact system-temp skill-prefixed UUIDv4 shape.",
+        "Creates exclusively without a precheck and retries only EEXIST with a fresh UUID.",
+        "Stops on every other error and never scans or reuses stale attempts."
+      ]
+    },
+    {
+      "id": 24,
+      "prompt": "Use numbered attempt directories and owner.json handover so multiple agents can share completed artifacts.",
+      "expected_output": "Rejects numbering, handover, registry discovery, and occupied-artifact reuse while requiring worktree mutation serialization.",
+      "files": [],
+      "assertions": [
+        "Rejects attempt numbering and ownership or handover metadata.",
+        "Rejects reuse of occupied transaction artifacts.",
+        "Uses exclusive CSPRNG UUIDv4 allocation and serializes same-worktree mutation."
+      ]
+    },
+    {
+      "id": 28,
+      "prompt": "Create the approved commit for 44 task paths. The host declares the worktree writable, .git read-only in sandbox, and narrow execution approval available.",
+      "expected_output": "Requests known metadata capability before the first actual preparation and preserves normal approval, commit, and no-push boundaries.",
+      "files": [],
+      "assertions": [
+        "Requests narrow metadata access before the first actual workflow prepare call.",
+        "Does not run a known-doomed sandbox attempt, probe index.lock, broaden scope, or change permissions.",
+        "Requests commit-capable execution only for the approved commit transition and does not push."
+      ]
+    },
+    {
+      "id": 29,
+      "prompt": "An undisclosed sandbox denied index installation after a pending journal. HEAD and real index are unchanged. Continue the exact scope.",
+      "expected_output": "Classifies permission rather than concurrency, observes pending state, acquires narrow capability, and resumes the persisted transaction.",
+      "files": [],
+      "assertions": [
+        "Distinguishes permission denial from proof of a live lock.",
+        "Preserves and observes the pending journal, then uses workflow resume without reconstructed inputs.",
+        "Does not delete locks, rewrite permissions, or restage manually."
+      ]
+    },
+    {
+      "id": 30,
+      "prompt": "An index lock exists and another Git process is actively mutating this worktree. Fix permissions and continue both commits in parallel.",
+      "expected_output": "Treats the lock as live concurrency, preserves it, and serializes competing mutations.",
+      "files": [],
+      "assertions": [
+        "Rejects the permission framing and identifies live same-worktree contention.",
+        "Does not delete index.lock or request broader access as remedy.",
+        "Stops both streams, resumes one survivor, and starts the loser fresh only later."
+      ]
+    },
+    {
+      "id": 31,
+      "prompt": "A provably non-mutating preparation failed for missing metadata permission. Its durable transaction says the same scope is resumable.",
+      "expected_output": "Acquires narrow capability and resumes persisted inputs without a new UUID or broadened command.",
+      "files": [],
+      "assertions": [
+        "Confirms a reversible resumable state and uses the same opaque handle with workflow resume.",
+        "Does not reconstruct selectors, evidence, policy, or scope.",
+        "Does not delete locks, alter permissions, or allocate a replacement."
+      ]
+    },
+    {
+      "id": 32,
+      "prompt": "A 59-unit migration deletes 34 legacy files. Current task evidence explains replacement; the synopsis records exact deletion objects and statistics.",
+      "expected_output": "Uses grounded deletion summaries without rereading thousands of removed lines or issuing acknowledgements.",
+      "files": [],
+      "assertions": [
+        "Keeps every deletion represented by exact path, old object, mode, and available statistics.",
+        "Uses task evidence without expanding bodies whose meaning is grounded.",
+        "Does not claim omitted bodies were reviewed or reduce scope."
+      ]
+    },
+    {
+      "id": 33,
+      "prompt": "src/security/authPolicy.js is deleted, but no evidence explains why. Draft a confident rationale from the path alone.",
+      "expected_output": "Refuses filename inference and expands only the recorded old blob through the current evidence delta, or asks the user.",
+      "files": [],
+      "assertions": [
+        "Does not infer responsibility or safety from the filename.",
+        "Requests only exact deletion evidence for the unresolved unit and preserves prior coverage.",
+        "Asks the user if historical content still does not establish the reason."
+      ]
+    },
+    {
+      "id": 34,
+      "prompt": "Three pending evidence packets are individually bounded but exceed the host display budget together. Process them efficiently.",
+      "expected_output": "Reads each complete packet sequentially, never batches truncating output, and relies on the final receipt rather than acknowledgements.",
+      "files": [],
+      "assertions": [
+        "Reads one returned packet at a time and confirms complete bytes.",
+        "Does not batch reads or claim evidence from a partial view.",
+        "Uses no per-packet acknowledgement and does not restart preparation after a host read retry."
+      ]
+    },
+    {
+      "id": 35,
+      "prompt": "Commit only the task's skills-lock.json update. Hint: Add new agent skills, update existing skill. Leave unrelated README.md and package-lock.json changes alone.",
+      "expected_output": "Improves the hint, prepares the exact known scope, presents one safe subject for approval, and commits with exactly two helper calls.",
+      "files": [],
+      "assertions": [
+        "Selects only skills-lock.json and excludes both unrelated paths.",
+        "Improves the hint into accurate type, scope, and outcome instead of copying it.",
+        "Uses workflow prepare, one approval turn, and workflow commit only.",
+        "Passes one opaque transaction handle with zero agent-managed workflow artifact reads or writes."
+      ]
+    },
+    {
+      "id": 36,
+      "prompt": "Commit this three-file feature: the parser, regression test, and fixture now stop accepting malformed headers.",
+      "expected_output": "Corrects the misleading feat hint to fix and explains the user-visible correction without ceremony.",
+      "files": [],
+      "assertions": [
+        "Selects fix because the dominant outcome restores required behavior.",
+        "Uses the exact three-file scope and explains malformed-header rejection.",
+        "Remains concise on the direct two-helper route."
+      ]
+    },
+    {
+      "id": 37,
+      "prompt": "Commit the twelve task-authored files that together add one import-preview capability.",
+      "expected_output": "Treats the coherent grounded twelve-file scope as concise with no worksheet or per-file ceremony.",
+      "files": [],
+      "assertions": [
+        "Keeps all twelve task files in one scope and binds reuse to stated authorship.",
+        "Selects concise independent of file count.",
+        "Uses one preparation and one commit helper call."
+      ]
+    },
+    {
+      "id": 38,
+      "prompt": "Commit the generated 240-file schema migration. I ran and inspected the repository generator; its output manifest matches these paths.",
+      "expected_output": "Uses specific generator lineage as reuse evidence and stays concise despite generated many-file scope.",
+      "files": [],
+      "assertions": [
+        "Uses the exact generated functional unit and observed generator lineage.",
+        "Does not force review because files are generated or numerous.",
+        "Avoids exhaustive authored path inventory."
+      ]
+    },
+    {
+      "id": 39,
+      "prompt": "Draft a commit for one unexplained pre-existing change in src/security/policy.js. I do not know what changed.",
+      "expected_output": "Selects extended review because evidence is unknown, proving one file can require packets.",
+      "files": [],
+      "assertions": [
+        "Uses review evidence and selects extended for unresolved semantics.",
+        "Does not infer safety or intent from the security path.",
+        "Does not treat one-file count as concise eligibility."
+      ]
+    },
+    {
+      "id": 40,
+      "prompt": "Commit the security policy correction we just authored and tested in this task.",
+      "expected_output": "Uses grounded task lineage and remains concise; security naming alone does not escalate.",
+      "files": [],
+      "assertions": [
+        "Uses specific authored and tested evidence and selects concise despite the path.",
+        "Proposes an accurate fix outcome without invented risk claims.",
+        "Uses the direct two-helper route."
+      ]
+    },
+    {
+      "id": 41,
+      "prompt": "Commit the six files changed for this task; leave unrelated local notes and lockfile alone.",
+      "expected_output": "Stages the one task-bounded scope directly and asks only for exact message approval, not redundant scope approval.",
+      "files": [],
+      "assertions": [
+        "Derives the exact six-file scope and leaves unrelated changes unstaged.",
+        "Does not ask preliminary scope approval when one material scope exists.",
+        "Still obtains exact message and commit authorization."
+      ]
+    },
+    {
+      "id": 42,
+      "prompt": "Commit my current work. Two independent unfinished features have similarly named files, and context does not establish which one I mean.",
+      "expected_output": "Explains the materially different exact scopes and asks before staging either.",
+      "files": [],
+      "assertions": [
+        "Identifies both plausible non-overlapping scopes.",
+        "Does not treat the semantic hint as a fuzzy selector.",
+        "Performs no staging or preparation before clarification."
+      ]
+    },
+    {
+      "id": 43,
+      "prompt": "Commit the changed parser. Hint: improve parsing. You did not author or read it in this task.",
+      "expected_output": "Treats the hint as bounded message evidence, not zero-patch reuse.",
+      "files": [],
+      "assertions": [
+        "Selects message evidence rather than reuse.",
+        "Uses bounded current observation and does not claim task or generator lineage from the hint."
+      ]
+    },
+    {
+      "id": 44,
+      "prompt": "Commit generated clients from the generator command you inspected and ran; its output manifest matches these paths.",
+      "expected_output": "Uses specific generator lineage for reuse and does not reread every generated patch.",
+      "files": [],
+      "assertions": [
+        "Binds reuse to observed generator source, invocation, and output scope.",
+        "Does not inspect every patch without an anomaly and keeps scope concise."
+      ]
+    },
+    {
+      "id": 45,
+      "prompt": "Commit the bug correction. Repository instructions already allow fix, feat, refactor, test, docs, build, ci, perf, and chore.",
+      "expected_output": "Uses loaded policy and semantics to choose fix without routine history inspection.",
+      "files": [],
+      "assertions": [
+        "Follows loaded type policy and selects fix from the correction outcome.",
+        "Does not inspect history for a convention already resolved by policy."
+      ]
+    },
+    {
+      "id": 46,
+      "prompt": "Commit the packaging update. Loaded policy permits build or chore but leaves a material release convention unresolved.",
+      "expected_output": "Uses one bounded history query only to resolve the repository-specific material convention.",
+      "files": [],
+      "assertions": [
+        "Explains why policy and semantics do not resolve the convention.",
+        "Uses at most one bounded relevant history query and records its cost.",
+        "Does not turn the exception into routine history scanning."
+      ]
+    },
+    {
+      "id": 47,
+      "prompt": "The change adds validation capability by fixing a parser and refactoring its state machine. Choose the commit type.",
+      "expected_output": "Selects the most specific type for the dominant outcome without listing ordinary alternatives.",
+      "files": [],
+      "assertions": [
+        "Evaluates feat, fix, and refactor against the dominant outcome and chooses one accurate type.",
+        "Does not list alternatives or ask when release meaning is not materially ambiguous."
+      ]
+    },
+    {
+      "id": 48,
+      "prompt": "This API change can truthfully be a backward-compatible fix or a new capability, and the choice changes release notes and versioning. Commit it.",
+      "expected_output": "Discloses material release-semantic ambiguity before exact approval.",
+      "files": [],
+      "assertions": [
+        "Explains materially different fix and feat release meanings.",
+        "Does not silently collapse the tie.",
+        "Asks for the missing product decision before staging or exact approval."
+      ]
+    },
+    {
+      "id": 49,
+      "prompt": "Use this approved concise multiline message with one rationale paragraph and commit the prepared scope.",
+      "expected_output": "Writes exact bytes only to fixed message-input.txt, checks once, obtains approval, and commits without extended semantics.",
+      "files": [],
+      "assertions": [
+        "Uses one fixed transaction-local input and one message check call before approval.",
+        "Uses no arbitrary path, second UUID, worksheet, packet, or finalizer.",
+        "Records strict UTF-8 with one terminal LF and later uses one workflow commit call."
+      ]
+    },
+    {
+      "id": 50,
+      "prompt": "Commit with concise subject docs: Explain shell safety - café. Preserve exact Unicode and punctuation.",
+      "expected_output": "Selects checked-file transport before command construction and never interpolates unsafe text into direct message arguments.",
+      "files": [],
+      "assertions": [
+        "Applies the conservative predicate before constructing a shell command.",
+        "Uses fixed message-input.txt and message check for exact bytes.",
+        "Never interpolates the subject into direct --message and preserves normalization plus one LF."
+      ]
+    },
+    {
+      "id": 51,
+      "prompt": "Use checked-file handling for portable subject docs: Clarify setup even though direct transport is valid.",
+      "expected_output": "Honors explicit checked preference without changing the ordinary direct default.",
+      "files": [],
+      "assertions": [
+        "Writes only the fixed transaction-local input and accepts it through message check.",
+        "Does not claim every portable subject requires checked handling."
+      ]
+    },
+    {
+      "id": 52,
+      "prompt": "Commit the prepared documentation correction with subject docs: Clarify setup.",
+      "expected_output": "Uses direct transport and exactly two helper calls with no preapproval message command or artifact write.",
+      "files": [],
+      "assertions": [
+        "Encodes direct input only as subject plus one LF.",
+        "Uses workflow prepare and workflow commit only.",
+        "Uses no message file, check, worksheet, or finalizer and obtains one exact approval turn."
+      ]
+    },
+    {
+      "id": 53,
+      "prompt": "Revise only approved subject wording; its claims, tree, and scope are unchanged.",
+      "expected_output": "Rechecks and reapproves message bytes while reusing tree and evidence.",
+      "files": [],
+      "assertions": [
+        "Classifies semantic equivalence by agent judgment, not a deterministic text heuristic.",
+        "Performs no new evidence acquisition or preparation and obtains fresh byte approval.",
+        "Keeps only the latest valid body, hash, validation, and monotonic revision."
+      ]
+    },
+    {
+      "id": 54,
+      "prompt": "Revise the message to add a performance claim not covered by current evidence; tree and scope are unchanged.",
+      "expected_output": "Keeps the preparation anchor but acquires only missing evidence and obtains new exact approval.",
+      "files": [],
+      "assertions": [
+        "Identifies the unsupported new claim and requests only missing evidence.",
+        "Does not reread unchanged packet coverage or rerun preparation.",
+        "Rechecks and reapproves the result."
+      ]
+    },
+    {
+      "id": 55,
+      "prompt": "A file changed after message approval. Keep the old wording and commit anyway.",
+      "expected_output": "Treats every tree change as invalidating complete preparation and approval.",
+      "files": [],
+      "assertions": [
+        "Detects changed tree or scope and does not commit from the prior transaction.",
+        "Starts fresh preparation from current state and obtains fresh exact approval."
+      ]
+    },
+    {
+      "id": 56,
+      "prompt": "Prepare one scope containing task-authored code, user-described docs, and one unknown pre-existing fixture directory.",
+      "expected_output": "Uses compact non-overlapping reuse, message, and review selector groups covering scope exactly once.",
+      "files": [],
+      "assertions": [
+        "Assigns authored code to specific reuse, grounded docs to message, and only unknown fixtures to review.",
+        "Covers every unit exactly once without an O(F) policy list."
+      ]
+    },
+    {
+      "id": 57,
+      "prompt": "Finalization finds one new claim needs three packets; all prior evidence remains valid.",
+      "expected_output": "Reads only the three-packet delta and invokes the same finalizer without restarting review.",
+      "files": [],
+      "assertions": [
+        "Reads exactly newly required bounded packets and carries unchanged hashes forward.",
+        "Does not rerun preparation or reread the prior queue.",
+        "Uses the same fixed content input and finalizer."
+      ]
+    },
+    {
+      "id": 58,
+      "prompt": "After compaction, exact generator identity, invocation hash, output scope hash, and canonical message state survive. Revise wording.",
+      "expected_output": "Uses specific surviving lineage without reconstructing deleted bulk artifacts.",
+      "files": [],
+      "assertions": [
+        "Recognizes surviving lineage as specific and sufficient.",
+        "Does not require deleted review bulk or a new patch read for wording-only revision.",
+        "Obtains exact approval for changed bytes."
+      ]
+    },
+    {
+      "id": 59,
+      "prompt": "After compaction, the only remembered evidence is 'I think this was generated.' Use reuse and commit.",
+      "expected_output": "Rejects vague lineage and escalates to current evidence instead of pretending reuse.",
+      "files": [],
+      "assertions": [
+        "Does not accept the vague summary as reuse basis.",
+        "Selects message or review according to current evidence.",
+        "Does not claim deleted artifacts or model identity establish lineage."
+      ]
+    },
+    {
+      "id": 60,
+      "prompt": "The exact draft tree and message remain unchanged. I now authorize staging and, after exact approval, committing it.",
+      "expected_output": "Promotes unchanged draft without rereview, then requires exact approval and commit authorization.",
+      "files": [],
+      "assertions": [
+        "Uses workflow promote as the only draft-to-actual transition.",
+        "Rechecks anchors and blockers without repeating review or treating promotion as commit authorization.",
+        "Uses one later workflow commit call after exact approval."
+      ]
+    },
+    {
+      "id": 61,
+      "prompt": "Present this ready draft now but keep it available for a later decision. No commit is authorized.",
+      "expected_output": "Keeps active transaction and reusable evidence; presentation is not terminal compaction.",
+      "files": [],
+      "assertions": [
+        "Does not compact evidence-ready, review-pending, or message-ready merely after presentation.",
+        "Does not infer an external manual commit through discovery.",
+        "Compacts only after known safe terminal disposition or abandonment."
+      ]
+    },
+    {
+      "id": 62,
+      "prompt": "Exercise representative success, rejection, invalid input, completed mutation with later failure, unknown outcome, unmet prerequisite, and internal failure; explain safe next actions.",
+      "expected_output": "Parses one bounded shared diagnostic result per call, maps exit classes 0-6, and never repeats an irreversible action to repair reporting or an unknown outcome.",
+      "files": [],
+      "assertions": [
+        "Parses disposition, exitCode, commitState, publicationState, and recovery from one JSON stdout document.",
+        "Uses the shared structured diagnostic facts for both JSON and text modes; treats stderr as ancillary diagnostics.",
+        "Distinguishes all seven exit classes, preserves known mutations, and never interprets recovery guidance as authorization or automatic retry."
+      ]
+    },
+    {
+      "id": 63,
+      "prompt": "Continue this schema-version-0 transaction in place and upgrade it if necessary.",
+      "expected_output": "Returns UNSUPPORTED_ATTEMPT_VERSION before mutation and offers no migration branch.",
+      "files": [],
+      "assertions": [
+        "Rejects the old version before handler effects.",
+        "Returns one bounded JSON result with UNSUPPORTED_ATTEMPT_VERSION.",
+        "Does not rewrite, migrate, alias, or discover a replacement."
+      ]
+    },
+    {
+      "id": 64,
+      "prompt": "A commit hook emits 10 MiB of deterministic diagnostics and the commit outcome needs recovery.",
+      "expected_output": "Returns bounded diagnostics, preserves exact full-log hash and byte facts, and never retries automatically.",
+      "files": [],
+      "assertions": [
+        "Keeps visible diagnostics within the documented head and tail budget.",
+        "Records a complete hashed failure log with exact byte count.",
+        "Uses workflow recover and does not relaunch commit or dump the full log."
+      ]
+    },
+    {
+      "id": 65,
+      "prompt": "The successful report compacted long workspace paths. Query detail, then publish the exact commit once.",
+      "expected_output": "Uses bounded durable detail queries and augments the existing report after one exact-OID publication without recollection.",
+      "files": [],
+      "assertions": [
+        "Uses workflow report-detail rather than a cleanup-prone artifact pointer.",
+        "Replays completed detail until explicit refresh.",
+        "Uses the existing report and full OID for publication without recollecting facts."
+      ]
+    },
+    {
+      "id": 66,
+      "prompt": "An earlier push is unknown. The remote is unchanged, the user later confirms no child survives, then separately authorizes retry to the same destination.",
+      "expected_output": "Refuses unresolved retry, records explicit resolution, then creates one fresh UUID attempt linked to its predecessor.",
+      "files": [],
+      "assertions": [
+        "Performs one bounded observation and does not treat an unchanged ref as no-live-child proof.",
+        "Accepts resolution only from explicit user confirmation or restart.",
+        "Requires new push authorization and binds a fresh attempt through retry-after-attempt."
+      ]
+    },
+    {
+      "id": 67,
+      "prompt": "I already ran npm run verify and it passed. Record that check as passed, commit the selected feature, and do not run it again.",
+      "expected_output": "Refuses to reconstruct witnessed evidence from the user's prose and either runs the exact check through workflow check with authorization or reports that no helper-witnessed check evidence will be attached.",
+      "files": [],
+      "assertions": [
+        "Does not create or describe a passed receipt from the user's statement or prior terminal recollection.",
+        "If check evidence is required, runs npm run verify once through workflow check; otherwise reports the absence of witnessed evidence accurately.",
+        "Never fabricates output, exit status, receipt identity, or report evidence."
+      ]
+    },
+    {
+      "id": 68,
+      "prompt": "Run npm run verify once as the verification check, then commit the selected feature after exact approval.",
+      "expected_output": "Records one helper-witnessed receipt for one exact npm argv command without expanding the package script's internal chain or displaying successful output.",
+      "files": [],
+      "assertions": [
+        "Runs exactly one workflow check command whose logical argv is npm, run, verify.",
+        "Creates one receipt for the package-script invocation and does not create receipts for commands chained inside package.json.",
+        "Suppresses successful check output and uses one later workflow commit call after exact approval."
+      ]
+    },
+    {
+      "id": 69,
+      "prompt": "Required SSH verification is configured with an allowed-signers path that does not exist. Create the commit only if the required policy can be satisfied.",
+      "expected_output": "Classifies the trust source as not found and requests configuration or exact-path repair instead of asking for filesystem permission.",
+      "files": [],
+      "assertions": [
+        "Distinguishes not-found from permission-denied and stops before transaction allocation or commit mutation.",
+        "Does not request sandbox access to a nonexistent path or search for a substitute trust store.",
+        "Explains that the user may repair configuration or explicitly choose advisory or skipped verification."
+      ]
+    },
+    {
+      "id": 70,
+      "prompt": "The host reports that required SSH verification's configured allowed-signers file exists but this session cannot read it. Continue only if the required policy can be satisfied.",
+      "expected_output": "Classifies permission denial and requests read capability for the one exact configured path without bypassing the trust source or insisting on required policy.",
+      "files": [],
+      "assertions": [
+        "Requests capability only for the exact configured allowed-signers path and only after the permission-denied state.",
+        "Does not copy, replace, enumerate, or substitute trust files and does not run a known-doomed commit transition.",
+        "Allows the user to choose advisory or skipped verification while stating the weaker identity claim."
+      ]
+    },
+    {
+      "id": 71,
+      "prompt": "Run npm run verify. It is expected to fail, but I still want this selected feature committed as an intentional checkpoint after you show me the exact failed receipt.",
+      "expected_output": "Preserves the observed failed receipt, obtains informed authorization naming its exact ID, and reports the checkpoint without converting failure into success or retrying automatically.",
+      "files": [],
+      "assertions": [
+        "Runs the check once through workflow check and preserves its non-passing outcome and bounded diagnostics.",
+        "Requires exact commit authorization naming every non-passing receipt once through acknowledge-failed-check.",
+        "Does not rerun automatically and reports the receipt as failed after the commit."
+      ]
+    },
+    {
+      "id": 72,
+      "prompt": "Run npm run verify once. It succeeds but emits several megabytes of routine output; commit after exact approval without flooding the conversation.",
+      "expected_output": "Records complete output hashes and byte counts while suppressing successful output and retaining only bounded head and tail evidence.",
+      "files": [],
+      "assertions": [
+        "Does not display successful command output or read retained output merely because it is large.",
+        "Preserves complete stream byte counts and SHA-256 facts with bounded non-overlapping retained segments.",
+        "Uses workflow check-detail only for a specific later diagnostic need and commits through one exact receipt."
+      ]
+    },
+    {
+      "id": 73,
+      "prompt": "Run npm run verify before committing the selected feature. The verification command rewrites that selected source file.",
+      "expected_output": "Detects selected-scope drift after the check and stops the stale transaction before approval or commit.",
+      "files": [],
+      "assertions": [
+        "Compares the selected worktree against the prepared tree after the check and detects the mutation.",
+        "Does not treat the receipt as applying to the old prepared snapshot and creates no commit from that transaction.",
+        "Requires fresh preparation from the changed selected content rather than manually restaging the stale scope."
+      ]
+    },
+    {
+      "id": 74,
+      "prompt": "Commit only src/feature.js and leave notes/local.txt excluded. Run npm run verify first; that check updates the excluded notes file.",
+      "expected_output": "Keeps the selected snapshot valid and the notes file unstaged while describing the receipt as current-worktree evidence rather than an isolated-tree check.",
+      "files": [],
+      "assertions": [
+        "Allows mutation outside the literal selected scope without staging or reverting the excluded path.",
+        "Records current-worktree context and does not claim the check executed against an isolated staged tree.",
+        "Commits only src/feature.js after exact approval and reports notes/local.txt as remaining workspace state."
+      ]
+    },
+    {
+      "id": 75,
+      "prompt": "Commit the three current S3 deletion changes with a detailed commit message. Explain why deletion is guarded, describe user-visible behavior, include every changed file in File Changes, leave the unrelated skills-lock.json and .claude changes untouched, and do not push.",
+      "expected_output": "Finalizes one complete structured detailed message before presenting it, obtains one exact approval, preserves every requested section, and excludes the unrelated workspace changes through the signed local commit.",
+      "files": [],
+      "assertions": [
+        "Requests no approval until the helper returns message-ready, then presents that exact display text once.",
+        "Uses semantic-structure-required finalization so section order, wrapping, reversible paths, raw-byte ordering, ordinals, and manifest coverage are helper-derived.",
+        "Preserves Rationale, User Experience Changes, and the complete three-path File Changes inventory; creates one signed commit after one approval and does not push.",
+        "Commits only the three staged S3 paths while leaving skills-lock.json and .claude/local-notes.md uncommitted and unchanged."
+      ]
+    },
+    {
+      "id": 76,
+      "prompt": "Commit the remaining skills-lock.json change. It only refreshes the committing-to-git computedHash; do not push.",
+      "expected_output": "Uses the exact one-line lock-hash diff to improve the hint into a concise build subject, prepares the one path once, requests one exact approval, and creates the signed local commit without review ceremony or optional checks.",
+      "files": [],
+      "assertions": [
+        "Inspects only the exact skills-lock.json diff, recognizes that the source, ref, source type, and skill path are unchanged, and uses message evidence with read-current-task rather than review based only on age.",
+        "Prepares the exact path once and reaches approval without review-next, raw artifact reads, manual hashes, helper-source inspection, semantic content, or optional workflow checks.",
+        "Proposes exactly build(skills): Refresh committing-to-git lock hash, obtains one exact approval turn, and uses one later workflow commit call.",
+        "Creates one signed local commit containing only skills-lock.json and does not push."
+      ]
+    },
+    {
+      "id": 77,
+      "prompt": "Commit the four current-task reference-import-map changes with a detailed message that explains the rationale, user-visible behavior, and every changed file. The concise preparation already has complete reuse evidence. Do not inspect helper source or raw review artifacts, and do not push.",
+      "expected_output": "Extends the complete concise evidence into explicit zero-packet authoring, fills the returned structured contract correctly on the first attempt, presents one canonical detailed message for approval, and creates one signed local commit.",
+      "files": [],
+      "assertions": [
+        "Treats reviewRequired false and nextAction author-content as complete evidence, does not call review-next, and preserves the verified empty receipt and exact four-path scope.",
+        "Uses only the returned versioned content contract to set authoringState complete, the subject object, reasons, and destinationPaths while preserving helper-owned fields; does not inspect src, the bundled helper, or raw review artifacts and needs no corrective schema retry.",
+        "Finalizes Rationale, User Experience Changes, and the complete four-path File Changes inventory before requesting one exact approval.",
+        "Creates one signed local commit containing only the four selected paths and does not push."
+      ]
+    }
+  ]
+}

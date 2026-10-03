@@ -14,7 +14,12 @@ import {
 const skillBuild = {
   validateCanonicalSkillAscii,
   validateCanonicalSkillMarkdownWrapping,
-  validateRepositoryEvaluationLayout,
+  // Exercise source preflight separately; strict joins are covered by compiler tests.
+  validateRepositoryEvaluationLayout: (options) =>
+    validateRepositoryEvaluationLayout({
+      ...options,
+      validateContracts: false,
+    }),
 };
 
 const VALID_EVALUATION = {
@@ -22,7 +27,7 @@ const VALID_EVALUATION = {
   prompt: "Evaluate the example skill.",
   expected_output: "The example skill produces the requested result.",
   files: [],
-  expectations: ["The output contains the requested result."],
+  assertions: ["The output contains the requested result."],
 };
 const VALID_FOLLOW_UP_TURNS = [
   { id: "select-sense", prompt: "Use the metadata-registry sense." },
@@ -80,15 +85,15 @@ function createEvaluationLayout(
 ) {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-contract-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
-  const skill = join(skillsRoot, "example-skill");
-  const evaluationSuite = join(evaluationsRoot, "example-skill");
+  const sourcesRoot = join(root, "src");
+  const skill = join(sourcesRoot, "example-skill");
+  const evaluationSuite = join(sourcesRoot, "example-skill", "evals");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(join(evaluationSuite, "fixtures"), { recursive: true });
+  mkdirSync(join(evaluationSuite, "files"), { recursive: true });
   mkdirSync(skill, { recursive: true });
   writeFileSync(join(skill, "SKILL.md"), skillSource);
-  writeFileSync(join(evaluationSuite, "fixtures", "sample.txt"), "fixture\n");
+  writeFileSync(join(evaluationSuite, "files", "sample.txt"), "fixture\n");
   writeFileSync(
     join(evaluationSuite, "evals.json"),
     JSON.stringify(definition),
@@ -100,7 +105,7 @@ function createEvaluationLayout(
     writeTriggerEvaluations(evaluationSuite, triggers);
   }
 
-  return { evaluationsRoot, skillsRoot };
+  return { sourcesRoot, skillsRoot };
 }
 
 test("canonical skill validation accepts ASCII-only SKILL.md files", (t) => {
@@ -273,18 +278,18 @@ test("canonical skill Markdown validation isolates explicitly selected skills", 
   );
 });
 
-test("repository evaluation suites resolve beside rather than inside deployable skills", (t) => {
+test("repository evaluation suites resolve within source projects outside deployable skills", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-layout-pass-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
-  const skill = join(skillsRoot, "example-skill");
-  const evaluation = join(evaluationsRoot, "example-skill");
+  const sourcesRoot = join(root, "src");
+  const skill = join(sourcesRoot, "example-skill");
+  const evaluation = join(sourcesRoot, "example-skill", "evals");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(join(evaluation, "fixtures"), { recursive: true });
+  mkdirSync(join(evaluation, "files"), { recursive: true });
   mkdirSync(skill, { recursive: true });
   writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
-  writeFileSync(join(evaluation, "fixtures", "sample.txt"), "fixture\n");
+  writeFileSync(join(evaluation, "files", "sample.txt"), "fixture\n");
   writeFileSync(
     join(evaluation, "evals.json"),
     JSON.stringify({
@@ -294,8 +299,8 @@ test("repository evaluation suites resolve beside rather than inside deployable 
           id: 1,
           prompt: "Read the supplied fixture.",
           expected_output: "The output includes the fixture content.",
-          files: ["fixtures/sample.txt"],
-          expectations: ["The output includes the fixture content."],
+          files: ["evals/files/sample.txt"],
+          assertions: ["The output includes the fixture content."],
         },
       ],
     }),
@@ -305,7 +310,7 @@ test("repository evaluation suites resolve beside rather than inside deployable 
   assert.deepEqual(
     skillBuild.validateRepositoryEvaluationLayout({
       skillsRoot,
-      evaluationsRoot,
+      sourcesRoot,
     }),
     {
       deployableSkillsValidated: 1,
@@ -318,13 +323,13 @@ test("repository evaluation suites resolve beside rather than inside deployable 
 test("repository evaluation validation isolates explicitly selected skills", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-selection-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
+  const sourcesRoot = join(root, "src");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   for (const skillName of ["selected", "unrelated"]) {
-    const skill = join(skillsRoot, skillName);
-    const suite = join(evaluationsRoot, skillName);
+    const skill = join(sourcesRoot, skillName);
+    const suite = join(sourcesRoot, skillName, "evals");
     mkdirSync(skill, { recursive: true });
     mkdirSync(suite, { recursive: true });
     writeFileSync(join(skill, "SKILL.md"), `# ${skillName}\n`);
@@ -343,7 +348,7 @@ test("repository evaluation validation isolates explicitly selected skills", (t)
   assert.deepEqual(
     skillBuild.validateRepositoryEvaluationLayout({
       skillsRoot,
-      evaluationsRoot,
+      sourcesRoot,
       skillNames: ["selected"],
     }),
     {
@@ -357,17 +362,17 @@ test("repository evaluation validation isolates explicitly selected skills", (t)
 test("repository evaluation validation allows a selected skill without a suite", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-no-suite-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
+  const sourcesRoot = join(root, "src");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(join(skillsRoot, "selected"), { recursive: true });
-  mkdirSync(evaluationsRoot, { recursive: true });
-  writeFileSync(join(skillsRoot, "selected", "SKILL.md"), "# Selected\n");
+  mkdirSync(join(sourcesRoot, "selected"), { recursive: true });
+  mkdirSync(sourcesRoot, { recursive: true });
+  writeFileSync(join(sourcesRoot, "selected", "SKILL.md"), "# Selected\n");
 
   assert.deepEqual(
     skillBuild.validateRepositoryEvaluationLayout({
       skillsRoot,
-      evaluationsRoot,
+      sourcesRoot,
       skillNames: ["selected"],
     }),
     {
@@ -383,7 +388,7 @@ test("repository evaluation layout accepts ordered declarative follow-up turns",
     ...VALID_EVALUATION,
     follow_up_turns: VALID_FOLLOW_UP_TURNS.map((turn) => ({ ...turn })),
   };
-  const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+  const { sourcesRoot, skillsRoot } = createEvaluationLayout(t, {
     definition: {
       skill_name: "example-skill",
       evals: [evaluation],
@@ -393,7 +398,7 @@ test("repository evaluation layout accepts ordered declarative follow-up turns",
   assert.doesNotThrow(() =>
     skillBuild.validateRepositoryEvaluationLayout({
       skillsRoot,
-      evaluationsRoot,
+      sourcesRoot,
     }),
   );
   assert.deepEqual(
@@ -402,10 +407,10 @@ test("repository evaluation layout accepts ordered declarative follow-up turns",
   );
 });
 
-test("repository evaluation layout reconciles a schema-v3 capability contract with canonical compatibility", (t) => {
-  const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+test("repository evaluation layout reconciles a compiled-v1 capability contract with canonical compatibility", (t) => {
+  const { sourcesRoot, skillsRoot } = createEvaluationLayout(t, {
     definition: {
-      schema_version: 3,
+      contractVersion: 1,
       skill_name: "example-skill",
       capability_contract: structuredClone(VALID_CAPABILITY_CONTRACT),
       evals: [{ ...VALID_EVALUATION, required_capabilities: [] }],
@@ -416,7 +421,7 @@ test("repository evaluation layout reconciles a schema-v3 capability contract wi
   assert.doesNotThrow(() =>
     skillBuild.validateRepositoryEvaluationLayout({
       skillsRoot,
-      evaluationsRoot,
+      sourcesRoot,
     }),
   );
 });
@@ -454,20 +459,20 @@ for (const [label, mutate, expectedMessage] of [
   [
     "capability declarations on an unversioned suite",
     ({ definition }) => {
-      delete definition.schema_version;
+      delete definition.contractVersion;
     },
-    /capability declarations require evals schema_version 3/u,
+    /capability declarations require compiled contractVersion 1/u,
   ],
 ]) {
   test(`repository evaluation layout rejects ${label}`, (t) => {
     const definition = {
-      schema_version: 3,
+      contractVersion: 1,
       skill_name: "example-skill",
       capability_contract: structuredClone(VALID_CAPABILITY_CONTRACT),
       evals: [{ ...VALID_EVALUATION, required_capabilities: [] }],
     };
     mutate({ definition });
-    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+    const { sourcesRoot, skillsRoot } = createEvaluationLayout(t, {
       definition,
       skillSource: `---\nname: example-skill\ndescription: Fixture skill.\ncompatibility: ${VALID_COMPATIBILITY}\n---\n\n# Example skill\n`,
     });
@@ -476,7 +481,7 @@ for (const [label, mutate, expectedMessage] of [
       () =>
         skillBuild.validateRepositoryEvaluationLayout({
           skillsRoot,
-          evaluationsRoot,
+          sourcesRoot,
         }),
       expectedMessage,
     );
@@ -532,13 +537,13 @@ for (const [label, definition, expectedMessage] of [
     /evals\.json eval 1 must contain a non-empty expected_output/u,
   ],
   [
-    "duplicate behavioral expectations",
+    "duplicate behavioral assertions",
     {
       skill_name: "example-skill",
       evals: [
         {
           ...VALID_EVALUATION,
-          expectations: ["A grounded result.", " A grounded result. "],
+          assertions: ["A grounded result.", " A grounded result. "],
         },
       ],
     },
@@ -551,7 +556,7 @@ for (const [label, definition, expectedMessage] of [
       evals: [
         {
           ...VALID_EVALUATION,
-          files: ["fixtures/sample.txt", "fixtures/sample.txt"],
+          files: ["evals/files/sample.txt", "evals/files/sample.txt"],
         },
       ],
     },
@@ -695,7 +700,7 @@ for (const [label, definition, expectedMessage] of [
   ],
 ]) {
   test(`repository evaluation layout rejects ${label}`, (t) => {
-    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+    const { sourcesRoot, skillsRoot } = createEvaluationLayout(t, {
       definition,
     });
 
@@ -703,7 +708,7 @@ for (const [label, definition, expectedMessage] of [
       () =>
         skillBuild.validateRepositoryEvaluationLayout({
           skillsRoot,
-          evaluationsRoot,
+          sourcesRoot,
         }),
       expectedMessage,
     );
@@ -789,7 +794,7 @@ for (const [label, triggerOptions, expectedMessage] of [
   ],
 ]) {
   test(`repository evaluation layout rejects ${label}`, (t) => {
-    const { evaluationsRoot, skillsRoot } = createEvaluationLayout(t, {
+    const { sourcesRoot, skillsRoot } = createEvaluationLayout(t, {
       definition: {
         skill_name: "example-skill",
         evals: [VALID_EVALUATION],
@@ -801,7 +806,7 @@ for (const [label, triggerOptions, expectedMessage] of [
       () =>
         skillBuild.validateRepositoryEvaluationLayout({
           skillsRoot,
-          evaluationsRoot,
+          sourcesRoot,
         }),
       expectedMessage,
     );
@@ -810,31 +815,31 @@ for (const [label, triggerOptions, expectedMessage] of [
 
 for (const [label, evaluation, expectedMessage] of [
   [
-    "legacy assertions",
+    "legacy expectations",
     {
       id: 1,
       files: [],
-      assertions: ["The output includes the fixture content."],
+      expectations: ["The output includes the fixture content."],
     },
-    /must use expectations instead of assertions/u,
+    /must use assertions instead of expectations/u,
   ],
   [
-    "missing expectations",
+    "missing assertions",
     { id: 1, files: [] },
-    /must contain a non-empty expectations array/u,
+    /must contain a non-empty assertions array/u,
   ],
   [
     "empty expectation text",
-    { id: 1, files: [], expectations: [""] },
+    { id: 1, files: [], assertions: [""] },
     /contains an expectation that is not a non-empty string/u,
   ],
 ]) {
   test(`repository evaluation layout rejects ${label}`, (t) => {
     const root = mkdtempSync(join(tmpdir(), "skill-evaluation-schema-fail-"));
     const skillsRoot = join(root, "skills");
-    const evaluationsRoot = join(root, "evals");
-    const skill = join(skillsRoot, "example-skill");
-    const evaluationSuite = join(evaluationsRoot, "example-skill");
+    const sourcesRoot = join(root, "src");
+    const skill = join(sourcesRoot, "example-skill");
+    const evaluationSuite = join(sourcesRoot, "example-skill", "evals");
 
     t.after(() => rmSync(root, { recursive: true, force: true }));
     mkdirSync(skill, { recursive: true });
@@ -859,7 +864,7 @@ for (const [label, evaluation, expectedMessage] of [
       () =>
         skillBuild.validateRepositoryEvaluationLayout({
           skillsRoot,
-          evaluationsRoot,
+          sourcesRoot,
         }),
       expectedMessage,
     );
@@ -870,19 +875,23 @@ for (const maintainerDirectory of ["evals", ".plugin-eval"]) {
   test(`repository evaluation layout rejects ${maintainerDirectory} inside a deployable skill`, (t) => {
     const root = mkdtempSync(join(tmpdir(), "skill-evaluation-layout-fail-"));
     const skillsRoot = join(root, "skills");
-    const evaluationsRoot = join(root, "evals");
+    const sourcesRoot = join(root, "src");
     const skill = join(skillsRoot, "example-skill");
 
     t.after(() => rmSync(root, { recursive: true, force: true }));
     mkdirSync(join(skill, maintainerDirectory), { recursive: true });
-    mkdirSync(evaluationsRoot);
+    mkdirSync(join(sourcesRoot, "example-skill"), { recursive: true });
+    writeFileSync(
+      join(sourcesRoot, "example-skill", "SKILL.md"),
+      "# Example\n",
+    );
     writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
 
     assert.throws(
       () =>
         skillBuild.validateRepositoryEvaluationLayout({
           skillsRoot,
-          evaluationsRoot,
+          sourcesRoot,
         }),
       (error) => {
         assert.match(error.message, /skills[\\/]example-skill/u);
@@ -897,8 +906,8 @@ for (const maintainerDirectory of ["evals", ".plugin-eval"]) {
 test("repository evaluation layout rejects a suite without its canonical skill", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-orphan-fail-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
-  const evaluation = join(evaluationsRoot, "missing-skill");
+  const sourcesRoot = join(root, "src");
+  const evaluation = join(sourcesRoot, "missing-skill", "evals");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(skillsRoot);
@@ -916,24 +925,24 @@ test("repository evaluation layout rejects a suite without its canonical skill",
     () =>
       skillBuild.validateRepositoryEvaluationLayout({
         skillsRoot,
-        evaluationsRoot,
+        sourcesRoot,
       }),
-    /evals[\\/]missing-skill.*skills[\\/]missing-skill[\\/]SKILL\.md/u,
+    /src[\\/]missing-skill[\\/]evals.*src[\\/]missing-skill[\\/]SKILL\.md/u,
   );
 });
 
 test("repository evaluation layout rejects mismatched suites and escaped fixtures", (t) => {
   const root = mkdtempSync(join(tmpdir(), "skill-evaluation-content-fail-"));
   const skillsRoot = join(root, "skills");
-  const evaluationsRoot = join(root, "evals");
-  const skill = join(skillsRoot, "example-skill");
-  const evaluation = join(evaluationsRoot, "example-skill");
+  const sourcesRoot = join(root, "src");
+  const skill = join(sourcesRoot, "example-skill");
+  const evaluation = join(sourcesRoot, "example-skill", "evals");
 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(skill, { recursive: true });
   mkdirSync(evaluation, { recursive: true });
   writeFileSync(join(skill, "SKILL.md"), "# Example skill\n");
-  writeFileSync(join(evaluationsRoot, "outside.txt"), "outside\n");
+  writeFileSync(join(sourcesRoot, "outside.txt"), "outside\n");
   writeFileSync(
     join(evaluation, "evals.json"),
     JSON.stringify({
@@ -952,7 +961,7 @@ test("repository evaluation layout rejects mismatched suites and escaped fixture
     () =>
       skillBuild.validateRepositoryEvaluationLayout({
         skillsRoot,
-        evaluationsRoot,
+        sourcesRoot,
       }),
     (error) => {
       assert.match(error.message, /declares skill_name "different-skill"/u);
