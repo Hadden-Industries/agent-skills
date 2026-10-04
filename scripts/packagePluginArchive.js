@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -157,10 +157,6 @@ export function packagePluginArchive({
     `${manifest.name}-${manifest.version}-antigravity-desktop.zip`,
   );
 
-  if (existsSync(archivePath)) {
-    throw new Error(`${archivePath} already exists; it is never overwritten.`);
-  }
-
   const archive = zipArchive(members);
 
   for (const [path, data] of zipMembers(archive)) {
@@ -174,7 +170,19 @@ export function packagePluginArchive({
   }
 
   mkdirSync(outputDirectory, { recursive: true });
-  writeFileSync(archivePath, archive);
+  try {
+    writeFileSync(archivePath, archive, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      throw new Error(
+        `${archivePath} already exists; it is never overwritten.`,
+        {
+          cause: error,
+        },
+      );
+    }
+    throw error;
+  }
 
   return { archivePath, manifest, memberCount: members.length };
 }

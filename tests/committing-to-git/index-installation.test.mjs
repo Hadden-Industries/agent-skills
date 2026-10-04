@@ -10,6 +10,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readStableFile } from "../../src/committing-to-git/filesystem/stableFile.js";
 
 import {
   indexIdentitiesMatch,
@@ -91,10 +92,9 @@ test("index installation retains the prepared racy-clean timestamp boundary", (t
   const timestamp = 1700000000;
   utimesSync(fixture.preparedIndexPath, timestamp, timestamp);
   fixture.preparedIndexIdentity = readIndexIdentity(fixture.preparedIndexPath);
-  const preparedTime = statSync(fixture.preparedIndexPath, {
-    bigint: true,
-  }).mtimeNs;
-  const preparedBytes = readFileSync(fixture.preparedIndexPath);
+  const prepared = readStableFile(fixture.preparedIndexPath, 64 * 1024 * 1024);
+  const preparedBytes = prepared.bytes;
+  const preparedTime = prepared.stat.mtimeNs;
   const result = install(fixture);
   assert.equal(result.status, "installed");
   assert.deepEqual(readFileSync(fixture.indexPath), preparedBytes);

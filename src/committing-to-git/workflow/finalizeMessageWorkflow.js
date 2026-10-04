@@ -1,11 +1,6 @@
+import { createOrVerifyFile } from "../filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TextDecoder } from "node:util";
 
@@ -301,19 +296,15 @@ function writeEvidencePlanRevision(transaction, evidencePlan) {
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`,
   );
-  const bytes = stableJsonBytes(evidencePlan);
-
-  if (existsSync(path)) {
-    if (!readFileSync(path).equals(bytes)) {
-      fail(
-        "EVIDENCE_PLAN_COLLISION",
-        "An immutable evidence-plan revision has conflicting bytes.",
-      );
-    }
-  } else {
-    writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
+  try {
+    createOrVerifyFile(path, stableJsonBytes(evidencePlan));
+  } catch (error) {
+    fail(
+      "EVIDENCE_PLAN_COLLISION",
+      "An immutable evidence-plan revision has conflicting or unsafe bytes.",
+      { cause: error },
+    );
   }
-
   return path;
 }
 

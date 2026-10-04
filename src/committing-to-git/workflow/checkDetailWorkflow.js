@@ -1,3 +1,4 @@
+import { readStableFile } from "../filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
@@ -5,15 +6,6 @@ import { executeCommand } from "../cli/commandExecution.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
-import {
-  closeSync,
-  constants as fsConstants,
-  fstatSync,
-  lstatSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
 import { join, resolve } from "node:path";
 
 import { readTransaction } from "../transaction/transactionWorkspace.js";
@@ -29,22 +21,6 @@ function fail(code, message, options) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function identity(stat) {
-  return {
-    device: String(stat.dev),
-    inode: String(stat.ino),
-    size: Number(stat.size),
-  };
-}
-
-function sameIdentity(left, right) {
-  return (
-    left.device === right.device &&
-    left.inode === right.inode &&
-    left.size === right.size
-  );
 }
 
 function contentFor(bytes) {
@@ -149,57 +125,11 @@ function readBoundSegment({
     );
   }
 
-  let initial;
-
   try {
-    initial = lstatSync(expectedPath, { bigint: true });
-  } catch (error) {
-    fail(
-      "CHECK_DETAIL_UNAVAILABLE",
-      "The retained output segment is unavailable.",
-      { disposition: "rejected", cause: error },
-    );
-  }
-
-  if (
-    initial.isSymbolicLink() ||
-    !initial.isFile() ||
-    realpathSync(expectedPath) !== resolve(expectedPath)
-  ) {
-    fail(
-      "CHECK_DETAIL_ARTIFACT_CHANGED",
-      "The retained output segment was replaced or is not a regular file.",
-      { disposition: "rejected" },
-    );
-  }
-
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  let descriptor;
-
-  try {
-    descriptor = openSync(expectedPath, fsConstants.O_RDONLY + noFollow);
-  } catch (error) {
-    fail(
-      "CHECK_DETAIL_UNAVAILABLE",
-      "The retained output segment cannot be opened.",
-      { disposition: "rejected", cause: error },
-    );
-  }
-
-  try {
-    const before = fstatSync(descriptor, { bigint: true });
-    const bytes = readFileSync(descriptor);
-    const after = fstatSync(descriptor, { bigint: true });
-    const final = lstatSync(expectedPath, { bigint: true });
-
+    const bytes = readStableFile(expectedPath, recordedByteCount, {
+      rejectLinkedAncestors: true,
+    }).bytes;
     if (
-      !before.isFile() ||
-      !after.isFile() ||
-      final.isSymbolicLink() ||
-      !final.isFile() ||
-      !sameIdentity(identity(initial), identity(before)) ||
-      !sameIdentity(identity(before), identity(after)) ||
-      !sameIdentity(identity(after), identity(final)) ||
       bytes.length !== recordedByteCount ||
       sha256(bytes) !== recordedSha256
     ) {
@@ -209,20 +139,16 @@ function readBoundSegment({
         { disposition: "rejected" },
       );
     }
-
     return bytes;
   } catch (error) {
-    if (error instanceof WorkflowDiagnosticError) {
-      throw error;
-    }
-
+    if (error instanceof WorkflowDiagnosticError) throw error;
     fail(
-      "CHECK_DETAIL_ARTIFACT_CHANGED",
-      "The retained output segment changed while it was read.",
+      ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(error.code)
+        ? "CHECK_DETAIL_UNAVAILABLE"
+        : "CHECK_DETAIL_ARTIFACT_CHANGED",
+      "The retained output segment is unavailable or changed while it was read.",
       { disposition: "rejected", cause: error },
     );
-  } finally {
-    closeSync(descriptor);
   }
 }
 

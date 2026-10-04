@@ -1,3 +1,4 @@
+import { readStableFile } from "../filesystem/stableFile.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import {
@@ -18,7 +19,6 @@ import {
   fsyncSync,
   lstatSync,
   openSync,
-  readFileSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
@@ -39,6 +39,7 @@ import {
   releaseTransactionStateLock,
 } from "../transaction/transactionRecovery.js";
 import {
+  MAXIMUM_INITIAL_JSON_INPUT_BYTES,
   advanceTransaction,
   readTransaction,
   updateTransaction,
@@ -256,28 +257,19 @@ function assertPublicationAllowed(transaction) {
 }
 
 function readPersistedReport(transaction) {
-  let stat;
-
+  let bytes;
   try {
-    stat = lstatSync(transaction.report.jsonPath);
+    bytes = readStableFile(
+      transaction.report.jsonPath,
+      MAXIMUM_INITIAL_JSON_INPUT_BYTES,
+    ).bytes;
   } catch (error) {
     fail(
       "REPORT_ARTIFACT_MISMATCH",
-      "The persisted report cannot be inspected.",
+      "The persisted report cannot be read as a stable bounded regular file.",
       { disposition: "unmet-prerequisite", cause: error },
     );
   }
-
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail(
-      "REPORT_ARTIFACT_MISMATCH",
-      "The persisted report path was replaced or is not regular.",
-      { disposition: "unmet-prerequisite" },
-    );
-  }
-
-  const bytes = readFileSync(transaction.report.jsonPath);
-
   if (sha256(bytes) !== transaction.report.jsonSha256) {
     fail(
       "REPORT_ARTIFACT_MISMATCH",
@@ -285,7 +277,6 @@ function readPersistedReport(transaction) {
       { disposition: "unmet-prerequisite" },
     );
   }
-
   return JSON.parse(bytes.toString("utf8"));
 }
 
@@ -298,16 +289,21 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
   }
 
   try {
-    const textStat = lstatSync(transaction.report.textPath);
-
     return (
-      !textStat.isSymbolicLink() &&
-      textStat.isFile() &&
-      sha256(readFileSync(transaction.report.textPath)) ===
-        transaction.report.textSha256
+      sha256(
+        readStableFile(transaction.report.textPath, textBytes.length).bytes,
+      ) === transaction.report.textSha256
     );
   } catch (error) {
-    if (error.code === "ENOENT") {
+    if (
+      [
+        "ENOENT",
+        "ELOOP",
+        "FILE_NOT_REGULAR",
+        "FILE_CHANGED",
+        "FILE_TOO_LARGE",
+      ].includes(error.code)
+    ) {
       return false;
     }
 

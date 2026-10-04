@@ -1,3 +1,7 @@
+import {
+  readStableFile,
+  createOrVerifyFile,
+} from "../filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
@@ -5,18 +9,7 @@ import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 
-import {
-  closeSync,
-  constants as fsConstants,
-  existsSync,
-  fstatSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { TextDecoder } from "node:util";
 
@@ -59,44 +52,19 @@ function fail(code, message, options) {
 }
 
 function readFixedEvidencePlan(path) {
-  const initialPathStat = lstatSync(path);
-
-  if (
-    initialPathStat.isSymbolicLink() ||
-    !initialPathStat.isFile() ||
-    initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES
-  ) {
+  let bytes;
+  try {
+    bytes = readStableFile(path, MAXIMUM_INITIAL_JSON_INPUT_BYTES).bytes;
+  } catch (error) {
     fail(
-      "INVALID_EVIDENCE_PLAN_INPUT",
-      "The fixed evidence-plan input must be a bounded non-symbolic regular file.",
+      error.code === "FILE_CHANGED"
+        ? "EVIDENCE_PLAN_INPUT_CHANGED"
+        : "INVALID_EVIDENCE_PLAN_INPUT",
+      "The fixed evidence-plan input must be a bounded stable non-symbolic regular file.",
+      { cause: error },
     );
   }
-
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  const descriptor = openSync(path, fsConstants.O_RDONLY + noFollow);
-
-  try {
-    const before = fstatSync(descriptor);
-    const bytes = readFileSync(descriptor);
-    const after = fstatSync(descriptor);
-    const finalPathStat = lstatSync(path);
-
-    if (
-      !before.isFile() ||
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
-      before.size !== after.size ||
-      after.dev !== finalPathStat.dev ||
-      after.ino !== finalPathStat.ino ||
-      after.size !== finalPathStat.size ||
-      bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES
-    ) {
-      fail(
-        "EVIDENCE_PLAN_INPUT_CHANGED",
-        "The fixed evidence-plan input changed while it was read.",
-      );
-    }
-
+  {
     let text;
 
     try {
@@ -136,8 +104,6 @@ function readFixedEvidencePlan(path) {
     }
 
     return payload.groups;
-  } finally {
-    closeSync(descriptor);
   }
 }
 
@@ -225,19 +191,15 @@ function writeEvidencePlanRevision(transaction, evidencePlan) {
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`,
   );
-  const bytes = stableJsonBytes(evidencePlan);
-
-  if (existsSync(path)) {
-    if (!readFileSync(path).equals(bytes)) {
-      fail(
-        "EVIDENCE_PLAN_COLLISION",
-        "An immutable evidence-plan revision has conflicting bytes.",
-      );
-    }
-    return path;
+  try {
+    createOrVerifyFile(path, stableJsonBytes(evidencePlan));
+  } catch (error) {
+    fail(
+      "EVIDENCE_PLAN_COLLISION",
+      "An immutable evidence-plan revision has conflicting or unsafe bytes.",
+      { cause: error },
+    );
   }
-
-  writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
   return path;
 }
 

@@ -72,27 +72,23 @@ function stableIdentityMatches(left, right) {
 }
 
 function openReadOnlyNoFollow(path) {
-  return openSync(path, fsConstants.O_RDONLY + (fsConstants.O_NOFOLLOW ?? 0));
+  return openSync(
+    path,
+    fsConstants.O_RDONLY +
+      (fsConstants.O_NOFOLLOW ?? 0) +
+      (fsConstants.O_NONBLOCK ?? 0),
+    0o600,
+  );
 }
 
 function readStableRegularFile(path, { allowAbsent = false } = {}) {
-  let pathStat;
-
+  let descriptor;
   try {
-    pathStat = lstatSync(path);
+    descriptor = openReadOnlyNoFollow(path);
   } catch (error) {
-    if (allowAbsent && error.code === "ENOENT") {
-      return null;
-    }
-
+    if (allowAbsent && error.code === "ENOENT") return null;
     throw error;
   }
-
-  if (!pathStat.isFile() || pathStat.isSymbolicLink()) {
-    throw new Error(`Expected a non-symbolic regular file: ${path}`);
-  }
-
-  const descriptor = openReadOnlyNoFollow(path);
 
   try {
     const before = fstatSync(descriptor);
@@ -109,6 +105,8 @@ function readStableRegularFile(path, { allowAbsent = false } = {}) {
     const finalPathIdentity = statIdentity(finalPathStat);
 
     if (
+      !finalPathStat.isFile() ||
+      finalPathStat.isSymbolicLink() ||
       !stableIdentityMatches(beforeIdentity, afterIdentity) ||
       !stableIdentityMatches(afterIdentity, finalPathIdentity) ||
       Number(after.size) !== bytes.length

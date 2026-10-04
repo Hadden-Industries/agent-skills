@@ -1003,8 +1003,10 @@ test("compaction is terminal-only and removes only contained helper artifacts", 
 
   mkdirSync(reviewDirectory);
   mkdirSync(processLogDirectory);
-  writeFileSync(join(reviewDirectory, "packet.txt"), "review\n");
-  writeFileSync(join(processLogDirectory, "git.log"), "log\n");
+  writeFileSync(join(reviewDirectory, "packet.txt"), "review\n", {
+    mode: 0o600,
+  });
+  writeFileSync(join(processLogDirectory, "git.log"), "log\n", { mode: 0o600 });
 
   assert.throws(
     () =>

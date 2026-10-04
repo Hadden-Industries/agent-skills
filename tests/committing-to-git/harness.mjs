@@ -97,7 +97,7 @@ export function writeRepositoryFile(repo, relativePath, contents) {
   const target = join(repo, relativePath);
 
   mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, contents);
+  writeFileSync(target, contents, { mode: 0o600 });
 }
 
 export function writeJson(path, value) {
