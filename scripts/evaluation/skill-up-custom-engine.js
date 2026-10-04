@@ -21,7 +21,7 @@ import {
 import { parseContract, readContract } from "./json-contract.js";
 import { preparedExecutionProfile } from "./profile-registry.js";
 import { deriveOutcomeReference } from "./derive-reports.js";
-import { assertProcessHostMembership } from "./process-host.js";
+import { preparedProcessContainment } from "./process-host.js";
 
 const same = (a, b) => canonicalJsonBytes(a).equals(canonicalJsonBytes(b));
 
@@ -207,13 +207,14 @@ export async function executeSkillUpBridge({
     throw new Error("Prepared profile/suite mismatch");
   assertRegularPath(control.authorizationFile);
   const authorization = readContract(control.authorizationFile);
-  assertProcessHostMembership(control.processHost);
+  const containment = preparedProcessContainment(resolve(controlPath), control);
   const result = await profile.execute({
     preparedSession: control.preparedSession,
     authorization,
     allowExternalModelCall: true,
     timeoutMs: control.deadline.executionTimeoutMs,
     evidenceLayout: control.evidenceLayout,
+    containment,
     signal,
   });
   const reference = deriveOutcomeReference({

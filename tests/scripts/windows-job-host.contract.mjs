@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { createHash } from "node:crypto";
 import {
   assertProcessHostMembership,
+  assertProcessClosure,
   prepareProcessHost,
   runProcessHost,
 } from "../../scripts/evaluation/process-host.js";
@@ -23,6 +24,8 @@ test(
     const spec = {
       ...values,
       jobName: identity.jobName,
+      processHost: identity,
+      association: null,
       sha256: createHash("sha256")
         .update(readFileSync(input.executable))
         .digest("hex"),
@@ -65,6 +68,8 @@ test(
     const spec = {
       ...values,
       jobName: identity.jobName,
+      processHost: identity,
+      association: null,
       sha256: createHash("sha256")
         .update(readFileSync(input.executable))
         .digest("hex"),
@@ -138,6 +143,8 @@ for (const scenario of [
   "timeout",
   "consumer-death",
   "host-death",
+  "recorder-death",
+  "simultaneous-death",
   "parent-death",
   "inherited-pipe",
   "spawn-race",
@@ -172,8 +179,39 @@ for (const scenario of [
         await until(() => identities.every(({ pid }) => !alive(pid)));
         if (scenario !== "parent-death") {
           const result = read(join(root, "wrapper-result.json"));
-          if (scenario === "host-death") assert.ok(result.error);
-          else {
+          if (scenario === "host-death") {
+            assert.ok(result.error); // An abrupt death never fabricates success.
+            const closure = read(`${input.resultPath}.closure.json`);
+            assert.equal(closure.schemaVersion, 2);
+            assert.equal(closure.reason, "host-exited");
+            assert.equal(closure.activeProcesses, 0);
+            assert.equal(closure.binding.jobName, input.identity.jobName);
+            assert.match(closure.binding.host.creationFileTime, /^[0-9]+$/u);
+            assert.ok(closure.signature);
+            const readiness = read(`${input.resultPath}.ready.json`);
+            assertProcessClosure(closure, readiness, input.identity);
+            assert.throws(
+              () =>
+                assertProcessClosure(
+                  { ...closure, totalProcesses: closure.totalProcesses + 1 },
+                  readiness,
+                  input.identity,
+                ),
+              /signature invalid/u,
+            );
+          } else if (
+            ["recorder-death", "simultaneous-death"].includes(scenario)
+          ) {
+            assert.ok(result.error);
+            assert.equal(
+              readFileSync(`${input.resultPath}.closure.json`, "utf8"),
+              "",
+            );
+            if (scenario === "recorder-death") {
+              assert.equal(result.observation.reason, "recorder-loss");
+              assert.equal(result.observation.activeProcesses, 0);
+            }
+          } else {
             assert.equal(result.error, null);
             assert.equal(result.observation.activeProcesses, 0);
             assert.equal(
@@ -200,7 +238,11 @@ test(
   async () => {
     const root = mkdtempSync(join(tmpdir(), "windows-job-invalid-"));
     const input = request(root, "normal");
-    for (const field of ["scriptSha256", "interpreterSha256"]) {
+    for (const field of [
+      "scriptSha256",
+      "interpreterSha256",
+      "recorderSha256",
+    ]) {
       const original = input.identity[field];
       input.identity[field] = "0".repeat(64);
       await assert.rejects(runProcessHost(input), /identity drift/u);

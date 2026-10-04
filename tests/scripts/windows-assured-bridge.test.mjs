@@ -63,19 +63,19 @@ test(
     // resulting host bytes are bound by normal preparation, never bypassed.
     const fault = process.env.WINDOWS_BRIDGE_FIXTURE_FAULT;
     if (fault !== undefined) {
-      assert.equal(fault, "omit-kill-on-close");
+      assert.equal(fault, "omit-recorder-termination");
       assert.equal(process.env.WINDOWS_BRIDGE_FIXTURE_SCENARIO, "host-death");
       const hostScript = join(
         checkout,
-        "scripts/evaluation/windows-job-host.py",
+        "scripts/evaluation/windows-closure-recorder.py",
       );
       const original = readFileSync(hostScript, "utf8");
-      assert.ok(original.includes("limits.basic.flags = 0x2000"));
+      assert.ok(original.includes("checked(terminate(job, 124))"));
       writeFileSync(
         hostScript,
-        original.replace(
-          "limits.basic.flags = 0x2000",
-          "limits.basic.flags = 0",
+        original.replaceAll(
+          "checked(terminate(job, 124))",
+          "pass  # disposable negative control: omit recorder termination",
         ),
         { mode: 0o600 },
       );
@@ -122,9 +122,12 @@ test(
       "Synthetic fixture",
     ]);
     const load = (file) => import(pathToFileURL(join(checkout, file)).href);
-    const { initializeEvaluationHomes } = await load(
-      "scripts/evaluation/evaluation-homes.js",
-    );
+    const {
+      initializeEvaluationHomes,
+      inspectEvaluationHomes,
+      prepareEvaluationHomeRecovery,
+      applyEvaluationHomeRecovery,
+    } = await load("scripts/evaluation/evaluation-homes.js");
     const { inspectCodexAppServerToolchain } = await load(
       "scripts/evaluation/codex-app-server.js",
     );
@@ -151,6 +154,8 @@ test(
       "invalid-authority",
       "wrapper-death",
       "host-death",
+      "recorder-death",
+      "simultaneous-death",
       "consumer-death",
       "bridge-death",
       "cancellation",
@@ -168,6 +173,12 @@ test(
         mkdirSync(directory);
         const homes = join(directory, "homes");
         await initializeEvaluationHomes({ root: homes });
+        if (scenario === "host-death")
+          writeFileSync(
+            join(homes, "execution/auth.json"),
+            "synthetic credential bytes",
+            { mode: 0o600 },
+          );
         const requestPath = join(directory, "provider-request.json");
         write(requestPath, {
           root: directory,
@@ -289,11 +300,32 @@ test(
                   "tests/fixtures/evaluation-contracts/observe-windows-job.py",
                 ),
                 carrier.receipt.processHost.jobName,
+                String(
+                  read(
+                    join(
+                      consumerRoot,
+                      "process-host-observation.json.ready.json",
+                    ),
+                  ).recorder.pid,
+                ),
               ],
               { encoding: "utf8", windowsHide: true, timeout: 5000 },
             );
             assert.equal(observation.status, 0, observation.stderr);
             const job = JSON.parse(observation.stdout);
+            const readyBinding = read(
+              join(consumerRoot, "process-host-observation.json.ready.json"),
+            );
+            assert.equal(job.recorder.inInvocationJob, false);
+            assert.equal(job.recorder.pid, readyBinding.recorder.pid);
+            assert.equal(
+              job.recorder.creationFileTime,
+              readyBinding.recorder.creationFileTime,
+            );
+            assert.equal(
+              resolve(job.recorder.image).toLowerCase(),
+              resolve(carrier.receipt.processHost.interpreter).toLowerCase(),
+            );
             inventory = job.processes;
             assert.ok(inventory.some(({ pid }) => pid === barrier.pid));
             assert.ok(
@@ -330,6 +362,12 @@ test(
               "bridge-death": bridge.pid,
               "provider-death": barrier.pid,
               cancellation: consumer.pid,
+              "recorder-death": read(
+                join(consumerRoot, "process-host-observation.json.ready.json"),
+              ).recorder.pid,
+              "simultaneous-death": read(
+                join(consumerRoot, "process-host-observation.json.ready.json"),
+              ).recorder.pid,
             };
             target = targets[scenario] ?? null;
             const claimBytes = readFileSync(
@@ -344,11 +382,21 @@ test(
               /already attempted/u,
             );
             assert.ok(alive(barrier.pid));
+            if (scenario === "host-death") {
+              const live = await prepareEvaluationHomeRecovery({
+                root: homes,
+                role: "execution",
+              });
+              assert.equal(live.status, "unknown");
+              assert.ok(alive(barrier.pid));
+            }
             if (target !== null)
               process.kill(
                 target,
                 scenario === "cancellation" ? "SIGINT" : "SIGKILL",
               );
+            if (scenario === "simultaneous-death")
+              process.kill(host.pid, "SIGKILL");
             if (target === null) await closed;
             try {
               await until(
@@ -381,6 +429,8 @@ test(
               [
                 "wrapper-death",
                 "host-death",
+                "recorder-death",
+                "simultaneous-death",
                 "consumer-death",
                 "bridge-death",
                 "cancellation",
@@ -402,6 +452,99 @@ test(
                 }),
                 /Reserved execution evidence already exists: attempt.json/u,
               );
+              if (scenario === "host-death") {
+                const leasePath = join(homes, ".leases/execution.lock");
+                const leaseBytes = readFileSync(join(leasePath, "lease.json"));
+                const journalBytes = readFileSync(
+                  join(leasePath, "journal.jsonl"),
+                );
+                const oppositeMarker = readFileSync(
+                  join(homes, "preflight/.evaluation-home-owner.json"),
+                );
+                const beforeGeneration = read(
+                  join(homes, "execution/.evaluation-home-owner.json"),
+                ).generationNonce;
+                const proposal = await prepareEvaluationHomeRecovery({
+                  root: homes,
+                  role: "execution",
+                });
+                assert.equal(
+                  proposal.status,
+                  "eligible",
+                  JSON.stringify(proposal),
+                );
+                const recovered = await applyEvaluationHomeRecovery({
+                  proposal,
+                  confirmRoot: homes,
+                  confirmRole: "execution",
+                  stateDigest: proposal.stateDigest,
+                });
+                assert.equal(recovered.status, "recovered");
+                assert.equal(existsSync(leasePath), false);
+                assert.deepEqual(
+                  readFileSync(join(recovered.historyPath, "lease.json")),
+                  leaseBytes,
+                );
+                assert.deepEqual(
+                  readFileSync(join(recovered.historyPath, "journal.jsonl")),
+                  journalBytes,
+                );
+                assert.deepEqual(
+                  readFileSync(
+                    join(homes, "preflight/.evaluation-home-owner.json"),
+                  ),
+                  oppositeMarker,
+                );
+                assert.equal(
+                  readFileSync(join(homes, "execution/auth.json"), "utf8"),
+                  "synthetic credential bytes",
+                );
+                assert.notEqual(
+                  read(join(homes, "execution/.evaluation-home-owner.json"))
+                    .generationNonce,
+                  beforeGeneration,
+                );
+                assert.deepEqual(readdirSync(join(homes, "execution")).sort(), [
+                  ".evaluation-home-owner.json",
+                  "auth.json",
+                ]);
+                assert.deepEqual(
+                  readFileSync(join(prepared.preparedSession, "attempt.json")),
+                  consumptionBytes,
+                );
+                assert.equal(
+                  existsSync(join(prepared.preparedSession, "run.json")),
+                  false,
+                );
+                const inventory = await inspectEvaluationHomes({ root: homes });
+                assert.equal(inventory.recoveredHistory.length, 1);
+                assert.equal(
+                  inventory.completedHistory.some(({ name }) =>
+                    name.endsWith(".recovered"),
+                  ),
+                  false,
+                );
+                await assert.rejects(
+                  executePreparedEvaluationSession({
+                    preparedSession: prepared.preparedSession,
+                    authorization: read(authPath),
+                    allowExternalModelCall: true,
+                  }),
+                  /Reserved execution evidence already exists: attempt.json/u,
+                );
+                write(join(directory, "recovery-receipt.json"), recovered);
+              } else if (
+                ["recorder-death", "simultaneous-death"].includes(scenario)
+              ) {
+                const unknown = await prepareEvaluationHomeRecovery({
+                  root: homes,
+                  role: "execution",
+                });
+                assert.equal(unknown.status, "unknown");
+                assert.ok(
+                  existsSync(join(homes, ".leases/execution.lock/lease.json")),
+                );
+              }
             } else {
               const outcome = read(join(prepared.preparedSession, "run.json"));
               assert.equal(outcome.status, "failed");

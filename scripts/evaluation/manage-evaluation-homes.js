@@ -1,13 +1,18 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { lstat, open, realpath } from "node:fs/promises";
+import { readContract } from "./json-contract.js";
+import { assertRegularPath } from "./toolchain.js";
 
 import {
   EVALUATION_HOME_ROLES,
   initializeEvaluationHomes,
   inspectEvaluationHomes,
   withEvaluationHome,
+  prepareEvaluationHomeRecovery,
+  applyEvaluationHomeRecovery,
 } from "./evaluation-homes.js";
 
 const SCHEMA_VERSION = 1;
@@ -17,6 +22,8 @@ const DEFAULT_MANAGER = Object.freeze({
   initializeEvaluationHomes,
   inspectEvaluationHomes,
   withEvaluationHome,
+  prepareEvaluationHomeRecovery,
+  applyEvaluationHomeRecovery,
 });
 const VALUE_OPTIONS = Object.freeze([
   "--codex-command",
@@ -24,6 +31,9 @@ const VALUE_OPTIONS = Object.freeze([
   "--confirm-root",
   "--role",
   "--root",
+  "--proposal",
+  "--state-digest",
+  "--confirm-role",
 ]);
 
 class CliUsageError extends Error {
@@ -40,10 +50,21 @@ function usageError(message) {
 
 function parseArguments(argv) {
   if (!Array.isArray(argv) || argv.length === 0) {
-    usageError("a command is required: inspect, initialize, or login");
+    usageError(
+      "a command is required: inspect, initialize, login, prepare-recovery, apply-recovery, or resume-recovery",
+    );
   }
   const [command, ...tokens] = argv;
-  if (!["inspect", "initialize", "login"].includes(command)) {
+  if (
+    ![
+      "inspect",
+      "initialize",
+      "login",
+      "prepare-recovery",
+      "apply-recovery",
+      "resume-recovery",
+    ].includes(command)
+  ) {
     usageError(`unknown command: ${String(command)}`);
   }
 
@@ -55,6 +76,9 @@ function parseArguments(argv) {
     codexCommand: null,
     codexPrefixArguments: [],
     allowInteractiveLogin: false,
+    proposalPath: null,
+    stateDigest: null,
+    confirmRole: null,
   };
   const observed = new Set();
 
@@ -93,6 +117,12 @@ function parseArguments(argv) {
       parsed.role = value;
     } else if (option === "--codex-command") {
       parsed.codexCommand = value;
+    } else if (option === "--proposal") {
+      parsed.proposalPath = value;
+    } else if (option === "--state-digest") {
+      parsed.stateDigest = value;
+    } else if (option === "--confirm-role") {
+      parsed.confirmRole = value;
     }
   }
 
@@ -119,6 +149,40 @@ function rejectLoginOnlyOptions(parsed) {
 
 function validateCommandArguments(parsed) {
   validateRoot(parsed.root);
+  if (parsed.command.endsWith("-recovery")) {
+    if (
+      parsed.role !== "execution" ||
+      parsed.codexCommand !== null ||
+      parsed.codexPrefixArguments.length ||
+      parsed.allowInteractiveLogin
+    )
+      usageError(
+        "recovery accepts only execution role and no login/provider options",
+      );
+    validateRoot(parsed.proposalPath);
+    if (parsed.command === "prepare-recovery") {
+      if (
+        parsed.confirmRoot !== null ||
+        parsed.confirmRole !== null ||
+        parsed.stateDigest !== null
+      )
+        usageError("prepare-recovery does not accept apply confirmations");
+    } else if (
+      parsed.confirmRoot !== parsed.root ||
+      parsed.confirmRole !== parsed.role ||
+      !/^[0-9a-f]{64}$/u.test(parsed.stateDigest ?? "")
+    )
+      usageError(
+        "recovery application requires exact --confirm-root, --confirm-role and --state-digest",
+      );
+    return;
+  }
+  if (
+    parsed.proposalPath !== null ||
+    parsed.confirmRole !== null ||
+    parsed.stateDigest !== null
+  )
+    usageError(`${parsed.command} does not accept recovery options`);
 
   if (parsed.command === "inspect") {
     if (parsed.confirmRoot !== null) {
@@ -337,6 +401,80 @@ export async function runEvaluationHomesCli({
   try {
     const parsed = parseArguments(argv);
     assertManagerPort(manager);
+
+    if (parsed.command === "prepare-recovery") {
+      const proposal = await manager.prepareEvaluationHomeRecovery({
+        root: parsed.root,
+        role: parsed.role,
+      });
+      // This is an explicitly requested operator artifact, never home policy.
+      // Keep it outside the generations/authority that recovery must preserve.
+      const protectedRoots = [parsed.root];
+      if (proposal.state?.leaseFile) {
+        const lease = JSON.parse(proposal.state.leaseFile.source);
+        const ready = JSON.parse(lease.containment.ready.source);
+        protectedRoots.push(
+          ready.association.preparedSession,
+          ready.association.consumerRoot,
+        );
+      }
+      for (const root of protectedRoots) {
+        const relativePath = resolve(parsed.proposalPath).toLowerCase();
+        const prefix = resolve(root).toLowerCase();
+        if (
+          relativePath === prefix ||
+          relativePath.startsWith(`${prefix}\\`) ||
+          relativePath.startsWith(`${prefix}/`)
+        )
+          usageError(
+            "--proposal must be outside protected home and evidence roots",
+          );
+      }
+      const parent = dirname(parsed.proposalPath);
+      const parentMetadata = await lstat(parent);
+      if (
+        !parentMetadata.isDirectory() ||
+        parentMetadata.isSymbolicLink() ||
+        (await realpath(parent)).toLowerCase() !== parent.toLowerCase()
+      )
+        usageError(
+          "--proposal parent must be an existing ordinary directory without redirection",
+        );
+      const handle = await open(parsed.proposalPath, "wx", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify(proposal)}\n`);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      writeJson(stdout, {
+        schemaVersion: 2,
+        command: parsed.command,
+        status: proposal.status,
+        reason: proposal.reason ?? null,
+        stateDigest: proposal.stateDigest ?? null,
+        proposalPath: parsed.proposalPath,
+        mode: proposal.mode ?? null,
+      });
+      return proposal.status === "eligible" ? 0 : 1;
+    }
+    if (["apply-recovery", "resume-recovery"].includes(parsed.command)) {
+      assertRegularPath(parsed.proposalPath);
+      if ((await lstat(parsed.proposalPath)).nlink !== 1)
+        usageError("--proposal must be an ordinary single-link file");
+      const proposal = readContract(parsed.proposalPath);
+      if (proposal.root !== parsed.root || proposal.role !== parsed.role)
+        usageError("proposal root/role differs from explicit confirmation");
+      const receipt = await manager.applyEvaluationHomeRecovery({
+        proposal,
+        confirmRoot: parsed.confirmRoot,
+        confirmRole: parsed.confirmRole,
+        stateDigest: parsed.stateDigest,
+        resume: parsed.command === "resume-recovery",
+      });
+      writeJson(stdout, receipt);
+      return 0;
+    }
 
     if (parsed.command === "inspect") {
       const inventory = await manager.inspectEvaluationHomes({

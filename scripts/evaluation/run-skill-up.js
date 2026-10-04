@@ -10,7 +10,11 @@ import {
 } from "./toolchain.js";
 import { readContract } from "./json-contract.js";
 import { sha256Hex } from "./runtime.js";
-import { assertProcessHost, runProcessHost } from "./process-host.js";
+import {
+  assertProcessHost,
+  runProcessHost,
+  processHostAssociation,
+} from "./process-host.js";
 
 export async function runSkillUp({ controlPath }) {
   const toolchain = inspectToolchain();
@@ -69,6 +73,7 @@ export async function runSkillUp({ controlPath }) {
           cwd: options.cwd,
           env: options.env,
           timeoutMs: options.timeout,
+          association: processHostAssociation(resolve(controlPath), control),
           resultPath: join(
             control.consumerRoot,
             "process-host-observation.json",
