@@ -7,7 +7,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
-test("source migration preserves 57 payloads with only approved JSON whitespace changes", () => {
+test("runtime inventory matches 57 maintained payload identities and approved JSON formatting", () => {
   const root = resolve(import.meta.dirname, "../..");
   const baseline = JSON.parse(
     readFileSync(
