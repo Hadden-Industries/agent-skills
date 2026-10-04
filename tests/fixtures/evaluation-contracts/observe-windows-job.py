@@ -73,5 +73,24 @@ def identity(pid):
         kernel.CloseHandle(handle)
 processes = [identity(pid) for pid in pids]
 outside_parents = set(parents[pid] for pid in pids) - set(pids)
+recorder = None
+if len(sys.argv) == 3:
+    recorder = identity(int(sys.argv[2]))
+    job = kernel.OpenJobObjectW(4, False, sys.argv[1])
+    if not job:
+        raise c.WinError(c.get_last_error())
+    handle = kernel.OpenProcess(0x1000, False, recorder["pid"])
+    if not handle:
+        kernel.CloseHandle(job)
+        raise c.WinError(c.get_last_error())
+    try:
+        kernel.IsProcessInJob.argtypes = [w.HANDLE, w.HANDLE, c.POINTER(w.BOOL)]
+        member = w.BOOL()
+        if not kernel.IsProcessInJob(handle, job, c.byref(member)):
+            raise c.WinError(c.get_last_error())
+        recorder["inInvocationJob"] = bool(member.value)
+    finally:
+        kernel.CloseHandle(handle)
+        kernel.CloseHandle(job)
 print(json.dumps({"schemaVersion": 1, "jobName": sys.argv[1], "processes": processes,
-                 "outsideParents": [identity(pid) for pid in outside_parents]}))
+                 "outsideParents": [identity(pid) for pid in outside_parents], "recorder": recorder}))

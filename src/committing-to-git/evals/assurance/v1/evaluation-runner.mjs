@@ -86,6 +86,7 @@ const CAMPAIGN_RUNNER_FILES = Object.freeze([
   "scripts/evaluation/prepare-consumer-carrier.js",
   "scripts/evaluation/process-host.js",
   "scripts/evaluation/windows-job-host.py",
+  "scripts/evaluation/windows-closure-recorder.py",
   "scripts/evaluation/consumer-workspace.js",
   "scripts/evaluation/project-skill-up.js",
   "scripts/evaluation/run-skill-up.js",
@@ -1306,6 +1307,7 @@ const EXECUTION_MODULES = Object.freeze({
     "scripts/evaluation/prepare-consumer-carrier.js",
     "scripts/evaluation/process-host.js",
     "scripts/evaluation/windows-job-host.py",
+    "scripts/evaluation/windows-closure-recorder.py",
     "scripts/evaluation/consumer-workspace.js",
     "scripts/evaluation/project-skill-up.js",
     "scripts/evaluation/run-skill-up.js",
@@ -1325,6 +1327,7 @@ const EXECUTION_MODULES = Object.freeze({
     "scripts/evaluation/prepare-consumer-carrier.js",
     "scripts/evaluation/process-host.js",
     "scripts/evaluation/windows-job-host.py",
+    "scripts/evaluation/windows-closure-recorder.py",
     "scripts/evaluation/consumer-workspace.js",
     "scripts/evaluation/project-skill-up.js",
     "scripts/evaluation/run-skill-up.js",
@@ -2061,6 +2064,7 @@ export async function executePreparedEvaluationSession({
   timeoutMs = 30_000,
   signal,
   evidenceLayout = "legacy-v1",
+  containment = null,
 }) {
   const { directory, packet } = preparedPacket(preparedSession);
   const transmission = packet.transmission;
@@ -2094,6 +2098,7 @@ export async function executePreparedEvaluationSession({
                 root: context.evaluationHomesRoot,
                 role: "execution",
                 operationId: transmission.session.preparedSessionId,
+                containment,
               },
               operation,
             ),

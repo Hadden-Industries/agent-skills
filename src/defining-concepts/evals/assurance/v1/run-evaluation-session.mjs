@@ -90,6 +90,7 @@ const COMMON_RUNTIME_MODULES = [
   "scripts/evaluation/prepare-consumer-carrier.js",
   "scripts/evaluation/process-host.js",
   "scripts/evaluation/windows-job-host.py",
+  "scripts/evaluation/windows-closure-recorder.py",
   "scripts/evaluation/consumer-workspace.js",
   "scripts/evaluation/project-skill-up.js",
   "scripts/evaluation/run-skill-up.js",
@@ -1020,6 +1021,7 @@ export async function executePreparedDefiningSession({
   authorization,
   allowExternalModelCall,
   evidenceLayout = "legacy-v1",
+  containment = null,
   signal,
 }) {
   if (allowExternalModelCall !== true)
@@ -1053,6 +1055,7 @@ export async function executePreparedDefiningSession({
             root: settings.evaluationHomesRoot,
             role: "execution",
             operationId: transmission.session.preparedSessionId,
+            containment,
           },
           operation,
         ),

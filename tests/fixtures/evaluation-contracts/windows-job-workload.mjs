@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const [root, scenario, role = "consumer"] = process.argv.slice(2);
 const record = (name, value) =>
@@ -30,6 +30,14 @@ if (role === "consumer") {
     if (scenario === "consumer-death" || scenario === "inherited-pipe")
       process.exit(scenario === "consumer-death" ? 7 : 0);
     if (scenario === "host-death") process.kill(process.ppid, "SIGKILL");
+    if (["recorder-death", "simultaneous-death"].includes(scenario)) {
+      const binding = JSON.parse(
+        readFileSync(join(root, "host-result.json.ready.json"), "utf8"),
+      );
+      process.kill(binding.recorder.pid, "SIGKILL");
+      if (scenario === "simultaneous-death")
+        process.kill(process.ppid, "SIGKILL");
+    }
   }, 10);
 } else if (["spawn-race", "provider-death"].includes(scenario)) {
   spawn(

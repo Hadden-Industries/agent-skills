@@ -35,7 +35,7 @@ def main():
         if len(line) > 262144 or b"\n" in line[:-1]:
             raise ValueError("Invalid invocation framing")
     spec = json.loads(line, object_pairs_hook=unique)
-    if set(spec) != {"executable", "sha256", "argv", "cwd", "env", "timeoutMs", "resultPath", "jobName"}:
+    if set(spec) != {"executable", "sha256", "argv", "cwd", "env", "timeoutMs", "resultPath", "jobName", "processHost", "association"}:
         raise ValueError("Invalid invocation fields")
     if not isinstance(spec["jobName"], str) or not re.fullmatch(r"Local\\HaddenEvaluation-[a-f0-9-]{36}", spec["jobName"]):
         raise ValueError("Invalid job identity")
@@ -51,6 +51,13 @@ def main():
     with open(spec["executable"], "rb") as source:
         if hashlib.file_digest(source, "sha256").hexdigest() != spec["sha256"]:
             raise ValueError("Executable identity drift")
+    identity = spec["processHost"]
+    if identity["kind"] != "windows-job-v2" or identity["jobName"] != spec["jobName"]:
+        raise ValueError("Invalid process host binding")
+    for path, expected in ((sys.executable, identity["interpreterSha256"]), (__file__, identity["scriptSha256"]), (identity["recorder"], identity["recorderSha256"])):
+        with open(path, "rb") as source:
+            if hashlib.file_digest(source, "sha256").hexdigest() != expected:
+                raise ValueError("Process host producer identity drift")
     # Reserve the observation before creating any workload. A crashed host leaves
     # an empty record, which is unknown, never successful closure evidence.
     result = open(spec["resultPath"], "x", encoding="utf-8")
@@ -123,10 +130,45 @@ def main():
     attributes_initialized = False
     info = PROCESSINFO()
     started = time.monotonic()
+    recorder = None
     try:
         limits = EXTENDEDLIMIT()
         limits.basic.flags = 0x2000  # KILL_ON_JOB_CLOSE, no breakaway flags
         checked(set_job(job, 9, c.byref(limits), c.sizeof(limits)))
+        # Arm an independent recorder before any workload. Only these exact
+        # control handles are inherited; neither is inherited by the workload.
+        recorder_handles = []
+        try:
+            for source, access in ((job, 0xC), (current(), 0x101000)):
+                handle = w.HANDLE()
+                checked(duplicate(current(), source, current(), c.byref(handle), access, True, 0))
+                recorder_handles.append(handle.value)
+            recorder_startup = subprocess.STARTUPINFO()
+            recorder_startup.lpAttributeList = {"handle_list": recorder_handles}
+            recorder = subprocess.Popen([identity["interpreter"], "-I", "-B", identity["recorder"], *(str(value) for value in recorder_handles)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, startupinfo=recorder_startup, close_fds=True, creationflags=0x8000000, cwd=spec["cwd"], env=spec["env"])
+        finally:
+            for handle in recorder_handles:
+                close(handle)
+        recorder.stdin.write(json.dumps(spec).encode("utf-8") + b"\n")
+        recorder.stdin.close()
+        ready = []
+        ready_observed = threading.Event()
+
+        def read_ready():
+            try:
+                ready.append(recorder.stdout.readline(4096))
+            finally:
+                ready_observed.set()
+
+        threading.Thread(target=read_ready, daemon=True).start()
+        if not ready_observed.wait(5) or recorder.poll() is not None:
+            recorder.kill()
+            recorder.wait(timeout=5)
+            raise RuntimeError("Closure recorder readiness unobserved")
+        if json.loads(ready[0], object_pairs_hook=unique) != {"jobName": spec["jobName"], "pid": recorder.pid}:
+            recorder.kill()
+            recorder.wait(timeout=5)
+            raise RuntimeError("Closure recorder readiness invalid")
         with open(os.devnull, "rb") as null:
             for stream in (null, sys.stdout, sys.stderr):
                 handle = w.HANDLE()
@@ -150,6 +192,8 @@ def main():
         environment = c.create_unicode_buffer("\0".join(f"{k}={v}" for k, v in sorted(spec["env"].items(), key=lambda item: item[0].upper())) + "\0\0")
         if lost_parent.is_set():
             raise RuntimeError("Parent lost before creation")
+        if recorder.poll() is not None:
+            raise RuntimeError("Recorder lost before creation")
         # Assignment is atomic with creation. There is never a suspended process
         # outside the owned job for a dying host to abandon.
         checked(create(spec["executable"], command, None, None, True, 0x80000 | 0x400 | 0x8000000, environment, spec["cwd"], c.byref(startup), c.byref(info)))
@@ -162,6 +206,9 @@ def main():
                 raise c.WinError(c.get_last_error())
             if lost_parent.is_set():
                 reason = "parent-loss"
+                break
+            if recorder.poll() is not None:
+                reason = "recorder-loss"
                 break
             if (time.monotonic() - started) * 1000 >= spec["timeoutMs"]:
                 reason = "deadline"
@@ -181,10 +228,13 @@ def main():
             if time.monotonic() >= cleanup_deadline:
                 raise RuntimeError("Job closure unobserved")
             time.sleep(0.01)
-        json.dump({"schemaVersion": 1, "reason": reason, "status": code.value if reason == "consumer-exit" else 124, "activeBeforeTermination": active_before_termination, "activeProcesses": accounting.active, "totalProcesses": accounting.total, "consumerPid": info.pid, "hostPid": os.getpid()}, result)
+        json.dump({"schemaVersion": 2, "reason": reason, "status": code.value if reason == "consumer-exit" else 124, "activeBeforeTermination": active_before_termination, "activeProcesses": accounting.active, "totalProcesses": accounting.total, "consumerPid": info.pid, "hostPid": os.getpid()}, result)
         result.flush()
+        os.fsync(result.fileno())
     finally:
-        # Closing the sole job handle also covers exceptions and partial startup.
+        # On exceptions the recorder observes this host's actual death. If both
+        # die, closing their last handles retains kernel kill-on-close, but an
+        # absent signed receipt remains unknown for resource recovery.
         close(job)
         if info.thread:
             close(info.thread)
@@ -216,9 +266,40 @@ def check_membership(name):
     print("member")
 
 
+def process_state(pid, expected_birth):
+    """Recovery-owner identity only; never a descendant-closure substitute."""
+    kernel = c.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = [w.HANDLE, *(c.POINTER(w.FILETIME) for _ in range(4))]
+    kernel.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+    kernel.WaitForSingleObject.restype = w.DWORD
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x101000, False, int(pid))
+    if not handle:
+        if c.get_last_error() == 87 and expected_birth != "capture":
+            print(json.dumps({"state": "closed", "pid": int(pid), "creationFileTime": expected_birth}))
+            return
+        raise c.WinError(c.get_last_error())
+    try:
+        times = [w.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(c.byref(value) for value in times)):
+            raise c.WinError(c.get_last_error())
+        birth = str((times[0].dwHighDateTime << 32) | times[0].dwLowDateTime)
+        state = kernel.WaitForSingleObject(handle, 0)
+        if state not in (0, 258):
+            raise c.WinError(c.get_last_error())
+        closed = state == 0 or (expected_birth != "capture" and birth != expected_birth)
+        print(json.dumps({"state": "closed" if closed else "active", "pid": int(pid), "creationFileTime": birth}))
+    finally:
+        kernel.CloseHandle(handle)
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--check-membership":
         check_membership(sys.argv[2])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--process-state":
+        process_state(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 1:
         main()
     else:
