@@ -101,7 +101,7 @@ export function writeRepositoryFile(repo, relativePath, contents) {
 }
 
 export function writeJson(path, value) {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 export function commitAll(repo, message = "seed") {
