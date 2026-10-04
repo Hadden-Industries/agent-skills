@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
-  lstatSync,
   readFileSync,
   readdirSync,
   unlinkSync,
@@ -57,11 +56,11 @@ function repositoryMetadataFingerprint(root) {
         name.startsWith("logs/") ||
         name.endsWith(".lock")
       ) {
-        const stat = lstatSync(path);
+        const bytes = readFileSync(path);
         entries.push({
           name,
-          byteCount: stat.size,
-          sha256: sha256(readFileSync(path)),
+          byteCount: bytes.length,
+          sha256: sha256(bytes),
         });
       }
     }

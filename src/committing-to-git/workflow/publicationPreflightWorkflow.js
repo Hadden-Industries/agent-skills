@@ -2,7 +2,7 @@ import { parseCommandArguments } from "../cli/commandArguments.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { readFileSync, statSync } from "node:fs";
+import { readStableFile } from "../filesystem/stableFile.js";
 
 /** Read-only discovery is intentionally separate from preparation and its index effects. */
 export async function runPublicationPreflightCommand(
@@ -67,13 +67,11 @@ export async function runPublicationPreflightCommand(
       let priorDiscovery;
       if (options.reuseDiscovery) {
         try {
-          if (
-            !options.taskId ||
-            statSync(options.reuseDiscovery).size > 1024 * 1024
-          )
-            throw new Error("Invalid receipt.");
+          if (!options.taskId) throw new Error("Invalid receipt.");
           const prior = JSON.parse(
-            readFileSync(options.reuseDiscovery, "utf8"),
+            readStableFile(options.reuseDiscovery, 1024 * 1024).bytes.toString(
+              "utf8",
+            ),
           );
           priorDiscovery =
             prior.feasibility?.discoveryEvidence ??

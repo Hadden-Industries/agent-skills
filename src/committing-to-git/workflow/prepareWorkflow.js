@@ -1,3 +1,4 @@
+import { readStableFile } from "../filesystem/stableFile.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { snapshotExecution } from "../snapshot/recordedSnapshot.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
@@ -16,7 +17,6 @@ import {
   closeSync,
   constants as fsConstants,
   createReadStream,
-  fstatSync,
   fsyncSync,
   existsSync,
   lstatSync,
@@ -474,49 +474,31 @@ function normalizeEvidencePlan(payload) {
 
 function readBoundedJson(path, label) {
   const absolutePath = resolve(path);
-  const initialPathStat = lstatSync(absolutePath);
-
-  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
-    fail("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
-  }
-
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  const descriptor = openSync(absolutePath, fsConstants.O_RDONLY + noFollow);
-
+  let bytes;
   try {
-    const before = fstatSync(descriptor);
-
-    if (!before.isFile()) {
-      fail("INVALID_JSON_INPUT", `${label} must be a regular file.`);
-    }
-
-    if (before.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
+    bytes = readStableFile(
+      absolutePath,
+      MAXIMUM_INITIAL_JSON_INPUT_BYTES,
+    ).bytes;
+  } catch (error) {
+    if (error.code === "FILE_TOO_LARGE") {
       fail(
         "JSON_INPUT_TOO_LARGE",
         `${label} exceeds ${MAXIMUM_INITIAL_JSON_INPUT_BYTES} bytes.`,
       );
     }
-
-    const bytes = readFileSync(descriptor);
-    const after = fstatSync(descriptor);
-    const finalPathStat = lstatSync(absolutePath);
-
-    if (
-      initialPathStat.dev !== before.dev ||
-      initialPathStat.ino !== before.ino ||
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
-      before.size !== after.size ||
-      finalPathStat.isSymbolicLink() ||
-      !finalPathStat.isFile() ||
-      after.dev !== finalPathStat.dev ||
-      after.ino !== finalPathStat.ino ||
-      after.size !== finalPathStat.size ||
-      bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES
-    ) {
+    if (["FILE_NOT_REGULAR", "ELOOP", "EISDIR", "ENXIO"].includes(error.code)) {
+      fail(
+        "INVALID_JSON_INPUT",
+        `${label} must be a non-symbolic regular file.`,
+      );
+    }
+    if (error.code === "FILE_CHANGED") {
       fail("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
     }
-
+    throw error;
+  }
+  {
     let text;
 
     try {
@@ -532,8 +514,6 @@ function readBoundedJson(path, label) {
         cause: error,
       });
     }
-  } finally {
-    closeSync(descriptor);
   }
 }
 
@@ -1424,14 +1404,17 @@ function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
   const path = resolve(attemptDirectory, "evidence-plan.json");
   const bytes = stableJsonBytes(evidencePlan);
 
-  if (existsSync(path)) {
-    if (!readFileSync(path).equals(bytes)) {
+  try {
+    // Keep the existing durable exclusive writer; only collisions need a read.
+    writeOwnedInput(path, bytes);
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    if (!readStableFile(path, bytes.length).bytes.equals(bytes)) {
       throw new Error(
         "Canonical evidence-plan artifact has conflicting bytes.",
+        { cause: error },
       );
     }
-  } else {
-    writeOwnedInput(path, bytes);
   }
   return path;
 }

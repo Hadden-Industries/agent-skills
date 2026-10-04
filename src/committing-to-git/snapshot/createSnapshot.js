@@ -313,10 +313,6 @@ export function createSnapshot({
     throw new Error("Path scope requires at least one literal path.");
   }
 
-  if (existsSync(outputPath)) {
-    throw new Error(`Snapshot output already exists: ${outputPath}`);
-  }
-
   assertRepositoryPreconditions(root);
 
   const headOid = resolveHead(root);
@@ -464,10 +460,15 @@ export function createSnapshot({
   // Capacity is established before actual index installation or evidence work.
   assertSnapshotCapacity(Buffer.byteLength(serializedSnapshot));
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, serializedSnapshot, {
-    flag: "wx",
-    mode: 0o600,
-  });
+  try {
+    writeFileSync(outputPath, serializedSnapshot, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code === "EEXIST")
+      throw new Error(`Snapshot output already exists: ${outputPath}`, {
+        cause: error,
+      });
+    throw error;
+  }
 
   if (
     mode === "draft" &&

@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,53 @@ test("archive members round-trip through the writer and reader", () => {
     true,
     "the same members produce the same bytes",
   );
+});
+
+test("archive creation preserves a file introduced immediately before writing", (t) => {
+  const output = mkdtempSync(join(tmpdir(), "agent-skills-archive-race-"));
+  const originalMkdir = fs.mkdirSync;
+  const originalWrite = fs.writeFileSync;
+  let competingPath;
+  t.mock.method(fs, "mkdirSync", (path, options) => {
+    const result = originalMkdir(path, options);
+    if (path === output) {
+      const manifest = JSON.parse(
+        readFileSync(
+          join(
+            REPOSITORY_ROOT,
+            "plugins/committing-to-git/.claude-plugin/plugin.json",
+          ),
+          "utf8",
+        ),
+      );
+      competingPath = join(
+        output,
+        `${manifest.name}-${manifest.version}-antigravity-desktop.zip`,
+      );
+      originalWrite(competingPath, "competing archive", {
+        flag: "wx",
+        mode: 0o600,
+      });
+    }
+    return result;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(
+      () =>
+        packagePluginArchive({
+          skillName: "committing-to-git",
+          outputDirectory: output,
+          repositoryRoot: REPOSITORY_ROOT,
+        }),
+      /never overwritten/u,
+    );
+    assert.equal(readFileSync(competingPath, "utf8"), "competing archive");
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    rmSync(output, { recursive: true, force: true });
+  }
 });
 
 test("the desktop archive holds the plugin at its root plus the desktop manifest", () => {

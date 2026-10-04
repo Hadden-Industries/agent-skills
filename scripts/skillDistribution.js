@@ -21,6 +21,7 @@ const gitBuildRoots = Object.freeze([
   "command",
   "diagnostics",
   "evidence",
+  "filesystem",
   "git",
   "inspection",
   "message",

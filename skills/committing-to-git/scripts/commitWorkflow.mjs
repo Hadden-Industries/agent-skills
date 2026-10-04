@@ -905,14 +905,14 @@ function diagnosticWriterFor(format, stderr) {
 async function writeWorkflowOutput(stdout, encoded) {
   try {
     if (stdout instanceof Writable) {
-      await new Promise((resolve31, reject) => {
+      await new Promise((resolve32, reject) => {
         const onError = (error) => reject(error);
         stdout.once("error", onError);
         stdout.write(encoded.output, (error) => {
           if (error) reject(error);
           else {
             stdout.removeListener("error", onError);
-            resolve31();
+            resolve32();
           }
         });
       });
@@ -1028,11 +1028,91 @@ var init_commandExecution = __esm({
   }
 });
 
+// src/committing-to-git/filesystem/stableFile.js
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+  writeFileSync
+} from "node:fs";
+import { resolve } from "node:path";
+function fail(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
+}
+function sameIdentity(left, right) {
+  return ["dev", "ino", "mode", "size", "mtimeNs", "ctimeNs"].every(
+    (field) => left[field] === right[field]
+  );
+}
+function readStableFile(path, maximumBytes, { rejectLinkedAncestors = false } = {}) {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
+    throw new TypeError("A nonnegative safe byte limit is required.");
+  }
+  const absolutePath = resolve(path);
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+  const descriptor = openSync(absolutePath, flags, 384);
+  try {
+    const before = fstatSync(descriptor, { bigint: true });
+    const initialPath = lstatSync(absolutePath, { bigint: true });
+    if (!before.isFile() || initialPath.isSymbolicLink() || !sameIdentity(before, initialPath) || rejectLinkedAncestors && realpathSync(absolutePath) !== absolutePath) {
+      fail(
+        "FILE_NOT_REGULAR",
+        `Expected a stable non-symbolic regular file: ${path}`
+      );
+    }
+    if (before.size > BigInt(maximumBytes)) {
+      fail("FILE_TOO_LARGE", `File exceeds ${maximumBytes} bytes: ${path}`);
+    }
+    const bytes = Buffer.alloc(Number(before.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        offset,
+        Math.min(64 * 1024, bytes.length - offset),
+        null
+      );
+      if (count === 0) break;
+      offset += count;
+    }
+    const extra = readSync(descriptor, Buffer.alloc(1), 0, 1, null);
+    const after = fstatSync(descriptor, { bigint: true });
+    const finalPath = lstatSync(absolutePath, { bigint: true });
+    if (offset !== bytes.length || extra !== 0 || !after.isFile() || finalPath.isSymbolicLink() || !sameIdentity(before, after) || !sameIdentity(after, finalPath) || rejectLinkedAncestors && realpathSync(absolutePath) !== absolutePath) {
+      fail("FILE_CHANGED", `File changed while it was read: ${path}`);
+    }
+    return { bytes, stat: after };
+  } finally {
+    closeSync(descriptor);
+  }
+}
+function createOrVerifyFile(path, bytes) {
+  try {
+    writeFileSync(path, bytes, { flag: "wx", mode: 384 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    if (!readStableFile(path, bytes.length).bytes.equals(bytes)) {
+      fail("FILE_COLLISION", `Immutable file has conflicting bytes: ${path}`);
+    }
+  }
+}
+var init_stableFile = __esm({
+  "src/committing-to-git/filesystem/stableFile.js"() {
+  }
+});
+
 // src/committing-to-git/git/gitRepository.js
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve as resolve2 } from "node:path";
 function containsControlCharacter(value) {
   return [...value].some((character) => {
     const code = character.codePointAt(0);
@@ -1701,7 +1781,7 @@ function activeGitOperations(root, observe = readOnlyGitText) {
     OPERATION_MARKERS.map(([, marker]) => marker)
   ).trim().split(/\r?\n/u);
   const operations = OPERATION_MARKERS.filter(
-    (_, index) => existsSync(resolve(root, markerPaths[index]))
+    (_, index) => existsSync(resolve2(root, markerPaths[index]))
   ).map(([operation]) => operation);
   return [...new Set(operations)];
 }
@@ -1775,7 +1855,7 @@ var init_gitRepository = __esm({
 
 // src/committing-to-git/signature/signaturePreflight.js
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { closeSync, fstatSync, openSync } from "node:fs";
+import { closeSync as closeSync2, fstatSync as fstatSync2, openSync as openSync2 } from "node:fs";
 function runGitConfig(root, args) {
   return spawnSync2("git", args, {
     cwd: root,
@@ -1800,8 +1880,8 @@ function configText(result, label) {
 function defaultTrustSourceProbe(path) {
   let descriptor = null;
   try {
-    descriptor = openSync(path, "r");
-    const stat = fstatSync(descriptor);
+    descriptor = openSync2(path, "r");
+    const stat = fstatSync2(descriptor);
     return stat.isFile() ? { state: "readable", errorCode: null } : { state: "invalid-file-type", errorCode: null };
   } catch (error) {
     const errorCode = typeof error.code === "string" ? error.code : null;
@@ -1817,7 +1897,7 @@ function defaultTrustSourceProbe(path) {
     return { state: "probe-error", errorCode };
   } finally {
     if (descriptor !== null) {
-      closeSync(descriptor);
+      closeSync2(descriptor);
     }
   }
 }
@@ -2456,16 +2536,16 @@ function assessTransportIdentity({
   authorizedTransportActor,
   restricted = false
 }) {
-  const identity2 = projectTransportObservation(observation);
+  const identity = projectTransportObservation(observation);
   const required = Boolean(authorizedTransportActor) || restricted;
-  const established = identity2.state === "established";
-  const matchesConstraint = !authorizedTransportActor || established && identity2.principal.login.toLowerCase() === authorizedTransportActor.toLowerCase();
+  const established = identity.state === "established";
+  const matchesConstraint = !authorizedTransportActor || established && identity.principal.login.toLowerCase() === authorizedTransportActor.toLowerCase();
   const conflict = established && !matchesConstraint;
-  const denied = identity2.permissions.state === "established" && identity2.permissions.canPush === false;
+  const denied = identity.permissions.state === "established" && identity.permissions.canPush === false;
   return {
-    transportIdentity: { ...identity2, required },
-    transportPermissions: identity2.permissions,
-    identityRelationship: !established ? "not-established" : identity2.principal.login.toLowerCase() === apiActor?.toLowerCase() ? "same-account" : authorizedTransportActor && matchesConstraint ? "authorized-different" : "different-accounts",
+    transportIdentity: { ...identity, required },
+    transportPermissions: identity.permissions,
+    identityRelationship: !established ? "not-established" : identity.principal.login.toLowerCase() === apiActor?.toLowerCase() ? "same-account" : authorizedTransportActor && matchesConstraint ? "authorized-different" : "different-accounts",
     blocking: conflict || denied || required && !established,
     reason: conflict ? "The observed Git account differs from the explicitly authorized transport account." : denied ? "The authenticated transport credential has no observed ordinary write permission." : required && !established ? "An explicit account constraint or actor-specific provider restriction requires transport evidence." : null,
     warnings: !established && !required ? [
@@ -2647,8 +2727,8 @@ function inspectPublicationFeasibility({
         "unknown",
         "Multiple push URLs require an explicit single-target publication design."
       );
-    const identity2 = githubRemoteIdentity(urls[0]);
-    if (!identity2)
+    const identity = githubRemoteIdentity(urls[0]);
+    if (!identity)
       return stop(
         "unknown",
         "This provider or transport is not supported by GitHub preflight; no publication permission is inferred."
@@ -2682,7 +2762,7 @@ function inspectPublicationFeasibility({
     const bindingFor = (provider) => ({
       taskId: taskId ?? null,
       repositoryRoot: root,
-      repository: `${identity2.owner}/${identity2.repository}`,
+      repository: `${identity.owner}/${identity.repository}`,
       remote,
       pushUrl: urls[0],
       destination: provider.destination,
@@ -2716,7 +2796,7 @@ function inspectPublicationFeasibility({
       }
     }
     const result = reused ? structuredClone(reused.provider) : inspectGitHubPolicy({
-      ...identity2,
+      ...identity,
       destination,
       sourceBranch,
       requirePersonalSignature,
@@ -2843,7 +2923,7 @@ import { existsSync as existsSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 function githubGet(endpoint, credential) {
-  return new Promise((resolve31, reject) => {
+  return new Promise((resolve32, reject) => {
     const req = request(
       {
         hostname: "api.github.com",
@@ -2867,7 +2947,7 @@ function githubGet(endpoint, credential) {
           if (response.statusCode !== 200)
             return reject(new Error("Identity read unavailable."));
           try {
-            resolve31(JSON.parse(body));
+            resolve32(JSON.parse(body));
           } catch {
             reject(new Error("Identity response unavailable."));
           }
@@ -3139,7 +3219,6 @@ var publicationPreflightWorkflow_exports = {};
 __export(publicationPreflightWorkflow_exports, {
   runPublicationPreflightCommand: () => runPublicationPreflightCommand
 });
-import { readFileSync, statSync } from "node:fs";
 async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(), stdout = process.stdout } = {}) {
   return executeCommand(arguments_, {
     stdout,
@@ -3186,10 +3265,11 @@ async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(),
       let priorDiscovery;
       if (options.reuseDiscovery) {
         try {
-          if (!options.taskId || statSync(options.reuseDiscovery).size > 1024 * 1024)
-            throw new Error("Invalid receipt.");
+          if (!options.taskId) throw new Error("Invalid receipt.");
           const prior = JSON.parse(
-            readFileSync(options.reuseDiscovery, "utf8")
+            readStableFile(options.reuseDiscovery, 1024 * 1024).bytes.toString(
+              "utf8"
+            )
           );
           priorDiscovery = prior.feasibility?.discoveryEvidence ?? prior.data?.feasibility?.discoveryEvidence;
           if (!priorDiscovery) throw new Error("Missing receipt.");
@@ -3230,6 +3310,7 @@ var init_publicationPreflightWorkflow = __esm({
     init_commandExecution();
     init_workflowDiagnosticError();
     init_diagnosticContract();
+    init_stableFile();
   }
 });
 
@@ -3715,7 +3796,7 @@ var init_changeSelection2 = __esm({
 // src/committing-to-git/message/approvedMessage.js
 import { createHash as createHash3 } from "node:crypto";
 import { Buffer as Buffer3 } from "node:buffer";
-function fail(code, message, details = {}) {
+function fail2(code, message, details = {}) {
   throw new WorkflowDiagnosticError(code, message, { details });
 }
 function scalarLength(value) {
@@ -3730,13 +3811,13 @@ function validateRepositoryType(type, repositoryTypePolicy) {
     return;
   }
   if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
-    fail(
+    fail2(
       "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
       "Repository type policy must provide an allowedTypes array or null."
     );
   }
   if (!repositoryTypePolicy.allowedTypes.includes(type)) {
-    fail(
+    fail2(
       "SUBJECT_TYPE_NOT_ALLOWED",
       `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
       { type, allowedTypes: repositoryTypePolicy.allowedTypes }
@@ -3746,7 +3827,7 @@ function validateRepositoryType(type, repositoryTypePolicy) {
 function parseSubject(subjectText, repositoryTypePolicy) {
   const match = SUBJECT_PATTERN.exec(subjectText);
   if (!match) {
-    fail(
+    fail2(
       "SUBJECT_FORMAT_INVALID",
       "Subject must match <type>: <description> or <type>(<scope>): <description>."
     );
@@ -3754,32 +3835,32 @@ function parseSubject(subjectText, repositoryTypePolicy) {
   const { type, description } = match.groups;
   const scope = match.groups.scope ?? null;
   if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
-    fail(
+    fail2(
       "SUBJECT_FORMAT_INVALID",
       "Subject description must be one exact nonempty line without controls or surrounding whitespace."
     );
   }
   if (!isCapitalizedDescription(description)) {
-    fail(
+    fail2(
       "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
       "Subject description must begin with an uppercase Unicode cased letter."
     );
   }
   if (description.endsWith(".")) {
-    fail(
+    fail2(
       "SUBJECT_TRAILING_PERIOD",
       "Subject description must not end with an ASCII period."
     );
   }
   if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
-    fail(
+    fail2(
       "SUBJECT_SCOPE_INVALID",
       "Subject scope must be one exact nonempty value without parentheses or controls."
     );
   }
   const length = scalarLength(subjectText);
   if (length > MAXIMUM_SUBJECT_SCALARS) {
-    fail(
+    fail2(
       "SUBJECT_TOO_LONG",
       `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
       { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
@@ -3796,13 +3877,13 @@ function parseSubject(subjectText, repositoryTypePolicy) {
 }
 function canonicalBytes(value) {
   if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
-    fail("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
+    fail2("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
   }
   return Buffer3.from(value);
 }
 function decodeCanonicalMessage(bytes) {
   if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail(
+    fail2(
       "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
       `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
       {
@@ -3813,35 +3894,35 @@ function decodeCanonicalMessage(bytes) {
     );
   }
   if (bytes.length === 0 || bytes.at(-1) !== 10) {
-    fail(
+    fail2(
       "TERMINAL_LF_REQUIRED",
       "Canonical message bytes must end in exactly one LF."
     );
   }
   if (bytes.length > 1 && bytes.at(-2) === 10) {
-    fail(
+    fail2(
       "MULTIPLE_TERMINAL_LF",
       "Canonical message bytes must not end in multiple LF bytes."
     );
   }
   if (bytes.includes(13)) {
-    fail(
+    fail2(
       "CARRIAGE_RETURN_FORBIDDEN",
       "Canonical message bytes must not contain CR or CRLF."
     );
   }
   if (bytes.includes(0)) {
-    fail("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
+    fail2("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
   }
   let text;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    fail("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
+    fail2("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
   }
   for (const character of text) {
     if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
-      fail(
+      fail2(
         "PROHIBITED_UNICODE_CHARACTER",
         "Canonical message contains a prohibited Unicode control or format character."
       );
@@ -3851,7 +3932,7 @@ function decodeCanonicalMessage(bytes) {
 }
 function assertUsefulEntry(text, label) {
   if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
-    fail("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
+    fail2("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
   }
 }
 function parseNarrativeSection(lines, heading) {
@@ -3869,20 +3950,20 @@ function parseNarrativeSection(lines, heading) {
       entries[entries.length - 1] += `
 ${continuation}`;
     } else {
-      fail(
+      fail2(
         "SECTION_ENTRY_FORMAT_INVALID",
         `${heading} entries must use two-space bullets with aligned continuations.`
       );
     }
   }
   if (entries.length === 0) {
-    fail("EMPTY_SECTION", `${heading} cannot be present without entries.`);
+    fail2("EMPTY_SECTION", `${heading} cannot be present without entries.`);
   }
   return entries;
 }
 function expectedDetailedInventory(manifest) {
   if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
-    fail(
+    fail2(
       "INVALID_MESSAGE_MANIFEST",
       "Approved-message validation requires one exact nonempty manifest."
     );
@@ -3898,7 +3979,7 @@ function expectedDetailedInventory(manifest) {
 }
 function parseDetailedInventory(lines, manifest) {
   if (manifest.changeUnitCount >= 50) {
-    fail(
+    fail2(
       "STRUCTURED_BULK_FINALIZATION_REQUIRED",
       "A counted bulk inventory must be derived by the structured extended finalizer.",
       { remedy: "Extend for semantic structure or omit File Changes." }
@@ -3917,20 +3998,20 @@ function parseDetailedInventory(lines, manifest) {
       const ordinal = Number(match[1]);
       const label = match[2];
       if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
-        fail(
+        fail2(
           "STRUCTURED_BULK_FINALIZATION_REQUIRED",
           "Free-form counted domains cannot prove manifest membership.",
           { remedy: "Use the structured extended finalizer." }
         );
       }
       if (listed.some((entry) => entry.label === label)) {
-        fail(
+        fail2(
           "FILE_INVENTORY_DUPLICATE",
           `Detailed inventory repeats ${label}.`
         );
       }
       if (!expectedLabels.has(label)) {
-        fail(
+        fail2(
           "FILE_INVENTORY_UNKNOWN_PATH",
           `Detailed inventory path ${label} does not identify a manifest change unit.`
         );
@@ -3952,20 +4033,20 @@ function parseDetailedInventory(lines, manifest) {
 ${continuation}`;
       continue;
     }
-    fail(
+    fail2(
       "FILE_INVENTORY_FORMAT_INVALID",
       "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
     );
   }
   if (listed.length !== expected.length) {
-    fail(
+    fail2(
       "FILE_INVENTORY_INCOMPLETE",
       `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
     );
   }
   for (let index = 0; index < expected.length; index += 1) {
     if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
-      fail(
+      fail2(
         "FILE_INVENTORY_ORDER_INVALID",
         "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
       );
@@ -4014,20 +4095,20 @@ function parseStructuredBulkInventory(lines, manifest, structuredContent) {
 ${continuation}`;
       continue;
     }
-    fail(
+    fail2(
       "FILE_INVENTORY_FORMAT_INVALID",
       "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
     );
   }
   if (listed.length !== expected.length) {
-    fail(
+    fail2(
       "FILE_INVENTORY_INCOMPLETE",
       "Structured bulk rendering does not contain every derived domain."
     );
   }
   for (let index = 0; index < expected.length; index += 1) {
     if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
-      fail(
+      fail2(
         "FILE_INVENTORY_ORDER_INVALID",
         "Structured bulk rendering must preserve derived domain order, counts, and reasons."
       );
@@ -4045,7 +4126,7 @@ function parseSections(bodyLines, manifest, { messageSource, structuredContent }
     return parsed;
   }
   if (bodyLines[0] !== "") {
-    fail(
+    fail2(
       "SECTION_SPACING_INVALID",
       "Subject and body must be separated by exactly one blank line."
     );
@@ -4056,7 +4137,7 @@ function parseSections(bodyLines, manifest, { messageSource, structuredContent }
     const heading = bodyLines[index];
     const order = SECTION_ORDER.indexOf(heading);
     if (order < 0 || order <= priorOrder) {
-      fail(
+      fail2(
         "SECTION_ORDER_INVALID",
         "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
       );
@@ -4069,7 +4150,7 @@ function parseSections(bodyLines, manifest, { messageSource, structuredContent }
       index += 1;
     }
     if (entries.length === 0) {
-      fail("EMPTY_SECTION", `${heading} cannot be empty.`);
+      fail2("EMPTY_SECTION", `${heading} cannot be empty.`);
     }
     if (heading === "Rationale:") {
       parsed.rationale = {
@@ -4090,7 +4171,7 @@ function parseSections(bodyLines, manifest, { messageSource, structuredContent }
     if (index < bodyLines.length) {
       index += 1;
       if (index >= bodyLines.length || bodyLines[index] === "") {
-        fail(
+        fail2(
           "SECTION_SPACING_INVALID",
           "Sections must be separated by exactly one blank line."
         );
@@ -4115,7 +4196,7 @@ function presentationWarnings(lines) {
     if (!formattedIdentity && words.length > 1) {
       const longest = Math.max(...words.map(scalarLength));
       if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
-        fail(
+        fail2(
           "BODY_LINE_AVOIDABLY_OVERLONG",
           `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
           { lineNumber: index + 1, scalarLength: length }
@@ -4166,7 +4247,7 @@ function validateApprovedMessage({
 }) {
   const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
   if (!sourceAllowed) {
-    fail(
+    fail2(
       "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
       "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
     );
@@ -4182,20 +4263,20 @@ function validateApprovedMessage({
   });
   if (messageSource === "approved-subject") {
     if (lines.length !== 1) {
-      fail(
+      fail2(
         "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
         "Direct subject transport cannot contain a body."
       );
     }
     if (!canUseDirectSubjectTransport(subject.text)) {
-      fail(
+      fail2(
         "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
         "Subject is valid canonical text but is outside the conservative direct transport set."
       );
     }
     if (!bytes.equals(Buffer3.from(`${subject.text}
 `, "utf8"))) {
-      fail(
+      fail2(
         "DIRECT_SUBJECT_ENCODING_INVALID",
         "Direct subject bytes must equal the deterministic subject plus one LF encoding."
       );
@@ -4261,7 +4342,7 @@ var init_approvedMessage = __esm({
 });
 
 // src/committing-to-git/checks/checkReceipt.js
-import { isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join2, resolve as resolve3 } from "node:path";
 function assertExactKeys(value, expected, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -4318,12 +4399,12 @@ function validateSubject(subject, transaction) {
     );
   }
 }
-function validateChildIdentity(identity2) {
-  if (identity2 === null) {
+function validateChildIdentity(identity) {
+  if (identity === null) {
     return;
   }
-  assertExactKeys(identity2, ["pid", "startIdentity"], "Check child identity");
-  if (!Number.isSafeInteger(identity2.pid) || identity2.pid < 1 || identity2.startIdentity !== null && typeof identity2.startIdentity !== "string") {
+  assertExactKeys(identity, ["pid", "startIdentity"], "Check child identity");
+  if (!Number.isSafeInteger(identity.pid) || identity.pid < 1 || identity.startIdentity !== null && typeof identity.startIdentity !== "string") {
     throw new Error("Check child identity is invalid.");
   }
 }
@@ -4369,7 +4450,7 @@ function validateOutputChannel(channel, label, expectedPaths) {
     const path = channel[`${segment}Path`];
     const byteCount = channel[`${segment}ByteCount`];
     const digest2 = channel[`${segment}Sha256`];
-    if (byteCount === 0 && (path !== null || digest2 !== null) || byteCount > 0 && (path === null || digest2 === null || resolve2(path) !== expectedPaths[segment])) {
+    if (byteCount === 0 && (path !== null || digest2 !== null) || byteCount > 0 && (path === null || digest2 === null || resolve3(path) !== expectedPaths[segment])) {
       throw new Error(
         `${label} ${segment} segment is not bound to its transaction path and digest.`
       );
@@ -4388,7 +4469,7 @@ function validateOutput(output, attempt, transaction) {
   if (output.schemaVersion !== 1) {
     throw new Error("Check output schemaVersion must be 1.");
   }
-  const directory = join2(resolve2(transaction.attemptDirectory), "process-logs");
+  const directory = join2(resolve3(transaction.attemptDirectory), "process-logs");
   for (const channel of ["stdout", "stderr"]) {
     validateOutputChannel(output[channel], `Check ${channel} output`, {
       head: join2(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
@@ -4592,19 +4673,19 @@ var init_checkReceipt = __esm({
 // src/committing-to-git/transaction/transactionWorkspace.js
 import { randomUUID as systemRandomUUID } from "node:crypto";
 import {
-  closeSync as closeSync2,
+  closeSync as closeSync3,
   constants as fsConstants,
   existsSync as existsSync3,
-  fstatSync as fstatSync2,
+  fstatSync as fstatSync3,
   fsyncSync,
-  lstatSync,
+  lstatSync as lstatSync2,
   mkdirSync,
-  openSync as openSync2,
-  readFileSync as readFileSync2,
-  realpathSync,
+  openSync as openSync3,
+  readFileSync,
+  realpathSync as realpathSync2,
   renameSync,
   rmSync,
-  writeFileSync
+  writeFileSync as writeFileSync2
 } from "node:fs";
 import { tmpdir } from "node:os";
 import {
@@ -4613,7 +4694,7 @@ import {
   isAbsolute as isAbsolute3,
   join as join3,
   relative,
-  resolve as resolve3
+  resolve as resolve4
 } from "node:path";
 function transactionStateKey(transaction) {
   return JSON.stringify([
@@ -4672,21 +4753,21 @@ function validateHeadAnchor(headAnchor) {
     throw new Error("A detached head anchor requires a null target ref.");
   }
 }
-function validateIndexIdentity(identity2, label) {
-  if (identity2?.state === "absent") {
-    assertExactKeys2(identity2, ["state"], label);
+function validateIndexIdentity(identity, label) {
+  if (identity?.state === "absent") {
+    assertExactKeys2(identity, ["state"], label);
     return;
   }
   assertExactKeys2(
-    identity2,
+    identity,
     ["state", "byteCount", "sha256", "fileIdentity"],
     label
   );
-  if (identity2.state !== "file" || !Number.isSafeInteger(identity2.byteCount) || identity2.byteCount < 0 || !SHA256_PATTERN2.test(identity2.sha256)) {
+  if (identity.state !== "file" || !Number.isSafeInteger(identity.byteCount) || identity.byteCount < 0 || !SHA256_PATTERN2.test(identity.sha256)) {
     throw new Error(`${label} is not a canonical index identity.`);
   }
   assertExactKeys2(
-    identity2.fileIdentity,
+    identity.fileIdentity,
     [
       "device",
       "inode",
@@ -4696,7 +4777,7 @@ function validateIndexIdentity(identity2, label) {
     ],
     `${label} file identity`
   );
-  if (typeof identity2.fileIdentity.device !== "string" || identity2.fileIdentity.device.length === 0 || typeof identity2.fileIdentity.inode !== "string" || identity2.fileIdentity.inode.length === 0 || !Number.isSafeInteger(identity2.fileIdentity.mode) || identity2.fileIdentity.mode < 0 || !Number.isFinite(identity2.fileIdentity.modifiedTimeMilliseconds) || identity2.fileIdentity.modifiedTimeMilliseconds < 0 || !Number.isFinite(identity2.fileIdentity.changeTimeMilliseconds) || identity2.fileIdentity.changeTimeMilliseconds < 0) {
+  if (typeof identity.fileIdentity.device !== "string" || identity.fileIdentity.device.length === 0 || typeof identity.fileIdentity.inode !== "string" || identity.fileIdentity.inode.length === 0 || !Number.isSafeInteger(identity.fileIdentity.mode) || identity.fileIdentity.mode < 0 || !Number.isFinite(identity.fileIdentity.modifiedTimeMilliseconds) || identity.fileIdentity.modifiedTimeMilliseconds < 0 || !Number.isFinite(identity.fileIdentity.changeTimeMilliseconds) || identity.fileIdentity.changeTimeMilliseconds < 0) {
     throw new Error(`${label} file identity is invalid.`);
   }
 }
@@ -5445,7 +5526,7 @@ function initialTransaction(repositoryRoot2, attemptDirectory) {
 }
 function openReadOnlyNoFollow(path) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  return openSync2(path, fsConstants.O_RDONLY + noFollow);
+  return openSync3(path, fsConstants.O_RDONLY + noFollow, 384);
 }
 function fileIdentity(stat) {
   return {
@@ -5460,13 +5541,13 @@ function identitiesMatch(left, right) {
 function readStableRegularFile(path) {
   const fd = openReadOnlyNoFollow(path);
   try {
-    const before = fstatSync2(fd, { bigint: true });
+    const before = fstatSync3(fd, { bigint: true });
     if (!before.isFile()) {
       throw new Error(`Expected a regular file at ${path}.`);
     }
-    const payload = readFileSync2(fd);
-    const after = fstatSync2(fd, { bigint: true });
-    const pathStat = lstatSync(path, { bigint: true });
+    const payload = readFileSync(fd);
+    const after = fstatSync3(fd, { bigint: true });
+    const pathStat = lstatSync2(path, { bigint: true });
     if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
       throw new Error(
         `Transaction path was replaced or is not a regular file: ${path}`
@@ -5479,32 +5560,32 @@ function readStableRegularFile(path) {
     }
     return payload;
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function flushDirectory(path) {
   if (process.platform === "win32") {
     return;
   }
-  const fd = openSync2(path, fsConstants.O_RDONLY);
+  const fd = openSync3(path, fsConstants.O_RDONLY, 384);
   try {
     fsyncSync(fd);
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function writeNewFile(path, payload) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  const fd = openSync2(
+  const fd = openSync3(
     path,
     fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL + noFollow,
     384
   );
   try {
-    writeFileSync(fd, payload);
+    writeFileSync2(fd, payload);
     fsyncSync(fd);
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
   flushDirectory(dirname(path));
 }
@@ -5535,11 +5616,11 @@ function replaceJsonAtomically(path, value) {
   }
 }
 function ensureDirectory(path, label) {
-  const stat = lstatSync(path);
+  const stat = lstatSync2(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} was replaced or is not a directory: ${path}`);
   }
-  if (realpathSync(path) !== path) {
+  if (realpathSync2(path) !== path) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
@@ -5565,7 +5646,7 @@ function allocateAttemptDirectory({
   createDirectory = mkdirSync,
   maximumAttempts = MAXIMUM_ALLOCATION_ATTEMPTS
 }) {
-  const absoluteTemporaryRoot = resolve3(temporaryRoot);
+  const absoluteTemporaryRoot = resolve4(temporaryRoot);
   if (!Number.isInteger(maximumAttempts) || maximumAttempts < 1) {
     throw new Error("maximumAttempts must be a positive integer.");
   }
@@ -5601,8 +5682,8 @@ function createTransactionWorkspace({
   repositoryRoot: repositoryRoot2,
   temporaryRoot = tmpdir()
 }) {
-  const normalizedRepositoryRoot = realpathSync(resolve3(repositoryRoot2));
-  const normalizedTemporaryRoot = realpathSync(resolve3(temporaryRoot));
+  const normalizedRepositoryRoot = realpathSync2(resolve4(repositoryRoot2));
+  const normalizedTemporaryRoot = realpathSync2(resolve4(temporaryRoot));
   validateRepositoryPath(normalizedRepositoryRoot);
   ensureDirectory(normalizedTemporaryRoot, "Temporary root");
   const { attemptDirectory, transactionPath } = allocateAttemptDirectory({
@@ -5618,7 +5699,7 @@ function createTransactionWorkspace({
   return { attemptDirectory, transactionPath, transaction };
 }
 function readTransaction(transactionPath) {
-  const absoluteTransactionPath = resolve3(transactionPath);
+  const absoluteTransactionPath = resolve4(transactionPath);
   if (basename(absoluteTransactionPath) !== TRANSACTION_FILE) {
     throw new Error("Transaction handle must name transaction.json.");
   }
@@ -5635,7 +5716,7 @@ function readTransaction(transactionPath) {
     });
   }
   validateTransaction(transaction);
-  if (resolve3(transaction.attemptDirectory) !== dirname(absoluteTransactionPath)) {
+  if (resolve4(transaction.attemptDirectory) !== dirname(absoluteTransactionPath)) {
     throw new Error(
       "Recorded attempt directory does not contain the supplied transaction path."
     );
@@ -5654,7 +5735,7 @@ function getEvidencePlanInputPath(transactionPath) {
   return fixedArtifactPath(transactionPath, "evidence-plan-input.json");
 }
 function advanceTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve3(transactionPath);
+  const absoluteTransactionPath = resolve4(transactionPath);
   const current = readTransaction(absoluteTransactionPath);
   if (current.phase !== expectedPhase) {
     throw new Error(
@@ -5680,7 +5761,7 @@ function advanceTransaction(transactionPath, expectedPhase, nextState) {
   return readTransaction(absoluteTransactionPath);
 }
 function updateTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve3(transactionPath);
+  const absoluteTransactionPath = resolve4(transactionPath);
   const current = readTransaction(absoluteTransactionPath);
   if (current.phase !== expectedPhase) {
     throw new Error(
@@ -5890,24 +5971,24 @@ var init_transactionWorkspace = __esm({
 // src/committing-to-git/message/canonicalMessageState.js
 import { createHash as createHash4, randomUUID } from "node:crypto";
 import {
-  closeSync as closeSync3,
+  closeSync as closeSync4,
   constants as fsConstants2,
   existsSync as existsSync4,
-  fstatSync as fstatSync3,
+  fstatSync as fstatSync4,
   fsyncSync as fsyncSync2,
-  lstatSync as lstatSync2,
+  lstatSync as lstatSync3,
   mkdirSync as mkdirSync2,
-  openSync as openSync3,
-  readSync,
-  realpathSync as realpathSync2,
+  openSync as openSync4,
+  readSync as readSync2,
+  realpathSync as realpathSync3,
   renameSync as renameSync2,
   rmSync as rmSync2,
   unlinkSync,
-  writeFileSync as writeFileSync2
+  writeFileSync as writeFileSync3
 } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve4, sep } from "node:path";
+import { dirname as dirname2, isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve5, sep } from "node:path";
 import { TextDecoder as TextDecoder2 } from "node:util";
-function fail2(code, message, options) {
+function fail3(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha256(bytes) {
@@ -5921,17 +6002,17 @@ function flushDirectory2(path) {
   if (process.platform === "win32") {
     return;
   }
-  const descriptor = openSync3(path, fsConstants2.O_RDONLY);
+  const descriptor = openSync4(path, fsConstants2.O_RDONLY);
   try {
     fsyncSync2(descriptor);
   } finally {
-    closeSync3(descriptor);
+    closeSync4(descriptor);
   }
 }
 function assertContained(attemptDirectory, path) {
   const contained = relative2(attemptDirectory, path);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute4(contained)) {
-    fail2(
+    fail3(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `Derived message artifact escapes its transaction: ${path}`
     );
@@ -5943,15 +6024,15 @@ function artifactPath(transaction, name) {
   return path;
 }
 function ensureDirectory2(path, label) {
-  const stat = lstatSync2(path);
+  const stat = lstatSync3(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail2(
+    fail3(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} was replaced or is not a directory: ${path}`
     );
   }
-  if (realpathSync2(path) !== resolve4(path)) {
-    fail2(
+  if (realpathSync3(path) !== resolve5(path)) {
+    fail3(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path: ${path}`
     );
@@ -5977,41 +6058,41 @@ function statIdentity(stat) {
     modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
   };
 }
-function sameIdentity(left, right) {
+function sameIdentity2(left, right) {
   return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
 }
 function openReadOnlyNoFollow2(path) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  return openSync3(path, fsConstants2.O_RDONLY + noFollow);
+  return openSync4(path, fsConstants2.O_RDONLY + noFollow);
 }
 function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
   let initial;
   try {
-    initial = lstatSync2(path, { bigint: true });
+    initial = lstatSync3(path, { bigint: true });
   } catch (error) {
     if (error.code === "ENOENT") {
-      fail2("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
+      fail3("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
     }
     throw error;
   }
   if (initial.isSymbolicLink() || !initial.isFile()) {
-    fail2(
+    fail3(
       "MESSAGE_INPUT_NOT_REGULAR",
       `${label} must be a non-link regular file: ${path}`
     );
   }
   if (initial.size > BigInt(maximumBytes)) {
-    fail2("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
+    fail3("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
       details: { maximumBytes, byteCount: Number(initial.size) }
     });
   }
   const descriptor = openReadOnlyNoFollow2(path);
   try {
-    const before = fstatSync3(descriptor, { bigint: true });
+    const before = fstatSync4(descriptor, { bigint: true });
     const initialIdentity = statIdentity(initial);
     const openedIdentity = statIdentity(before);
-    if (!before.isFile() || !sameIdentity(initialIdentity, openedIdentity)) {
-      fail2(
+    if (!before.isFile() || !sameIdentity2(initialIdentity, openedIdentity)) {
+      fail3(
         "MESSAGE_INPUT_CHANGED",
         `${label} changed before its fixed path could be opened safely.`
       );
@@ -6020,7 +6101,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
     const bytes = Buffer.alloc(openedIdentity.byteCount);
     let offset = 0;
     while (offset < bytes.length) {
-      const count = readSync(
+      const count = readSync2(
         descriptor,
         bytes,
         offset,
@@ -6030,19 +6111,19 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
       if (count === 0) break;
       offset += count;
     }
-    const extra = readSync(descriptor, Buffer.alloc(1), 0, 1, null);
-    const after = fstatSync3(descriptor, { bigint: true });
+    const extra = readSync2(descriptor, Buffer.alloc(1), 0, 1, null);
+    const after = fstatSync4(descriptor, { bigint: true });
     const finalIdentity = statIdentity(after);
-    if (!after.isFile() || !sameIdentity(openedIdentity, finalIdentity) || offset !== bytes.length || extra !== 0 || bytes.length > maximumBytes) {
-      fail2(
+    if (!after.isFile() || !sameIdentity2(openedIdentity, finalIdentity) || offset !== bytes.length || extra !== 0 || bytes.length > maximumBytes) {
+      fail3(
         "MESSAGE_INPUT_CHANGED",
         `${label} changed while its opened handle was being read.`
       );
     }
     if (!allowPathReplacement) {
-      const pathStat = lstatSync2(path, { bigint: true });
-      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity(finalIdentity, statIdentity(pathStat))) {
-        fail2(
+      const pathStat = lstatSync3(path, { bigint: true });
+      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity2(finalIdentity, statIdentity(pathStat))) {
+        fail3(
           "MESSAGE_INPUT_CHANGED",
           `${label} path changed while its opened handle was being read.`
         );
@@ -6050,7 +6131,7 @@ function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPath
     }
     return { bytes, identity: finalIdentity, path };
   } finally {
-    closeSync3(descriptor);
+    closeSync4(descriptor);
   }
 }
 function readTransactionOwnedFile({
@@ -6082,10 +6163,10 @@ function warning(code, message, path) {
 }
 function cleanupTransactionOwnedInput({
   path,
-  identity: identity2,
+  identity,
   forceIdentityUnavailable = false
 }) {
-  if (forceIdentityUnavailable || identity2.available !== true) {
+  if (forceIdentityUnavailable || identity.available !== true) {
     return {
       removed: false,
       warning: warning(
@@ -6112,8 +6193,8 @@ function cleanupTransactionOwnedInput({
     };
   }
   try {
-    const opened = fstatSync3(descriptor, { bigint: true });
-    if (!opened.isFile() || !sameIdentity(identity2, statIdentity(opened))) {
+    const opened = fstatSync4(descriptor, { bigint: true });
+    if (!opened.isFile() || !sameIdentity2(identity, statIdentity(opened))) {
       return {
         removed: false,
         warning: warning(
@@ -6124,11 +6205,11 @@ function cleanupTransactionOwnedInput({
       };
     }
   } finally {
-    closeSync3(descriptor);
+    closeSync4(descriptor);
   }
   try {
-    const finalPathStat = lstatSync2(path, { bigint: true });
-    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity(identity2, statIdentity(finalPathStat))) {
+    const finalPathStat = lstatSync3(path, { bigint: true });
+    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity2(identity, statIdentity(finalPathStat))) {
       return {
         removed: false,
         warning: warning(
@@ -6157,16 +6238,16 @@ function cleanupTransactionOwnedInput({
 }
 function writeNewFile2(path, bytes) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  const descriptor = openSync3(
+  const descriptor = openSync4(
     path,
     fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
     384
   );
   try {
-    writeFileSync2(descriptor, bytes);
+    writeFileSync3(descriptor, bytes);
     fsyncSync2(descriptor);
   } finally {
-    closeSync3(descriptor);
+    closeSync4(descriptor);
   }
 }
 function ensureTransactionOwnedJson({
@@ -6179,7 +6260,7 @@ function ensureTransactionOwnedJson({
   const path = artifactPath(transaction, artifactName);
   const bytes = canonicalJsonBytes(value);
   if (bytes.length > maximumBytes) {
-    fail2(
+    fail3(
       "MESSAGE_ARTIFACT_TOO_LARGE",
       `${artifactName} exceeds ${maximumBytes} bytes.`
     );
@@ -6191,7 +6272,7 @@ function ensureTransactionOwnedJson({
       allowPathReplacement: false
     }).bytes;
     if (!current.equals(bytes)) {
-      fail2(
+      fail3(
         "MESSAGE_ARTIFACT_COLLISION",
         `Fixed ${artifactName} already exists with conflicting bytes.`
       );
@@ -6210,7 +6291,7 @@ function ensureTransactionOwnedJson({
       allowPathReplacement: false
     }).bytes;
     if (!current.equals(bytes)) {
-      fail2(
+      fail3(
         "MESSAGE_ARTIFACT_COLLISION",
         `Fixed ${artifactName} was concurrently created with conflicting bytes.`
       );
@@ -6219,17 +6300,17 @@ function ensureTransactionOwnedJson({
   flushDirectory2(transaction.attemptDirectory);
   return path;
 }
-function currentPathMatches(path, identity2) {
+function currentPathMatches(path, identity) {
   let descriptor;
   try {
     descriptor = openReadOnlyNoFollow2(path);
-    const stat = fstatSync3(descriptor, { bigint: true });
-    return stat.isFile() && sameIdentity(identity2, statIdentity(stat));
+    const stat = fstatSync4(descriptor, { bigint: true });
+    return stat.isFile() && sameIdentity2(identity, statIdentity(stat));
   } catch {
     return false;
   } finally {
     if (descriptor !== void 0) {
-      closeSync3(descriptor);
+      closeSync4(descriptor);
     }
   }
 }
@@ -6242,7 +6323,7 @@ function replaceTransactionOwnedJson({
   const transaction = readTransaction(transactionPath);
   const path = artifactPath(transaction, artifactName);
   if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
-    fail2(
+    fail3(
       "MESSAGE_INPUT_REPLACED",
       `The fixed ${artifactName} changed before normalized content could be persisted.`
     );
@@ -6278,12 +6359,12 @@ function slotPaths(messageDirectory, slot) {
 }
 function assertExactKeys3(value, keys, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    fail2("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
+    fail3("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail2(
+    fail3(
       "CANONICAL_MESSAGE_CORRUPT",
       `${label} contains missing or unknown members.`
     );
@@ -6291,7 +6372,7 @@ function assertExactKeys3(value, keys, label) {
 }
 function assertValidationMatches(bytes, validation, source) {
   if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
-    fail2(
+    fail3(
       "MESSAGE_VALIDATION_MISMATCH",
       "Canonical message replacement requires one successful validation object."
     );
@@ -6299,7 +6380,7 @@ function assertValidationMatches(bytes, validation, source) {
   const digest2 = sha256(bytes);
   const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
   if (validation.messageSha256 !== digest2 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
-    fail2(
+    fail3(
       "MESSAGE_VALIDATION_MISMATCH",
       "Canonical validation does not describe the exact replacement message bytes."
     );
@@ -6327,7 +6408,7 @@ function writeCandidate({
 }) {
   const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
   if (existsSync4(paths.directory)) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_OCCUPIED",
       "The fixed candidate slot is occupied; recover the pending replacement first."
     );
@@ -6336,7 +6417,7 @@ function writeCandidate({
   writeNewFile2(paths.messagePath, bytes);
   const validationBytes = canonicalJsonBytes(validation);
   if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
-    fail2(
+    fail3(
       "MESSAGE_VALIDATION_TOO_LARGE",
       `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
     );
@@ -6389,7 +6470,7 @@ function readSlot(messageDirectory, slot) {
     validation = JSON.parse(STRICT_UTF8_DECODER.decode(validationBytes));
     state = JSON.parse(STRICT_UTF8_DECODER.decode(stateBytes));
   } catch (error) {
-    fail2(
+    fail3(
       "CANONICAL_MESSAGE_CORRUPT",
       `Canonical message ${slot} JSON is invalid: ${error.message}`
     );
@@ -6407,7 +6488,7 @@ function readSlot(messageDirectory, slot) {
     `Canonical message ${slot} state`
   );
   if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN3.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN3.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
-    fail2(
+    fail3(
       "CANONICAL_MESSAGE_CORRUPT",
       `Canonical message ${slot} state does not match its artifacts.`
     );
@@ -6441,7 +6522,7 @@ function renameSlot(messageDirectory, source, destination) {
   const sourcePath = slotPaths(messageDirectory, source).directory;
   const destinationPath = slotPaths(messageDirectory, destination).directory;
   if (existsSync4(destinationPath)) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_OCCUPIED",
       `Canonical message ${destination} slot is already occupied.`
     );
@@ -6455,7 +6536,7 @@ function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
     return current;
   }
   if (!sameTransactionMessage(current.message, priorMessage)) {
-    fail2(
+    fail3(
       "MESSAGE_TRANSACTION_DRIFT",
       "Transaction message state changed during canonical replacement."
     );
@@ -6471,7 +6552,7 @@ function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
   if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending", "authoring-pending"])).has(
     current.phase
   )) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_NOT_ALLOWED",
       `Canonical message replacement is not allowed in phase ${current.phase}.`
     );
@@ -6493,7 +6574,7 @@ function readJournal(transaction, journalPath) {
   try {
     journal = JSON.parse(STRICT_UTF8_DECODER.decode(bytes));
   } catch (error) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_CORRUPT",
       `Canonical message replacement journal is invalid: ${error.message}`
     );
@@ -6504,7 +6585,7 @@ function readJournal(transaction, journalPath) {
     "Canonical message replacement journal"
   );
   if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_CORRUPT",
       "Canonical message replacement journal has invalid state references."
     );
@@ -6533,7 +6614,7 @@ function steadyCanonicalMessage(transaction, messageDirectory) {
   }
   const current = readSlot(messageDirectory, CURRENT_SLOT);
   if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
-    fail2(
+    fail3(
       "CANONICAL_MESSAGE_CORRUPT",
       "The transaction does not match its fixed current message slot."
     );
@@ -6558,7 +6639,7 @@ function recoverCanonicalMessageReplacement(transactionPath) {
       )) {
         removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
       } else {
-        fail2(
+        fail3(
           "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
           "A previous canonical slot remains without a replacement journal."
         );
@@ -6574,14 +6655,14 @@ function recoverCanonicalMessageReplacement(transactionPath) {
   const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
   if (!nextMatches(current) && nextMatches(candidate)) {
     if (current.value !== null && !priorMatches(current)) {
-      fail2(
+      fail3(
         "MESSAGE_REPLACEMENT_CORRUPT",
         "The current message slot matches neither side of the pending replacement."
       );
     }
     if (current.value !== null) {
       if (previous.value !== null || previous.error !== null) {
-        fail2(
+        fail3(
           "MESSAGE_REPLACEMENT_CORRUPT",
           "Both current and previous slots are occupied during recovery."
         );
@@ -6611,7 +6692,7 @@ function recoverCanonicalMessageReplacement(transactionPath) {
   if (priorMatches(current)) {
     if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
       if (transaction.phase !== "message-ready") {
-        fail2(
+        fail3(
           "MESSAGE_REPLACEMENT_CORRUPT",
           "The transaction advanced without a recoverable canonical candidate."
         );
@@ -6624,7 +6705,7 @@ function recoverCanonicalMessageReplacement(transactionPath) {
     cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
     return steadyCanonicalMessage(transaction, messageDirectory);
   }
-  fail2(
+  fail3(
     "MESSAGE_REPLACEMENT_CORRUPT",
     "Neither side of the pending canonical message replacement is recoverable."
   );
@@ -6634,14 +6715,14 @@ function readCanonicalMessage(transactionPath) {
 }
 function assertReplacementRoute(transaction, source) {
   if (!MESSAGE_SOURCES2.has(source)) {
-    fail2(
+    fail3(
       "MESSAGE_SOURCE_INVALID",
       `Unknown canonical message source ${JSON.stringify(source)}.`
     );
   }
   const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase);
   if (!allowed || transaction.commit !== null) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_NOT_ALLOWED",
       `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
     );
@@ -6656,11 +6737,11 @@ function replaceCanonicalMessage({
   }
 }) {
   if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
-    fail2("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
+    fail3("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
   }
   const bytes = Buffer.from(inputBytes);
   if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail2(
+    fail3(
       "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
       `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
     );
@@ -6674,7 +6755,7 @@ function replaceCanonicalMessage({
   const messageDirectory = ensureMessageDirectory(transaction);
   const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
   if (existsSync4(journalPath) || existsSync4(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync4(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
-    fail2(
+    fail3(
       "MESSAGE_REPLACEMENT_OCCUPIED",
       "Canonical replacement remnants remain after recovery."
     );
@@ -6746,7 +6827,7 @@ var init_canonicalMessageState = __esm({
 });
 
 // src/committing-to-git/snapshot/recordedSnapshot.js
-import { resolve as resolve5 } from "node:path";
+import { resolve as resolve6 } from "node:path";
 function assertSnapshotCapacity(byteCount) {
   if (byteCount > MAXIMUM_SNAPSHOT_BYTES) {
     throw new WorkflowDiagnosticError(
@@ -6792,7 +6873,7 @@ function readRecordedSnapshotFile(transactionPath) {
       try {
         assertSnapshotCapacity(error.details.byteCount);
       } catch (capacityError) {
-        capacityError.state = { transaction: resolve5(transactionPath) };
+        capacityError.state = { transaction: resolve6(transactionPath) };
         throw capacityError;
       }
     }
@@ -6845,14 +6926,14 @@ var init_gitPath = __esm({
 import { randomUUID as randomUUID2 } from "node:crypto";
 import {
   chmodSync,
-  closeSync as closeSync4,
+  closeSync as closeSync5,
   constants as fsConstants3,
   existsSync as existsSync5,
-  lstatSync as lstatSync3,
-  openSync as openSync4,
+  lstatSync as lstatSync4,
+  openSync as openSync5,
   unlinkSync as unlinkSync2
 } from "node:fs";
-import { dirname as dirname3, resolve as resolve6 } from "node:path";
+import { dirname as dirname3, resolve as resolve7 } from "node:path";
 function validatedPathBytes(pathBytes) {
   if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
     throw new Error(
@@ -6881,13 +6962,13 @@ function encodeIndexInfoRecords(entries) {
   const records = [];
   for (const candidate of entries) {
     const entry = validatedEntry(candidate);
-    const identity2 = entry.pathBytes.toString("base64");
-    if (seen.has(identity2)) {
+    const identity = entry.pathBytes.toString("base64");
+    if (seen.has(identity)) {
       throw new Error(
         "Projected-index entries contain a duplicate raw path identity."
       );
     }
-    seen.add(identity2);
+    seen.add(identity);
     records.push(
       Buffer.from(`${entry.mode} ${entry.oid}	`, "ascii"),
       entry.pathBytes,
@@ -6897,26 +6978,26 @@ function encodeIndexInfoRecords(entries) {
   return Buffer.concat(records);
 }
 function allocateProjectedIndexPath(temporaryDirectory, purpose) {
-  const canonicalDirectory = resolve6(temporaryDirectory);
-  const directoryStat = lstatSync3(canonicalDirectory);
+  const canonicalDirectory = resolve7(temporaryDirectory);
+  const directoryStat = lstatSync4(canonicalDirectory);
   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
     throw new Error(
       "Projected indexes require a real helper-owned temporary directory."
     );
   }
-  const indexPath = resolve6(
+  const indexPath = resolve7(
     canonicalDirectory,
     `.projected-index-${purpose}-${randomUUID2()}.tmp`
   );
   if (dirname3(indexPath) !== canonicalDirectory) {
     throw new Error("Projected index escaped its temporary directory.");
   }
-  const reservation = openSync4(
+  const reservation = openSync5(
     indexPath,
     fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
     384
   );
-  closeSync4(reservation);
+  closeSync5(reservation);
   unlinkSync2(indexPath);
   return indexPath;
 }
@@ -7530,16 +7611,16 @@ var init_inlineEvidenceCapsule = __esm({
 // src/committing-to-git/inspection/streamingPacketWriter.js
 import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
 import {
-  closeSync as closeSync5,
+  closeSync as closeSync6,
   existsSync as existsSync6,
-  fstatSync as fstatSync4,
+  fstatSync as fstatSync5,
   fsyncSync as fsyncSync3,
   mkdirSync as mkdirSync3,
-  openSync as openSync5,
-  readSync as readSync2,
+  openSync as openSync6,
+  readSync as readSync3,
   renameSync as renameSync3,
   unlinkSync as unlinkSync3,
-  writeFileSync as writeFileSync3
+  writeFileSync as writeFileSync4
 } from "node:fs";
 import { join as join5 } from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
@@ -7605,7 +7686,7 @@ function publishTemporaryFile(temporaryPath, finalPath) {
 function readChunkExactly(descriptor, buffer, length, position) {
   let total = 0;
   while (total < length) {
-    const count = readSync2(
+    const count = readSync3(
       descriptor,
       buffer,
       total,
@@ -7620,11 +7701,11 @@ function readChunkExactly(descriptor, buffer, length, position) {
   return total;
 }
 function filesEqualBounded(leftPath, rightPath) {
-  const left = openSync5(leftPath, "r");
-  const right = openSync5(rightPath, "r");
+  const left = openSync6(leftPath, "r");
+  const right = openSync6(rightPath, "r");
   try {
-    const leftSize = Number(fstatSync4(left, { bigint: true }).size);
-    const rightSize = Number(fstatSync4(right, { bigint: true }).size);
+    const leftSize = Number(fstatSync5(left, { bigint: true }).size);
+    const rightSize = Number(fstatSync5(right, { bigint: true }).size);
     if (leftSize !== rightSize) {
       return false;
     }
@@ -7641,13 +7722,13 @@ function filesEqualBounded(leftPath, rightPath) {
     }
     return true;
   } finally {
-    closeSync5(right);
-    closeSync5(left);
+    closeSync6(right);
+    closeSync6(left);
   }
 }
 async function spoolSource(outputDirectory, source) {
   const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
-  const descriptor = openSync5(temporaryPath, "wx", 384);
+  const descriptor = openSync6(temporaryPath, "wx", 384);
   const hash = createHash6("sha256");
   const decoder = new TextDecoder4("utf-8", { fatal: true });
   let validUtf8 = true;
@@ -7660,7 +7741,7 @@ async function spoolSource(outputDirectory, source) {
       if (chunk.length === 0) {
         continue;
       }
-      writeFileSync3(descriptor, chunk);
+      writeFileSync4(descriptor, chunk);
       hash.update(chunk);
       byteCount += chunk.length;
       newlineCount += countNewlines(chunk);
@@ -7682,7 +7763,7 @@ async function spoolSource(outputDirectory, source) {
     fsyncSync3(descriptor);
     complete = true;
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
     if (!complete && existsSync6(temporaryPath)) {
       unlinkSync3(temporaryPath);
     }
@@ -7702,7 +7783,7 @@ async function spoolSource(outputDirectory, source) {
 }
 function spoolSourceSync(outputDirectory, source) {
   const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
-  const descriptor = openSync5(temporaryPath, "wx", 384);
+  const descriptor = openSync6(temporaryPath, "wx", 384);
   const hash = createHash6("sha256");
   const decoder = new TextDecoder4("utf-8", { fatal: true });
   let validUtf8 = true;
@@ -7715,7 +7796,7 @@ function spoolSourceSync(outputDirectory, source) {
       if (chunk.length === 0) {
         continue;
       }
-      writeFileSync3(descriptor, chunk);
+      writeFileSync4(descriptor, chunk);
       hash.update(chunk);
       byteCount += chunk.length;
       newlineCount += countNewlines(chunk);
@@ -7737,7 +7818,7 @@ function spoolSourceSync(outputDirectory, source) {
     fsyncSync3(descriptor);
     complete = true;
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
     if (!complete && existsSync6(temporaryPath)) {
       unlinkSync3(temporaryPath);
     }
@@ -7766,7 +7847,7 @@ function utf8Boundary(buffer, candidateEnd) {
   return boundary > 0 ? boundary : candidateEnd;
 }
 function* readRawSegments(path, byteCount, validUtf8) {
-  const descriptor = openSync5(path, "r");
+  const descriptor = openSync6(path, "r");
   let start = 0;
   try {
     while (start < byteCount) {
@@ -7775,7 +7856,7 @@ function* readRawSegments(path, byteCount, validUtf8) {
         byteCount - start
       );
       const buffer = Buffer.alloc(available);
-      const bytesRead = readSync2(descriptor, buffer, 0, available, start);
+      const bytesRead = readSync3(descriptor, buffer, 0, available, start);
       if (bytesRead === 0) {
         throw new Error(
           "Raw packet spool ended before its recorded byte count."
@@ -7808,20 +7889,20 @@ function* readRawSegments(path, byteCount, validUtf8) {
       start = end;
     }
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
 }
 function finalByte(path, byteCount) {
   if (byteCount === 0) {
     return null;
   }
-  const descriptor = openSync5(path, "r");
+  const descriptor = openSync6(path, "r");
   const byte = Buffer.alloc(1);
   try {
-    readSync2(descriptor, byte, 0, 1, byteCount - 1);
+    readSync3(descriptor, byte, 0, 1, byteCount - 1);
     return byte[0];
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
 }
 function escapedHex(bytes, absoluteStart) {
@@ -7923,7 +8004,7 @@ function writePacket(outputDirectory, descriptorData, payload) {
     "packets",
     `.packet-${randomUUID3()}.tmp`
   );
-  writeFileSync3(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
+  writeFileSync4(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
   publishTemporaryFile(temporaryPath, join5(outputDirectory, artifact));
   return {
     id: descriptorData.id,
@@ -8106,24 +8187,24 @@ var init_streamingPacketWriter = __esm({
 // src/committing-to-git/transaction/indexInstallation.js
 import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
 import {
-  closeSync as closeSync6,
+  closeSync as closeSync7,
   constants as fsConstants4,
   existsSync as existsSync7,
-  fstatSync as fstatSync5,
+  fstatSync as fstatSync6,
   fsyncSync as fsyncSync4,
   futimesSync,
-  lstatSync as lstatSync4,
-  openSync as openSync6,
-  readFileSync as readFileSync3,
-  realpathSync as realpathSync3,
+  lstatSync as lstatSync5,
+  openSync as openSync7,
+  readFileSync as readFileSync2,
+  realpathSync as realpathSync4,
   renameSync as renameSync4,
   rmSync as rmSync3,
-  writeFileSync as writeFileSync4
+  writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve7 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve8 } from "node:path";
 function samePath(left, right) {
-  const leftPath = resolve7(left);
-  const rightPath = resolve7(right);
+  const leftPath = resolve8(left);
+  const rightPath = resolve8(right);
   return process.platform === "win32" ? leftPath.toLowerCase() === rightPath.toLowerCase() : leftPath === rightPath;
 }
 function assertContainedPath(parent, candidate, label) {
@@ -8145,41 +8226,39 @@ function stableIdentityMatches(left, right) {
   return left.device === right.device && left.inode === right.inode && left.mode === right.mode && left.modifiedTimeMilliseconds === right.modifiedTimeMilliseconds && left.changeTimeMilliseconds === right.changeTimeMilliseconds;
 }
 function openReadOnlyNoFollow3(path) {
-  return openSync6(path, fsConstants4.O_RDONLY + (fsConstants4.O_NOFOLLOW ?? 0));
+  return openSync7(
+    path,
+    fsConstants4.O_RDONLY + (fsConstants4.O_NOFOLLOW ?? 0) + (fsConstants4.O_NONBLOCK ?? 0),
+    384
+  );
 }
 function readStableRegularFile2(path, { allowAbsent = false } = {}) {
-  let pathStat;
+  let descriptor;
   try {
-    pathStat = lstatSync4(path);
+    descriptor = openReadOnlyNoFollow3(path);
   } catch (error) {
-    if (allowAbsent && error.code === "ENOENT") {
-      return null;
-    }
+    if (allowAbsent && error.code === "ENOENT") return null;
     throw error;
   }
-  if (!pathStat.isFile() || pathStat.isSymbolicLink()) {
-    throw new Error(`Expected a non-symbolic regular file: ${path}`);
-  }
-  const descriptor = openReadOnlyNoFollow3(path);
   try {
-    const before = fstatSync5(descriptor);
+    const before = fstatSync6(descriptor);
     if (!before.isFile()) {
       throw new Error(`Expected a regular file after opening: ${path}`);
     }
-    const bytes = readFileSync3(descriptor);
-    const after = fstatSync5(descriptor);
-    const finalPathStat = lstatSync4(path);
+    const bytes = readFileSync2(descriptor);
+    const after = fstatSync6(descriptor);
+    const finalPathStat = lstatSync5(path);
     const beforeIdentity = statIdentity2(before);
     const afterIdentity = statIdentity2(after);
     const finalPathIdentity = statIdentity2(finalPathStat);
-    if (!stableIdentityMatches(beforeIdentity, afterIdentity) || !stableIdentityMatches(afterIdentity, finalPathIdentity) || Number(after.size) !== bytes.length) {
+    if (!finalPathStat.isFile() || finalPathStat.isSymbolicLink() || !stableIdentityMatches(beforeIdentity, afterIdentity) || !stableIdentityMatches(afterIdentity, finalPathIdentity) || Number(after.size) !== bytes.length) {
       throw new Error(
         `File changed while its stable identity was read: ${path}`
       );
     }
     return {
       bytes,
-      modifiedTimeNanoseconds: fstatSync5(descriptor, { bigint: true }).mtimeNs,
+      modifiedTimeNanoseconds: fstatSync6(descriptor, { bigint: true }).mtimeNs,
       identity: {
         state: "file",
         byteCount: bytes.length,
@@ -8188,14 +8267,14 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
       }
     };
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
 }
-function assertIndexIdentity(identity2, label) {
-  if (identity2?.state === "absent" && Object.keys(identity2).length === 1) {
+function assertIndexIdentity(identity, label) {
+  if (identity?.state === "absent" && Object.keys(identity).length === 1) {
     return;
   }
-  if (identity2?.state !== "file" || !Number.isSafeInteger(identity2.byteCount) || identity2.byteCount < 0 || !/^[0-9a-f]{64}$/u.test(identity2.sha256) || identity2.fileIdentity === null || typeof identity2.fileIdentity !== "object" || Array.isArray(identity2.fileIdentity)) {
+  if (identity?.state !== "file" || !Number.isSafeInteger(identity.byteCount) || identity.byteCount < 0 || !/^[0-9a-f]{64}$/u.test(identity.sha256) || identity.fileIdentity === null || typeof identity.fileIdentity !== "object" || Array.isArray(identity.fileIdentity)) {
     throw new Error(`${label} is not a canonical index identity.`);
   }
 }
@@ -8211,7 +8290,7 @@ function indexIdentitiesMatch(left, right) {
   return left.byteCount === right.byteCount && left.sha256 === right.sha256;
 }
 function readIndexIdentity(indexPath) {
-  const stableFile = readStableRegularFile2(resolve7(indexPath), {
+  const stableFile = readStableRegularFile2(resolve8(indexPath), {
     allowAbsent: true
   });
   return stableFile?.identity ?? { state: "absent" };
@@ -8219,7 +8298,7 @@ function readIndexIdentity(indexPath) {
 function flushDirectory3(path) {
   let descriptor;
   try {
-    descriptor = openSync6(path, fsConstants4.O_RDONLY);
+    descriptor = openSync7(path, fsConstants4.O_RDONLY);
     fsyncSync4(descriptor);
   } catch (error) {
     if (process.platform !== "win32") {
@@ -8227,22 +8306,22 @@ function flushDirectory3(path) {
     }
   } finally {
     if (descriptor !== void 0) {
-      closeSync6(descriptor);
+      closeSync7(descriptor);
     }
   }
 }
 function writeNewJson2(path, value) {
-  const descriptor = openSync6(
+  const descriptor = openSync7(
     path,
     fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
     384
   );
   try {
-    writeFileSync4(descriptor, `${JSON.stringify(value, null, 2)}
+    writeFileSync5(descriptor, `${JSON.stringify(value, null, 2)}
 `, "utf8");
     fsyncSync4(descriptor);
   } finally {
-    closeSync6(descriptor);
+    closeSync7(descriptor);
   }
   flushDirectory3(dirname4(path));
 }
@@ -8309,7 +8388,7 @@ function validateJournal(journal) {
 }
 function resolveRealIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve7(isAbsolute5(gitPath) ? gitPath : join6(root, gitPath));
+  return resolve8(isAbsolute5(gitPath) ? gitPath : join6(root, gitPath));
 }
 function captureHeadAnchor(root) {
   const symbolic = runReadOnlyGit(root, "symbolic-head", [], {
@@ -8342,13 +8421,13 @@ function validateInvocation({
   assertIndexIdentity(originalIndexIdentity, "Original index identity");
   assertIndexIdentity(preparedIndexIdentity, "Prepared index identity");
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync3(root);
+  const canonicalRoot = realpathSync4(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error(
       "Index installation root does not match the transaction repository."
     );
   }
-  const canonicalPreparedPath = resolve7(preparedIndexPath);
+  const canonicalPreparedPath = resolve8(preparedIndexPath);
   assertContainedPath(
     transaction.attemptDirectory,
     canonicalPreparedPath,
@@ -8361,7 +8440,7 @@ function validateInvocation({
   if (!exactIdentityMatches(stablePrepared.identity, preparedIndexIdentity)) {
     throw new Error("Prepared index identity changed before installation.");
   }
-  const canonicalTransactionPath = resolve7(transactionPath);
+  const canonicalTransactionPath = resolve8(transactionPath);
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const indexPath = resolveRealIndexPath(canonicalRoot);
   return {
@@ -8414,14 +8493,14 @@ function recoveryFromJournal(journal) {
 }
 function recoverIndexInstallation({ root, transactionPath }) {
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync3(root);
+  const canonicalRoot = realpathSync4(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error("Recovery root does not match the transaction repository.");
   }
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve8(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   return recoveryFromJournal(journal);
@@ -8437,22 +8516,22 @@ function performJournaledReplacement({
   let lockDescriptor;
   let lockOwned = false;
   try {
-    lockDescriptor = openSync6(
+    lockDescriptor = openSync7(
       lockPath,
       fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
       438
     );
     lockOwned = true;
-    writeFileSync4(lockDescriptor, preparedBytes);
+    writeFileSync5(lockDescriptor, preparedBytes);
     const timestamp = Number(preparedModifiedTimeNanoseconds / 1000000000n);
     futimesSync(lockDescriptor, timestamp, timestamp);
-    if (fstatSync5(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
+    if (fstatSync6(lockDescriptor, { bigint: true }).mtimeNs > preparedModifiedTimeNanoseconds) {
       throw new Error(
         "Installed index timestamp could not preserve native Git freshness."
       );
     }
     fsyncSync4(lockDescriptor);
-    closeSync6(lockDescriptor);
+    closeSync7(lockDescriptor);
     lockDescriptor = void 0;
     const lockedIdentity = readIndexIdentity(journal.indexPath);
     const lockedHeadAnchor = captureHeadAnchor(journal.repositoryRoot);
@@ -8478,7 +8557,7 @@ function performJournaledReplacement({
     };
   } finally {
     if (lockDescriptor !== void 0) {
-      closeSync6(lockDescriptor);
+      closeSync7(lockDescriptor);
     }
     if (lockOwned) {
       rmSync3(lockPath, { force: true });
@@ -8487,14 +8566,14 @@ function performJournaledReplacement({
 }
 function resumePreparedIndexInstallation({ root, transactionPath }) {
   const transaction = readTransaction(transactionPath);
-  const canonicalRoot = realpathSync3(root);
+  const canonicalRoot = realpathSync4(root);
   if (!samePath(canonicalRoot, transaction.repositoryRoot)) {
     throw new Error("Resume root does not match the transaction repository.");
   }
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve8(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   const recovery = recoveryFromJournal(journal);
@@ -9177,13 +9256,13 @@ import {
   chmodSync as chmodSync3,
   copyFileSync,
   existsSync as existsSync9,
-  lstatSync as lstatSync5,
+  lstatSync as lstatSync6,
   mkdirSync as mkdirSync5,
   readdirSync,
   utimesSync,
-  writeFileSync as writeFileSync5
+  writeFileSync as writeFileSync6
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, resolve as resolve8 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, resolve as resolve9 } from "node:path";
 function nulPathInput2(paths) {
   return Buffer.concat(
     paths.flatMap((path) => [
@@ -9194,14 +9273,14 @@ function nulPathInput2(paths) {
 }
 function resolveGitPath(root, name) {
   const path = readOnlyGitText(root, "git-path", [name]).trim();
-  return resolve8(isAbsolute6(path) ? path : join7(root, path));
+  return resolve9(isAbsolute6(path) ? path : join7(root, path));
 }
 function copyIndexFile(source, destination) {
-  const observedTime = lstatSync5(source, { bigint: true }).mtimeNs;
+  const observedTime = lstatSync6(source, { bigint: true }).mtimeNs;
   const timestamp = Number(observedTime / 1000000000n);
   copyFileSync(source, destination);
   utimesSync(destination, timestamp, timestamp);
-  if (lstatSync5(destination, { bigint: true }).mtimeNs > observedTime) {
+  if (lstatSync6(destination, { bigint: true }).mtimeNs > observedTime) {
     throw new Error(
       "Copied index timestamp could not preserve native Git freshness."
     );
@@ -9326,7 +9405,7 @@ function createDraftObjectEnvironment({ root, attemptDirectory }) {
   const primaryObjectDirectory = resolveGitPath(root, "objects");
   const inheritedAlternates = parseGitAlternatePaths(
     process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
-  ).map((path) => resolve8(isAbsolute6(path) ? path : join7(root, path)));
+  ).map((path) => resolve9(isAbsolute6(path) ? path : join7(root, path)));
   const alternates = [
     .../* @__PURE__ */ new Set([primaryObjectDirectory, ...inheritedAlternates])
   ];
@@ -9362,11 +9441,11 @@ function stagedChangePaths(root) {
     "--"
   ]).stdout;
 }
-function portableIndexIdentity(identity2) {
-  return identity2.state === "absent" ? { state: "absent" } : {
+function portableIndexIdentity(identity) {
+  return identity.state === "absent" ? { state: "absent" } : {
     state: "file",
-    byteCount: identity2.byteCount,
-    sha256: identity2.sha256
+    byteCount: identity.byteCount,
+    sha256: identity.sha256
   };
 }
 function copyStableIndex(realIndexPath2, preparedIndexPath, originalIdentity) {
@@ -9406,9 +9485,6 @@ function createSnapshot({
   }
   if (scope === "paths" && scopePaths.length === 0) {
     throw new Error("Path scope requires at least one literal path.");
-  }
-  if (existsSync9(outputPath)) {
-    throw new Error(`Snapshot output already exists: ${outputPath}`);
   }
   assertRepositoryPreconditions(root);
   const headOid = resolveHead(root);
@@ -9521,10 +9597,15 @@ function createSnapshot({
 `;
   assertSnapshotCapacity(Buffer.byteLength(serializedSnapshot));
   mkdirSync5(dirname6(outputPath), { recursive: true });
-  writeFileSync5(outputPath, serializedSnapshot, {
-    flag: "wx",
-    mode: 384
-  });
+  try {
+    writeFileSync6(outputPath, serializedSnapshot, { flag: "wx", mode: 384 });
+  } catch (error) {
+    if (error.code === "EEXIST")
+      throw new Error(`Snapshot output already exists: ${outputPath}`, {
+        cause: error
+      });
+    throw error;
+  }
   if (mode === "draft" && (!indexIdentitiesMatch(
     readIndexIdentity(realIndexPath2),
     originalIndexIdentity
@@ -9577,22 +9658,18 @@ var init_createSnapshot = __esm({
 // src/committing-to-git/inspection/reviewCatalog.js
 import { createHash as createHash9 } from "node:crypto";
 import {
-  closeSync as closeSync7,
-  constants as fsConstants5,
+  closeSync as closeSync8,
   createReadStream,
   existsSync as existsSync10,
-  fstatSync as fstatSync6,
   fsyncSync as fsyncSync5,
-  lstatSync as lstatSync6,
   mkdirSync as mkdirSync6,
-  openSync as openSync7,
-  readFileSync as readFileSync4,
+  openSync as openSync8,
+  readFileSync as readFileSync3,
   readdirSync as readdirSync2,
-  realpathSync as realpathSync4,
-  writeFileSync as writeFileSync6,
+  writeFileSync as writeFileSync7,
   unlinkSync as unlinkSync4
 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve9, sep as sep2 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve10, sep as sep2 } from "node:path";
 function isPlainObject3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -9789,12 +9866,12 @@ function writeNewJson3(path, value) {
   const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}
 `, "utf8");
   try {
-    writeFileSync6(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync7(path, bytes, { flag: "wx", mode: 384 });
   } catch (error) {
     if (error.code !== "EEXIST") {
       throw error;
     }
-    if (!readFileSync4(path).equals(bytes)) {
+    if (!readFileSync3(path).equals(bytes)) {
       throw new Error(`Immutable JSON artifact collision at ${path}.`, {
         cause: error
       });
@@ -9806,12 +9883,12 @@ function writeImmutableSmallFile(path, bytes) {
     throw new Error(`Immutable bounded artifact exceeds its budget: ${path}`);
   }
   try {
-    writeFileSync6(path, bytes, { flag: "wx", mode: 384 });
+    writeFileSync7(path, bytes, { flag: "wx", mode: 384 });
   } catch (error) {
     if (error.code !== "EEXIST") {
       throw error;
     }
-    if (!readFileSync4(path).equals(bytes)) {
+    if (!readFileSync3(path).equals(bytes)) {
       throw new Error(`Immutable artifact collision at ${path}.`, {
         cause: error
       });
@@ -9829,7 +9906,7 @@ function persistBaseCatalog(outputDirectory, catalog) {
   const baseIndexArtifact = "base-packet-index.json";
   const baseIndexPath = join8(outputDirectory, baseIndexArtifact);
   writeNewJson3(baseIndexPath, baseIndex);
-  const baseIndexSha256 = sha256Bytes(readFileSync4(baseIndexPath));
+  const baseIndexSha256 = sha256Bytes(readFileSync3(baseIndexPath));
   catalog.storage = {
     kind: "base-plus-revisions",
     baseIndexArtifact,
@@ -9849,7 +9926,7 @@ function catalogOutputDirectory(catalog) {
   if (typeof catalog.catalogPath !== "string") {
     throw new Error("Catalog is missing its immutable storage path.");
   }
-  const catalogPath = resolve9(catalog.catalogPath);
+  const catalogPath = resolve10(catalog.catalogPath);
   return dirname7(catalogPath).endsWith(`${sep2}revisions`) ? dirname7(dirname7(catalogPath)) : dirname7(catalogPath);
 }
 function arrayDifference(left, right) {
@@ -10136,12 +10213,12 @@ function applyDelta(values, additions, removals) {
   ];
 }
 function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
-  const absolutePath = resolve9(catalogPath);
+  const absolutePath = resolve10(catalogPath);
   if (visited.has(absolutePath)) {
     throw new Error("Catalog revision chain contains a cycle.");
   }
   visited.add(absolutePath);
-  const document = JSON.parse(readFileSync4(absolutePath, "utf8"));
+  const document = JSON.parse(readFileSync3(absolutePath, "utf8"));
   if (document.revisionRecordVersion !== 1) {
     const expected = digestCatalog(document);
     if (document.catalogSha256 !== expected) {
@@ -10150,7 +10227,7 @@ function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
     return withCatalogIdentity(document, absolutePath);
   }
   const outputDirectory = dirname7(dirname7(absolutePath));
-  const priorPath = resolve9(outputDirectory, document.priorCatalogArtifact);
+  const priorPath = resolve10(outputDirectory, document.priorCatalogArtifact);
   const prior = loadCatalogDocument(priorPath, visited);
   if (prior.catalogSha256 !== document.priorCatalogSha256) {
     throw new Error("Catalog revision prior digest does not match.");
@@ -10191,14 +10268,14 @@ function readReviewCatalog(catalogPath) {
   return loadCatalogDocument(catalogPath);
 }
 function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
-  let currentPath = resolve9(catalogPath);
+  let currentPath = resolve10(catalogPath);
   const visited = /* @__PURE__ */ new Set();
   while (true) {
     if (visited.has(currentPath)) {
       throw new Error("Catalog revision chain contains a cycle.");
     }
     visited.add(currentPath);
-    const document = JSON.parse(readFileSync4(currentPath, "utf8"));
+    const document = JSON.parse(readFileSync3(currentPath, "utf8"));
     if (document.catalogSha256 === catalogSha256) {
       loadCatalogDocument(currentPath);
       return currentPath;
@@ -10207,7 +10284,7 @@ function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
       return null;
     }
     const outputDirectory = dirname7(dirname7(currentPath));
-    currentPath = resolve9(outputDirectory, document.priorCatalogArtifact);
+    currentPath = resolve10(outputDirectory, document.priorCatalogArtifact);
   }
 }
 function requiredReviewPacketIds(catalog) {
@@ -10270,7 +10347,7 @@ function failPacket(code, message) {
   });
 }
 function readVerifiedPacket(outputDirectory, packet) {
-  const path = resolve9(outputDirectory, packet.artifact);
+  const path = resolve10(outputDirectory, packet.artifact);
   const contained = relative4(outputDirectory, path);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute7(contained)) {
     failPacket(
@@ -10278,35 +10355,22 @@ function readVerifiedPacket(outputDirectory, packet) {
       `Review packet ${packet.id} escapes its catalog directory.`
     );
   }
-  const initial = lstatSync6(path);
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync4(path) !== path) {
-    failPacket(
-      "REVIEW_PACKET_REPLACED",
-      `Review packet ${packet.id} is not a stable regular file.`
-    );
-  }
-  if (!Number.isSafeInteger(packet.byteCount) || packet.byteCount < 1 || packet.byteCount > MAXIMUM_PACKET_BYTES || initial.size !== packet.byteCount) {
+  if (!Number.isSafeInteger(packet.byteCount) || packet.byteCount < 1 || packet.byteCount > MAXIMUM_PACKET_BYTES) {
     failPacket(
       "REVIEW_PACKET_CHANGED",
       `Review packet ${packet.id} has an unexpected byte count.`
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants5.O_NOFOLLOW;
-  const descriptor = openSync7(path, fsConstants5.O_RDONLY | noFollow);
   let bytes;
   try {
-    const before = fstatSync6(descriptor);
-    bytes = readFileSync4(descriptor);
-    const after = fstatSync6(descriptor);
-    const final = lstatSync6(path);
-    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size || final.isSymbolicLink() || realpathSync4(path) !== path) {
-      failPacket(
-        "REVIEW_PACKET_CHANGED",
-        `Review packet ${packet.id} changed while it was read.`
-      );
-    }
-  } finally {
-    closeSync7(descriptor);
+    bytes = readStableFile(path, packet.byteCount, {
+      rejectLinkedAncestors: true
+    }).bytes;
+  } catch (error) {
+    failPacket(
+      ["FILE_NOT_REGULAR", "ELOOP"].includes(error.code) ? "REVIEW_PACKET_REPLACED" : "REVIEW_PACKET_CHANGED",
+      `Review packet ${packet.id} is not a stable bounded regular file.`
+    );
   }
   const actual = sha256Bytes(bytes);
   if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
@@ -10556,7 +10620,7 @@ function queuePagesForCatalog(outputDirectory, catalogSha256) {
     (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
   ).flatMap((name) => {
     const path = join8(queuesDirectory, name);
-    const bytes = readFileSync4(path);
+    const bytes = readFileSync3(path);
     let page;
     try {
       page = JSON.parse(bytes.toString("utf8"));
@@ -10670,8 +10734,8 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
   const packets = priorCatalog.packets;
   const packetGroups = /* @__PURE__ */ new Map();
   for (const packet of packets) {
-    const identity2 = `${packet.kind}:${packet.rawSha256}:${JSON.stringify(packet.changeUnitRanges)}`;
-    packetGroups.set(identity2, [...packetGroups.get(identity2) ?? [], packet]);
+    const identity = `${packet.kind}:${packet.rawSha256}:${JSON.stringify(packet.changeUnitRanges)}`;
+    packetGroups.set(identity, [...packetGroups.get(identity) ?? [], packet]);
   }
   const additions = [];
   const exactInventoryPacketIds = [];
@@ -10684,12 +10748,12 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
       group
     )) {
       const bytes = descriptor.kind === "exact-inventory" ? null : requirementBytes(manifest, descriptor);
-      const identity2 = requirementIdentity(
+      const identity = requirementIdentity(
         descriptor.kind,
         requirementRawSha256(manifest, descriptor),
         descriptor.units
       );
-      const existingPackets = packetGroups.get(identity2);
+      const existingPackets = packetGroups.get(identity);
       const candidatePackets = existingPackets ?? createRequirementPacket(
         manifest,
         { ...priorCatalog, packets: [...packets, ...additions] },
@@ -10708,7 +10772,7 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
         }
       }
       if (!existingPackets) {
-        packetGroups.set(identity2, candidatePackets);
+        packetGroups.set(identity, candidatePackets);
       }
     }
   }
@@ -10760,6 +10824,7 @@ function reviseReviewCatalog({ manifest, priorCatalog, evidencePlan }) {
 var PACKET_PREFIXES;
 var init_reviewCatalog = __esm({
   "src/committing-to-git/inspection/reviewCatalog.js"() {
+    init_stableFile();
     init_workflowDiagnosticError();
     init_evidenceVocabulary();
     init_changeSelection();
@@ -11202,13 +11267,13 @@ var init_semanticContentContract = __esm({
 });
 
 // src/committing-to-git/workflow/authoringProgress.js
-import { resolve as resolve10 } from "node:path";
+import { resolve as resolve11 } from "node:path";
 function worksheetMatchesTemplate(transaction, template) {
   const expected = Buffer.from(`${JSON.stringify(template, null, 2)}
 `);
   try {
     const opened = readTransactionOwnedFile({
-      transactionPath: resolve10(
+      transactionPath: resolve11(
         transaction.attemptDirectory,
         "transaction.json"
       ),
@@ -11223,7 +11288,7 @@ function worksheetMatchesTemplate(transaction, template) {
   }
 }
 function messageAuthoringRecovery(transaction, transactionPath) {
-  const handle = resolve10(transactionPath);
+  const handle = resolve11(transactionPath);
   const concise = transaction.route === "concise" && transaction.phase === "evidence-ready";
   const extended2 = transaction.route === "extended" && ["review-pending", "authoring-pending"].includes(transaction.phase);
   if (!concise && !extended2) {
@@ -11239,7 +11304,7 @@ function messageAuthoringRecovery(transaction, transactionPath) {
   }
   const progress = concise ? {
     nextAction: "author-message",
-    messagePath: resolve10(transaction.attemptDirectory, "message-input.txt"),
+    messagePath: resolve11(transaction.attemptDirectory, "message-input.txt"),
     contentPath: null
   } : authoringProgress(transaction);
   const command = progress.nextAction === "review-next" ? ["workflow", "review-next"] : progress.nextAction === "author-content" ? ["message", "finalize"] : ["message", "check"];
@@ -11290,9 +11355,9 @@ function authoringProgress(transaction) {
       nextCursor: traversal?.nextCursor ?? null
     },
     nextAction: complete ? structuredContentRequired ? "author-content" : "author-message" : "review-next",
-    contentPath: structuredContentRequired ? resolve10(transaction.attemptDirectory, "content.json") : null,
+    contentPath: structuredContentRequired ? resolve11(transaction.attemptDirectory, "content.json") : null,
     contentContract: structuredContentRequired ? semanticContentContract(transaction.review.structuredMessageMode) : null,
-    messagePath: complete && !structuredContentRequired ? resolve10(transaction.attemptDirectory, "message-input.txt") : null
+    messagePath: complete && !structuredContentRequired ? resolve11(transaction.attemptDirectory, "message-input.txt") : null
   };
 }
 var init_authoringProgress = __esm({
@@ -11319,22 +11384,21 @@ __export(prepareWorkflow_exports, {
 });
 import { createHash as createHash10, randomUUID as randomUUID5 } from "node:crypto";
 import {
-  closeSync as closeSync8,
-  constants as fsConstants6,
+  closeSync as closeSync9,
+  constants as fsConstants5,
   createReadStream as createReadStream2,
-  fstatSync as fstatSync7,
   fsyncSync as fsyncSync6,
   existsSync as existsSync11,
   lstatSync as lstatSync7,
   mkdirSync as mkdirSync7,
-  openSync as openSync8,
-  readFileSync as readFileSync5,
+  openSync as openSync9,
+  readFileSync as readFileSync4,
   unlinkSync as unlinkSync5,
-  writeFileSync as writeFileSync7
+  writeFileSync as writeFileSync8
 } from "node:fs";
-import { dirname as dirname8, resolve as resolve11 } from "node:path";
+import { dirname as dirname8, resolve as resolve12 } from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
-function fail3(code, message, options) {
+function fail4(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function preflightVerificationPolicy({
@@ -11343,7 +11407,7 @@ function preflightVerificationPolicy({
   signaturePreflightInspector = inspectSignatureRequirements
 }) {
   if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
-    fail3(
+    fail4(
       "INVALID_VERIFICATION_POLICY",
       "Verification policy must be required, advisory, or skipped."
     );
@@ -11361,12 +11425,12 @@ function isPlainObject4(value) {
 }
 function assertExactKeys4(value, keys, label, code) {
   if (!isPlainObject4(value)) {
-    fail3(code, `${label} must be an object.`);
+    fail4(code, `${label} must be an object.`);
   }
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail3(code, `${label} contains missing or unknown members.`);
+    fail4(code, `${label} contains missing or unknown members.`);
   }
 }
 function sha2562(bytes) {
@@ -11378,16 +11442,16 @@ function canonicalJsonBytes2(value) {
 }
 function validateRepositoryRelativePath(path, { prefix, label }) {
   if (typeof path !== "string" || path.length === 0) {
-    fail3("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
+    fail4("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
   }
   if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
-    fail3(
+    fail4(
       "INVALID_SCOPE_SELECTOR",
       `${label} must be a slash-separated repository-relative path.`
     );
   }
   if (prefix !== path.endsWith("/")) {
-    fail3(
+    fail4(
       "INVALID_SCOPE_SELECTOR",
       prefix ? `${label} must end with a slash.` : `${label} must not end with a slash.`
     );
@@ -11397,7 +11461,7 @@ function validateRepositoryRelativePath(path, { prefix, label }) {
   if (meaningfulComponents.some(
     (component) => component.length === 0 || component === "." || component === ".."
   )) {
-    fail3(
+    fail4(
       "INVALID_SCOPE_SELECTOR",
       `${label} contains an invalid path component.`
     );
@@ -11406,11 +11470,11 @@ function validateRepositoryRelativePath(path, { prefix, label }) {
 }
 function decodeCanonicalBase64Path(value, label) {
   if (typeof value !== "string" || value.length === 0) {
-    fail3("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
+    fail4("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
   }
   const bytes = Buffer.from(value, "base64");
   if (bytes.length === 0 || bytes.toString("base64") !== value || bytes.includes(0) || bytes.includes(92) || bytes[0] === 47 || bytes[bytes.length - 1] === 47) {
-    fail3(
+    fail4(
       "INVALID_SCOPE_SELECTOR",
       `${label} must encode one canonical repository-relative exact path.`
     );
@@ -11426,7 +11490,7 @@ function decodeCanonicalBase64Path(value, label) {
   if (components.some(
     (component) => component.length === 0 || component.equals(Buffer.from(".")) || component.equals(Buffer.from(".."))
   )) {
-    fail3(
+    fail4(
       "INVALID_SCOPE_SELECTOR",
       `${label} contains an invalid path component.`
     );
@@ -11451,14 +11515,14 @@ function selectorMatches(selector, path) {
 function normalizeScopePayload(payload) {
   assertExactKeys4(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
   if (payload.schemaVersion !== 2) {
-    fail3("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
+    fail4("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
   }
   for (const key of SCOPE_KEYS.slice(1)) {
     if (!Array.isArray(payload[key])) {
-      fail3("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
+      fail4("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
     }
     if (payload[key].length > 4096) {
-      fail3("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
+      fail4("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
     }
   }
   const descriptors = [];
@@ -11509,19 +11573,19 @@ function normalizeScopePayload(payload) {
     ({ direction }) => direction === "exclude"
   );
   if (includes.length === 0) {
-    fail3("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
+    fail4("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
   }
   const seen = /* @__PURE__ */ new Set();
   for (const selector of descriptors) {
     const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
     if (seen.has(key)) {
-      fail3("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
+      fail4("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
     }
     seen.add(key);
   }
   for (const exclusion of excludes) {
     if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
-      fail3(
+      fail4(
         "UNCONTAINED_SCOPE_EXCLUSION",
         "Every exclusion must be contained by at least one inclusion."
       );
@@ -11547,17 +11611,17 @@ function normalizeScopePayload(payload) {
 function normalizeEvidenceSelection(selection) {
   normalizeSelection(selection);
   if ("all" in selection && selection.all !== true) {
-    fail3("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
   }
   if ("remaining" in selection && selection.remaining !== true) {
-    fail3("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
   }
   for (const [key, value] of Object.entries(selection)) {
     if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
       continue;
     }
     if (value.length === 0) {
-      fail3(
+      fail4(
         "INVALID_EVIDENCE_PLAN",
         `Evidence selection ${key} must be a non-empty string array.`
       );
@@ -11573,13 +11637,13 @@ function normalizeEvidencePlan(payload) {
     "INVALID_EVIDENCE_PLAN"
   );
   if (payload.schemaVersion !== 1) {
-    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
   }
   if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
-    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
   }
   if (payload.groups.length > 4096) {
-    fail3("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
   }
   const groups = payload.groups.map((group, index) => {
     assertExactKeys4(
@@ -11607,45 +11671,45 @@ function normalizeEvidencePlan(payload) {
   };
 }
 function readBoundedJson(path, label) {
-  const absolutePath = resolve11(path);
-  const initialPathStat = lstatSync7(absolutePath);
-  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile()) {
-    fail3("INVALID_JSON_INPUT", `${label} must be a non-symbolic regular file.`);
-  }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants6.O_NOFOLLOW;
-  const descriptor = openSync8(absolutePath, fsConstants6.O_RDONLY + noFollow);
+  const absolutePath = resolve12(path);
+  let bytes;
   try {
-    const before = fstatSync7(descriptor);
-    if (!before.isFile()) {
-      fail3("INVALID_JSON_INPUT", `${label} must be a regular file.`);
-    }
-    if (before.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail3(
+    bytes = readStableFile(
+      absolutePath,
+      MAXIMUM_INITIAL_JSON_INPUT_BYTES
+    ).bytes;
+  } catch (error) {
+    if (error.code === "FILE_TOO_LARGE") {
+      fail4(
         "JSON_INPUT_TOO_LARGE",
         `${label} exceeds ${MAXIMUM_INITIAL_JSON_INPUT_BYTES} bytes.`
       );
     }
-    const bytes = readFileSync5(descriptor);
-    const after = fstatSync7(descriptor);
-    const finalPathStat = lstatSync7(absolutePath);
-    if (initialPathStat.dev !== before.dev || initialPathStat.ino !== before.ino || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail3("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
+    if (["FILE_NOT_REGULAR", "ELOOP", "EISDIR", "ENXIO"].includes(error.code)) {
+      fail4(
+        "INVALID_JSON_INPUT",
+        `${label} must be a non-symbolic regular file.`
+      );
     }
+    if (error.code === "FILE_CHANGED") {
+      fail4("JSON_INPUT_CHANGED", `${label} changed while it was read.`);
+    }
+    throw error;
+  }
+  {
     let text;
     try {
       text = STRICT_UTF8_DECODER4.decode(bytes);
     } catch {
-      fail3("INVALID_JSON_UTF8", `${label} is not strict UTF-8.`);
+      fail4("INVALID_JSON_UTF8", `${label} is not strict UTF-8.`);
     }
     try {
       return JSON.parse(text);
     } catch (error) {
-      fail3("INVALID_JSON_INPUT", `${label} is not valid JSON.`, {
+      fail4("INVALID_JSON_INPUT", `${label} is not valid JSON.`, {
         cause: error
       });
     }
-  } finally {
-    closeSync8(descriptor);
   }
 }
 function inlineScopePayload(values) {
@@ -11667,68 +11731,68 @@ function parsePrepareArguments(argv) {
   const format = values.get("format") ?? "json";
   const messageFormat = values.get("message-format") ?? null;
   if (messageFormat !== null && messageFormat !== "detailed") {
-    fail3(
+    fail4(
       "INVALID_MESSAGE_FORMAT",
       "--message-format must be detailed when supplied."
     );
   }
   if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
-    fail3("INVALID_MODE", "--mode must be actual or draft.");
+    fail4("INVALID_MODE", "--mode must be actual or draft.");
   }
   if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
-    fail3("INVALID_SCOPE", "--scope must be staged, full, or paths.");
+    fail4("INVALID_SCOPE", "--scope must be staged, full, or paths.");
   }
   if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
-    fail3(
+    fail4(
       "INVALID_VERIFICATION_POLICY",
       "--verification must be required, advisory, or skipped."
     );
   }
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail3("INVALID_FORMAT", "--format must be json or text.");
+    fail4("INVALID_FORMAT", "--format must be json or text.");
   }
   const evidencePlanPath = values.get("evidence-plan") ?? null;
   const evidence = values.get("evidence") ?? null;
   const basis = values.get("basis") ?? null;
   if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
-    fail3(
+    fail4(
       "CONFLICTING_EVIDENCE_INPUT",
       "--evidence-plan is an alternative to --evidence and --basis."
     );
   }
   if (evidencePlanPath === null && (evidence === null || basis === null)) {
-    fail3(
+    fail4(
       "MISSING_EVIDENCE_INPUT",
       "Supply --evidence and --basis together, or supply --evidence-plan."
     );
   }
   if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
-    fail3(
+    fail4(
       "INVALID_EVIDENCE_POLICY",
       "--evidence must be reuse, message, or review."
     );
   }
   if (basis !== null && !BASIS_KINDS.includes(basis)) {
-    fail3(
+    fail4(
       "INVALID_EVIDENCE_BASIS",
       "--basis is not a supported provenance kind."
     );
   }
   if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
-    fail3(
+    fail4(
       "INVALID_EVIDENCE_BASIS",
       "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
     );
   }
   const allowedTypes = values.get("allowed-type") ?? [];
   if (allowedTypes.length > 64) {
-    fail3(
+    fail4(
       "INVALID_ALLOWED_TYPE",
       "At most 64 allowed commit types may be supplied."
     );
   }
   if (allowedTypes.some((type) => !TYPE_TOKEN_PATTERN2.test(type)) || new Set(allowedTypes).size !== allowedTypes.length) {
-    fail3(
+    fail4(
       "INVALID_ALLOWED_TYPE",
       "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters."
     );
@@ -11738,19 +11802,19 @@ function parsePrepareArguments(argv) {
   );
   const scopeFilePath = values.get("scope-file") ?? null;
   if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
-    fail3(
+    fail4(
       "SELECTOR_OUTSIDE_PATH_SCOPE",
       "Path selectors and --scope-file are valid only with --scope paths."
     );
   }
   if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
-    fail3(
+    fail4(
       "CONFLICTING_SCOPE_INPUT",
       "Inline selectors and --scope-file cannot be combined."
     );
   }
   if (scope === "paths" && scopeFilePath === null && !(values.has("path") || values.has("path-prefix"))) {
-    fail3("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
+    fail4("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
   }
   return {
     mode,
@@ -11769,7 +11833,7 @@ function parsePrepareArguments(argv) {
 function assertNoGitStorageOverrides(environment) {
   for (const name of STORAGE_OVERRIDE_NAMES) {
     if (Object.prototype.hasOwnProperty.call(environment, name)) {
-      fail3(
+      fail4(
         "UNSUPPORTED_GIT_STORAGE_OVERRIDE",
         `Inherited Git storage override ${name} is unsupported.`
       );
@@ -11785,7 +11849,7 @@ function parseNameStatus(buffer, source) {
     const firstPath = fields[index + 1];
     const secondPath = rename ? fields[index + 2] : null;
     if (!/^[A-Z][0-9]*$/u.test(status) || !firstPath || rename && !secondPath) {
-      fail3(
+      fail4(
         "GIT_OUTPUT_INVALID",
         `Git returned an invalid ${source} name-status record.`
       );
@@ -11810,12 +11874,12 @@ function bytesAfterSpaces(field, spaceCount, label) {
     if (spaces === spaceCount) {
       const value = field.subarray(index + 1);
       if (value.length === 0) {
-        fail3("GIT_OUTPUT_INVALID", `${label} contains an empty path.`);
+        fail4("GIT_OUTPUT_INVALID", `${label} contains an empty path.`);
       }
       return value;
     }
   }
-  fail3("GIT_OUTPUT_INVALID", `${label} is missing required fields.`);
+  fail4("GIT_OUTPUT_INVALID", `${label} is missing required fields.`);
 }
 function parseStatusRenamePairs(buffer) {
   const fields = splitNul(buffer);
@@ -11832,7 +11896,7 @@ function parseStatusRenamePairs(buffer) {
     );
     const source = fields[index + 1];
     if (!source) {
-      fail3(
+      fail4(
         "GIT_OUTPUT_INVALID",
         "Git porcelain-v2 rename record is missing its source path."
       );
@@ -11847,7 +11911,7 @@ function parseIndexBlobOids(buffer) {
   for (const field of splitNul(buffer)) {
     const tab = field.indexOf(9);
     if (tab < 0) {
-      fail3(
+      fail4(
         "GIT_OUTPUT_INVALID",
         "Git index entry is missing its path separator."
       );
@@ -11856,7 +11920,7 @@ function parseIndexBlobOids(buffer) {
     const [mode, oid, stage] = metadata;
     const path = field.subarray(tab + 1);
     if (!/^(?:100644|100755|120000|160000)$/u.test(mode) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid) || stage !== "0" || path.length === 0) {
-      fail3(
+      fail4(
         "GIT_OUTPUT_INVALID",
         "Git returned an invalid stage-zero index entry."
       );
@@ -12028,7 +12092,7 @@ function safePathDisplay(bytes) {
 function validateSelectorsAgainstCandidates(scope, candidates) {
   for (const selector of scope.descriptors) {
     if (!candidates.paths.some((path) => selectorMatches(selector, path))) {
-      fail3(
+      fail4(
         "UNMATCHED_SCOPE_SELECTOR",
         "A literal scope selector matched no current change.",
         {
@@ -12047,14 +12111,14 @@ function validateSelectorsAgainstCandidates(scope, candidates) {
     selectedPaths.map((path) => path.toString("base64"))
   );
   if (selectedPaths.length === 0) {
-    fail3(
+    fail4(
       "EMPTY_SCOPE",
       "Scope exclusions remove every included current change."
     );
   }
   for (const [source, destination] of candidates.renamePairs) {
     if (selectedKeys.has(source.toString("base64")) !== selectedKeys.has(destination.toString("base64"))) {
-      fail3(
+      fail4(
         "RENAME_SCOPE_BOUNDARY",
         "A rename crosses the selected scope boundary; select or exclude both endpoints."
       );
@@ -12097,23 +12161,23 @@ function scopeSummary(kind, normalizedScope, selectedPaths) {
   };
 }
 function writeOwnedInput(path, bytes) {
-  const descriptor = openSync8(
+  const descriptor = openSync9(
     path,
-    fsConstants6.O_WRONLY + fsConstants6.O_CREAT + fsConstants6.O_EXCL,
+    fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
     384
   );
   try {
-    writeFileSync7(descriptor, bytes);
+    writeFileSync8(descriptor, bytes);
     fsyncSync6(descriptor);
   } finally {
-    closeSync8(descriptor);
+    closeSync9(descriptor);
   }
   if (process.platform !== "win32") {
-    const directoryDescriptor = openSync8(dirname8(path), fsConstants6.O_RDONLY);
+    const directoryDescriptor = openSync9(dirname8(path), fsConstants5.O_RDONLY);
     try {
       fsyncSync6(directoryDescriptor);
     } finally {
-      closeSync8(directoryDescriptor);
+      closeSync9(directoryDescriptor);
     }
   }
 }
@@ -12122,7 +12186,7 @@ function assertPreallocationRepositoryState(root) {
     env: { GIT_OPTIONAL_LOCKS: "0" }
   }).stdout;
   if (conflicts.length > 0) {
-    fail3(
+    fail4(
       "UNRESOLVED_CONFLICTS",
       "Cannot prepare an ordinary commit while unresolved conflicts remain.",
       { disposition: "rejected" }
@@ -12130,7 +12194,7 @@ function assertPreallocationRepositoryState(root) {
   }
   const operations = activeGitOperations(root);
   if (operations.length > 0) {
-    fail3(
+    fail4(
       "ACTIVE_GIT_OPERATION",
       `Cannot prepare an ordinary commit during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected" }
@@ -12151,7 +12215,7 @@ function verifySnapshotScope(snapshot, scope, selectedPaths) {
       unit.destinationPathBytesBase64
     ].filter((value) => value !== null);
     if (endpoints.some((value) => !selected.has(value))) {
-      fail3(
+      fail4(
         "SNAPSHOT_SCOPE_MISMATCH",
         "The prepared snapshot contains a change outside the literal selected scope."
       );
@@ -12159,7 +12223,7 @@ function verifySnapshotScope(snapshot, scope, selectedPaths) {
     endpoints.forEach((value) => covered.add(value));
   }
   if ([...selected].some((value) => !covered.has(value))) {
-    fail3(
+    fail4(
       "SNAPSHOT_SCOPE_MISMATCH",
       "A selected current-change path is absent from the prepared snapshot."
     );
@@ -12209,7 +12273,7 @@ async function spoolEvidenceGroup({
   launchers
 }) {
   const units = patchUnitsForGroup(manifest, group);
-  const path = resolve11(
+  const path = resolve12(
     attemptDirectory,
     `.evidence-${group.id}-${randomUUID5()}.tmp`
   );
@@ -12217,9 +12281,9 @@ async function spoolEvidenceGroup({
     return { group, units, path: null, byteCount: 0, empty: true };
   }
   try {
-    const descriptor = openSync8(
+    const descriptor = openSync9(
       path,
-      fsConstants6.O_WRONLY + fsConstants6.O_CREAT + fsConstants6.O_EXCL,
+      fsConstants5.O_WRONLY + fsConstants5.O_CREAT + fsConstants5.O_EXCL,
       384
     );
     let result;
@@ -12251,14 +12315,14 @@ async function spoolEvidenceGroup({
             env: environment,
             launcher: launchers?.asynchronous,
             onStdout(chunk) {
-              writeFileSync7(descriptor, chunk);
+              writeFileSync8(descriptor, chunk);
             }
           }
         )
       );
       fsyncSync6(descriptor);
     } finally {
-      closeSync8(descriptor);
+      closeSync9(descriptor);
     }
     if (result.aborted || result.timedOut || result.status !== 0) {
       throw new Error(
@@ -12317,7 +12381,7 @@ function inlineEvidenceManifest(manifest, records, evidencePlan) {
     evidenceByGroupId: Object.fromEntries(
       records.map((record) => [
         record.group.id,
-        record.empty ? Buffer.alloc(0) : readFileSync5(record.path)
+        record.empty ? Buffer.alloc(0) : readFileSync4(record.path)
       ])
     )
   };
@@ -12353,16 +12417,18 @@ function cleanupEvidenceSpools(records) {
   }
 }
 function writeCanonicalEvidencePlan(attemptDirectory, evidencePlan) {
-  const path = resolve11(attemptDirectory, "evidence-plan.json");
+  const path = resolve12(attemptDirectory, "evidence-plan.json");
   const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync11(path)) {
-    if (!readFileSync5(path).equals(bytes)) {
+  try {
+    writeOwnedInput(path, bytes);
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    if (!readStableFile(path, bytes.length).bytes.equals(bytes)) {
       throw new Error(
-        "Canonical evidence-plan artifact has conflicting bytes."
+        "Canonical evidence-plan artifact has conflicting bytes.",
+        { cause: error }
       );
     }
-  } else {
-    writeOwnedInput(path, bytes);
   }
   return path;
 }
@@ -12474,7 +12540,7 @@ async function routePreparedEvidence({
       );
       return completed2;
     }
-    const reviewDirectory = resolve11(transaction.attemptDirectory, "review");
+    const reviewDirectory = resolve12(transaction.attemptDirectory, "review");
     if (records.some(({ empty }) => !empty) && !existsSync11(reviewDirectory)) {
       mkdirSync7(reviewDirectory);
     }
@@ -12566,7 +12632,7 @@ function successEnvelope(transaction, summary) {
     disposition: "succeeded",
     status: "prepared",
     phase: transaction.phase,
-    transaction: resolve11(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve12(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -12690,16 +12756,16 @@ async function prepareWorkflow({
   temporaryRoot,
   indexFailureInjector
 }) {
-  const parsed = options ?? fail3("INVALID_ARGUMENT", "Preparation options are required.");
+  const parsed = options ?? fail4("INVALID_ARGUMENT", "Preparation options are required.");
   let normalizedScope = null;
   let normalizedEvidence;
   if (parsed.scope === "paths") {
-    const payload = parsed.scopeFilePath ? readBoundedJson(resolve11(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
+    const payload = parsed.scopeFilePath ? readBoundedJson(resolve12(cwd, parsed.scopeFilePath), "Scope file") : parsed.inlineScope;
     normalizedScope = normalizeScopePayload(payload);
   }
   if (parsed.evidencePlanPath) {
     normalizedEvidence = normalizeEvidencePlan(
-      readBoundedJson(resolve11(cwd, parsed.evidencePlanPath), "Evidence plan")
+      readBoundedJson(resolve12(cwd, parsed.evidencePlanPath), "Evidence plan")
     );
   } else {
     normalizedEvidence = normalizeEvidencePlan({
@@ -12727,11 +12793,11 @@ async function prepareWorkflow({
   let selectedPaths = [];
   if (parsed.scope === "staged") {
     if (candidates.staged.length === 0) {
-      fail3("EMPTY_SCOPE", "The staged scope is empty.");
+      fail4("EMPTY_SCOPE", "The staged scope is empty.");
     }
   } else if (parsed.scope === "full") {
     if (candidates.paths.length === 0) {
-      fail3("EMPTY_SCOPE", "The full workspace scope is empty.");
+      fail4("EMPTY_SCOPE", "The full workspace scope is empty.");
     }
   } else {
     selectedPaths = validateSelectorsAgainstCandidates(
@@ -12739,7 +12805,7 @@ async function prepareWorkflow({
       candidates
     );
     if (parsed.mode === "actual" && candidates.staged.length > 0) {
-      fail3(
+      fail4(
         "PREEXISTING_STAGED_CHANGES",
         "Actual path scope requires an initially clean staged index.",
         {
@@ -12759,7 +12825,7 @@ async function prepareWorkflow({
         (path) => stagedKeys.has(path.toString("base64"))
       );
       if (overlap.length > 0) {
-        fail3(
+        fail4(
           "DRAFT_SCOPE_OVERLAPS_STAGED",
           "Draft path scope overlaps existing staged work.",
           {
@@ -12806,7 +12872,7 @@ async function prepareWorkflow({
     verificationPolicy: parsed.verificationPolicy,
     signaturePreflight
   });
-  const snapshotPath = resolve11(workspace.attemptDirectory, "snapshot.json");
+  const snapshotPath = resolve12(workspace.attemptDirectory, "snapshot.json");
   let snapshotResult;
   let prepared;
   try {
@@ -12816,7 +12882,7 @@ async function prepareWorkflow({
       scope: parsed.scope,
       scopePaths: selectedPaths,
       outputPath: snapshotPath,
-      preparedIndexPath: parsed.scope === "staged" ? null : resolve11(
+      preparedIndexPath: parsed.scope === "staged" ? null : resolve12(
         workspace.attemptDirectory,
         parsed.mode === "draft" ? "temporary-index" : "preparation-index"
       ),
@@ -12832,12 +12898,12 @@ async function prepareWorkflow({
       selectedPaths
     );
     if (parsed.messageFormat === "detailed" && messagePresentationForManifest(snapshotResult.snapshot) !== "detailed") {
-      fail3(
+      fail4(
         "DETAILED_MESSAGE_LIMIT_EXCEEDED",
         "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB. Use the supported bulk authoring route for this scope."
       );
     }
-    const snapshotBytes = readFileSync5(snapshotPath);
+    const snapshotBytes = readFileSync4(snapshotPath);
     prepared = updateTransaction(workspace.transactionPath, "allocated", {
       ...allocated,
       scope: {
@@ -12921,6 +12987,7 @@ async function runPrepareWorkflowCommand(argv, {
 var STORAGE_OVERRIDE_NAMES, VERIFICATION_POLICIES, TYPE_TOKEN_PATTERN2, INLINE_SELECTOR_FLAGS, SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS, STRICT_UTF8_DECODER4;
 var init_prepareWorkflow = __esm({
   "src/committing-to-git/workflow/prepareWorkflow.js"() {
+    init_stableFile();
     init_commandExecution();
     init_recordedSnapshot();
     init_workflowDiagnosticError();
@@ -12978,11 +13045,11 @@ var init_prepareWorkflow = __esm({
 });
 
 // src/committing-to-git/transaction/transactionDiagnosticState.js
-import { resolve as resolve12 } from "node:path";
+import { resolve as resolve13 } from "node:path";
 function transactionDiagnosticState(transaction, transactionPath) {
   const publication = transaction.publicationAttempts.at(-1);
   return {
-    transaction: resolve12(transactionPath),
+    transaction: resolve13(transactionPath),
     phase: transaction.phase,
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : transaction.phase === "commit-pending" ? "unknown" : "absent",
@@ -13016,49 +13083,29 @@ __export(extendReviewWorkflow_exports, {
   parseExtendReviewArguments: () => parseExtendReviewArguments,
   runExtendReviewCommand: () => runExtendReviewCommand
 });
-import {
-  closeSync as closeSync9,
-  constants as fsConstants7,
-  existsSync as existsSync12,
-  fstatSync as fstatSync8,
-  lstatSync as lstatSync8,
-  mkdirSync as mkdirSync8,
-  openSync as openSync9,
-  readFileSync as readFileSync6,
-  unlinkSync as unlinkSync6,
-  writeFileSync as writeFileSync8
-} from "node:fs";
-import { resolve as resolve13 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, unlinkSync as unlinkSync6 } from "node:fs";
+import { resolve as resolve14 } from "node:path";
 import { TextDecoder as TextDecoder6 } from "node:util";
-function fail4(code, message, options) {
+function fail5(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function readFixedEvidencePlan(path) {
-  const initialPathStat = lstatSync8(path);
-  if (initialPathStat.isSymbolicLink() || !initialPathStat.isFile() || initialPathStat.size > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-    fail4(
-      "INVALID_EVIDENCE_PLAN_INPUT",
-      "The fixed evidence-plan input must be a bounded non-symbolic regular file."
+  let bytes;
+  try {
+    bytes = readStableFile(path, MAXIMUM_INITIAL_JSON_INPUT_BYTES).bytes;
+  } catch (error) {
+    fail5(
+      error.code === "FILE_CHANGED" ? "EVIDENCE_PLAN_INPUT_CHANGED" : "INVALID_EVIDENCE_PLAN_INPUT",
+      "The fixed evidence-plan input must be a bounded stable non-symbolic regular file.",
+      { cause: error }
     );
   }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants7.O_NOFOLLOW;
-  const descriptor = openSync9(path, fsConstants7.O_RDONLY + noFollow);
-  try {
-    const before = fstatSync8(descriptor);
-    const bytes = readFileSync6(descriptor);
-    const after = fstatSync8(descriptor);
-    const finalPathStat = lstatSync8(path);
-    if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || after.dev !== finalPathStat.dev || after.ino !== finalPathStat.ino || after.size !== finalPathStat.size || bytes.length > MAXIMUM_INITIAL_JSON_INPUT_BYTES) {
-      fail4(
-        "EVIDENCE_PLAN_INPUT_CHANGED",
-        "The fixed evidence-plan input changed while it was read."
-      );
-    }
+  {
     let text;
     try {
       text = STRICT_UTF8_DECODER5.decode(bytes);
     } catch {
-      fail4(
+      fail5(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input is not strict UTF-8."
       );
@@ -13067,35 +13114,33 @@ function readFixedEvidencePlan(path) {
     try {
       payload = JSON.parse(text);
     } catch (error) {
-      fail4(
+      fail5(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input is invalid JSON.",
         { cause: error }
       );
     }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.groups) || JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(["groups", "schemaVersion"])) {
-      fail4(
+      fail5(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input must contain only schemaVersion and groups."
       );
     }
     return payload.groups;
-  } finally {
-    closeSync9(descriptor);
   }
 }
 function readExactSnapshot(transaction) {
   const { bytes } = readRecordedSnapshotFile(
-    resolve13(transaction.attemptDirectory, "transaction.json")
+    resolve14(transaction.attemptDirectory, "transaction.json")
   );
   if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
-    fail4(
+    fail5(
       "SNAPSHOT_CHANGED",
       "The transaction snapshot changed after preparation.",
       {
         disposition: "rejected",
         details: {
-          transaction: resolve13(
+          transaction: resolve14(
             transaction.snapshot.path,
             "..",
             "transaction.json"
@@ -13106,7 +13151,7 @@ function readExactSnapshot(transaction) {
   }
   const manifest = JSON.parse(STRICT_UTF8_DECODER5.decode(bytes));
   if (manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount) {
-    fail4("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
+    fail5("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
       disposition: "rejected"
     });
   }
@@ -13114,13 +13159,13 @@ function readExactSnapshot(transaction) {
 }
 function assertUnchangedAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail4("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
+    fail5("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
       disposition: "rejected"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail4(
+    fail5(
       "ACTIVE_GIT_OPERATION",
       `Review cannot be extended during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected" }
@@ -13131,7 +13176,7 @@ function assertUnchangedAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail4(
+    fail5(
       "INDEX_DRIFT",
       "The prepared index tree changed before review extension.",
       {
@@ -13146,21 +13191,19 @@ function initialGroups(transaction) {
   );
 }
 function writeEvidencePlanRevision(transaction, evidencePlan) {
-  const path = resolve13(
+  const path = resolve14(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
-  const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync12(path)) {
-    if (!readFileSync6(path).equals(bytes)) {
-      fail4(
-        "EVIDENCE_PLAN_COLLISION",
-        "An immutable evidence-plan revision has conflicting bytes."
-      );
-    }
-    return path;
+  try {
+    createOrVerifyFile(path, stableJsonBytes(evidencePlan));
+  } catch (error) {
+    fail5(
+      "EVIDENCE_PLAN_COLLISION",
+      "An immutable evidence-plan revision has conflicting or unsafe bytes.",
+      { cause: error }
+    );
   }
-  writeFileSync8(path, bytes, { flag: "wx", mode: 384 });
   return path;
 }
 function extensionResult(transaction) {
@@ -13168,7 +13211,7 @@ function extensionResult(transaction) {
     disposition: "succeeded",
     status: transaction.status,
     phase: transaction.phase,
-    transaction: resolve13(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve14(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -13191,35 +13234,35 @@ function extensionResult(transaction) {
 }
 async function extendReviewWorkflow({ transactionPath, reason }) {
   if (!EXTENSION_REASONS.has(reason)) {
-    fail4(
+    fail5(
       "INVALID_EXTENSION_REASON",
       "Review extension reason must be evidence-uncertainty or semantic-structure-required."
     );
   }
   const transaction = readTransaction(transactionPath);
   if (transaction.phase !== "evidence-ready" || transaction.route !== "concise") {
-    fail4(
+    fail5(
       "EXTENSION_NOT_ALLOWED",
       `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve13(transactionPath) }
+        details: { transaction: resolve14(transactionPath) }
       }
     );
   }
   const inputPath = getEvidencePlanInputPath(transactionPath);
   if (reason === "semantic-structure-required" && existsSync12(inputPath)) {
-    fail4(
+    fail5(
       "UNEXPECTED_EVIDENCE_PLAN_INPUT",
       "Semantic-structure extension forbids an evidence-plan input.",
-      { details: { transaction: resolve13(transactionPath) } }
+      { details: { transaction: resolve14(transactionPath) } }
     );
   }
   if (reason === "evidence-uncertainty" && !existsSync12(inputPath)) {
-    fail4(
+    fail5(
       "MISSING_EVIDENCE_PLAN_INPUT",
       "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
-      { details: { transaction: resolve13(transactionPath) } }
+      { details: { transaction: resolve14(transactionPath) } }
     );
   }
   const manifest = readExactSnapshot(transaction);
@@ -13227,7 +13270,7 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
   const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
   const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
   const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
-  const reviewDirectory = resolve13(transaction.attemptDirectory, "review");
+  const reviewDirectory = resolve14(transaction.attemptDirectory, "review");
   let records = [];
   try {
     if (reason === "evidence-uncertainty") {
@@ -13317,14 +13360,14 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
 function parseExtendReviewArguments(argv) {
   const { values } = parseCommandArguments("workflow extend", argv);
   if (!values.has("transaction") || !values.has("reason")) {
-    fail4(
+    fail5(
       "MISSING_ARGUMENT",
       "--transaction and --reason are required for workflow extend."
     );
   }
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail4("INVALID_FORMAT", "--format must be json or text.");
+    fail5("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
     transactionPath: values.get("transaction"),
@@ -13343,6 +13386,7 @@ async function runExtendReviewCommand(argv, { stdout = process.stdout } = {}) {
 var STRICT_UTF8_DECODER5, EXTENSION_REASONS;
 var init_extendReviewWorkflow = __esm({
   "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
+    init_stableFile();
     init_transactionDiagnosticState();
     init_recordedSnapshot();
     init_diagnosticContract();
@@ -13374,10 +13418,10 @@ __export(reviewNextWorkflow_exports, {
   runReviewNextCommand: () => runReviewNextCommand
 });
 import { createHash as createHash11 } from "node:crypto";
-import { lstatSync as lstatSync9, realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve14, sep as sep3 } from "node:path";
+import { lstatSync as lstatSync8, realpathSync as realpathSync5 } from "node:fs";
+import { isAbsolute as isAbsolute8, relative as relative5, resolve as resolve15, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder7 } from "node:util";
-function fail5(code, message, options) {
+function fail6(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function isContained(parent, candidate) {
@@ -13386,29 +13430,29 @@ function isContained(parent, candidate) {
 }
 function readCurrentCatalog(transaction) {
   if (transaction.review === null) {
-    fail5(
+    fail6(
       "REVIEW_STATE_REQUIRED",
       "The transaction has no extended review state."
     );
   }
-  const reviewDirectory = resolve14(transaction.attemptDirectory, "review");
-  const catalogPath = resolve14(transaction.review.catalogPath);
+  const reviewDirectory = resolve15(transaction.attemptDirectory, "review");
+  const catalogPath = resolve15(transaction.review.catalogPath);
   if (!isContained(transaction.attemptDirectory, catalogPath) || !isContained(reviewDirectory, catalogPath)) {
-    fail5(
+    fail6(
       "REVIEW_CATALOG_ESCAPES_TRANSACTION",
       "The current review catalog is outside the fixed review directory."
     );
   }
-  const stat = lstatSync9(catalogPath);
+  const stat = lstatSync8(catalogPath);
   if (stat.isSymbolicLink() || !stat.isFile() || realpathSync5(catalogPath) !== catalogPath) {
-    fail5(
+    fail6(
       "REVIEW_CATALOG_REPLACED",
       "The current review catalog must remain a non-link regular file."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail5(
+    fail6(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -13419,24 +13463,24 @@ function assertReviewNextTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended" || !(/* @__PURE__ */ new Set(["review-pending", "authoring-pending", "message-ready"])).has(
     transaction.phase
   ) || transaction.commit !== null) {
-    fail5(
+    fail6(
       "REVIEW_NEXT_NOT_ALLOWED",
       `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
         disposition: "unmet-prerequisite",
-        details: { transaction: resolve14(transactionPath) }
+        details: { transaction: resolve15(transactionPath) }
       }
     );
   }
 }
 function cursorFor({ catalogSha256, nextIndex, priorPacketSha256 }) {
-  const identity2 = JSON.stringify({
+  const identity = JSON.stringify({
     schemaVersion: 1,
     catalogSha256,
     nextIndex,
     priorPacketSha256
   });
-  const digest2 = createHash11("sha256").update(identity2).digest("hex");
+  const digest2 = createHash11("sha256").update(identity).digest("hex");
   return `review-v1-${digest2}`;
 }
 function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
@@ -13445,7 +13489,7 @@ function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
     (id) => deliverySet.has(id)
   );
   if (canonicalDeliveryOrder.length !== deliveryPacketIds.length || canonicalDeliveryOrder.some((id, index) => id !== deliveryPacketIds[index])) {
-    fail5(
+    fail6(
       "REVIEW_DELIVERY_MISMATCH",
       "The stored delivery packet set is not an ordered subset of the current catalog requirements."
     );
@@ -13456,7 +13500,7 @@ function assertTraversal(traversal, catalog, deliveryPacketIds) {
     return;
   }
   if (traversal.catalogSha256 !== catalog.catalogSha256 || traversal.deliveredPacketCount > deliveryPacketIds.length || traversal.complete !== (traversal.deliveredPacketCount === deliveryPacketIds.length)) {
-    fail5(
+    fail6(
       "REVIEW_TRAVERSAL_MISMATCH",
       "The stored review traversal does not match the current catalog."
     );
@@ -13464,14 +13508,14 @@ function assertTraversal(traversal, catalog, deliveryPacketIds) {
 }
 function deliverySelection({ traversal, cursor, requiredPacketIds: requiredPacketIds2 }) {
   if (requiredPacketIds2.length === 0) {
-    fail5(
+    fail6(
       "REVIEW_PACKETS_EMPTY",
       "The current review has no packets to deliver."
     );
   }
   if (traversal === null) {
     if (cursor !== null) {
-      fail5(
+      fail6(
         "REVIEW_CURSOR_INVALID",
         "The first review packet must be requested without a cursor."
       );
@@ -13490,7 +13534,7 @@ function deliverySelection({ traversal, cursor, requiredPacketIds: requiredPacke
       replay: false
     };
   }
-  fail5(
+  fail6(
     "REVIEW_CURSOR_INVALID",
     "The review cursor is stale, unknown, or does not belong to the next packet."
   );
@@ -13499,7 +13543,7 @@ function assertResultBudget(result) {
   const byteCount = Buffer.byteLength(`${JSON.stringify(result)}
 `, "utf8");
   if (byteCount > MAXIMUM_REVIEW_RESULT_BYTES) {
-    fail5(
+    fail6(
       "REVIEW_RESULT_BUDGET_EXCEEDED",
       `Review result is ${byteCount} bytes; maximum is ${MAXIMUM_REVIEW_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_REVIEW_RESULT_BYTES } }
@@ -13513,7 +13557,7 @@ function reviewResult({ transaction, transactionPath, packet, content }) {
       disposition: "succeeded",
       status: transaction.status,
       phase: transaction.phase,
-      transaction: resolve14(transactionPath),
+      transaction: resolve15(transactionPath),
       route: transaction.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -13535,7 +13579,7 @@ function reviewResult({ transaction, transactionPath, packet, content }) {
 }
 function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail5(
+    fail6(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next."
     );
@@ -13550,7 +13594,7 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   assertTraversal(traversal, catalog, deliveryPacketIds);
   if (deliveryPacketIds.length === 0) {
     if (cursor !== null) {
-      fail5(
+      fail6(
         "REVIEW_CURSOR_INVALID",
         "A completed zero-packet review must be requested without a cursor."
       );
@@ -13573,7 +13617,7 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   try {
     content = STRICT_UTF8_DECODER6.decode(bytes);
   } catch {
-    fail5(
+    fail6(
       "REVIEW_PACKET_ENCODING_INVALID",
       `Review packet ${packet.id} is not strict UTF-8.`
     );
@@ -13622,14 +13666,14 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
 function parseReviewNextArguments(argv) {
   const { values } = parseCommandArguments("workflow review-next", argv);
   if (!values.has("transaction")) {
-    fail5(
+    fail6(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next."
     );
   }
   const format = values.get("format") ?? "json";
   if (!FORMATS.has(format)) {
-    fail5("INVALID_FORMAT", "--format must be json or text.");
+    fail6("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
     transactionPath: values.get("transaction"),
@@ -13670,26 +13714,26 @@ __export(resumePreparationWorkflow_exports, {
   runResumePreparationCommand: () => runResumePreparationCommand
 });
 import { createHash as createHash12 } from "node:crypto";
-import { existsSync as existsSync13, lstatSync as lstatSync10, unlinkSync as unlinkSync7 } from "node:fs";
-import { join as join9, relative as relative6, resolve as resolve15 } from "node:path";
-function fail6(code, message, options) {
+import { existsSync as existsSync13, lstatSync as lstatSync9, unlinkSync as unlinkSync7 } from "node:fs";
+import { join as join9, relative as relative6, resolve as resolve16 } from "node:path";
+function fail7(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2563(bytes) {
   return createHash12("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve15(attemptDirectory, name);
+  const expected = resolve16(attemptDirectory, name);
   const relation = relative6(attemptDirectory, path);
-  if (resolve15(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
-    fail6(
+  if (resolve16(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+    fail7(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} has an invalid recorded path.`
     );
   }
-  const stat = lstatSync10(path);
+  const stat = lstatSync9(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail6(
+    fail7(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} was replaced or is not a file.`
     );
@@ -13698,7 +13742,7 @@ function assertContainedExactPath(attemptDirectory, path, name) {
 function validatePersistedSnapshot(transaction) {
   const snapshot = transaction.snapshot;
   if (snapshot === null || typeof snapshot.path !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.sha256) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(snapshot.indexTreeOid) || !Number.isSafeInteger(snapshot.changeUnitCount) || snapshot.changeUnitCount < 1 || typeof snapshot.indexInstallationRequired !== "boolean") {
-    fail6(
+    fail7(
       "INVALID_TRANSACTION_ARTIFACT",
       "Transaction snapshot facts are invalid."
     );
@@ -13709,10 +13753,10 @@ function validatePersistedSnapshot(transaction) {
     "snapshot.json"
   );
   const { bytes } = readRecordedSnapshotFile(
-    resolve15(transaction.attemptDirectory, "transaction.json")
+    resolve16(transaction.attemptDirectory, "transaction.json")
   );
   if (sha2563(bytes) !== snapshot.sha256) {
-    fail6(
+    fail7(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json digest does not match."
     );
@@ -13721,12 +13765,12 @@ function validatePersistedSnapshot(transaction) {
   try {
     manifest = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    fail6("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
+    fail7("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
       cause: error
     });
   }
   if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
-    fail6(
+    fail7(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json does not match the persisted transaction facts."
     );
@@ -13736,7 +13780,7 @@ function validatePersistedSnapshot(transaction) {
 function assertRepositoryResumePreconditions(transaction) {
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail6(
+    fail7(
       "ACTIVE_GIT_OPERATION",
       `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected" }
@@ -13751,7 +13795,7 @@ function assertRepositoryResumePreconditions(transaction) {
     }
   ).stdout;
   if (conflicts.length > 0) {
-    fail6(
+    fail7(
       "UNRESOLVED_CONFLICTS",
       "Preparation cannot resume while unresolved conflicts remain.",
       { disposition: "rejected" }
@@ -13759,7 +13803,7 @@ function assertRepositoryResumePreconditions(transaction) {
   }
   const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
   if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    fail6("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
+    fail7("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
       disposition: "rejected"
     });
   }
@@ -13769,7 +13813,7 @@ function resultEnvelope(transaction) {
     disposition: "succeeded",
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
-    transaction: resolve15(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve16(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -13797,7 +13841,7 @@ function assertSnapshotIndexState(transaction, manifest) {
   if (snapshot.preparedIndexPath) {
     const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
     if (!indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)) {
-      fail6(
+      fail7(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index changed before resume.",
         { disposition: "rejected" }
@@ -13808,7 +13852,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       snapshot.indexTreeOid,
       manifestEnvironment(manifest)
     )) {
-      fail6(
+      fail7(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index no longer matches the snapshot tree.",
         { disposition: "rejected" }
@@ -13816,7 +13860,7 @@ function assertSnapshotIndexState(transaction, manifest) {
     }
   }
   if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
-    fail6("INDEX_DRIFT", "The real index changed after snapshot creation.", {
+    fail7("INDEX_DRIFT", "The real index changed after snapshot creation.", {
       disposition: "rejected"
     });
   }
@@ -13843,7 +13887,7 @@ async function finishEvidenceRouting({
 }
 async function resumePreparationWorkflow({ transactionPath }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0 || Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-    fail6(
+    fail7(
       "INVALID_TRANSACTION_PATH",
       `Transaction path must be at most ${MAXIMUM_TRANSACTION_PATH_BYTES} UTF-8 bytes.`
     );
@@ -13863,12 +13907,12 @@ async function resumePreparationWorkflow({ transactionPath }) {
     return finishEvidenceRouting({ transactionPath, transaction, manifest: manifest2 });
   }
   if (transaction.phase !== "allocated") {
-    fail6(
+    fail7(
       "RESUME_NOT_ALLOWED",
       `Preparation cannot resume from phase ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve15(transactionPath) }
+        details: { transaction: resolve16(transactionPath) }
       }
     );
   }
@@ -13897,14 +13941,14 @@ async function resumePreparationWorkflow({ transactionPath }) {
         });
       }
     } catch (error) {
-      fail6(
+      fail7(
         "INDEX_INSTALLATION_INTERRUPTED",
         "Prepared index installation resume failed. Inspect the retained transaction before another installation.",
         {
           disposition: "rejected",
           cause: error,
           state: {
-            transaction: resolve15(transactionPath),
+            transaction: resolve16(transactionPath),
             phase: "allocated",
             commitState: "absent",
             publicationState: "not-requested",
@@ -13914,7 +13958,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
       );
     }
     if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshot.indexTreeOid) {
-      fail6(
+      fail7(
         "INDEX_INSTALLATION_MISMATCH",
         "Resumed index installation does not match the persisted snapshot.",
         { disposition: "rejected" }
@@ -13931,11 +13975,11 @@ async function resumePreparationWorkflow({ transactionPath }) {
 function parseResumeArguments(argv) {
   const { values } = parseCommandArguments("workflow resume", argv);
   if (!values.has("transaction")) {
-    fail6("MISSING_TRANSACTION", "--transaction is required.");
+    fail7("MISSING_TRANSACTION", "--transaction is required.");
   }
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail6("INVALID_FORMAT", "--format must be json or text.");
+    fail7("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -13972,17 +14016,17 @@ __export(promoteDraftWorkflow_exports, {
 });
 import { createHash as createHash13 } from "node:crypto";
 import { existsSync as existsSync14 } from "node:fs";
-import { isAbsolute as isAbsolute9, join as join10, resolve as resolve16 } from "node:path";
+import { isAbsolute as isAbsolute9, join as join10, resolve as resolve17 } from "node:path";
 import { TextDecoder as TextDecoder8 } from "node:util";
-function fail7(code, message, options) {
+function fail8(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2564(bytes) {
   return createHash13("sha256").update(bytes).digest("hex");
 }
 function samePath2(left, right) {
-  const normalizedLeft = resolve16(left);
-  const normalizedRight = resolve16(right);
+  const normalizedLeft = resolve17(left);
+  const normalizedRight = resolve17(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function sameValue(left, right) {
@@ -13990,12 +14034,12 @@ function sameValue(left, right) {
 }
 function realIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve16(isAbsolute9(gitPath) ? gitPath : join10(root, gitPath));
+  return resolve17(isAbsolute9(gitPath) ? gitPath : join10(root, gitPath));
 }
 function readDraftManifest(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
   if (!samePath2(input.path, transaction.snapshot?.path ?? "") || sha2564(input.bytes) !== transaction.snapshot?.sha256) {
-    fail7(
+    fail8(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The draft snapshot no longer matches its transaction identity."
     );
@@ -14004,7 +14048,7 @@ function readDraftManifest(transactionPath, transaction) {
   try {
     manifest = JSON.parse(STRICT_UTF8_DECODER7.decode(input.bytes));
   } catch (error) {
-    fail7(
+    fail8(
       "SNAPSHOT_ARTIFACT_INVALID",
       "The draft snapshot is not canonical UTF-8 JSON.",
       { cause: error }
@@ -14017,23 +14061,23 @@ function readDraftManifest(transactionPath, transaction) {
     manifest.temporaryObjectDirectory ?? "",
     transaction.snapshot.temporaryObjectDirectory
   )) {
-    fail7(
+    fail8(
       "DRAFT_SNAPSHOT_INVALID",
       "The transaction and its draft snapshot do not describe one promotable scope and tree."
     );
   }
   return manifest;
 }
-function portableIdentityMatches(portable, identity2) {
+function portableIdentityMatches(portable, identity) {
   if (portable?.state === "absent") {
-    return identity2.state === "absent";
+    return identity.state === "absent";
   }
-  return portable?.state === "file" && identity2.state === "file" && portable.byteCount === identity2.byteCount && portable.sha256 === identity2.sha256;
+  return portable?.state === "file" && identity.state === "file" && portable.byteCount === identity.byteCount && portable.sha256 === identity.sha256;
 }
 function recordedPaths(transaction) {
   const encoded = transaction.scope?.expandedPathBytesBase64;
   if (!Array.isArray(encoded)) {
-    fail7(
+    fail8(
       "DRAFT_SCOPE_INVALID",
       "The draft transaction does not contain its normalized literal path scope."
     );
@@ -14047,7 +14091,7 @@ function recordedPaths(transaction) {
       return bytes;
     });
   } catch (error) {
-    fail7("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
+    fail8("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
       cause: error
     });
   }
@@ -14076,7 +14120,7 @@ function assertDraftArtifacts(transaction, manifest) {
     matches = false;
   }
   if (!matches) {
-    fail7(
+    fail8(
       "DRAFT_SNAPSHOT_DRIFT",
       "The attempt-local draft index or object tree no longer matches the reviewed snapshot.",
       { disposition: "rejected" }
@@ -14088,7 +14132,7 @@ function assertReviewedState(transactionPath, transaction) {
   if (transaction.route === "concise") {
     const inlineEvidence = transaction.inlineEvidence;
     if (inlineEvidence.manifestSha256 !== reviewedManifestSha256 || inlineEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan.sha256 || inlineEvidence.capsuleSha256 !== sha256Bytes(stableJsonBytes(inlineEvidence.capsule))) {
-      fail7(
+      fail8(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The concise evidence capsule no longer matches its recorded hashes.",
         {
@@ -14110,14 +14154,14 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       catalog = readReviewCatalog(transaction.review.catalogPath);
     } catch (error) {
-      fail7(
+      fail8(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The extended review catalog cannot be reused.",
         { cause: error }
       );
     }
     if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.manifestSha256 !== reviewedManifestSha256) {
-      fail7(
+      fail8(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The extended review catalog no longer matches the draft manifest.",
         {
@@ -14136,14 +14180,14 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       message = readCanonicalMessage(transactionPath);
     } catch (error) {
-      fail7(
+      fail8(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         "The canonical message cannot be reused.",
         { cause: error }
       );
     }
     if (!sameValue(message.transactionState, transaction.message)) {
-      fail7(
+      fail8(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         "The canonical message no longer matches its transaction hashes."
       );
@@ -14154,7 +14198,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   const root = transaction.repositoryRoot;
   const currentHeadAnchor = captureHeadAnchor(root);
   if (!sameValue(currentHeadAnchor, transaction.headAnchor)) {
-    fail7(
+    fail8(
       "PROMOTION_HEAD_DRIFT",
       "HEAD no longer matches the complete draft anchor.",
       {
@@ -14168,7 +14212,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"]).stdout;
   if (conflicts.length > 0) {
-    fail7(
+    fail8(
       "PROMOTION_UNRESOLVED_CONFLICTS",
       "Draft promotion is blocked while unresolved conflicts remain.",
       { disposition: "rejected" }
@@ -14176,7 +14220,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const operations = activeGitOperations(root);
   if (operations.length > 0) {
-    fail7(
+    fail8(
       "PROMOTION_ACTIVE_GIT_OPERATION",
       `Draft promotion is blocked during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected", details: { activeOperations: operations } }
@@ -14189,7 +14233,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     transaction.snapshot.promotion.preparedIndexIdentity
   );
   if (manifest.scopeKind === "paths" && stagedStatePresent(root) && !installedPromotionIndexObserved) {
-    fail7(
+    fail8(
       "PROMOTION_BLOCKED_STAGED_STATE",
       "Path draft promotion requires the unrelated real staged state to be absent.",
       {
@@ -14201,7 +14245,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     );
   }
   if (manifest.scopeKind === "staged" && !portableIdentityMatches(manifest.sourceIndexIdentity, stagedSourceIdentity)) {
-    fail7(
+    fail8(
       "PROMOTION_STAGED_SOURCE_DRIFT",
       "The real staged index no longer has the draft's recorded source digest.",
       {
@@ -14263,7 +14307,7 @@ function finalizePromotion({
   const actualHeadAnchor = captureHeadAnchor(current.repositoryRoot);
   const actualTreeOid = writeIndexTree(current.repositoryRoot);
   if (actualTreeOid !== current.snapshot.indexTreeOid || !sameValue(actualHeadAnchor, current.headAnchor) || installation.preparedIndexTreeOid !== current.snapshot.indexTreeOid || !sameValue(installation.headAnchor, current.headAnchor)) {
-    fail7(
+    fail8(
       "PROMOTION_INSTALLATION_DRIFT",
       "The installed real index does not match the draft tree and head anchor.",
       { disposition: "rejected", state: { recoveryRequired: true } }
@@ -14290,7 +14334,7 @@ function successEnvelope2(transaction) {
     disposition: "succeeded",
     status: "promoted",
     phase: transaction.phase,
-    transaction: resolve16(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve17(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -14314,7 +14358,7 @@ function assertPromotableTransaction(transaction) {
   if (transaction.mode !== "draft" || !PROMOTABLE_STATES.has(
     JSON.stringify([transaction.phase, transaction.status])
   )) {
-    fail7(
+    fail8(
       "PROMOTION_STATE_INVALID",
       "Only an active evidence-ready, authoring-pending, or message-ready draft can be promoted.",
       { disposition: "rejected" }
@@ -14334,11 +14378,11 @@ function persistRecoveryObservation({
   return updatePromotionRecord(transactionPath, transaction, { promotion });
 }
 function recoverDraftPromotion({ transactionPath }) {
-  const canonicalTransactionPath = resolve16(transactionPath);
+  const canonicalTransactionPath = resolve17(transactionPath);
   const transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   if (transaction.snapshot?.promotion === void 0 || transaction.snapshot.promotion === null) {
-    fail7(
+    fail8(
       "PROMOTION_RECOVERY_NOT_REQUIRED",
       "The draft transaction has no journaled promotion to recover.",
       { disposition: "rejected" }
@@ -14396,7 +14440,7 @@ function continuePreparedPromotion({
   ) || !indexMatchesTree(transaction.repositoryRoot, promotion.indexTreeOid, {
     GIT_INDEX_FILE: promotion.preparedIndexPath
   })) {
-    fail7(
+    fail8(
       "PROMOTION_PREPARED_STATE_DRIFT",
       "The prepared promotion index no longer matches its recorded identity and tree.",
       { disposition: "rejected", state: { recoveryRequired: true } }
@@ -14411,7 +14455,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     persistRecoveryObservation({ transactionPath, transaction, recovery });
-    fail7(
+    fail8(
       "PROMOTION_RECOVERY_OBSERVED",
       "The interrupted index installation was observed without replay; retry promotion only from this recorded result.",
       {
@@ -14432,7 +14476,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     if (recovery.status === "ambiguous" || recovery.resumeAllowed !== true) {
-      fail7(
+      fail8(
         "PROMOTION_INDEX_STATE_AMBIGUOUS",
         "The real index matches neither recorded side of the promotion installation.",
         { disposition: "rejected", state: { recoveryRequired: true } }
@@ -14486,7 +14530,7 @@ function continuePreparedPromotion({
     }
   }
   if (installation.status !== "installed") {
-    fail7(
+    fail8(
       "PROMOTION_INDEX_INSTALLATION_INCOMPLETE",
       "The journaled real-index installation is not complete.",
       { disposition: "rejected", state: { recoveryRequired: true } }
@@ -14504,9 +14548,9 @@ function promoteDraftWorkflow({
   indexFailureInjector
 }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail7("TRANSACTION_REQUIRED", "A transaction path is required.");
+    fail8("TRANSACTION_REQUIRED", "A transaction path is required.");
   }
-  const canonicalTransactionPath = resolve16(transactionPath);
+  const canonicalTransactionPath = resolve17(transactionPath);
   let transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   const manifest = readDraftManifest(canonicalTransactionPath, transaction);
@@ -14532,14 +14576,14 @@ function promoteDraftWorkflow({
   if (manifest.scopeKind === "staged") {
     const actualTreeOid = writeIndexTree(transaction.repositoryRoot);
     if (actualTreeOid !== manifest.indexTreeOid) {
-      fail7(
+      fail8(
         "PROMOTION_STAGED_SOURCE_DRIFT",
         "The real staged tree no longer equals the draft tree.",
         { disposition: "rejected" }
       );
     }
     assertRepositoryPreconditions2(transaction, manifest);
-    const identity2 = readIndexIdentity(
+    const identity = readIndexIdentity(
       realIndexPath(transaction.repositoryRoot)
     );
     const installed = updateTransaction(
@@ -14556,10 +14600,10 @@ function promoteDraftWorkflow({
             status: "installed",
             headAnchor: transaction.headAnchor,
             indexTreeOid: actualTreeOid,
-            originalIndexIdentity: identity2,
+            originalIndexIdentity: identity,
             preparedIndexPath: null,
-            preparedIndexIdentity: identity2,
-            installedIndexIdentity: identity2
+            preparedIndexIdentity: identity,
+            installedIndexIdentity: identity
           })
         }
       }
@@ -14588,7 +14632,7 @@ function promoteDraftWorkflow({
     throw drift;
   }
   if (prepared.indexTreeOid !== manifest.indexTreeOid) {
-    fail7(
+    fail8(
       "PROMOTION_TREE_DRIFT",
       "The current selected content no longer recreates the reviewed draft tree.",
       {
@@ -14605,7 +14649,7 @@ function promoteDraftWorkflow({
     checked.currentIndexIdentity,
     afterPreparation.currentIndexIdentity
   )) {
-    fail7(
+    fail8(
       "PROMOTION_INDEX_DRIFT",
       "The real index changed while the promotion tree was prepared.",
       { disposition: "rejected" }
@@ -14636,10 +14680,10 @@ function parseArguments(argv) {
   const { values } = parseCommandArguments("workflow promote", argv);
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail7("INVALID_FORMAT", "--format must be json or text.");
+    fail8("INVALID_FORMAT", "--format must be json or text.");
   }
   if (!values.get("transaction")) {
-    fail7("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail8("TRANSACTION_REQUIRED", "--transaction is required.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -14773,12 +14817,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve31, reject) {
+        return new Promise(function(resolve32, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve31(is);
+              resolve32(is);
             }
           });
         });
@@ -14844,27 +14888,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve31, reject) => {
+      const step = (i) => new Promise((resolve32, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve31(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve32(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve31(subStep(p, i, 0));
+        resolve32(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve31, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve32, reject) => {
         if (ii === pathExt.length)
-          return resolve31(step(i + 1));
+          return resolve32(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve31(p + ext);
+              return resolve32(p + ext);
           }
-          return resolve31(subStep(p, i, ii + 1));
+          return resolve32(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -15182,13 +15226,13 @@ import {
   closeSync as closeSync10,
   existsSync as existsSync15,
   fsyncSync as fsyncSync7,
-  lstatSync as lstatSync11,
+  lstatSync as lstatSync10,
   mkdirSync as mkdirSync9,
   openSync as openSync10,
   realpathSync as realpathSync6,
   writeFileSync as writeFileSync9
 } from "node:fs";
-import { join as join11, relative as relative7, resolve as resolve17 } from "node:path";
+import { join as join11, relative as relative7, resolve as resolve18 } from "node:path";
 function assertContained2(parent, child) {
   const path = relative7(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -15196,16 +15240,16 @@ function assertContained2(parent, child) {
   }
 }
 function ensureDirectory3(path, label) {
-  const stat = lstatSync11(path);
+  const stat = lstatSync10(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync6(path) !== resolve17(path)) {
+  if (realpathSync6(path) !== resolve18(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function processLogDirectory(attemptDirectory) {
-  const normalizedAttempt = resolve17(attemptDirectory);
+  const normalizedAttempt = resolve18(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
   const directory = join11(normalizedAttempt, "process-logs");
   assertContained2(normalizedAttempt, directory);
@@ -15421,8 +15465,8 @@ var init_checkOutputCapture = __esm({
 });
 
 // src/committing-to-git/checks/checkWorkspace.js
-import { lstatSync as lstatSync12 } from "node:fs";
-import { resolve as resolve18, sep as sep4 } from "node:path";
+import { lstatSync as lstatSync11 } from "node:fs";
+import { resolve as resolve19, sep as sep4 } from "node:path";
 function rawPath(value, label) {
   if (typeof value !== "string") {
     throw new Error(`${label} must be a base64-encoded raw Git path.`);
@@ -15486,7 +15530,7 @@ function selectedSubject(manifest) {
     identities,
     present,
     absent: [...identities.entries()].filter(
-      ([identity2]) => !present.has(identity2)
+      ([identity]) => !present.has(identity)
     )
   };
 }
@@ -15503,12 +15547,12 @@ function objectEnvironment(manifest) {
   };
 }
 function rawFilesystemPath(root, pathBytes) {
-  const rootPrefix = Buffer.from(`${resolve18(root)}${sep4}`, "utf8");
+  const rootPrefix = Buffer.from(`${resolve19(root)}${sep4}`, "utf8");
   return Buffer.concat([rootPrefix, pathBytes]);
 }
 function pathIsAbsent(root, pathBytes) {
   try {
-    lstatSync12(rawFilesystemPath(root, pathBytes));
+    lstatSync11(rawFilesystemPath(root, pathBytes));
     return false;
   } catch (error) {
     if (ABSENCE_ERRORS.has(error?.code)) {
@@ -16325,8 +16369,8 @@ function verificationText(verification) {
   switch (attempt.status) {
     case "verified": {
       if (attempt.backend === "openpgp") {
-        const identity2 = attempt.identity;
-        return `OpenPGP signature is cryptographically valid${identity2?.signer ? ` for ${identity2.signer}` : ""}${identity2?.primaryKeyFingerprint ? ` (${identity2.primaryKeyFingerprint})` : ""}; identity authorization was not assessed`;
+        const identity = attempt.identity;
+        return `OpenPGP signature is cryptographically valid${identity?.signer ? ` for ${identity.signer}` : ""}${identity?.primaryKeyFingerprint ? ` (${identity.primaryKeyFingerprint})` : ""}; identity authorization was not assessed`;
       }
       if (attempt.backend === "ssh") {
         return `SSH signature verification succeeded${attempt.identity?.principal ? ` for ${attempt.identity.principal}` : ""}${attempt.identity?.keyFingerprint ? ` (${attempt.identity.keyFingerprint})` : ""}`;
@@ -16540,25 +16584,25 @@ var init_commitReport = __esm({
 import { createHash as createHash16, randomUUID as randomUUID6 } from "node:crypto";
 import {
   closeSync as closeSync11,
-  constants as fsConstants8,
+  constants as fsConstants6,
   existsSync as existsSync16,
   fsyncSync as fsyncSync8,
-  lstatSync as lstatSync13,
+  lstatSync as lstatSync12,
   openSync as openSync11,
-  readFileSync as readFileSync7,
+  readFileSync as readFileSync5,
   readdirSync as readdirSync3,
   realpathSync as realpathSync7,
   rmSync as rmSync4,
   unlinkSync as unlinkSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute10, join as join12, relative as relative8, resolve as resolve19 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute10, join as join12, relative as relative8, resolve as resolve20 } from "node:path";
 function sha2565(bytes) {
   return createHash16("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
-  const normalizedLeft = resolve19(left);
-  const normalizedRight = resolve19(right);
+  const normalizedLeft = resolve20(left);
+  const normalizedRight = resolve20(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function assertContained3(parent, child, { allowSame = false } = {}) {
@@ -16568,13 +16612,13 @@ function assertContained3(parent, child, { allowSame = false } = {}) {
   }
 }
 function validateAttemptDirectory(transaction) {
-  const attempt = resolve19(transaction.attemptDirectory);
+  const attempt = resolve20(transaction.attemptDirectory);
   if (!ATTEMPT_PATTERN.test(basename2(attempt))) {
     throw new Error(
       "Transaction attempt directory does not contain its UUID handle."
     );
   }
-  const stat = lstatSync13(attempt);
+  const stat = lstatSync12(attempt);
   if (stat.isSymbolicLink() || !stat.isDirectory() || !samePath3(realpathSync7(attempt), attempt)) {
     throw new Error("Transaction attempt directory was replaced.");
   }
@@ -16591,25 +16635,26 @@ function acquireTransactionStateLock({
   const transaction = readTransaction(transactionPath);
   const attemptDirectory = validateAttemptDirectory(transaction);
   const path = join12(attemptDirectory, "transaction-state.lock");
-  const noFollow = process.platform === "win32" ? 0 : fsConstants8.O_NOFOLLOW;
+  const noFollow = process.platform === "win32" ? 0 : fsConstants6.O_NOFOLLOW;
   let descriptor;
   const openLock = () => openSync11(
     path,
-    fsConstants8.O_WRONLY + fsConstants8.O_CREAT + fsConstants8.O_EXCL + noFollow,
+    fsConstants6.O_WRONLY + fsConstants6.O_CREAT + fsConstants6.O_EXCL + noFollow,
     384
   );
   try {
     descriptor = openLock();
   } catch (error) {
     if (error.code === "EEXIST") {
-      const stat = lstatSync13(path);
       let owner;
       try {
-        owner = JSON.parse(readFileSync7(path, "utf8"));
+        owner = JSON.parse(
+          readStableFile(path, 64 * 1024).bytes.toString("utf8")
+        );
       } catch {
         owner = null;
       }
-      const ownerValid = !stat.isSymbolicLink() && stat.isFile() && JSON.stringify(Object.keys(owner ?? {}).sort()) === JSON.stringify(
+      const ownerValid = JSON.stringify(Object.keys(owner ?? {}).sort()) === JSON.stringify(
         [
           "schemaVersion",
           "token",
@@ -16667,11 +16712,9 @@ function acquireTransactionStateLock({
   return { path, token, operation, attemptDirectory };
 }
 function releaseTransactionStateLock(lock) {
-  const stat = lstatSync13(lock.path);
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error("Transaction-state lock was replaced.");
-  }
-  const recorded = JSON.parse(readFileSync7(lock.path, "utf8"));
+  const recorded = JSON.parse(
+    readStableFile(lock.path, 64 * 1024).bytes.toString("utf8")
+  );
   if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
     throw new Error("Transaction-state lock ownership changed.");
   }
@@ -16732,7 +16775,7 @@ function processStartIdentity(pid) {
     return null;
   }
   try {
-    const stat = readFileSync7(`/proc/${pid}/stat`, "utf8");
+    const stat = readFileSync5(`/proc/${pid}/stat`, "utf8");
     const closingName = stat.lastIndexOf(") ");
     const fields = stat.slice(closingName + 2).split(" ");
     return fields[19] ?? null;
@@ -16972,7 +17015,7 @@ function recoverCommitOutcome({
   );
 }
 function validateTreeNoLinks(root, path = root) {
-  const stat = lstatSync13(path);
+  const stat = lstatSync12(path);
   if (stat.isSymbolicLink()) {
     throw new Error(`Cleanup refuses a link or reparse target: ${path}`);
   }
@@ -16986,7 +17029,7 @@ function validateTreeNoLinks(root, path = root) {
   }
 }
 function cleanupIdentity(path) {
-  const stat = lstatSync13(path, { bigint: true });
+  const stat = lstatSync12(path, { bigint: true });
   return {
     device: String(stat.dev),
     inode: String(stat.ino),
@@ -17019,7 +17062,7 @@ function removeOwnedTarget(attempt, path, removeOperation) {
   if (!sameCleanupIdentity(before, after)) {
     throw new Error(`Cleanup target changed before deletion: ${path}`);
   }
-  const directory = lstatSync13(path).isDirectory();
+  const directory = lstatSync12(path).isDirectory();
   removeWithRetry(
     path,
     directory ? { recursive: true } : void 0,
@@ -17178,6 +17221,7 @@ function purgeTransaction(options) {
 var FULL_OID_PATTERN5, ATTEMPT_PATTERN, PRECOMMIT_PHASES, TERMINAL_PHASES, WINDOWS_RETRY_CODES;
 var init_transactionRecovery = __esm({
   "src/committing-to-git/transaction/transactionRecovery.js"() {
+    init_stableFile();
     init_diagnosticContract();
     init_workflowDiagnosticError();
     init_transactionDiagnosticState();
@@ -17214,9 +17258,9 @@ __export(runCheckWorkflow_exports, {
   runCheckWorkflowCommand: () => runCheckWorkflowCommand
 });
 import { createHash as createHash17 } from "node:crypto";
-import { lstatSync as lstatSync14, realpathSync as realpathSync8 } from "node:fs";
-import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve20 } from "node:path";
-function fail8(code, message, options) {
+import { lstatSync as lstatSync13, realpathSync as realpathSync8 } from "node:fs";
+import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve21 } from "node:path";
+function fail9(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2566(bytes) {
@@ -17224,8 +17268,8 @@ function sha2566(bytes) {
 }
 function readSnapshot(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
-  if (resolve20(input.path) !== resolve20(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
-    fail8(
+  if (resolve21(input.path) !== resolve21(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
+    fail9(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
@@ -17233,7 +17277,7 @@ function readSnapshot(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER9.decode(input.bytes));
   } catch (error) {
-    fail8("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+    fail9("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
       cause: error
     });
   }
@@ -17246,16 +17290,16 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   try {
     validateCheckContext(context);
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_CONTEXT_INVALID",
       "The check working directory must be a repository-relative directory.",
       { cause: error }
     );
   }
-  const candidate = resolve20(repositoryRoot2, requestedDirectory);
-  const stat = lstatSync14(candidate);
+  const candidate = resolve21(repositoryRoot2, requestedDirectory);
+  const stat = lstatSync13(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail8(
+    fail9(
       "CHECK_CONTEXT_INVALID",
       "Check working directory must be a real directory within the repository."
     );
@@ -17265,7 +17309,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   if (repositoryRelative === ".." || repositoryRelative.startsWith(
     `..${process.platform === "win32" ? "\\" : "/"}`
   ) || isAbsolute11(repositoryRelative)) {
-    fail8(
+    fail9(
       "CHECK_CONTEXT_INVALID",
       "Check working directory resolves outside the repository."
     );
@@ -17281,7 +17325,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
 function nextReceiptId(transaction) {
   const ordinal = transaction.checkAttempts.length + 1;
   if (ordinal > 999999) {
-    fail8(
+    fail9(
       "CHECK_ATTEMPT_LIMIT_REACHED",
       "A transaction cannot record more than 999,999 check attempts."
     );
@@ -17294,7 +17338,7 @@ function replaceAttempt(transactionPath, receiptId, transform) {
     (attempt) => attempt.receiptId === receiptId
   );
   if (index < 0) {
-    fail8(
+    fail9(
       "CHECK_RECEIPT_NOT_FOUND",
       `Check receipt ${receiptId} is not part of this transaction.`
     );
@@ -17315,7 +17359,7 @@ function appendAttempt(transactionPath, transaction, attempt) {
 function assertRetryContract(transaction, retryAfterAttempt) {
   const latest = transaction.checkAttempts.at(-1) ?? null;
   if (latest !== null && latest.launchState !== "completed") {
-    fail8(
+    fail9(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${latest.receiptId} has no durable outcome; confirm no child remains live before retrying.`,
       {
@@ -17326,7 +17370,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
   }
   if (retryAfterAttempt === null) {
     if (latest?.completion?.outcome === "unknown" && latest.resolution !== null) {
-      fail8(
+      fail9(
         "CHECK_RETRY_LINK_REQUIRED",
         `A retry must name the resolved unknown receipt ${latest.receiptId}.`
       );
@@ -17334,7 +17378,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
     return;
   }
   if (latest === null || latest.receiptId !== retryAfterAttempt || latest.completion?.outcome !== "unknown" || latest.resolution === null) {
-    fail8(
+    fail9(
       "CHECK_RETRY_INVALID",
       "A retry may name only the latest explicitly resolved unknown check."
     );
@@ -17353,7 +17397,7 @@ function checkRecoveryResult({
     disposition,
     status,
     phase: transaction.phase,
-    transaction: resolve20(transactionPath),
+    transaction: resolve21(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17398,7 +17442,7 @@ function recoverCheckAttempt({
     });
   }
   if (resolution !== "confirmed-no-live-child") {
-    fail8(
+    fail9(
       "CHECK_RECOVERY_RESOLUTION_INVALID",
       "An interrupted check accepts only confirmed-no-live-child resolution."
     );
@@ -17411,7 +17455,7 @@ function recoverCheckAttempt({
       indexLockInspector
     });
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_CHILD_STILL_LIVE",
       "The interrupted check cannot be resolved until the child is confirmed stopped.",
       {
@@ -17423,7 +17467,7 @@ function recoverCheckAttempt({
   }
   const finishedAt = now();
   if (typeof finishedAt !== "string" || !Number.isFinite(Date.parse(finishedAt))) {
-    fail8(
+    fail9(
       "CHECK_CLOCK_INVALID",
       "Check recovery clock returned an invalid time."
     );
@@ -17494,7 +17538,7 @@ function resultFor({
     disposition,
     status: code === null ? "check-passed" : code === "CHECK_SCOPE_DRIFT" ? "stopped" : "check-failed",
     phase: transaction.phase,
-    transaction: resolve20(transactionPath),
+    transaction: resolve21(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17522,7 +17566,7 @@ async function runCheckWorkflow({
   try {
     validateCheckCommand(command);
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_COMMAND_INVALID",
       "Supply one executable and an array of literal arguments, without a shell command string.",
       { cause: error }
@@ -17530,7 +17574,7 @@ async function runCheckWorkflow({
   }
   let transaction = readTransaction(transactionPath);
   if (!ACTIVE_CHECK_PHASES.has(transaction.phase)) {
-    fail8(
+    fail9(
       "CHECK_PHASE_INVALID",
       `Transaction phase ${transaction.phase} cannot run a precommit check.`
     );
@@ -17556,7 +17600,7 @@ async function runCheckWorkflow({
     return createWorkflowResult({
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve20(transactionPath),
+      transaction: resolve21(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -17571,7 +17615,7 @@ async function runCheckWorkflow({
   const receiptId = nextReceiptId(transaction);
   const started = now();
   if (!(started instanceof Date) || !Number.isFinite(started.getTime())) {
-    fail8(
+    fail9(
       "CHECK_CLOCK_INVALID",
       "Check workflow clock returned an invalid time."
     );
@@ -17683,14 +17727,14 @@ async function runCheckWorkflow({
       output: capture.output
     }));
   } catch (error) {
-    fail8(
+    fail9(
       "CHECK_OUTCOME_UNKNOWN",
       "The check child may have run, but its terminal receipt could not be recorded. Inspect its journal before considering another execution.",
       {
         disposition: "outcome-unknown",
         cause: error,
         state: {
-          transaction: resolve20(transactionPath),
+          transaction: resolve21(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -17707,7 +17751,7 @@ async function runCheckWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve20(transactionPath)
+                resolve21(transactionPath)
               ]
             }
           ]
@@ -17764,13 +17808,13 @@ async function runCheckWorkflow({
 function parseArguments2(argv) {
   const { values: flags, childArguments: commandArguments } = parseCommandArguments("workflow check", argv);
   if (!flags.has("transaction")) {
-    fail8(
+    fail9(
       "CHECK_TRANSACTION_REQUIRED",
       "workflow check requires --transaction <transaction.json>."
     );
   }
   if (commandArguments.length === 0 || commandArguments[0] === "") {
-    fail8(
+    fail9(
       "CHECK_COMMAND_REQUIRED",
       "workflow check requires -- followed by an executable and argument vector."
     );
@@ -17778,14 +17822,14 @@ function parseArguments2(argv) {
   const timeoutText = flags.get("timeout-ms") ?? null;
   const timeoutMilliseconds = timeoutText === null ? null : Number(timeoutText);
   if (timeoutMilliseconds !== null && (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds < 1 || timeoutMilliseconds > MAXIMUM_CHECK_TIMEOUT_MILLISECONDS)) {
-    fail8(
+    fail9(
       "CHECK_TIMEOUT_INVALID",
       "Check timeout must be an integer from 1 through 86,400,000 milliseconds."
     );
   }
   const format = flags.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail8("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
+    fail9("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
   }
   return {
     transactionPath: flags.get("transaction") ?? null,
@@ -17845,31 +17889,12 @@ __export(checkDetailWorkflow_exports, {
   runCheckDetailCommand: () => runCheckDetailCommand
 });
 import { createHash as createHash18 } from "node:crypto";
-import {
-  closeSync as closeSync12,
-  constants as fsConstants9,
-  fstatSync as fstatSync9,
-  lstatSync as lstatSync15,
-  openSync as openSync12,
-  readFileSync as readFileSync8,
-  realpathSync as realpathSync9
-} from "node:fs";
-import { join as join13, resolve as resolve21 } from "node:path";
-function fail9(code, message, options) {
+import { join as join13, resolve as resolve22 } from "node:path";
+function fail10(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2567(bytes) {
   return createHash18("sha256").update(bytes).digest("hex");
-}
-function identity(stat) {
-  return {
-    device: String(stat.dev),
-    inode: String(stat.ino),
-    size: Number(stat.size)
-  };
-}
-function sameIdentity2(left, right) {
-  return left.device === right.device && left.inode === right.inode && left.size === right.size;
 }
 function contentFor(bytes) {
   try {
@@ -17925,7 +17950,7 @@ function detailResult({
     disposition: "succeeded",
     status: "check-detail",
     phase: transaction.phase,
-    transaction: resolve21(transactionPath),
+    transaction: resolve22(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
@@ -17956,52 +17981,23 @@ function readBoundSegment({
   recordedSha256
 }) {
   const expectedPath = join13(
-    resolve21(transaction.attemptDirectory),
+    resolve22(transaction.attemptDirectory),
     "process-logs",
     `check-${receiptId}-${stream}-${segment}.bin`
   );
-  if (resolve21(recordedPath) !== expectedPath) {
-    fail9(
+  if (resolve22(recordedPath) !== expectedPath) {
+    fail10(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
       { disposition: "rejected" }
     );
   }
-  let initial;
   try {
-    initial = lstatSync15(expectedPath, { bigint: true });
-  } catch (error) {
-    fail9(
-      "CHECK_DETAIL_UNAVAILABLE",
-      "The retained output segment is unavailable.",
-      { disposition: "rejected", cause: error }
-    );
-  }
-  if (initial.isSymbolicLink() || !initial.isFile() || realpathSync9(expectedPath) !== resolve21(expectedPath)) {
-    fail9(
-      "CHECK_DETAIL_ARTIFACT_CHANGED",
-      "The retained output segment was replaced or is not a regular file.",
-      { disposition: "rejected" }
-    );
-  }
-  const noFollow = process.platform === "win32" ? 0 : fsConstants9.O_NOFOLLOW;
-  let descriptor;
-  try {
-    descriptor = openSync12(expectedPath, fsConstants9.O_RDONLY + noFollow);
-  } catch (error) {
-    fail9(
-      "CHECK_DETAIL_UNAVAILABLE",
-      "The retained output segment cannot be opened.",
-      { disposition: "rejected", cause: error }
-    );
-  }
-  try {
-    const before = fstatSync9(descriptor, { bigint: true });
-    const bytes = readFileSync8(descriptor);
-    const after = fstatSync9(descriptor, { bigint: true });
-    const final = lstatSync15(expectedPath, { bigint: true });
-    if (!before.isFile() || !after.isFile() || final.isSymbolicLink() || !final.isFile() || !sameIdentity2(identity(initial), identity(before)) || !sameIdentity2(identity(before), identity(after)) || !sameIdentity2(identity(after), identity(final)) || bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
-      fail9(
+    const bytes = readStableFile(expectedPath, recordedByteCount, {
+      rejectLinkedAncestors: true
+    }).bytes;
+    if (bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
+      fail10(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
         "The retained output segment no longer matches its witnessed receipt.",
         { disposition: "rejected" }
@@ -18009,16 +18005,12 @@ function readBoundSegment({
     }
     return bytes;
   } catch (error) {
-    if (error instanceof WorkflowDiagnosticError) {
-      throw error;
-    }
-    fail9(
-      "CHECK_DETAIL_ARTIFACT_CHANGED",
-      "The retained output segment changed while it was read.",
+    if (error instanceof WorkflowDiagnosticError) throw error;
+    fail10(
+      ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(error.code) ? "CHECK_DETAIL_UNAVAILABLE" : "CHECK_DETAIL_ARTIFACT_CHANGED",
+      "The retained output segment is unavailable or changed while it was read.",
       { disposition: "rejected", cause: error }
     );
-  } finally {
-    closeSync12(descriptor);
   }
 }
 function checkDetailWorkflow({
@@ -18029,25 +18021,25 @@ function checkDetailWorkflow({
   offset = 0
 }) {
   if (typeof receiptId !== "string" || !RECEIPT_ID_PATTERN2.test(receiptId)) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_RECEIPT_INVALID",
       "Check detail requires a canonical receipt ID such as C000001."
     );
   }
   if (!(/* @__PURE__ */ new Set(["stdout", "stderr"])).has(stream)) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_STREAM_INVALID",
       "Check detail stream must be stdout or stderr."
     );
   }
   if (!(/* @__PURE__ */ new Set(["head", "tail"])).has(segment)) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_SEGMENT_INVALID",
       "Check detail segment must be head or tail."
     );
   }
   if (!Number.isSafeInteger(offset) || offset < 0) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset must be a non-negative safe integer."
     );
@@ -18057,14 +18049,14 @@ function checkDetailWorkflow({
     (candidate) => candidate.receiptId === receiptId
   );
   if (attempt === void 0) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_RECEIPT_NOT_FOUND",
       `Receipt ${receiptId} is not part of this transaction.`,
       { disposition: "rejected" }
     );
   }
   if (attempt.output === null) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_UNAVAILABLE",
       `Receipt ${receiptId} has no retained process output.`,
       { disposition: "rejected" }
@@ -18076,7 +18068,7 @@ function checkDetailWorkflow({
   const recordedSha256 = channel[`${segment}Sha256`];
   if (recordedByteCount === 0) {
     if (offset !== 0) {
-      fail9(
+      fail10(
         "CHECK_DETAIL_OFFSET_INVALID",
         "Check detail offset exceeds the empty retained segment."
       );
@@ -18099,7 +18091,7 @@ function checkDetailWorkflow({
     recordedSha256
   });
   if (offset > bytes.length) {
-    fail9(
+    fail10(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset exceeds the retained segment."
     );
@@ -18125,13 +18117,13 @@ function parseArguments3(argv) {
   const flags = parseCommandArguments("workflow check-detail", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail9(
+    fail10(
       "CHECK_DETAIL_FORMAT_INVALID",
       "Check detail output format must be json or text."
     );
   const transactionPath = flags.get("transaction");
   if (typeof transactionPath !== "string")
-    fail9(
+    fail10(
       "CHECK_DETAIL_TRANSACTION_REQUIRED",
       "workflow check-detail requires --transaction <transaction.json>."
     );
@@ -18155,6 +18147,7 @@ async function runCheckDetailCommand(argv, { stdout = process.stdout } = {}) {
 var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER10, RECEIPT_ID_PATTERN2;
 var init_checkDetailWorkflow = __esm({
   "src/committing-to-git/workflow/checkDetailWorkflow.js"() {
+    init_stableFile();
     init_transactionDiagnosticState();
     init_workflowDiagnosticError();
     init_diagnosticContract();
@@ -18168,10 +18161,10 @@ var init_checkDetailWorkflow = __esm({
 });
 
 // src/committing-to-git/snapshot/verifySnapshot.js
-import { resolve as resolve22 } from "node:path";
+import { resolve as resolve23 } from "node:path";
 function samePath4(left, right) {
-  const normalizedLeft = resolve22(left);
-  const normalizedRight = resolve22(right);
+  const normalizedLeft = resolve23(left);
+  const normalizedRight = resolve23(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function manifestEnvironment2(manifest) {
@@ -18259,17 +18252,17 @@ var init_verifySnapshot = __esm({
 // src/committing-to-git/git/gitProcessTranscript.js
 import { createHash as createHash19 } from "node:crypto";
 import {
-  closeSync as closeSync13,
+  closeSync as closeSync12,
   existsSync as existsSync17,
   fsyncSync as fsyncSync9,
-  lstatSync as lstatSync16,
+  lstatSync as lstatSync14,
   mkdirSync as mkdirSync10,
-  openSync as openSync13,
-  readFileSync as readFileSync9,
-  realpathSync as realpathSync10,
+  openSync as openSync12,
+  readFileSync as readFileSync6,
+  realpathSync as realpathSync9,
   writeSync
 } from "node:fs";
-import { dirname as dirname9, join as join14, relative as relative10, resolve as resolve23 } from "node:path";
+import { dirname as dirname9, join as join14, relative as relative10, resolve as resolve24 } from "node:path";
 function assertContained4(parent, child) {
   const path = relative10(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -18279,16 +18272,16 @@ function assertContained4(parent, child) {
   }
 }
 function ensureDirectory4(path, label) {
-  const stat = lstatSync16(path);
+  const stat = lstatSync14(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync10(path) !== resolve23(path)) {
+  if (realpathSync9(path) !== resolve24(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function openTranscript(attemptDirectory, operation, instanceId) {
-  const normalizedAttempt = resolve23(attemptDirectory);
+  const normalizedAttempt = resolve24(attemptDirectory);
   ensureDirectory4(normalizedAttempt, "Transaction attempt directory");
   const directory = join14(normalizedAttempt, "process-logs");
   assertContained4(normalizedAttempt, directory);
@@ -18309,7 +18302,7 @@ function openTranscript(attemptDirectory, operation, instanceId) {
     `${operation}${instanceId === null ? "" : `-${instanceId}`}.transcript.bin`
   );
   assertContained4(normalizedAttempt, path);
-  const descriptor = openSync13(path, "wx", 384);
+  const descriptor = openSync12(path, "wx", 384);
   return { descriptor, path };
 }
 function frameBytes(sequence, channel, bytes) {
@@ -18332,7 +18325,7 @@ function completionDigest(value) {
 }
 function captureGitProcessTranscript({
   transactionPath,
-  attemptDirectory = dirname9(resolve23(transactionPath)),
+  attemptDirectory = dirname9(resolve24(transactionPath)),
   operation,
   instanceId = null,
   child,
@@ -18355,8 +18348,8 @@ function captureGitProcessTranscript({
       "Git transcript capture requires one streaming child process."
     );
   }
-  const normalizedAttempt = resolve23(attemptDirectory);
-  const normalizedTransactionPath = resolve23(transactionPath);
+  const normalizedAttempt = resolve24(attemptDirectory);
+  const normalizedTransactionPath = resolve24(transactionPath);
   if (dirname9(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
@@ -18451,7 +18444,7 @@ function captureGitProcessTranscript({
           diagnosticWriter.write(tail);
         }
         fsyncSync9(descriptor);
-        closeSync13(descriptor);
+        closeSync12(descriptor);
         const facts = {
           status,
           signal,
@@ -18478,7 +18471,7 @@ function captureGitProcessTranscript({
         });
       } catch (error) {
         try {
-          closeSync13(descriptor);
+          closeSync12(descriptor);
         } catch {
         }
         rejectCompletion(error);
@@ -18537,16 +18530,16 @@ function openPgpIdentity(output) {
 function hasExactKeys2(value, keys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
-function identityMatchesBackend(backend, identity2) {
+function identityMatchesBackend(backend, identity) {
   if (backend === "ssh") {
-    return hasExactKeys2(identity2, ["principal", "keyFingerprint"]) && typeof identity2.principal === "string" && identity2.principal.length > 0 && typeof identity2.keyFingerprint === "string" && FULL_SSH_FINGERPRINT.test(identity2.keyFingerprint);
+    return hasExactKeys2(identity, ["principal", "keyFingerprint"]) && typeof identity.principal === "string" && identity.principal.length > 0 && typeof identity.keyFingerprint === "string" && FULL_SSH_FINGERPRINT.test(identity.keyFingerprint);
   }
   if (backend === "openpgp") {
-    return hasExactKeys2(identity2, [
+    return hasExactKeys2(identity, [
       "signer",
       "primaryKeyFingerprint",
       "signingSubkeyFingerprint"
-    ]) && typeof identity2.signer === "string" && identity2.signer.length > 0 && typeof identity2.primaryKeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity2.primaryKeyFingerprint) && (identity2.signingSubkeyFingerprint === null || typeof identity2.signingSubkeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity2.signingSubkeyFingerprint));
+    ]) && typeof identity.signer === "string" && identity.signer.length > 0 && typeof identity.primaryKeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.primaryKeyFingerprint) && (identity.signingSubkeyFingerprint === null || typeof identity.signingSubkeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.signingSubkeyFingerprint));
   }
   return false;
 }
@@ -18563,13 +18556,13 @@ ${stderr}`.trim();
   const observedSshIdentity = sshIdentity(output);
   const observedOpenPgpIdentity = openPgpIdentity(output);
   const observedBackend = observedSshIdentity ? "ssh" : observedOpenPgpIdentity ? "openpgp" : backend;
-  const identity2 = observedSshIdentity ?? observedOpenPgpIdentity;
-  if (result.status === 0 && identity2 !== null) {
+  const identity = observedSshIdentity ?? observedOpenPgpIdentity;
+  if (result.status === 0 && identity !== null) {
     return {
       status: "verified",
       reason: null,
       backend: observedBackend,
-      identity: identity2,
+      identity,
       timestamp
     };
   }
@@ -18697,18 +18690,18 @@ __export(createCommitWorkflow_exports, {
 import { spawn as spawn2 } from "node:child_process";
 import { createHash as createHash20, randomUUID as randomUUID7 } from "node:crypto";
 import {
-  closeSync as closeSync14,
-  constants as fsConstants10,
+  closeSync as closeSync13,
+  constants as fsConstants7,
   fsyncSync as fsyncSync10,
-  lstatSync as lstatSync17,
-  openSync as openSync14,
-  readFileSync as readFileSync10,
+  lstatSync as lstatSync15,
+  openSync as openSync13,
+  readFileSync as readFileSync7,
   renameSync as renameSync5,
   writeFileSync as writeFileSync11
 } from "node:fs";
-import { dirname as dirname10, join as join15, resolve as resolve24 } from "node:path";
+import { dirname as dirname10, join as join15, resolve as resolve25 } from "node:path";
 import { TextDecoder as TextDecoder10 } from "node:util";
-function fail10(code, message, options) {
+function fail11(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2568(bytes) {
@@ -18723,7 +18716,7 @@ function assertNoGitStorageOverrides2(environment) {
     (name) => environment[name] !== void 0 && environment[name] !== ""
   );
   if (active.length > 0) {
-    fail10(
+    fail11(
       "GIT_STORAGE_OVERRIDE_REJECTED",
       `Commit refuses Git storage overrides: ${active.join(", ")}.`
     );
@@ -18731,8 +18724,8 @@ function assertNoGitStorageOverrides2(environment) {
 }
 function readSnapshot2(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
-  if (resolve24(input.path) !== resolve24(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
-    fail10(
+  if (resolve25(input.path) !== resolve25(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
+    fail11(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
@@ -18740,19 +18733,19 @@ function readSnapshot2(transactionPath, transaction) {
   try {
     return JSON.parse(STRICT_UTF8_DECODER11.decode(input.bytes));
   } catch (error) {
-    fail10("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+    fail11("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
       cause: error
     });
   }
 }
 function directMessage(transactionPath, transaction, manifest, approvedSubject) {
   if (typeof approvedSubject !== "string" || !canUseDirectSubjectTransport(approvedSubject)) {
-    fail10(
+    fail11(
       "MESSAGE_REQUIRES_CHECKED_FILE",
       "This message must be supplied through the fixed message-input.txt check route.",
       {
         state: {
-          transaction: resolve24(transactionPath),
+          transaction: resolve25(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -18796,18 +18789,18 @@ function selectCanonicalMessage({
   }
   if (transaction.phase === "message-ready") {
     if (approvedSubject !== null && approvedSubject !== void 0) {
-      fail10(
+      fail11(
         "MESSAGE_ALREADY_RECORDED",
         "A message-ready transaction must use its recorded canonical bytes."
       );
     }
     const message = readCanonicalMessage(transactionPath);
     if (message === null) {
-      fail10("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
+      fail11("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
     }
     return message;
   }
-  fail10(
+  fail11(
     "COMMIT_PHASE_INVALID",
     `Transaction phase ${transaction.phase} cannot create a commit.`,
     {
@@ -18849,7 +18842,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     acknowledgedFailedCheckIds
   );
   if (readiness.activeAttemptIds.length > 0) {
-    fail10(
+    fail11(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
       {
@@ -18862,7 +18855,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.retryRequiredIds.length > 0) {
-    fail10(
+    fail11(
       "CHECK_RETRY_REQUIRED",
       `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
       {
@@ -18872,7 +18865,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
-    fail10(
+    fail11(
       "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
       "Failed-check acknowledgements must name each current non-passing witnessed receipt exactly once.",
       {
@@ -18885,7 +18878,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.missingAcknowledgementIds.length > 0) {
-    fail10(
+    fail11(
       "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
       "Exact commit authorization must acknowledge every non-passing receipt. Review the listed receipt IDs; retain explicitly approved acknowledgement arguments to reveal any remaining IDs on the next invocation.",
       {
@@ -18947,19 +18940,19 @@ function updateCommitJournal(transactionPath, transform) {
 }
 function atomicWrite(path, bytes) {
   const candidate = join15(dirname10(path), `.report-${randomUUID7()}.tmp`);
-  const descriptor = openSync14(
+  const descriptor = openSync13(
     candidate,
-    fsConstants10.O_WRONLY + fsConstants10.O_CREAT + fsConstants10.O_EXCL,
+    fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL,
     384
   );
   try {
     writeFileSync11(descriptor, bytes);
     fsyncSync10(descriptor);
   } finally {
-    closeSync14(descriptor);
+    closeSync13(descriptor);
   }
   if (lstatSafe(path)?.isSymbolicLink()) {
-    fail10(
+    fail11(
       "REPORT_PATH_REPLACED",
       `Report output was replaced by a link: ${path}`
     );
@@ -18968,7 +18961,7 @@ function atomicWrite(path, bytes) {
 }
 function lstatSafe(path) {
   try {
-    return lstatSync17(path);
+    return lstatSync15(path);
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
@@ -19025,7 +19018,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
     message: exitCode === 0 ? null : "The commit exists, but comparison or signature policy blocks publication.",
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: report.publication.status === "blocked" ? "blocked" : "not-requested",
@@ -19053,13 +19046,13 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
 function readRecordedReport(transactionPath) {
   const transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.report === null) {
-    fail10(
+    fail11(
       "REPORT_NOT_RECORDED",
       "Transaction does not contain a final local report."
     );
   }
-  const report = JSON.parse(readFileSync10(transaction.report.jsonPath, "utf8"));
-  const displayText = readFileSync10(transaction.report.textPath, "utf8");
+  const report = JSON.parse(readFileSync7(transaction.report.jsonPath, "utf8"));
+  const displayText = readFileSync7(transaction.report.textPath, "utf8");
   const exitCode = transaction.status === "reported" ? 0 : 3;
   return reportResult(
     transactionPath,
@@ -19081,7 +19074,7 @@ async function completeRecordedCommit({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "commit-pending" || transaction.commit?.commitOid === null || transaction.commit?.comparison === null) {
-    fail10(
+    fail11(
       "COMMIT_NOT_READY_FOR_REPORT",
       "A matching recorded commit is required before verification and reporting.",
       {
@@ -19092,7 +19085,7 @@ async function completeRecordedCommit({
   }
   const finalPolicy = verificationPolicyOverride ?? transaction.verification?.finalPolicy ?? transaction.verificationPolicy;
   if (!VERIFICATION_POLICIES3.has(finalPolicy)) {
-    fail10(
+    fail11(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -19139,7 +19132,7 @@ async function completeRecordedCommit({
   let displayText = renderCommitReport(report);
   if (Buffer.byteLength(
     JSON.stringify({
-      transaction: resolve24(transactionPath),
+      transaction: resolve25(transactionPath),
       report,
       displayText
     })
@@ -19153,7 +19146,7 @@ async function completeRecordedCommit({
   const reportBytes = canonicalJsonBytes3(report);
   const textBytes = Buffer.from(displayText, "utf8");
   if (reportBytes.length + textBytes.length > MAXIMUM_COMMIT_RESULT_BYTES) {
-    fail10(
+    fail11(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The commit exists, but its final result exceeds the bounded report budget.",
       {
@@ -19246,7 +19239,7 @@ async function completeRecordedCommit({
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail10(
+    fail11(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The complete serialized commit result exceeds the bounded report budget.",
       { disposition: "completed-with-failure" }
@@ -19260,7 +19253,7 @@ function incompleteKnownCommitResult(transactionPath, recovery) {
     disposition: "completed-with-failure",
     status: "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: "not-requested",
@@ -19290,7 +19283,7 @@ function uncertainCommitResult(transactionPath, transaction) {
     disposition: knownCommit ? "completed-with-failure" : "outcome-unknown",
     status: knownCommit ? "commit-blocked" : "outcome-unknown",
     phase: transaction.phase,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "unknown",
     publicationState: "not-requested",
@@ -19330,7 +19323,7 @@ async function createCommitWorkflow({
   }
 }) {
   if (!["auto", "native"].includes(execution)) {
-    fail10(
+    fail11(
       "INVALID_COMMIT_EXECUTION",
       "--execution must be auto or native; both retain normal checks, hooks, signing and outcome recovery."
     );
@@ -19338,7 +19331,7 @@ async function createCommitWorkflow({
   assertNoGitStorageOverrides2(environment);
   let transaction = readTransaction(transactionPath);
   if (transaction.mode !== "actual") {
-    fail10(
+    fail11(
       "DRAFT_REQUIRES_PROMOTION",
       "A draft transaction must be promoted before commit creation."
     );
@@ -19349,7 +19342,7 @@ async function createCommitWorkflow({
     acknowledgedFailedCheckIds
   );
   if (verificationPolicyOverride !== null && !VERIFICATION_POLICIES3.has(verificationPolicyOverride)) {
-    fail10(
+    fail11(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -19387,7 +19380,7 @@ async function createCommitWorkflow({
       disposition: "rejected",
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve24(transactionPath),
+      transaction: resolve25(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -19552,7 +19545,7 @@ function retrySignatureVerificationWorkflow({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.commit?.commitOid === null) {
-    fail10(
+    fail11(
       "VERIFICATION_RETRY_NOT_ALLOWED",
       "Verification retry requires one already reported commit.",
       { disposition: "unmet-prerequisite" }
@@ -19573,7 +19566,7 @@ function retrySignatureVerificationWorkflow({
     previousVerification: previous
   });
   const priorReport = JSON.parse(
-    readFileSync10(transaction.report.jsonPath, "utf8")
+    readFileSync7(transaction.report.jsonPath, "utf8")
   );
   const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
@@ -19600,7 +19593,7 @@ function retrySignatureVerificationWorkflow({
     message: publicationAllowed ? null : "Signature verification policy blocks publication of the recorded commit.",
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: transactionDiagnosticState(transaction, transactionPath).publicationState,
@@ -19626,10 +19619,10 @@ function parseArguments4(argv, command) {
   const flags = parseCommandArguments(command, argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail10("INVALID_FORMAT", "--format must be json or text.");
+    fail11("INVALID_FORMAT", "--format must be json or text.");
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
-    fail10("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail11("TRANSACTION_REQUIRED", "--transaction is required.");
   return {
     transactionPath,
     format,
@@ -19701,8 +19694,8 @@ var init_createCommitWorkflow = __esm({
 
 // src/committing-to-git/workflow/processDiagnostics.js
 import { createHash as createHash21 } from "node:crypto";
-import { closeSync as closeSync15, openSync as openSync15, readSync as readSync3, realpathSync as realpathSync11 } from "node:fs";
-import { join as join16, resolve as resolve25 } from "node:path";
+import { closeSync as closeSync14, openSync as openSync14, readSync as readSync4, realpathSync as realpathSync10 } from "node:fs";
+import { join as join16, resolve as resolve26 } from "node:path";
 function invalid() {
   throw new WorkflowDiagnosticError(
     "PROCESS_DIAGNOSTICS_INVALID",
@@ -19710,9 +19703,9 @@ function invalid() {
   );
 }
 function previewTranscript(evidence, expectedPath) {
-  if (resolve25(evidence.path) !== expectedPath || realpathSync11(expectedPath) !== expectedPath)
+  if (resolve26(evidence.path) !== expectedPath || realpathSync10(expectedPath) !== expectedPath)
     invalid();
-  const fd = openSync15(expectedPath, "r");
+  const fd = openSync14(expectedPath, "r");
   const hash = createHash21("sha256");
   const channels = {
     stdout: { bytes: Buffer.alloc(0), total: 0 },
@@ -19722,7 +19715,7 @@ function previewTranscript(evidence, expectedPath) {
     const bytes = Buffer.alloc(size);
     let count = 0;
     while (count < size) {
-      const n = readSync3(fd, bytes, count, size - count, null);
+      const n = readSync4(fd, bytes, count, size - count, null);
       if (n === 0) {
         if (allowEnd && count === 0) return null;
         invalid();
@@ -19766,7 +19759,7 @@ function previewTranscript(evidence, expectedPath) {
       stderr: summary(channels.stderr)
     };
   } finally {
-    closeSync15(fd);
+    closeSync14(fd);
   }
 }
 function readProcessDiagnostics({
@@ -19786,7 +19779,7 @@ function readProcessDiagnostics({
   try {
     const transaction = readTransaction(transactionPath);
     const operations = [];
-    const directory = resolve25(transaction.attemptDirectory, "process-logs");
+    const directory = resolve26(transaction.attemptDirectory, "process-logs");
     const add = (operation, evidence, filename, attemptId = null) => {
       if (!evidence) return;
       operations.push({
@@ -19849,22 +19842,22 @@ __export(reportDetailWorkflow_exports, {
 });
 import { createHash as createHash22, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
 import {
-  closeSync as closeSync16,
-  constants as fsConstants11,
+  closeSync as closeSync15,
+  constants as fsConstants8,
   existsSync as existsSync18,
   fsyncSync as fsyncSync11,
-  lstatSync as lstatSync18,
+  lstatSync as lstatSync16,
   mkdirSync as mkdirSync11,
-  openSync as openSync16,
-  readFileSync as readFileSync11,
+  openSync as openSync15,
+  readFileSync as readFileSync8,
   renameSync as renameSync6,
   rmSync as rmSync5,
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join17, resolve as resolve26 } from "node:path";
+import { join as join17, resolve as resolve27 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
-function fail11(code, message, disposition = "invalid-input", cause) {
+function fail12(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 function sha2569(value) {
@@ -19900,9 +19893,9 @@ function detailEntry(entry, ordinal) {
   };
 }
 function directoryIdentity(path) {
-  const stat = lstatSync18(path, { bigint: true });
+  const stat = lstatSync16(path, { bigint: true });
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail11(
+    fail12(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -19913,23 +19906,23 @@ function directoryIdentity(path) {
     birthtimeNanoseconds: String(stat.birthtimeNs)
   };
 }
-function validDirectoryIdentity(identity2) {
-  return identity2 !== null && typeof identity2 === "object" && !Array.isArray(identity2) && JSON.stringify(Object.keys(identity2).sort()) === JSON.stringify(["birthtimeNanoseconds", "device", "inode"].sort()) && Object.values(identity2).every(
+function validDirectoryIdentity(identity) {
+  return identity !== null && typeof identity === "object" && !Array.isArray(identity) && JSON.stringify(Object.keys(identity).sort()) === JSON.stringify(["birthtimeNanoseconds", "device", "inode"].sort()) && Object.values(identity).every(
     (value) => typeof value === "string" && /^\d+$/u.test(value)
   );
 }
 function assertRegularFile(path, label) {
-  const stat = lstatSync18(path);
+  const stat = lstatSync16(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail11("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
+    fail12("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
   }
 }
 function readJson(path, label) {
   assertRegularFile(path, label);
   try {
-    return JSON.parse(readFileSync11(path, "utf8"));
+    return JSON.parse(readFileSync8(path, "utf8"));
   } catch (error) {
-    fail11(
+    fail12(
       "DETAIL_STATE_INVALID",
       `${label} is invalid.`,
       "invalid-input",
@@ -19964,23 +19957,23 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve26(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
-    fail11("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve27(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+    fail12("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
 }
 function writeNew(path, value) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants11.O_NOFOLLOW;
-  const descriptor = openSync16(
+  const noFollow = process.platform === "win32" ? 0 : fsConstants8.O_NOFOLLOW;
+  const descriptor = openSync15(
     path,
-    fsConstants11.O_WRONLY + fsConstants11.O_CREAT + fsConstants11.O_EXCL + noFollow,
+    fsConstants8.O_WRONLY + fsConstants8.O_CREAT + fsConstants8.O_EXCL + noFollow,
     384
   );
   try {
     writeFileSync12(descriptor, canonicalBytes2(value));
     fsyncSync11(descriptor);
   } finally {
-    closeSync16(descriptor);
+    closeSync15(descriptor);
   }
 }
 function replaceJson2(path, value) {
@@ -20013,23 +20006,23 @@ function encodeCursor(active, nextOrdinal) {
     "utf8"
   ).toString("base64url");
   if (Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail11("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
+    fail12("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
   }
   return cursor;
 }
 function decodeCursor(cursor, active) {
   if (typeof cursor !== "string" || cursor.length === 0 || Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail12("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   let decoded;
   try {
     const bytes = Buffer.from(cursor, "base64url");
     if (bytes.toString("base64url") !== cursor) {
-      fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+      fail12("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
     }
     decoded = JSON.parse(bytes.toString("utf8"));
   } catch {
-    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail12("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   const keys = Object.keys(decoded).sort();
   const expectedKeys = [
@@ -20048,7 +20041,7 @@ function decodeCursor(cursor, active) {
     ])
   );
   if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || decoded.schemaVersion !== 1 || decoded.transactionDigest !== active.transactionDigest || decoded.startingReportDigest !== active.startingReportDigest || decoded.observationDigest !== active.observationDigest || !Number.isSafeInteger(decoded.nextOrdinal) || decoded.nextOrdinal < 1 || decoded.signature !== expectedSignature) {
-    fail11(
+    fail12(
       "DETAIL_CURSOR_INVALID",
       "Report-detail cursor is stale, tampered, or belongs to another transaction."
     );
@@ -20057,7 +20050,7 @@ function decodeCursor(cursor, active) {
 }
 function observationDirectory(transaction, active) {
   if (!UUID_V4_PATTERN3.test(active.observationId)) {
-    fail11("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
+    fail12("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
   }
   return join17(
     transaction.attemptDirectory,
@@ -20074,7 +20067,7 @@ function assertObservationDirectory(transaction, active) {
   const path = observationDirectory(transaction, active);
   const observedIdentity = directoryIdentity(path);
   if (!validDirectoryIdentity(active.observationDirectoryIdentity) || JSON.stringify(observedIdentity) !== JSON.stringify(active.observationDirectoryIdentity)) {
-    fail11(
+    fail12(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -20158,7 +20151,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     disposition: "succeeded",
     ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve26(transactionPath),
+    transaction: resolve27(transactionPath),
     data: {
       commitOid: transaction.commit?.commitOid ?? null,
       startingReportDigest: active.startingReportDigest,
@@ -20177,7 +20170,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     }
   });
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail11(
+    fail12(
       "DETAIL_RESULT_BUDGET_EXCEEDED",
       "Workspace detail page exceeds the serialized result budget."
     );
@@ -20193,14 +20186,14 @@ function readPageForRequest(transaction, active, cursor) {
   const ordinal = cursor === null ? 0 : decodeCursor(cursor, active);
   const descriptor = active.pages.find((page2) => page2.startOrdinal === ordinal);
   if (!descriptor) {
-    fail11("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
+    fail12("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
   }
   const page = readJson(
     pagePath(transaction, active, descriptor.index),
     "Workspace detail page"
   );
   if (sha2569(canonicalBytes2(page)) !== descriptor.sha256) {
-    fail11("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
+    fail12("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
   }
   return { ...page, index: descriptor.index };
 }
@@ -20235,19 +20228,19 @@ function validateCompletedResult(result, transactionPath) {
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve26(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
-    fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve27(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
+    fail12("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
 function replayCompletion(completed, cursor, transactionPath) {
   if (JSON.stringify(Object.keys(completed ?? {}).sort()) !== JSON.stringify(
     ["schemaVersion", "requestCursorDigest", "result"].sort()
   ) || completed.schemaVersion !== 1 || !SHA256_PATTERN4.test(completed.requestCursorDigest) || canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail11("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+    fail12("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
   validateCompletedResult(completed.result, transactionPath);
   if (completed.requestCursorDigest !== cursorRequestDigest(cursor)) {
-    fail11(
+    fail12(
       "DETAIL_STATE_CONFLICT",
       "A completed detail observation is retained; use its final cursor or request --refresh.",
       "rejected"
@@ -20263,7 +20256,7 @@ async function readWorkspaceDetailPage({
   }
 }) {
   if (refresh && cursor !== null) {
-    fail11(
+    fail12(
       "DETAIL_ARGUMENT_CONFLICT",
       "--cursor and --refresh are mutually exclusive."
     );
@@ -20276,7 +20269,7 @@ async function readWorkspaceDetailPage({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail11(
+      fail12(
         "DETAIL_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         "rejected",
@@ -20288,7 +20281,7 @@ async function readWorkspaceDetailPage({
   try {
     const transaction = readTransaction(transactionPath);
     if (!(/* @__PURE__ */ new Set(["reported", "published"])).has(transaction.phase)) {
-      fail11(
+      fail12(
         "DETAIL_PHASE_INVALID",
         "Workspace detail requires a reported or published transaction.",
         "rejected"
@@ -20325,7 +20318,7 @@ async function readWorkspaceDetailPage({
     let active;
     if (existsSync18(activePath)) {
       if (cursor === null || refresh) {
-        fail11(
+        fail12(
           "DETAIL_STATE_CONFLICT",
           "A workspace detail observation is already active.",
           "rejected"
@@ -20333,7 +20326,7 @@ async function readWorkspaceDetailPage({
       }
       active = readJson(activePath, "Active workspace detail journal");
       if (active.state !== "ready") {
-        fail11(
+        fail12(
           "DETAIL_STATE_CONFLICT",
           "The workspace detail observation was interrupted before paging.",
           "rejected"
@@ -20342,7 +20335,7 @@ async function readWorkspaceDetailPage({
       active = validateReadyActive(transactionPath, active);
     } else {
       if (cursor !== null) {
-        fail11(
+        fail12(
           "DETAIL_CURSOR_INVALID",
           "No active workspace detail observation accepts this cursor."
         );
@@ -20351,7 +20344,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve26(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve27(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -20383,7 +20376,7 @@ async function readWorkspaceDetailPage({
         result: bounded.result
       };
       if (canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-        fail11(
+        fail12(
           "DETAIL_RESULT_BUDGET_EXCEEDED",
           "Completed detail replay exceeds the serialized result budget."
         );
@@ -20418,7 +20411,7 @@ function readRetainedReport({
   refresh = false
 }) {
   if (cursor !== null || refresh)
-    fail11(
+    fail12(
       "DETAIL_ARGUMENT_CONFLICT",
       "Report detail accepts neither --cursor nor --refresh."
     );
@@ -20429,19 +20422,19 @@ function readRetainedReport({
   try {
     const transaction = readTransaction(transactionPath);
     if (!["reported", "published"].includes(transaction.phase) || !transaction.report) {
-      fail11(
+      fail12(
         "DETAIL_PHASE_INVALID",
         "Retained report requires a reported or published transaction.",
         "rejected"
       );
     }
     const retained = (path, digest2, name) => {
-      if (resolve26(path) !== resolve26(transaction.attemptDirectory, name))
-        fail11("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
+      if (resolve27(path) !== resolve27(transaction.attemptDirectory, name))
+        fail12("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
       assertRegularFile(path, name);
-      const bytes = readFileSync11(path);
+      const bytes = readFileSync8(path);
       if (sha2569(bytes) !== digest2)
-        fail11("DETAIL_STATE_INVALID", "Retained report digest does not match.");
+        fail12("DETAIL_STATE_INVALID", "Retained report digest does not match.");
       return bytes.toString("utf8");
     };
     const report = JSON.parse(
@@ -20470,13 +20463,13 @@ function parseArguments5(argv) {
   const flags = parseCommandArguments("workflow report-detail", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail11("INVALID_FORMAT", "--format must be json or text.");
+    fail12("INVALID_FORMAT", "--format must be json or text.");
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
-    fail11("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail12("TRANSACTION_REQUIRED", "--transaction is required.");
   const section = flags.get("section") ?? "workspace";
   if (!["workspace", "report", "diagnostics"].includes(section))
-    fail11(
+    fail12(
       "INVALID_DETAIL_SECTION",
       "--section must be workspace, report or diagnostics."
     );
@@ -20530,17 +20523,16 @@ __export(publishWorkflow_exports, {
 import { spawn as spawn3 } from "node:child_process";
 import { createHash as createHash23, randomUUID as randomUUID9 } from "node:crypto";
 import {
-  closeSync as closeSync17,
-  constants as fsConstants12,
+  closeSync as closeSync16,
+  constants as fsConstants9,
   fsyncSync as fsyncSync12,
-  lstatSync as lstatSync19,
-  openSync as openSync17,
-  readFileSync as readFileSync12,
+  lstatSync as lstatSync17,
+  openSync as openSync16,
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname11, join as join18, resolve as resolve27 } from "node:path";
-function fail12(code, message, options) {
+import { dirname as dirname11, join as join18, resolve as resolve28 } from "node:path";
+function fail13(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25610(bytes) {
@@ -20558,21 +20550,21 @@ function containsControlCharacter2(value) {
 }
 function atomicWrite2(path, bytes) {
   const candidate = join18(dirname11(path), `.publication-${randomUUID9()}.tmp`);
-  const descriptor = openSync17(
+  const descriptor = openSync16(
     candidate,
-    fsConstants12.O_WRONLY + fsConstants12.O_CREAT + fsConstants12.O_EXCL,
+    fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL,
     384
   );
   try {
     writeFileSync13(descriptor, bytes);
     fsyncSync12(descriptor);
   } finally {
-    closeSync17(descriptor);
+    closeSync16(descriptor);
   }
   try {
-    const current = lstatSync19(path);
+    const current = lstatSync17(path);
     if (current.isSymbolicLink() || !current.isFile()) {
-      fail12("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
+      fail13("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
     }
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -20616,7 +20608,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
     (attempt) => attempt.attemptId === attemptId
   );
   if (index < 0 || index !== transaction.publicationAttempts.length - 1) {
-    fail12(
+    fail13(
       "PUBLICATION_ATTEMPT_STALE",
       "Only the latest publication attempt may acquire new journal facts.",
       { disposition: "outcome-unknown" }
@@ -20632,20 +20624,20 @@ function updateAttempt(transactionPath, attemptId, transform) {
 }
 function validateDestination(root, remote, destination, readOnlyRunner = runReadOnlyGit) {
   if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter2(remote)) {
-    fail12(
+    fail13(
       "PUBLICATION_REMOTE_INVALID",
       "--remote must name one configured non-option Git remote."
     );
   }
   if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter2(destination)) {
-    fail12(
+    fail13(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination must be a full refs/heads/... branch ref."
     );
   }
   const remotes = readOnlyRunner(root, "remote-names").stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
   if (!remotes.includes(remote)) {
-    fail12(
+    fail13(
       "PUBLICATION_REMOTE_UNKNOWN",
       `Configured Git remote ${JSON.stringify(remote)} does not exist.`
     );
@@ -20654,7 +20646,7 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
     allowFailure: true
   });
   if (refCheck.status !== 0) {
-    fail12(
+    fail13(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination is not a valid full branch ref."
     );
@@ -20662,40 +20654,35 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
 }
 function assertPublicationAllowed(transaction) {
   if (transaction.commit?.commitOid === null || transaction.commit?.commitOid === void 0 || !FULL_OID_PATTERN7.test(transaction.commit.commitOid) || transaction.commit.comparison === null || !transaction.commit.comparison.parentMatches || !transaction.commit.comparison.treeMatches || !transaction.commit.comparison.messageMatches || !transaction.commit.comparison.signatureHeaderPresent || transaction.verification?.blocksPush !== false || transaction.report?.publicationAllowed !== true) {
-    fail12(
+    fail13(
       "PUBLICATION_BLOCKED",
       "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
       {
         disposition: transaction.commit?.commitOid ? "completed-with-failure" : "unmet-prerequisite",
         state: transactionDiagnosticState(
           transaction,
-          resolve27(transaction.attemptDirectory, "transaction.json")
+          resolve28(transaction.attemptDirectory, "transaction.json")
         )
       }
     );
   }
 }
 function readPersistedReport(transaction) {
-  let stat;
+  let bytes;
   try {
-    stat = lstatSync19(transaction.report.jsonPath);
+    bytes = readStableFile(
+      transaction.report.jsonPath,
+      MAXIMUM_INITIAL_JSON_INPUT_BYTES
+    ).bytes;
   } catch (error) {
-    fail12(
+    fail13(
       "REPORT_ARTIFACT_MISMATCH",
-      "The persisted report cannot be inspected.",
+      "The persisted report cannot be read as a stable bounded regular file.",
       { disposition: "unmet-prerequisite", cause: error }
     );
   }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail12(
-      "REPORT_ARTIFACT_MISMATCH",
-      "The persisted report path was replaced or is not regular.",
-      { disposition: "unmet-prerequisite" }
-    );
-  }
-  const bytes = readFileSync12(transaction.report.jsonPath);
   if (sha25610(bytes) !== transaction.report.jsonSha256) {
-    fail12(
+    fail13(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report no longer matches its transaction digest.",
       { disposition: "unmet-prerequisite" }
@@ -20708,10 +20695,17 @@ function currentReportFilesMatch(transaction, reportBytes, textBytes) {
     return false;
   }
   try {
-    const textStat = lstatSync19(transaction.report.textPath);
-    return !textStat.isSymbolicLink() && textStat.isFile() && sha25610(readFileSync12(transaction.report.textPath)) === transaction.report.textSha256;
+    return sha25610(
+      readStableFile(transaction.report.textPath, textBytes.length).bytes
+    ) === transaction.report.textSha256;
   } catch (error) {
-    if (error.code === "ENOENT") {
+    if ([
+      "ENOENT",
+      "ELOOP",
+      "FILE_NOT_REGULAR",
+      "FILE_CHANGED",
+      "FILE_TOO_LARGE"
+    ].includes(error.code)) {
       return false;
     }
     throw error;
@@ -20745,7 +20739,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
     status: publicationState === "unknown" ? "outcome-unknown" : publicationState,
     code: disposition === "succeeded" ? null : publicationState === "unknown" ? "PUBLICATION_OUTCOME_UNKNOWN" : publicationState === "blocked" ? "PUBLICATION_BLOCKED" : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState,
@@ -20761,7 +20755,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
             "workflow",
             "recover",
             "--transaction",
-            resolve27(transactionPath)
+            resolve28(transactionPath)
           ]
         }
       ] : []
@@ -20801,7 +20795,7 @@ function boundedAugmentedModel(transactionPath, transaction, publication) {
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail12(
+    fail13(
       "PUBLICATION_RESULT_BUDGET_EXCEEDED",
       "Publication result exceeds the serialized report budget.",
       {
@@ -20949,7 +20943,7 @@ function appendAttempt2(transactionPath, transaction, attempt) {
 function validateRetry(transaction, retryAfterAttempt, remote, destination) {
   const prior = latestAttempt(transaction);
   if (transaction.phase !== "publication-pending" || prior === null || prior.attemptId !== retryAfterAttempt || prior.retryPermitted !== true || prior.resolution?.kind !== "confirmed-no-live-child" || prior.remote !== remote || prior.destination !== destination || prior.commitOid !== transaction.commit.commitOid) {
-    fail12(
+    fail13(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The retry token does not bind the latest resolved unknown publication attempt.",
       { disposition: "outcome-unknown" }
@@ -20961,7 +20955,7 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
       childIdentity: prior.childIdentity
     });
   } catch (error) {
-    fail12(
+    fail13(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The resolved publication child state no longer permits retry. Inspect its liveness before continuing.",
       { disposition: "outcome-unknown", cause: error }
@@ -20989,7 +20983,7 @@ async function publishWorkflow({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail12(
+      fail13(
         "PUBLICATION_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         {
@@ -21007,7 +21001,7 @@ async function publishWorkflow({
     transaction = readTransaction(transactionPath);
     if (transaction.phase === "published") {
       if (retryAfterAttempt !== null) {
-        fail12(
+        fail13(
           "PUBLICATION_RETRY_NOT_PERMITTED",
           "A historical retry token cannot be reused after publication completed.",
           { disposition: "outcome-unknown" }
@@ -21025,20 +21019,20 @@ async function publishWorkflow({
       );
     }
     if (retryAfterAttempt !== null && !UUID_V4_PATTERN4.test(retryAfterAttempt)) {
-      fail12(
+      fail13(
         "PUBLICATION_RETRY_INVALID",
         "--retry-after-attempt must be the exact helper UUID."
       );
     }
     if (retryAfterAttempt === null && transaction.phase !== "reported") {
-      fail12(
+      fail13(
         "PUBLICATION_RECOVERY_REQUIRED",
         "A pending publication must be recovered and explicitly resolved before retry.",
         { disposition: "outcome-unknown" }
       );
     }
     if (retryAfterAttempt !== null && transaction.phase === "reported") {
-      fail12(
+      fail13(
         "PUBLICATION_RETRY_UNEXPECTED",
         "--retry-after-attempt is not accepted for an ordinary reported transaction."
       );
@@ -21201,7 +21195,7 @@ async function publishWorkflow({
         status: "publication-report-incomplete",
         code: "PUBLICATION_RESULT_UNAVAILABLE",
         message: "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
-        transaction: resolve27(transactionPath),
+        transaction: resolve28(transactionPath),
         phase: "publication-pending",
         route: transaction.route,
         commitState: "created",
@@ -21326,7 +21320,7 @@ async function recoverPublicationOutcome({
   indexLockInspector
 }) {
   if (resolution !== null && resolution !== "confirmed-no-live-child") {
-    fail12(
+    fail13(
       "PUBLICATION_RESOLUTION_INVALID",
       "Publication recovery accepts only confirmed-no-live-child.",
       { disposition: "outcome-unknown" }
@@ -21340,7 +21334,7 @@ async function recoverPublicationOutcome({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail12(
+      fail13(
         "PUBLICATION_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         {
@@ -21354,7 +21348,7 @@ async function recoverPublicationOutcome({
   try {
     let transaction = readTransaction(transactionPath);
     if (transaction.phase !== "publication-pending") {
-      fail12(
+      fail13(
         "PUBLICATION_RECOVERY_NOT_REQUIRED",
         "Publication recovery requires the pending publication phase.",
         { disposition: "rejected" }
@@ -21443,7 +21437,7 @@ async function recoverPublicationOutcome({
           ...indexLockInspector ? { indexLockInspector } : {}
         });
       } catch (error) {
-        fail12(
+        fail13(
           "PUBLICATION_RESOLUTION_CONTRADICTED",
           "The child may still be live; the no-live-child confirmation cannot resolve this attempt.",
           { disposition: "outcome-unknown", cause: error }
@@ -21477,10 +21471,10 @@ function parseArguments6(argv) {
   const flags = parseCommandArguments("workflow publish", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail12("INVALID_FORMAT", "--format must be json or text.");
+    fail13("INVALID_FORMAT", "--format must be json or text.");
   for (const required of ["transaction", "remote", "destination"]) {
     if (!flags.get(required))
-      fail12("INVALID_ARGUMENT", `--${required} is required.`);
+      fail13("INVALID_ARGUMENT", `--${required} is required.`);
   }
   return {
     transactionPath: flags.get("transaction"),
@@ -21505,6 +21499,7 @@ async function runPublishCommand(argv, { stdout = process.stdout, stderr = proce
 var FULL_OID_PATTERN7, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES;
 var init_publishWorkflow = __esm({
   "src/committing-to-git/workflow/publishWorkflow.js"() {
+    init_stableFile();
     init_workflowDiagnosticError();
     init_diagnosticContract();
     init_commandExecution();
@@ -21530,7 +21525,7 @@ __export(recoverTransactionWorkflow_exports, {
   runCleanupTransactionCommand: () => runCleanupTransactionCommand,
   runRecoverTransactionCommand: () => runRecoverTransactionCommand
 });
-import { resolve as resolve28 } from "node:path";
+import { resolve as resolve29 } from "node:path";
 function invalid2(code, message) {
   throw new WorkflowDiagnosticError(code, message);
 }
@@ -21583,7 +21578,7 @@ async function recoverTransactionWorkflow({
         disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        transaction: resolve28(transactionPath),
+        transaction: resolve29(transactionPath),
         route: current.route,
         commitState: "created",
         publicationState: "not-requested",
@@ -21601,7 +21596,7 @@ async function recoverTransactionWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve28(transactionPath)
+                resolve29(transactionPath)
               ]
             }
           ]
@@ -21705,9 +21700,9 @@ __export(checkMessageWorkflow_exports, {
   runCheckMessageCommand: () => runCheckMessageCommand
 });
 import { createHash as createHash24 } from "node:crypto";
-import { resolve as resolve29 } from "node:path";
+import { resolve as resolve30 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
-function fail13(code, message, options) {
+function fail14(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
@@ -21718,12 +21713,12 @@ function decodeJson(bytes, label) {
   try {
     text = STRICT_UTF8_DECODER13.decode(bytes);
   } catch {
-    fail13("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail14("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail13("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
+    fail14("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
   }
 }
 function sameHeadAnchor(manifest, headAnchor) {
@@ -21735,22 +21730,22 @@ function sameHeadAnchor(manifest, headAnchor) {
 function readExactRecordedSnapshot(transactionPath) {
   const opened = readRecordedSnapshotFile(transactionPath);
   const { transaction, bytes } = opened;
-  const expectedPath = resolve29(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve29(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail13(
+  const expectedPath = resolve30(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve30(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail14(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
   if (sha25611(bytes) !== transaction.snapshot.sha256) {
-    fail13(
+    fail14(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve29(manifest.repositoryRoot) !== resolve29(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
-    fail13(
+  if (resolve30(manifest.repositoryRoot) !== resolve30(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
+    fail14(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -21768,7 +21763,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail13(
+    fail14(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -21788,7 +21783,7 @@ function checkedResult({
     status: "message-ready",
     phase: "message-ready",
     route,
-    transaction: resolve29(transactionPath),
+    transaction: resolve30(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     warnings: [
@@ -21836,10 +21831,10 @@ function assertCheckTransaction(transaction, transactionPath) {
   const receipt = transaction.review?.receipt;
   const extendedAllowed = transaction.route === "extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) && transaction.review.semanticStructureRequired === false && receipt?.requiredPacketsReviewed === true && receipt.catalogSha256 === transaction.review.catalogSha256 && receipt.evidencePlanSha256 === transaction.review.evidencePlanSha256;
   if (!conciseAllowed && !extendedAllowed || transaction.commit !== null) {
-    fail13(
+    fail14(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve29(transactionPath) } }
+      { details: { transaction: resolve30(transactionPath) } }
     );
   }
 }
@@ -21849,7 +21844,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail13("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail14("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -21903,14 +21898,14 @@ function checkMessageWorkflow({
 function parseMessageWorkflowArguments(argv, command) {
   const { values } = parseCommandArguments(`message ${command}`, argv);
   if (!values.has("transaction")) {
-    fail13(
+    fail14(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command}.`
     );
   }
   const format = values.get("format") ?? "json";
   if (!FORMATS2.has(format)) {
-    fail13("INVALID_FORMAT", "--format must be json or text.");
+    fail14("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -22424,16 +22419,10 @@ __export(finalizeMessageWorkflow_exports, {
   finalizeMessageWorkflow: () => finalizeMessageWorkflow,
   runFinalizeMessageCommand: () => runFinalizeMessageCommand
 });
-import {
-  existsSync as existsSync19,
-  lstatSync as lstatSync20,
-  readFileSync as readFileSync13,
-  realpathSync as realpathSync12,
-  writeFileSync as writeFileSync14
-} from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve30, sep as sep5 } from "node:path";
+import { lstatSync as lstatSync18, readFileSync as readFileSync9, realpathSync as realpathSync11 } from "node:fs";
+import { basename as basename3, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve31, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
-function fail14(code, message, options) {
+function fail15(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function decodeContent(bytes) {
@@ -22441,21 +22430,21 @@ function decodeContent(bytes) {
   try {
     text = STRICT_UTF8_DECODER14.decode(bytes);
   } catch {
-    fail14("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail15("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail14("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
+    fail15("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
       cause: error
     });
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve30(path);
+  const absolute = resolve31(path);
   const contained = relative11(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute12(contained)) {
-    fail14(
+    fail15(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -22464,15 +22453,15 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync20(absolute);
+  const stat = lstatSync18(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail14(
+    fail15(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
-  if (realpathSync12(absolute) !== absolute) {
-    fail14(
+  if (realpathSync11(absolute) !== absolute) {
+    fail15(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -22481,24 +22470,24 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail14(
+    fail15(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve30(transactionPath),
+          transaction: resolve31(transactionPath),
           route: transaction.route
         }
       }
     );
   }
   if (!(/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail14(
+    fail15(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve30(transactionPath),
+          transaction: resolve31(transactionPath),
           route: transaction.route
         }
       }
@@ -22506,7 +22495,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog2(transaction) {
-  const expectedReviewDirectory = resolve30(
+  const expectedReviewDirectory = resolve31(
     transaction.attemptDirectory,
     "review"
   );
@@ -22516,14 +22505,14 @@ function readCurrentCatalog2(transaction) {
     "Current review catalog"
   );
   if (relative11(expectedReviewDirectory, catalogPath).startsWith(`..${sep5}`) || isAbsolute12(relative11(expectedReviewDirectory, catalogPath))) {
-    fail14(
+    fail15(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail14(
+    fail15(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -22548,7 +22537,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   try {
     stored = JSON.parse(STRICT_UTF8_DECODER14.decode(opened.bytes));
   } catch (error) {
-    fail14("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
+    fail15("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
       cause: error
     });
   }
@@ -22557,7 +22546,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail14(
+    fail15(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
@@ -22579,20 +22568,20 @@ function receiptCoverage(transaction, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail14("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+    fail15("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
       cause: error
     });
   }
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail14("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail15("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       disposition: "unmet-prerequisite"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail14(
+    fail15(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { disposition: "unmet-prerequisite" }
@@ -22603,7 +22592,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail14(
+    fail15(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -22617,16 +22606,14 @@ function writeEvidencePlanRevision2(transaction, evidencePlan) {
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
-  const bytes = stableJsonBytes(evidencePlan);
-  if (existsSync19(path)) {
-    if (!readFileSync13(path).equals(bytes)) {
-      fail14(
-        "EVIDENCE_PLAN_COLLISION",
-        "An immutable evidence-plan revision has conflicting bytes."
-      );
-    }
-  } else {
-    writeFileSync14(path, bytes, { flag: "wx", mode: 384 });
+  try {
+    createOrVerifyFile(path, stableJsonBytes(evidencePlan));
+  } catch (error) {
+    fail15(
+      "EVIDENCE_PLAN_COLLISION",
+      "An immutable evidence-plan revision has conflicting or unsafe bytes.",
+      { cause: error }
+    );
   }
   return path;
 }
@@ -22698,7 +22685,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     status: "evidence-required",
     phase: "review-pending",
     route: "extended",
-    transaction: resolve30(transactionPath),
+    transaction: resolve31(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -22713,7 +22700,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
             "workflow",
             "review-next",
             "--transaction",
-            resolve30(transactionPath)
+            resolve31(transactionPath)
           ]
         }
       ]
@@ -22723,7 +22710,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
       canonical: false,
       evidenceDelta: {
         newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-        firstQueuePage: firstPage === null ? null : resolve30(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePage: firstPage === null ? null : resolve31(transaction.attemptDirectory, firstPage.artifact),
         firstQueuePageSha256: firstPage?.sha256 ?? null
       },
       displayText: null
@@ -22746,7 +22733,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     route: "extended",
     warnings: presentationDiagnostics(rendered.presentationWarnings),
-    transaction: resolve30(transactionPath),
+    transaction: resolve31(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -22768,7 +22755,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail14("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail15("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -22783,7 +22770,7 @@ async function finalizeMessageWorkflow({
   const content = decodeContent(opened.bytes);
   const structural = validateCompleteSemanticContent(content);
   if (!structural.valid) {
-    fail14(
+    fail15(
       "INVALID_MESSAGE_CONTENT",
       `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
       {
@@ -22795,14 +22782,14 @@ async function finalizeMessageWorkflow({
         recovery: {
           kind: "correct-input",
           automatic: false,
-          requiredInputs: [resolve30(transaction.attemptDirectory, CONTENT_NAME)],
+          requiredInputs: [resolve31(transaction.attemptDirectory, CONTENT_NAME)],
           commands: [
             {
               arguments: [
                 "message",
                 "finalize",
                 "--transaction",
-                resolve30(transactionPath)
+                resolve31(transactionPath)
               ]
             }
           ]
@@ -22811,7 +22798,7 @@ async function finalizeMessageWorkflow({
     );
   }
   if (content.mode !== transaction.review.structuredMessageMode) {
-    fail14(
+    fail15(
       "MESSAGE_PRESENTATION_MODE_MISMATCH",
       `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`
     );
@@ -22853,7 +22840,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync13(path)
+            empty ? Buffer.alloc(0) : readFileSync9(path)
           ])
         )
       };
@@ -22904,7 +22891,7 @@ async function finalizeMessageWorkflow({
     }
   } else {
     if (receipt?.requiredPacketsReviewed !== true || receipt.catalogSha256 !== currentCatalog.catalogSha256 || receipt.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail14(
+      fail15(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -22915,7 +22902,7 @@ async function finalizeMessageWorkflow({
         receipt
       });
     } catch (error) {
-      fail14("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+      fail15("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
         cause: error
       });
     }
@@ -22973,6 +22960,7 @@ async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {})
 var CONTENT_NAME, STRICT_UTF8_DECODER14;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
+    init_stableFile();
     init_transactionDiagnosticState();
     init_gitRepository();
     init_reviewCatalog();
@@ -23000,7 +22988,7 @@ init_commandExecution();
 init_diagnosticContract();
 import { fileURLToPath } from "node:url";
 import { createHash as createHash26 } from "node:crypto";
-import { readFileSync as readFileSync14, realpathSync as realpathSync13 } from "node:fs";
+import { readFileSync as readFileSync10, realpathSync as realpathSync12 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
     "workflow preflight",
@@ -23282,7 +23270,7 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest2 = createHash26("sha256").update(readFileSync14(new URL(import.meta.url))).digest("hex");
+    const digest2 = createHash26("sha256").update(readFileSync10(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({
@@ -23362,7 +23350,7 @@ function isMainModule() {
     return false;
   }
   try {
-    return realpathSync13.native(process.argv[1]) === realpathSync13.native(fileURLToPath(import.meta.url));
+    return realpathSync12.native(process.argv[1]) === realpathSync12.native(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

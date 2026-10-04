@@ -1,3 +1,4 @@
+import { readStableFile } from "../filesystem/stableFile.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createWorkflowResult,
@@ -131,18 +132,17 @@ export function acquireTransactionStateLock({
     descriptor = openLock();
   } catch (error) {
     if (error.code === "EEXIST") {
-      const stat = lstatSync(path);
       let owner;
 
       try {
-        owner = JSON.parse(readFileSync(path, "utf8"));
+        owner = JSON.parse(
+          readStableFile(path, 64 * 1024).bytes.toString("utf8"),
+        );
       } catch {
         owner = null;
       }
 
       const ownerValid =
-        !stat.isSymbolicLink() &&
-        stat.isFile() &&
         JSON.stringify(Object.keys(owner ?? {}).sort()) ===
           JSON.stringify(
             [
@@ -224,13 +224,9 @@ export function acquireTransactionStateLock({
 }
 
 export function releaseTransactionStateLock(lock) {
-  const stat = lstatSync(lock.path);
-
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error("Transaction-state lock was replaced.");
-  }
-
-  const recorded = JSON.parse(readFileSync(lock.path, "utf8"));
+  const recorded = JSON.parse(
+    readStableFile(lock.path, 64 * 1024).bytes.toString("utf8"),
+  );
 
   if (recorded.token !== lock.token || recorded.operation !== lock.operation) {
     throw new Error("Transaction-state lock ownership changed.");

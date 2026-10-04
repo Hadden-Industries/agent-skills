@@ -1603,7 +1603,7 @@ function initialTransaction(repositoryRoot, attemptDirectory) {
 function openReadOnlyNoFollow(path) {
   const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
 
-  return openSync(path, fsConstants.O_RDONLY + noFollow);
+  return openSync(path, fsConstants.O_RDONLY + noFollow, 0o600);
 }
 
 function fileIdentity(stat) {
@@ -1665,7 +1665,7 @@ function flushDirectory(path) {
     return;
   }
 
-  const fd = openSync(path, fsConstants.O_RDONLY);
+  const fd = openSync(path, fsConstants.O_RDONLY, 0o600);
 
   try {
     fsyncSync(fd);

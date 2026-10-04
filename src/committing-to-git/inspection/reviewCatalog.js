@@ -1,3 +1,4 @@
+import { readStableFile } from "../filesystem/stableFile.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import {
   EVIDENCE_POLICIES,
@@ -11,17 +12,13 @@ import {
 import { createHash } from "node:crypto";
 import {
   closeSync,
-  constants as fsConstants,
   createReadStream,
   existsSync,
-  fstatSync,
   fsyncSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   writeFileSync,
   unlinkSync,
 } from "node:fs";
@@ -1213,68 +1210,29 @@ function readVerifiedPacket(outputDirectory, packet) {
     );
   }
 
-  const initial = lstatSync(path);
-
-  if (
-    initial.isSymbolicLink() ||
-    !initial.isFile() ||
-    realpathSync(path) !== path
-  ) {
-    failPacket(
-      "REVIEW_PACKET_REPLACED",
-      `Review packet ${packet.id} is not a stable regular file.`,
-    );
-  }
-
   if (
     !Number.isSafeInteger(packet.byteCount) ||
     packet.byteCount < 1 ||
-    packet.byteCount > MAXIMUM_PACKET_BYTES ||
-    initial.size !== packet.byteCount
+    packet.byteCount > MAXIMUM_PACKET_BYTES
   ) {
     failPacket(
       "REVIEW_PACKET_CHANGED",
       `Review packet ${packet.id} has an unexpected byte count.`,
     );
   }
-
-  // O_NOFOLLOW closes the final-component link race on POSIX. Windows does
-  // not expose that flag through Node, so the stable file and path identities
-  // before and after the descriptor read provide the equivalent fail-closed
-  // check available to this cross-platform helper.
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  // Node exposes open(2) flags as integer constants, so bitwise composition is
-  // the API-prescribed way to request both read-only and no-follow semantics.
-  // eslint-disable-next-line no-bitwise
-  const descriptor = openSync(path, fsConstants.O_RDONLY | noFollow);
   let bytes;
-
   try {
-    const before = fstatSync(descriptor);
-    bytes = readFileSync(descriptor);
-    const after = fstatSync(descriptor);
-    const final = lstatSync(path);
-
-    if (
-      !before.isFile() ||
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
-      before.size !== after.size ||
-      after.dev !== final.dev ||
-      after.ino !== final.ino ||
-      after.size !== final.size ||
-      final.isSymbolicLink() ||
-      realpathSync(path) !== path
-    ) {
-      failPacket(
-        "REVIEW_PACKET_CHANGED",
-        `Review packet ${packet.id} changed while it was read.`,
-      );
-    }
-  } finally {
-    closeSync(descriptor);
+    bytes = readStableFile(path, packet.byteCount, {
+      rejectLinkedAncestors: true,
+    }).bytes;
+  } catch (error) {
+    failPacket(
+      ["FILE_NOT_REGULAR", "ELOOP"].includes(error.code)
+        ? "REVIEW_PACKET_REPLACED"
+        : "REVIEW_PACKET_CHANGED",
+      `Review packet ${packet.id} is not a stable bounded regular file.`,
+    );
   }
-
   const actual = sha256Bytes(bytes);
 
   if (bytes.length !== packet.byteCount || actual !== packet.sha256) {
