@@ -136,7 +136,14 @@ async function executionFixture(
     if (scenario === "shutdown-ambiguous") {
       await releaseStdio(join(root, "invocations.jsonl"));
     }
-    await rm(root, { recursive: true, force: true });
+    // The holder's last write can precede release of its Windows cwd handle.
+    // Bound cleanup retries; adapter closure assertions remain unchanged.
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
   const recordFile = join(root, "invocations.jsonl");
   const workingDirectory = join(root, "working");
