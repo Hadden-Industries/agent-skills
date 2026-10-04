@@ -6,6 +6,7 @@ import {
 } from "../git/gitRepository.js";
 import { inspectSignatureRequirements } from "../signature/signaturePreflight.js";
 import { inspectGitHubPolicy, githubApi } from "./githubPolicy.js";
+import { GitHubProbeError } from "./githubProbe.js";
 import {
   commandFailure,
   PublicationCommandError,
@@ -263,6 +264,7 @@ export function inspectPublicationFeasibility({
       return {
         ...stop("unknown", assessment.reason),
         ...assessment,
+        probes: [...(result.probes ?? []), ...transportProbes(assessment)],
         nextAction: "resolve-required-transport-evidence",
       };
     }
@@ -275,25 +277,29 @@ export function inspectPublicationFeasibility({
         "blocked",
         "The PR source branch must differ from the target branch.",
       );
-    if (result.route) {
-      result.prerequisites.push(
-        "Verify signing-key availability and the expected signer during the signed commit workflow. API identity and permissions are not Git transport identity or permissions.",
-      );
-      result.prerequisites.push(
-        "Check selected scope, outgoing ancestry and target freshness before publication; this preflight does not authorize mutations or prove a future push will succeed.",
-      );
-      result.status = "viable-with-prerequisites";
-    }
+    // Payload verification applies to every viable route; it is not missing policy.
+    // Preserve a direct route's viable classification when its probes are definitive.
+    const unresolved = result.probes?.find(
+      (entry) =>
+        entry.required !== false &&
+        !["observed", "not-available"].includes(entry.classification),
+    );
+    const probes = [...(result.probes ?? []), ...transportProbes(assessment)];
     return {
       ...result,
       ...assessment,
+      probes,
       discoveryEvidence: retainedEvidence,
       discoveryReused: Boolean(reused),
       nextAction: result.commandFailure
         ? "resolve-command-prerequisite"
-        : result.route
-          ? "verify-publication-payload"
-          : "resolve-route-prerequisite",
+        : unresolved?.classification === "transient"
+          ? "retry-preflight-after-provider-recovery"
+          : unresolved
+            ? "resolve-named-probe"
+            : result.route
+              ? "verify-publication-payload"
+              : "resolve-route-prerequisite",
       remote,
       sourceBranch: sourceBranch ?? null,
       localSignatureBackend: signature.backend,
@@ -301,6 +307,7 @@ export function inspectPublicationFeasibility({
         ? {
             eligible: true,
             scope: "current-task",
+            probes,
             binding: {
               repositoryRoot: root,
               repository: result.repository,
@@ -329,6 +336,18 @@ export function inspectPublicationFeasibility({
         : result.reasons.join(" "),
     };
   } catch (error) {
+    if (error instanceof GitHubProbeError)
+      return {
+        ...stop(
+          "unknown",
+          `api-actor-refresh: ${error.outcome.code}. ${error.outcome.reason}`,
+        ),
+        probes: [{ probe: "api-actor-refresh", ...error.outcome }],
+        nextAction:
+          error.outcome.classification === "transient"
+            ? "retry-preflight-after-provider-recovery"
+            : "resolve-named-probe",
+      };
     return {
       ...stop(
         "unknown",
@@ -338,4 +357,38 @@ export function inspectPublicationFeasibility({
       nextAction: "resolve-command-prerequisite",
     };
   }
+}
+
+/** Supplementary identity/permission observations retain their existing requiredness. */
+function transportProbes(assessment) {
+  return [
+    {
+      probe: "transport-identity",
+      established: assessment.transportIdentity.state === "established",
+      outcome: assessment.transportIdentity.probeOutcome,
+    },
+    {
+      probe: "transport-permissions",
+      established: assessment.transportPermissions.state === "established",
+      outcome: assessment.transportPermissions.probeOutcome,
+    },
+  ].map(({ probe, established, outcome }) => ({
+    probe,
+    classification:
+      outcome?.classification ?? (established ? "observed" : "inaccessible"),
+    code:
+      outcome?.code ??
+      (established
+        ? "TRANSPORT_PROBE_OBSERVED"
+        : "TRANSPORT_EVIDENCE_UNAVAILABLE"),
+    reason: established
+      ? "Native transport observation established."
+      : "Native transport evidence is unavailable or ambiguous.",
+    resolution: assessment.transportIdentity.required
+      ? "Resolve the explicit actor constraint or restriction using approved native transport evidence."
+      : "Retain this supplementary evidence limit without retrying a denied probe.",
+    required:
+      probe === "transport-identity" && assessment.transportIdentity.required,
+    httpStatus: outcome?.httpStatus ?? null,
+  }));
 }

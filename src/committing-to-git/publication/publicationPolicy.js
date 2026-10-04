@@ -1,3 +1,37 @@
+const KNOWN_RULE_TYPES = new Set([
+  "creation",
+  "update",
+  "deletion",
+  "required_linear_history",
+  "required_signatures",
+  "pull_request",
+  "required_status_checks",
+  "non_fast_forward",
+  "merge_queue",
+  "required_deployments",
+  "code_scanning",
+  "workflows",
+  "code_quality",
+  "commit_message_pattern",
+  "commit_author_email_pattern",
+  "committer_email_pattern",
+  "branch_name_pattern",
+  "file_path_restriction",
+  "max_file_path_length",
+  "file_extension_restriction",
+  "max_file_size",
+]);
+
+/** A recognized rule type is required before the collector can call policy complete. */
+export function isSupportedPublicationRule(rule) {
+  return (
+    rule !== null &&
+    typeof rule === "object" &&
+    !Array.isArray(rule) &&
+    KNOWN_RULE_TYPES.has(rule.type)
+  );
+}
+
 /** Select a delivery route from complete provider observations, never from bypass privileges. */
 export function selectPublicationRoute({
   repository,
@@ -36,35 +70,9 @@ export function selectPublicationRoute({
     );
   if (![targetRules, sourceRules, pushRules].every(Array.isArray))
     return stop("unknown", "Complete active policy is unavailable.");
-  const knownRules = new Set([
-    "creation",
-    "update",
-    "deletion",
-    "required_linear_history",
-    "required_signatures",
-    "pull_request",
-    "required_status_checks",
-    "non_fast_forward",
-    "merge_queue",
-    "required_deployments",
-    "code_scanning",
-    "workflows",
-    "code_quality",
-    "commit_message_pattern",
-    "commit_author_email_pattern",
-    "committer_email_pattern",
-    "branch_name_pattern",
-    "file_path_restriction",
-    "max_file_path_length",
-    "file_extension_restriction",
-    "max_file_size",
-  ]);
   for (const rule of [...targetRules, ...sourceRules, ...pushRules]) {
-    if (!rule || !knownRules.has(rule.type))
-      return stop(
-        "unknown",
-        `Unsupported active rule: ${rule?.type ?? "invalid rule"}.`,
-      );
+    if (!isSupportedPublicationRule(rule))
+      return stop("unknown", "Unsupported active rule type or malformed rule.");
   }
   if (
     protection?.lock_branch?.enabled ||
@@ -206,7 +214,9 @@ export function selectPublicationRoute({
     methods.delete("merge");
   if (queues.length) {
     const queueMethods = queues.map((rule) =>
-      rule.parameters?.merge_method?.toLowerCase(),
+      typeof rule.parameters?.merge_method === "string"
+        ? rule.parameters.merge_method.toLowerCase()
+        : null,
     );
     if (
       queueMethods.some(

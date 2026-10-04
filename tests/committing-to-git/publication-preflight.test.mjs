@@ -5,7 +5,10 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { selectPublicationRoute } from "../../src/committing-to-git/publication/publicationPolicy.js";
-import { inspectGitHubPolicy } from "../../src/committing-to-git/publication/githubPolicy.js";
+import {
+  githubApi,
+  inspectGitHubPolicy,
+} from "../../src/committing-to-git/publication/githubPolicy.js";
 import {
   githubRemoteIdentity,
   inspectPublicationFeasibility as inspectNativePublicationFeasibility,
@@ -321,6 +324,486 @@ function apiFixture(overrides = {}) {
     return responses[endpoint];
   };
 }
+
+// Native gh responses are the external boundary; the collector and route stay real.
+function planUnavailable(endpoint) {
+  try {
+    githubApi(endpoint, {}, () => ({
+      status: 1,
+      stdout: `HTTP/2.0 403 Forbidden\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(
+        {
+          message:
+            "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+          documentation_url:
+            "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch",
+          status: "403",
+        },
+      )}`,
+      stderr: "gh: Upgrade to GitHub Pro (HTTP 403)",
+    }));
+  } catch (error) {
+    return error;
+  }
+  assert.fail("The native response must carry its classified outcome");
+}
+
+test("plan-gated rules are definitive evidence for an unprotected direct route", () => {
+  const result = inspectGitHubPolicy({
+    owner: "owner",
+    repository: "project",
+    api: apiFixture({
+      "repos/owner/project/branches/main": {
+        protected: false,
+        commit: { sha: "a".repeat(40) },
+      },
+      "repos/owner/project/rules/branches/main?per_page=100&page=1":
+        planUnavailable("repos/owner/project/rules/branches/main"),
+      graphql: {
+        data: {
+          repository: {
+            branchProtectionRules: {
+              nodes: [],
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        },
+      },
+    }),
+  });
+  assert.equal(result.status, "viable", JSON.stringify(result));
+  assert.equal(result.route, "direct");
+  assert.equal(
+    result.probes.find(({ probe }) => probe === "target-rules").classification,
+    "not-available",
+  );
+  assert.equal(
+    result.probes.find(({ probe }) => probe === "target-rules").code,
+    "GITHUB_FEATURE_NOT_AVAILABLE",
+  );
+});
+
+function nativeError(
+  endpoint,
+  {
+    status = 403,
+    body = { message: "Resource not accessible by integration" },
+    headers = "",
+    error,
+    exitCode,
+  } = {},
+) {
+  try {
+    githubApi(endpoint, {}, () => ({
+      status: exitCode ?? (error ? null : status >= 400 ? 1 : 0),
+      error,
+      stdout: `HTTP/2.0 ${status} Response\r\nContent-Type: application/json\r\n${headers}\r\n${typeof body === "string" ? body : JSON.stringify(body)}`,
+      stderr: "secret-provider-output https://token@provider.invalid/",
+    }));
+  } catch (caught) {
+    return caught;
+  }
+  assert.fail("Expected an unresolved native observation");
+}
+
+// Each issued endpoint is tested through native classification and real routing.
+// Source and push fixtures establish that the collector actually reaches those probes.
+const probeEndpoints = [
+  ["api-actor", "user"],
+  ["repository", "repos/owner/project"],
+  ["target-branch", "repos/owner/project/branches/main"],
+  [
+    "target-rules",
+    "repos/owner/project/rules/branches/main?per_page=100&page=1",
+  ],
+  ["classic-protection-inventory", "graphql"],
+  ["target-classic-protection", "repos/owner/project/branches/main/protection"],
+  [
+    "push-ruleset-inventory",
+    "repos/owner/project/rulesets?includes_parents=true&per_page=100&page=1",
+  ],
+  ["push-ruleset-7", "repos/owner/project/rulesets/7"],
+  [
+    "source-rules",
+    "repos/owner/project/rules/branches/delivery%2Fchange?per_page=100&page=1",
+  ],
+  [
+    "source-classic-protection",
+    "repos/owner/project/branches/delivery%2Fchange/protection",
+  ],
+];
+
+for (const [probeName, endpoint] of probeEndpoints) {
+  for (const [scenario, response, classification, code] of [
+    ["permission denial", {}, "inaccessible", "GITHUB_POLICY_FORBIDDEN"],
+    [
+      "ambiguous 404",
+      { status: 404 },
+      "inaccessible",
+      "GITHUB_POLICY_NOT_FOUND_OR_HIDDEN",
+    ],
+    [
+      "authentication",
+      { status: 401 },
+      "inaccessible",
+      "GITHUB_AUTHENTICATION_REQUIRED",
+    ],
+    [
+      "SSO enforcement",
+      {
+        headers:
+          "X-GitHub-SSO: required; url=https://github.com/orgs/owner/sso\r\n",
+      },
+      "inaccessible",
+      "GITHUB_POLICY_FORBIDDEN",
+    ],
+    [
+      "rate limit",
+      { headers: "X-RateLimit-Remaining: 0\r\n" },
+      "transient",
+      "GITHUB_RATE_LIMITED",
+    ],
+    [
+      "secondary rate limit",
+      { status: 429 },
+      "transient",
+      "GITHUB_RATE_LIMITED",
+    ],
+    [
+      "service failure",
+      { status: 503, body: "not JSON" },
+      "transient",
+      "GITHUB_SERVICE_UNAVAILABLE",
+    ],
+    [
+      "timeout",
+      { error: { code: "ETIMEDOUT" } },
+      "transient",
+      "GITHUB_NETWORK_FAILURE",
+    ],
+    [
+      "malformed JSON",
+      { status: 200, body: "{" },
+      "incomplete",
+      "GITHUB_RESPONSE_INCOMPLETE",
+    ],
+    [
+      "bounded output",
+      { error: { code: "ENOBUFS" } },
+      "incomplete",
+      "GITHUB_RESPONSE_LIMIT",
+    ],
+  ]) {
+    test(`${probeName} classifies ${scenario} without clearing unreadable policy`, () => {
+      const result = inspectGitHubPolicy({
+        owner: "owner",
+        repository: "project",
+        sourceBranch: "delivery/change",
+        api: apiFixture({
+          graphql: {
+            data: {
+              repository: {
+                branchProtectionRules: {
+                  nodes: [{ pattern: "main" }, { pattern: "delivery/change" }],
+                  pageInfo: { hasNextPage: false },
+                },
+              },
+            },
+          },
+          "repos/owner/project/rulesets?includes_parents=true&per_page=100&page=1":
+            [{ id: 7, target: "push", enforcement: "active" }],
+          "repos/owner/project/rulesets/7": {
+            target: "push",
+            enforcement: "active",
+            rules: [],
+          },
+          "repos/owner/project/branches/delivery%2Fchange/protection": {
+            allow_force_pushes: { enabled: false },
+          },
+          [endpoint]: nativeError(endpoint, response),
+        }),
+      });
+      assert.equal(result.status, "unknown");
+      assert.equal(result.route, null);
+      const outcome = result.probes.find(({ probe }) => probe === probeName);
+      assert.ok(outcome, JSON.stringify(result));
+      assert.equal(outcome.classification, classification);
+      assert.equal(outcome.code, code);
+      assert.ok(outcome.resolution);
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /secret-provider-output|token@|query failed/,
+      );
+    });
+  }
+}
+
+test("plan absence is bound to its exact endpoint, status, message and documentation", () => {
+  const plan = {
+    message:
+      "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+    documentation_url:
+      "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch",
+  };
+  for (const [endpoint, response, expected] of [
+    [
+      "repos/owner/project/rules/branches/main",
+      { body: plan },
+      "not-available",
+    ],
+    ["repos/owner/project/rulesets", { body: plan }, "not-available"],
+    [
+      "repos/owner/project/rules/branches/main",
+      { status: 404, body: plan },
+      "inaccessible",
+    ],
+    [
+      "repos/owner/project/rules/branches/main",
+      { body: { ...plan, message: "Upgrade required" } },
+      "inaccessible",
+    ],
+    [
+      "repos/owner/project/rules/branches/main",
+      {
+        body: {
+          ...plan,
+          documentation_url: "https://evil.invalid/rest/repos/rules",
+        },
+      },
+      "inaccessible",
+    ],
+    [
+      "repos/owner/project/rules/branches/main",
+      { body: plan, headers: "Retry-After: 60\r\n" },
+      "transient",
+    ],
+    [
+      "repos/owner/project/branches/main/protection",
+      { body: plan },
+      "inaccessible",
+    ],
+    ["repos/owner/project/rulesets/7", { body: plan }, "inaccessible"],
+    ["user", { body: plan }, "inaccessible"],
+  ])
+    assert.equal(
+      nativeError(endpoint, response).outcome.classification,
+      expected,
+    );
+});
+
+test("malformed bodies and unrecognized rules name the exact incomplete probe", () => {
+  for (const [probeName, endpoint, body] of [
+    ["api-actor", "user", { login: null }],
+    ["repository", "repos/owner/project", {}],
+    [
+      "repository-merge-methods",
+      "repos/owner/project",
+      {
+        ...policy().repository,
+        default_branch: "main",
+        allow_merge_commit: "yes",
+      },
+    ],
+    [
+      "target-branch",
+      "repos/owner/project/branches/main",
+      { protected: true, commit: { sha: "a".repeat(41) } },
+    ],
+    [
+      "target-rules",
+      "repos/owner/project/rules/branches/main?per_page=100&page=1",
+      [{ type: "future_rule" }],
+    ],
+    [
+      "target-rules",
+      "repos/owner/project/rules/branches/main?per_page=100&page=1",
+      [
+        {
+          type: "pull_request",
+          parameters: { allowed_merge_methods: ["future_method"] },
+        },
+      ],
+    ],
+    [
+      "classic-protection-inventory",
+      "graphql",
+      {
+        data: {
+          repository: {
+            branchProtectionRules: {
+              nodes: [],
+              pageInfo: { hasNextPage: true },
+            },
+          },
+        },
+      },
+    ],
+    [
+      "target-classic-protection",
+      "repos/owner/project/branches/main/protection",
+      {},
+    ],
+    [
+      "push-ruleset-inventory",
+      "repos/owner/project/rulesets?includes_parents=true&per_page=100&page=1",
+      [{ id: 7, enforcement: "future", target: "push" }],
+    ],
+  ]) {
+    const result = inspectGitHubPolicy({
+      owner: "owner",
+      repository: "project",
+      api: apiFixture({ [endpoint]: body }),
+    });
+    assert.equal(result.status, "unknown", probeName);
+    assert.equal(result.probes.at(-1).probe, probeName);
+    assert.equal(result.probes.at(-1).classification, "incomplete");
+  }
+});
+
+test("truncated pagination and changing feature availability cannot erase earlier rules", () => {
+  const endpoint = "repos/owner/project/rules/branches/main";
+  for (const changed of [false, true]) {
+    const result = inspectGitHubPolicy({
+      owner: "owner",
+      repository: "project",
+      api: (path) => {
+        if (path.startsWith(endpoint)) {
+          if (changed && path.endsWith("page=2"))
+            throw planUnavailable(endpoint);
+          return Array.from({ length: 100 }, () => ({
+            type: "non_fast_forward",
+          }));
+        }
+        return apiFixture()(path);
+      },
+    });
+    assert.equal(result.status, "unknown");
+    assert.equal(result.probes.at(-1).probe, "target-rules");
+    assert.equal(result.probes.at(-1).code, "GITHUB_PAGINATION_INCOMPLETE");
+  }
+});
+
+test("GraphQL partial results retain access and transient classifications", () => {
+  for (const [type, expected] of [
+    ["FORBIDDEN", "inaccessible"],
+    ["NOT_FOUND", "inaccessible"],
+    ["RATE_LIMITED", "transient"],
+    ["UNKNOWN", "incomplete"],
+  ]) {
+    const error = nativeError("graphql", {
+      status: 200,
+      exitCode: 1,
+      body: {
+        data: { repository: {} },
+        errors: [{ type, message: "secret-provider-output" }],
+      },
+    });
+    assert.equal(error.outcome.classification, expected);
+    assert.doesNotMatch(
+      JSON.stringify(error.outcome),
+      /secret-provider-output/,
+    );
+  }
+});
+
+test("gh authentication-required exit names access resolution without a provider response", () => {
+  let response;
+  try {
+    githubApi("user", {}, () => ({
+      status: 4,
+      stdout: "",
+      stderr: "secret-provider-output",
+    }));
+  } catch (error) {
+    response = error;
+  }
+  assert.equal(response?.outcome?.classification, "inaccessible");
+  assert.equal(response.outcome.code, "GITHUB_AUTHENTICATION_REQUIRED");
+});
+
+test("source rules cannot contradict a target ruleset plan-absence observation", () => {
+  const result = inspectGitHubPolicy({
+    owner: "owner",
+    repository: "project",
+    sourceBranch: "delivery/change",
+    api: apiFixture({
+      "repos/owner/project/rules/branches/main?per_page=100&page=1":
+        planUnavailable("repos/owner/project/rules/branches/main"),
+      "repos/owner/project/rules/branches/delivery%2Fchange?per_page=100&page=1":
+        [{ type: "required_signatures" }],
+    }),
+  });
+  assert.equal(result.status, "unknown", JSON.stringify(result));
+  assert.equal(result.probes.at(-1).probe, "ruleset-consistency");
+  assert.equal(result.probes.at(-1).classification, "incomplete");
+});
+
+test("native successful responses with empty headers and CLI failures stay bounded", () => {
+  for (const newline of ["\r\n", "\n"]) {
+    assert.deepEqual(
+      githubApi("user", {}, () => ({
+        status: 0,
+        stdout: `HTTP/2.0 200 OK${newline}${newline}{"login":"owner"}`,
+      })),
+      { login: "owner" },
+    );
+  }
+  for (const [error, expected] of [
+    [{ code: "ENOENT" }, "inaccessible"],
+    [{ code: "ECONNRESET" }, "transient"],
+  ])
+    assert.equal(
+      nativeError("user", { error }).outcome.classification,
+      expected,
+    );
+});
+
+test("unprotected plan-gated feasibility stays viable and retains publication handoff outcomes", (t) => {
+  const fixture = createRepositoryFixture(t);
+  git(["config", "gpg.format", "openpgp"], fixture.repo);
+  git(
+    ["remote", "add", "origin", "https://github.com/owner/project.git"],
+    fixture.repo,
+  );
+  const result = inspectPublicationFeasibility({
+    cwd: fixture.repo,
+    remote: "origin",
+    taskId: "plan-fixture",
+    api: apiFixture({
+      "repos/owner/project/branches/main": {
+        protected: false,
+        commit: { sha: "a".repeat(40) },
+      },
+      "repos/owner/project/rules/branches/main?per_page=100&page=1":
+        planUnavailable("repos/owner/project/rules/branches/main"),
+      "repos/owner/project/rulesets?includes_parents=true&per_page=100&page=1":
+        planUnavailable("repos/owner/project/rulesets"),
+      graphql: {
+        data: {
+          repository: {
+            branchProtectionRules: {
+              nodes: [],
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        },
+      },
+    }),
+    observeContext: () => ({ supported: true, fingerprint: "b".repeat(64) }),
+  });
+  assert.equal(result.status, "viable", JSON.stringify(result));
+  assert.equal(result.nextAction, "verify-publication-payload");
+  assert.ok(
+    result.probes.some(
+      ({ classification }) => classification === "not-available",
+    ),
+  );
+  assert.deepEqual(result.discoveryReuse.probes, result.probes);
+  assert.ok(
+    result.discoveryEvidence.provider.probes.some(
+      ({ classification }) => classification === "not-available",
+    ),
+  );
+});
 
 test("GitHub discovery combines classic protection with an empty rules response", () => {
   const result = inspectGitHubPolicy({

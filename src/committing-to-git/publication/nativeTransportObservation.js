@@ -7,6 +7,11 @@ import {
   commandFailure,
 } from "./publicationCommands.js";
 import { projectTransportObservation } from "./transportIdentity.js";
+import {
+  GitHubProbeError,
+  incompleteProbe,
+  parseGitHubResponse,
+} from "./githubProbe.js";
 
 /** Fixed-host, bounded read; no redirects, token logging, or provider error bodies. */
 function githubGet(endpoint, credential) {
@@ -28,26 +33,67 @@ function githubGet(endpoint, credential) {
         response.on("data", (chunk) => {
           body += chunk;
           if (Buffer.byteLength(body) > 256 * 1024)
-            req.destroy(new Error("Observation limit exceeded."));
+            req.destroy(
+              incompleteProbe(
+                "Transport response exceeded its byte limit.",
+                "GITHUB_RESPONSE_LIMIT",
+              ),
+            );
         });
         response.on("end", () => {
-          if (response.statusCode !== 200)
-            return reject(new Error("Identity read unavailable."));
           try {
-            resolve(JSON.parse(body));
-          } catch {
-            reject(new Error("Identity response unavailable."));
+            // Share policy's taxonomy without exposing credential-bearing bodies.
+            const headers = ["x-ratelimit-remaining", "retry-after"]
+              .filter((key) => response.headers[key] !== undefined)
+              .map((key) => `${key}: ${response.headers[key]}\r\n`)
+              .join("");
+            resolve(
+              parseGitHubResponse(
+                {
+                  status: response.statusCode === 200 ? 0 : 1,
+                  stdout: `HTTP/1.1 ${response.statusCode} Response\r\n${headers}\r\n${body}`,
+                },
+                endpoint,
+              ),
+            );
+          } catch (error) {
+            reject(error);
           }
         });
         response.on("error", () =>
-          reject(new Error("Identity read unavailable.")),
+          reject(
+            new GitHubProbeError(
+              "transient",
+              "GITHUB_NETWORK_FAILURE",
+              "Transport response was interrupted.",
+              "Repeat preflight after network recovery.",
+            ),
+          ),
         );
       },
     );
     req.setTimeout(10000, () =>
-      req.destroy(new Error("Identity read timed out.")),
+      req.destroy(
+        new GitHubProbeError(
+          "transient",
+          "GITHUB_NETWORK_FAILURE",
+          "Transport observation timed out.",
+          "Repeat preflight after network recovery.",
+        ),
+      ),
     );
-    req.on("error", () => reject(new Error("Identity read unavailable.")));
+    req.on("error", (error) =>
+      reject(
+        error instanceof GitHubProbeError
+          ? error
+          : new GitHubProbeError(
+              "transient",
+              "GITHUB_NETWORK_FAILURE",
+              "Transport connection failed.",
+              "Repeat preflight after network recovery.",
+            ),
+      ),
+    );
     req.end();
   });
 }
@@ -163,10 +209,11 @@ export async function observeNativeTransport(
     githubGet: get = githubGet,
   } = {},
 ) {
-  const unavailable = (reason, failure = null) => ({
+  const unavailable = (reason, failure = null, outcome = null) => ({
     state: "unavailable",
     reason,
     commandFailure: failure,
+    ...(outcome ? { probeOutcome: outcome } : {}),
   });
   try {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(binding?.repository ?? ""))
@@ -259,8 +306,10 @@ export async function observeNativeTransport(
           state: "established",
           canPush: repository.permissions.push,
         };
-    } catch {
+    } catch (error) {
       /* Identity can remain established when permission metadata is unavailable. */
+      if (error instanceof GitHubProbeError)
+        permissions.probeOutcome = error.outcome;
     }
     return projectTransportObservation({
       state: "established",
@@ -269,6 +318,10 @@ export async function observeNativeTransport(
       permissions,
     });
   } catch (error) {
-    return unavailable("native-observation-failed", commandFailure(error));
+    return unavailable(
+      "native-observation-failed",
+      commandFailure(error),
+      error instanceof GitHubProbeError ? error.outcome : null,
+    );
   }
 }

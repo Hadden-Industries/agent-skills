@@ -2031,6 +2031,9 @@ var init_signaturePreflight = __esm({
 });
 
 // src/committing-to-git/publication/publicationPolicy.js
+function isSupportedPublicationRule(rule) {
+  return rule !== null && typeof rule === "object" && !Array.isArray(rule) && KNOWN_RULE_TYPES.has(rule.type);
+}
 function selectPublicationRoute({
   repository,
   protection,
@@ -2061,35 +2064,9 @@ function selectPublicationRoute({
     );
   if (![targetRules, sourceRules, pushRules].every(Array.isArray))
     return stop("unknown", "Complete active policy is unavailable.");
-  const knownRules = /* @__PURE__ */ new Set([
-    "creation",
-    "update",
-    "deletion",
-    "required_linear_history",
-    "required_signatures",
-    "pull_request",
-    "required_status_checks",
-    "non_fast_forward",
-    "merge_queue",
-    "required_deployments",
-    "code_scanning",
-    "workflows",
-    "code_quality",
-    "commit_message_pattern",
-    "commit_author_email_pattern",
-    "committer_email_pattern",
-    "branch_name_pattern",
-    "file_path_restriction",
-    "max_file_path_length",
-    "file_extension_restriction",
-    "max_file_size"
-  ]);
   for (const rule of [...targetRules, ...sourceRules, ...pushRules]) {
-    if (!rule || !knownRules.has(rule.type))
-      return stop(
-        "unknown",
-        `Unsupported active rule: ${rule?.type ?? "invalid rule"}.`
-      );
+    if (!isSupportedPublicationRule(rule))
+      return stop("unknown", "Unsupported active rule type or malformed rule.");
   }
   if (protection?.lock_branch?.enabled || targetRules.some((rule) => rule.type === "update"))
     return stop(
@@ -2195,7 +2172,7 @@ function selectPublicationRoute({
     methods.delete("merge");
   if (queues.length) {
     const queueMethods = queues.map(
-      (rule) => rule.parameters?.merge_method?.toLowerCase()
+      (rule) => typeof rule.parameters?.merge_method === "string" ? rule.parameters.merge_method.toLowerCase() : null
     );
     if (queueMethods.some(
       (method2) => !["merge", "squash", "rebase"].includes(method2)
@@ -2233,8 +2210,32 @@ function selectPublicationRoute({
     signatureEffect: method === "merge" ? "Original signed commits remain ancestors; verify the separate integration commit and its signer." : "Squash creates a new commit and SHA signed by GitHub; source signatures do not transfer. Disclose this before approval."
   };
 }
+var KNOWN_RULE_TYPES;
 var init_publicationPolicy = __esm({
   "src/committing-to-git/publication/publicationPolicy.js"() {
+    KNOWN_RULE_TYPES = /* @__PURE__ */ new Set([
+      "creation",
+      "update",
+      "deletion",
+      "required_linear_history",
+      "required_signatures",
+      "pull_request",
+      "required_status_checks",
+      "non_fast_forward",
+      "merge_queue",
+      "required_deployments",
+      "code_scanning",
+      "workflows",
+      "code_quality",
+      "commit_message_pattern",
+      "commit_author_email_pattern",
+      "committer_email_pattern",
+      "branch_name_pattern",
+      "file_path_restriction",
+      "max_file_path_length",
+      "file_extension_restriction",
+      "max_file_size"
+    ]);
   }
 });
 
@@ -2337,11 +2338,162 @@ var init_publicationCommands = __esm({
   }
 });
 
+// src/committing-to-git/publication/githubProbe.js
+function incompleteProbe(reason, code = "GITHUB_RESPONSE_INCOMPLETE") {
+  return new GitHubProbeError(
+    "incomplete",
+    code,
+    reason,
+    "Repeat workflow preflight after the provider returns a complete supported response."
+  );
+}
+function parseGitHubResponse(result, endpoint) {
+  if (result.error) {
+    const code = result.error.code;
+    if (code === "ENOBUFS")
+      throw incompleteProbe(
+        "Provider response exceeded the observation byte limit.",
+        "GITHUB_RESPONSE_LIMIT"
+      );
+    if (code === "ENOENT" || code === "EACCES")
+      throw new GitHubProbeError(
+        "inaccessible",
+        "GITHUB_COMMAND_UNAVAILABLE",
+        "GitHub CLI could not be launched.",
+        "Restore the approved GitHub CLI executable, then repeat workflow preflight."
+      );
+    throw new GitHubProbeError(
+      "transient",
+      "GITHUB_NETWORK_FAILURE",
+      "Provider observation timed out or failed before a complete response.",
+      "Check provider/network availability, then repeat workflow preflight; do not publish to test access."
+    );
+  }
+  const match = /^HTTP\/\S+ (\d{3})[^\r\n]*\r?\n((?:[^\r\n]+\r?\n)*)\r?\n([\s\S]*)$/u.exec(
+    result.stdout ?? ""
+  );
+  if (!match) {
+    if (result.status === 4)
+      throw new GitHubProbeError(
+        "inaccessible",
+        "GITHUB_AUTHENTICATION_REQUIRED",
+        "GitHub CLI requires authentication before this observation.",
+        "Restore the approved CLI authentication, then repeat workflow preflight."
+      );
+    if (result.status !== 0)
+      throw new GitHubProbeError(
+        "transient",
+        "GITHUB_RESPONSE_UNAVAILABLE",
+        "GitHub CLI returned no complete HTTP response.",
+        "Check CLI authentication and network availability, then repeat workflow preflight."
+      );
+    throw incompleteProbe(
+      "GitHub CLI response is missing HTTP status and headers."
+    );
+  }
+  const status = Number(match[1]);
+  const headers = new Map(
+    match[2].split(/\r?\n/u).map((line) => {
+      const separator = line.indexOf(":");
+      return [
+        line.slice(0, separator).trim().toLowerCase(),
+        line.slice(separator + 1).trim()
+      ];
+    })
+  );
+  let body;
+  try {
+    body = JSON.parse(match[3]);
+  } catch {
+    if (status >= 200 && status < 300)
+      throw incompleteProbe("Provider response is not valid JSON.");
+  }
+  const transient = status === 408 || status === 429 || status >= 500 || status === 403 && (headers.get("x-ratelimit-remaining") === "0" || headers.has("retry-after") || /^(?:API rate limit exceeded|You have exceeded a (?:secondary )?rate limit)/u.test(
+    body?.message ?? ""
+  ));
+  if (transient)
+    throw new GitHubProbeError(
+      "transient",
+      status === 403 || status === 429 ? "GITHUB_RATE_LIMITED" : "GITHUB_SERVICE_UNAVAILABLE",
+      "Provider observation is rate limited or temporarily unavailable.",
+      "Wait for the provider rate-limit reset or service recovery, then repeat workflow preflight. No automatic retry is performed.",
+      status
+    );
+  const path = endpoint.split("?")[0];
+  const rulesEndpoint = /^repos\/[^/]+\/[^/]+\/(?:rules\/branches\/[^/]+|rulesets)$/u.test(path);
+  const planMessage = body?.message === "Upgrade to GitHub Pro or make this repository public to enable this feature." || body?.message === "Upgrade to GitHub Team or make this repository public to enable this feature.";
+  const rulesDocumentation = /^https:\/\/docs\.github\.com\/(?:en\/)?rest\/repos\/rules(?:#[-a-z]+)?$/u.test(
+    body?.documentation_url ?? ""
+  );
+  if (status === 403 && rulesEndpoint && planMessage && rulesDocumentation)
+    throw new GitHubProbeError(
+      "not-available",
+      "GITHUB_FEATURE_NOT_AVAILABLE",
+      "Rulesets are not available on this repository plan (403 plan-gated).",
+      "Continue with the other complete policy observations; retain this feature limitation in the publication handoff.",
+      status
+    );
+  if (status < 200 || status >= 300)
+    throw new GitHubProbeError(
+      "inaccessible",
+      status === 401 ? "GITHUB_AUTHENTICATION_REQUIRED" : status === 403 ? "GITHUB_POLICY_FORBIDDEN" : status === 404 ? "GITHUB_POLICY_NOT_FOUND_OR_HIDDEN" : "GITHUB_HTTP_UNRESOLVED",
+      "The provider response does not establish readable policy or feature absence.",
+      "Resolve CLI authentication, repository/token permissions or SSO access for this probe, then repeat workflow preflight. A 404 is not proof of absent policy.",
+      status
+    );
+  if (body?.errors) {
+    const errors = Array.isArray(body.errors) ? body.errors : [];
+    if (errors.some(
+      (error) => error?.type === "RATE_LIMITED" || error?.extensions?.code === "RATE_LIMITED"
+    ))
+      throw new GitHubProbeError(
+        "transient",
+        "GITHUB_RATE_LIMITED",
+        "GraphQL policy observation is rate limited.",
+        "Wait for the provider rate-limit reset, then repeat workflow preflight.",
+        status
+      );
+    if (errors.some(
+      (error) => ["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(
+        error?.type ?? error?.extensions?.code
+      )
+    ))
+      throw new GitHubProbeError(
+        "inaccessible",
+        "GITHUB_GRAPHQL_ACCESS_DENIED",
+        "GraphQL did not establish readable policy.",
+        "Resolve token permissions, authentication or SSO access, then repeat workflow preflight.",
+        status
+      );
+    throw incompleteProbe(
+      "GraphQL returned partial or erroneous policy observations.",
+      "GITHUB_GRAPHQL_INCOMPLETE"
+    );
+  }
+  if (result.status !== 0)
+    throw incompleteProbe(
+      "GitHub CLI did not complete the successful HTTP response."
+    );
+  return body;
+}
+var GitHubProbeError;
+var init_githubProbe = __esm({
+  "src/committing-to-git/publication/githubProbe.js"() {
+    GitHubProbeError = class extends Error {
+      constructor(classification, code, reason, resolution, httpStatus = null) {
+        super(reason);
+        this.outcome = { classification, code, reason, resolution, httpStatus };
+      }
+    };
+  }
+});
+
 // src/committing-to-git/publication/githubPolicy.js
 import { spawnSync as spawnSync4 } from "node:child_process";
 function githubApi(endpoint, fields = {}, runCommand = spawnSync4) {
   const args = [
     "api",
+    "--include",
     "--hostname",
     "github.com",
     "--method",
@@ -2358,28 +2510,33 @@ function githubApi(endpoint, fields = {}, runCommand = spawnSync4) {
     maxBuffer: 1024 * 1024,
     env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_PAGER: "cat" }
   });
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      `GitHub policy query failed (${result.error?.code ?? `exit ${result.status}`}) at ${endpoint.split("?")[0]}.`
-    );
-  }
-  const body = JSON.parse(result.stdout);
-  if (body?.errors)
-    throw new Error("GitHub returned incomplete GraphQL policy observations.");
-  return body;
+  return parseGitHubResponse(result, endpoint);
 }
 function pages(api, endpoint) {
   const items = [];
   for (let page = 1; page <= 20; page += 1) {
-    const batch = api(
-      `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=100&page=${page}`
-    );
-    if (!Array.isArray(batch))
-      throw new Error("Expected a complete policy array.");
+    let batch;
+    try {
+      batch = api(
+        `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=100&page=${page}`
+      );
+    } catch (error) {
+      if (page > 1 && error instanceof GitHubProbeError && error.outcome.classification === "not-available")
+        throw incompleteProbe(
+          "Feature availability changed during pagination.",
+          "GITHUB_PAGINATION_INCOMPLETE"
+        );
+      throw error;
+    }
+    if (!Array.isArray(batch) || batch.length > 100)
+      throw incompleteProbe("Expected a complete policy array.");
     items.push(...batch);
     if (batch.length < 100) return items;
   }
-  throw new Error("Policy pagination exceeded the bounded discovery limit.");
+  throw incompleteProbe(
+    "Policy pagination exceeded the bounded discovery limit.",
+    "GITHUB_PAGINATION_INCOMPLETE"
+  );
 }
 function inspectGitHubPolicy({
   owner,
@@ -2390,45 +2547,159 @@ function inspectGitHubPolicy({
   api = githubApi
 }) {
   const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const probes = [];
+  let activeProbe = null;
+  const probe = (name, read, validate = () => true, unavailable = void 0) => {
+    activeProbe = name;
+    try {
+      const value = read();
+      if (!validate(value))
+        throw incompleteProbe(
+          "Required fields or supported policy semantics are missing."
+        );
+      probes.push({
+        probe: name,
+        classification: "observed",
+        code: "GITHUB_PROBE_OBSERVED",
+        reason: "Complete provider observation.",
+        resolution: "Use this observation within its task and freshness limits.",
+        httpStatus: null
+      });
+      return value;
+    } catch (error) {
+      const failure = commandFailure(error);
+      const outcome = error instanceof GitHubProbeError ? error.outcome : {
+        classification: "inaccessible",
+        code: failure?.code ?? "GITHUB_OBSERVATION_UNRESOLVED",
+        reason: "The observation could not establish its required evidence.",
+        resolution: "Resolve the named probe's native command or access prerequisite, then repeat workflow preflight.",
+        httpStatus: null
+      };
+      probes.push({ probe: name, ...outcome });
+      if (outcome.classification === "not-available" && unavailable !== void 0)
+        return unavailable;
+      throw error;
+    }
+  };
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  const rules = (value) => Array.isArray(value) && value.every((rule) => {
+    if (!isSupportedPublicationRule(rule)) return false;
+    if (rule.parameters !== void 0 && !object(rule.parameters))
+      return false;
+    const methods = rule.parameters?.allowed_merge_methods;
+    if (rule.type === "pull_request" && methods !== void 0 && (!Array.isArray(methods) || methods.some(
+      (method) => !["merge", "squash", "rebase"].includes(method)
+    )))
+      return false;
+    if (rule.type === "merge_queue" && (typeof rule.parameters?.merge_method !== "string" || !["MERGE", "SQUASH", "REBASE"].includes(
+      rule.parameters.merge_method.toUpperCase()
+    )))
+      return false;
+    return true;
+  });
+  const protectionFields = [
+    "required_status_checks",
+    "required_pull_request_reviews",
+    "restrictions",
+    "lock_branch",
+    "required_signatures",
+    "required_conversation_resolution",
+    "required_linear_history",
+    "allow_force_pushes",
+    "enforce_admins"
+  ];
+  const protectionBody = (value) => object(value) && protectionFields.some((key) => Object.hasOwn(value, key)) && protectionFields.every(
+    (key) => value[key] === null || value[key] === void 0 || object(value[key]) && (value[key].enabled === void 0 || typeof value[key].enabled === "boolean")
+  );
   try {
     const prefix = `repos/${owner}/${repository}`;
-    const actor = api("user").login;
-    const metadata = api(prefix);
-    if (typeof actor !== "string" || typeof metadata.default_branch !== "string")
-      throw new Error("Provider identity or default branch is unavailable.");
+    const actor = probe(
+      "api-actor",
+      () => api("user"),
+      (value) => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/u.test(value?.login ?? "")
+    ).login;
+    const metadata = probe(
+      "repository",
+      () => api(prefix),
+      (value) => object(value) && typeof value.default_branch === "string" && value.default_branch.length > 0 && typeof value.archived === "boolean" && typeof value.disabled === "boolean"
+    );
+    probe(
+      "repository-merge-methods",
+      () => metadata,
+      (value) => [
+        "allow_merge_commit",
+        "allow_squash_merge",
+        "allow_rebase_merge"
+      ].every((key) => typeof value[key] === "boolean")
+    );
+    probes.push({
+      probe: "api-permissions",
+      classification: typeof metadata.permissions?.push === "boolean" ? "observed" : "incomplete",
+      code: typeof metadata.permissions?.push === "boolean" ? "GITHUB_PROBE_OBSERVED" : "GITHUB_API_PERMISSIONS_UNAVAILABLE",
+      reason: "API account permissions do not establish Git transport write permission.",
+      resolution: "Establish API mutation authority before PR creation or merge; retain separate Git transport evidence.",
+      httpStatus: null,
+      required: false
+    });
     const branch = destination ? destination.slice("refs/heads/".length) : metadata.default_branch;
     const encoded = encodeURIComponent(branch);
-    const target = api(`${prefix}/branches/${encoded}`);
-    if (typeof target.protected !== "boolean" || !/^[a-f0-9]{40,64}$/u.test(target.commit?.sha ?? ""))
-      throw new Error("Target branch observation is incomplete.");
-    const targetRules = pages(api, `${prefix}/rules/branches/${encoded}`);
-    const classic = api("graphql", {
-      query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:100){nodes{pattern} pageInfo{hasNextPage}}}}",
-      owner,
-      name: repository
-    }).data?.repository?.branchProtectionRules;
-    if (!Array.isArray(classic?.nodes) || classic.pageInfo?.hasNextPage !== false || classic.nodes.some((node) => typeof node.pattern !== "string"))
-      throw new Error("Classic protection inventory is incomplete.");
+    const target = probe(
+      "target-branch",
+      () => api(`${prefix}/branches/${encoded}`),
+      (value) => typeof value?.protected === "boolean" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value.commit?.sha ?? "")
+    );
+    const targetRules = probe(
+      "target-rules",
+      () => pages(api, `${prefix}/rules/branches/${encoded}`),
+      rules,
+      []
+    );
+    const classic = probe(
+      "classic-protection-inventory",
+      () => api("graphql", {
+        query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:100){nodes{pattern} pageInfo{hasNextPage}}}}",
+        owner,
+        name: repository
+      }).data?.repository?.branchProtectionRules,
+      (value) => Array.isArray(value?.nodes) && value.pageInfo?.hasNextPage === false && value.nodes.every((node) => typeof node?.pattern === "string")
+    );
     const matches = (name) => classic.nodes.filter(
       ({ pattern }) => pattern === name || /[*?[\\]/u.test(pattern)
     );
-    const protection = target.protected && matches(branch).length ? api(`${prefix}/branches/${encoded}/protection`) : null;
-    if (target.protected && matches(branch).length && (!protection || typeof protection !== "object" || Array.isArray(protection)))
-      throw new Error("Classic protection body is incomplete.");
+    const protection = target.protected && matches(branch).length ? probe(
+      "target-classic-protection",
+      () => api(`${prefix}/branches/${encoded}/protection`),
+      protectionBody
+    ) : null;
     if (target.protected && !protection && targetRules.length === 0)
-      throw new Error("Protected branch has no readable effective policy.");
-    const summaries = pages(api, `${prefix}/rulesets?includes_parents=true`);
+      probe("effective-target-policy", () => {
+        throw incompleteProbe(
+          "Protected branch has no readable effective policy."
+        );
+      });
+    const summaries = probe(
+      "push-ruleset-inventory",
+      () => pages(api, `${prefix}/rulesets?includes_parents=true`),
+      (value) => Array.isArray(value) && value.every(
+        (summary) => object(summary) && ["active", "evaluate", "disabled"].includes(summary.enforcement) && ["push", "branch", "tag"].includes(summary.target) && Number.isSafeInteger(summary.id) && summary.id > 0
+      ),
+      []
+    );
+    if (probes.some((entry) => entry.classification === "not-available") && (targetRules.length > 0 || summaries.length > 0))
+      probe("ruleset-consistency", () => {
+        throw incompleteProbe(
+          "Ruleset feature absence conflicts with observed rulesets; repeat discovery."
+        );
+      });
     const pushRules = [];
     for (const summary of summaries) {
       if (summary.enforcement !== "active" || summary.target !== "push")
         continue;
-      if (!Number.isSafeInteger(summary.id))
-        throw new Error("Invalid push ruleset identity.");
-      const detail = api(`${prefix}/rulesets/${summary.id}`);
-      if (detail.enforcement !== "active" || detail.target !== "push" || !Array.isArray(detail.rules))
-        throw new Error(
-          "Push ruleset changed during observation; repeat discovery."
-        );
+      const detail = probe(
+        `push-ruleset-${summary.id}`,
+        () => api(`${prefix}/rulesets/${summary.id}`),
+        (value) => value?.enforcement === "active" && value.target === "push" && rules(value.rules)
+      );
       pushRules.push(...detail.rules);
     }
     const policy = {
@@ -2451,20 +2722,44 @@ function inspectGitHubPolicy({
     };
     const targetRoute = selectPublicationRoute(policy);
     if (targetRoute.route !== "direct" && sourceBranch) {
-      policy.sourceRules = pages(
-        api,
-        `${prefix}/rules/branches/${encodeURIComponent(sourceBranch)}`
+      policy.sourceRules = probe(
+        "source-rules",
+        () => pages(
+          api,
+          `${prefix}/rules/branches/${encodeURIComponent(sourceBranch)}`
+        ),
+        rules,
+        []
       );
       if (matches(sourceBranch).length) {
-        policy.sourceProtection = api(
-          `${prefix}/branches/${encodeURIComponent(sourceBranch)}/protection`
+        policy.sourceProtection = probe(
+          "source-classic-protection",
+          () => api(
+            `${prefix}/branches/${encodeURIComponent(sourceBranch)}/protection`
+          ),
+          protectionBody
         );
-        if (!policy.sourceProtection || typeof policy.sourceProtection !== "object" || Array.isArray(policy.sourceProtection))
-          throw new Error("Source classic protection body is incomplete.");
       }
     }
+    if (probes.some((entry) => entry.classification === "not-available") && (policy.targetRules.length > 0 || policy.sourceRules.length > 0 || summaries.length > 0))
+      probe("ruleset-consistency", () => {
+        throw incompleteProbe(
+          "Ruleset feature absence conflicts with observed rulesets; repeat discovery."
+        );
+      });
+    const selection = selectPublicationRoute(policy);
+    if (selection.status === "unknown")
+      probes.push({
+        probe: "policy-evaluation",
+        classification: "incomplete",
+        code: "GITHUB_POLICY_SEMANTICS_INCOMPLETE",
+        reason: selection.reasons.join(" "),
+        resolution: "Resolve the named policy semantics and repeat workflow preflight.",
+        httpStatus: null
+      });
     return {
-      ...selectPublicationRoute(policy),
+      ...selection,
+      probes,
       provider: "github",
       repository: `${owner}/${repository}`,
       actor,
@@ -2480,13 +2775,14 @@ function inspectGitHubPolicy({
       status: "unknown",
       route: null,
       reasons: [
-        failure ? "The provider observation command was unavailable; no publication was attempted." : error.message
+        failure ? "The provider observation command was unavailable; no publication was attempted." : `${activeProbe}: ${probes.at(-1)?.code ?? "GITHUB_OBSERVATION_UNRESOLVED"}. ${probes.at(-1)?.reason ?? "Policy evidence is unresolved."}`
       ],
       ...failure ? {
         commandFailure: failure,
         nextAction: "resolve-command-prerequisite"
       } : {},
       prerequisites: [],
+      probes,
       observedAt
     };
   }
@@ -2495,10 +2791,28 @@ var init_githubPolicy = __esm({
   "src/committing-to-git/publication/githubPolicy.js"() {
     init_publicationPolicy();
     init_publicationCommands();
+    init_githubProbe();
   }
 });
 
 // src/committing-to-git/publication/transportIdentity.js
+function probeOutcome(value) {
+  if (![
+    "observed",
+    "not-available",
+    "inaccessible",
+    "transient",
+    "incomplete"
+  ].includes(value?.classification) || !/^(?:GITHUB|TRANSPORT)_[A-Z_]{1,80}$/u.test(value?.code ?? ""))
+    return {};
+  return {
+    probeOutcome: {
+      classification: value.classification,
+      code: value.code,
+      httpStatus: Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599 ? value.httpStatus : null
+    }
+  };
+}
 function projectTransportObservation(observation) {
   const unavailable = {
     state: "unavailable",
@@ -2511,7 +2825,8 @@ function projectTransportObservation(observation) {
       ...unavailable,
       state: ["ambiguous", "binding-changed"].includes(observation?.state) ? observation.state : "unavailable",
       reason: /^[a-z][a-z0-9-]{0,80}$/u.test(observation?.reason ?? "") ? observation.reason : "native-evidence-unavailable",
-      commandFailure: commandFailure(observation?.commandFailure)
+      commandFailure: commandFailure(observation?.commandFailure),
+      ...probeOutcome(observation?.probeOutcome)
     };
   }
   const principal = observation.principal;
@@ -2527,7 +2842,11 @@ function projectTransportObservation(observation) {
       login: principal.login,
       ...https ? { id: principal.id } : {}
     },
-    permissions: observation.permissions?.state === "established" && typeof observation.permissions.canPush === "boolean" ? { state: "established", canPush: observation.permissions.canPush } : { state: "unavailable", canPush: null }
+    permissions: observation.permissions?.state === "established" && typeof observation.permissions.canPush === "boolean" ? { state: "established", canPush: observation.permissions.canPush } : {
+      state: "unavailable",
+      canPush: null,
+      ...probeOutcome(observation.permissions?.probeOutcome)
+    }
   };
 }
 function assessTransportIdentity({
@@ -2843,6 +3162,7 @@ function inspectPublicationFeasibility({
       return {
         ...stop("unknown", assessment.reason),
         ...assessment,
+        probes: [...result.probes ?? [], ...transportProbes(assessment)],
         nextAction: "resolve-required-transport-evidence"
       };
     }
@@ -2851,27 +3171,24 @@ function inspectPublicationFeasibility({
         "blocked",
         "The PR source branch must differ from the target branch."
       );
-    if (result.route) {
-      result.prerequisites.push(
-        "Verify signing-key availability and the expected signer during the signed commit workflow. API identity and permissions are not Git transport identity or permissions."
-      );
-      result.prerequisites.push(
-        "Check selected scope, outgoing ancestry and target freshness before publication; this preflight does not authorize mutations or prove a future push will succeed."
-      );
-      result.status = "viable-with-prerequisites";
-    }
+    const unresolved = result.probes?.find(
+      (entry) => entry.required !== false && !["observed", "not-available"].includes(entry.classification)
+    );
+    const probes = [...result.probes ?? [], ...transportProbes(assessment)];
     return {
       ...result,
       ...assessment,
+      probes,
       discoveryEvidence: retainedEvidence,
       discoveryReused: Boolean(reused),
-      nextAction: result.commandFailure ? "resolve-command-prerequisite" : result.route ? "verify-publication-payload" : "resolve-route-prerequisite",
+      nextAction: result.commandFailure ? "resolve-command-prerequisite" : unresolved?.classification === "transient" ? "retry-preflight-after-provider-recovery" : unresolved ? "resolve-named-probe" : result.route ? "verify-publication-payload" : "resolve-route-prerequisite",
       remote,
       sourceBranch: sourceBranch ?? null,
       localSignatureBackend: signature.backend,
       discoveryReuse: result.route ? {
         eligible: true,
         scope: "current-task",
+        probes,
         binding: {
           repositoryRoot: root,
           repository: result.repository,
@@ -2896,6 +3213,15 @@ function inspectPublicationFeasibility({
       summary: result.route ? `Publication route: ${result.route}. Reuse discovery within the unchanged task; check exact payload, live refs and prerequisites before effects. Rediscover after context/policy changes or definitive rejection; reconcile unknown outcomes before retry.` : result.reasons.join(" ")
     };
   } catch (error) {
+    if (error instanceof GitHubProbeError)
+      return {
+        ...stop(
+          "unknown",
+          `api-actor-refresh: ${error.outcome.code}. ${error.outcome.reason}`
+        ),
+        probes: [{ probe: "api-actor-refresh", ...error.outcome }],
+        nextAction: error.outcome.classification === "transient" ? "retry-preflight-after-provider-recovery" : "resolve-named-probe"
+      };
     return {
       ...stop(
         "unknown",
@@ -2906,11 +3232,34 @@ function inspectPublicationFeasibility({
     };
   }
 }
+function transportProbes(assessment) {
+  return [
+    {
+      probe: "transport-identity",
+      established: assessment.transportIdentity.state === "established",
+      outcome: assessment.transportIdentity.probeOutcome
+    },
+    {
+      probe: "transport-permissions",
+      established: assessment.transportPermissions.state === "established",
+      outcome: assessment.transportPermissions.probeOutcome
+    }
+  ].map(({ probe, established, outcome }) => ({
+    probe,
+    classification: outcome?.classification ?? (established ? "observed" : "inaccessible"),
+    code: outcome?.code ?? (established ? "TRANSPORT_PROBE_OBSERVED" : "TRANSPORT_EVIDENCE_UNAVAILABLE"),
+    reason: established ? "Native transport observation established." : "Native transport evidence is unavailable or ambiguous.",
+    resolution: assessment.transportIdentity.required ? "Resolve the explicit actor constraint or restriction using approved native transport evidence." : "Retain this supplementary evidence limit without retrying a denied probe.",
+    required: probe === "transport-identity" && assessment.transportIdentity.required,
+    httpStatus: outcome?.httpStatus ?? null
+  }));
+}
 var init_publicationPreflight = __esm({
   "src/committing-to-git/publication/publicationPreflight.js"() {
     init_gitRepository();
     init_signaturePreflight();
     init_githubPolicy();
+    init_githubProbe();
     init_publicationCommands();
     init_transportIdentity();
     init_discoveryEvidence();
@@ -2941,28 +3290,67 @@ function githubGet(endpoint, credential) {
         response.on("data", (chunk) => {
           body += chunk;
           if (Buffer.byteLength(body) > 256 * 1024)
-            req.destroy(new Error("Observation limit exceeded."));
+            req.destroy(
+              incompleteProbe(
+                "Transport response exceeded its byte limit.",
+                "GITHUB_RESPONSE_LIMIT"
+              )
+            );
         });
         response.on("end", () => {
-          if (response.statusCode !== 200)
-            return reject(new Error("Identity read unavailable."));
           try {
-            resolve32(JSON.parse(body));
-          } catch {
-            reject(new Error("Identity response unavailable."));
+            const headers = ["x-ratelimit-remaining", "retry-after"].filter((key) => response.headers[key] !== void 0).map((key) => `${key}: ${response.headers[key]}\r
+`).join("");
+            resolve32(
+              parseGitHubResponse(
+                {
+                  status: response.statusCode === 200 ? 0 : 1,
+                  stdout: `HTTP/1.1 ${response.statusCode} Response\r
+${headers}\r
+${body}`
+                },
+                endpoint
+              )
+            );
+          } catch (error) {
+            reject(error);
           }
         });
         response.on(
           "error",
-          () => reject(new Error("Identity read unavailable."))
+          () => reject(
+            new GitHubProbeError(
+              "transient",
+              "GITHUB_NETWORK_FAILURE",
+              "Transport response was interrupted.",
+              "Repeat preflight after network recovery."
+            )
+          )
         );
       }
     );
     req.setTimeout(
       1e4,
-      () => req.destroy(new Error("Identity read timed out."))
+      () => req.destroy(
+        new GitHubProbeError(
+          "transient",
+          "GITHUB_NETWORK_FAILURE",
+          "Transport observation timed out.",
+          "Repeat preflight after network recovery."
+        )
+      )
     );
-    req.on("error", () => reject(new Error("Identity read unavailable.")));
+    req.on(
+      "error",
+      (error) => reject(
+        error instanceof GitHubProbeError ? error : new GitHubProbeError(
+          "transient",
+          "GITHUB_NETWORK_FAILURE",
+          "Transport connection failed.",
+          "Repeat preflight after network recovery."
+        )
+      )
+    );
     req.end();
   });
 }
@@ -3049,10 +3437,11 @@ async function observeNativeTransport(binding, {
   env = process.env,
   githubGet: get = githubGet
 } = {}) {
-  const unavailable = (reason, failure = null) => ({
+  const unavailable = (reason, failure = null, outcome = null) => ({
     state: "unavailable",
     reason,
-    commandFailure: failure
+    commandFailure: failure,
+    ...outcome ? { probeOutcome: outcome } : {}
   });
   try {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(binding?.repository ?? ""))
@@ -3130,7 +3519,9 @@ async function observeNativeTransport(binding, {
           state: "established",
           canPush: repository.permissions.push
         };
-    } catch {
+    } catch (error) {
+      if (error instanceof GitHubProbeError)
+        permissions.probeOutcome = error.outcome;
     }
     return projectTransportObservation({
       state: "established",
@@ -3139,13 +3530,18 @@ async function observeNativeTransport(binding, {
       permissions
     });
   } catch (error) {
-    return unavailable("native-observation-failed", commandFailure(error));
+    return unavailable(
+      "native-observation-failed",
+      commandFailure(error),
+      error instanceof GitHubProbeError ? error.outcome : null
+    );
   }
 }
 var init_nativeTransportObservation = __esm({
   "src/committing-to-git/publication/nativeTransportObservation.js"() {
     init_publicationCommands();
     init_transportIdentity();
+    init_githubProbe();
   }
 });
 
@@ -3299,7 +3695,17 @@ async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(),
         publicationState: "not-requested",
         publicationAllowed: false,
         documentation: "references/publication-routing.md",
-        data: { feasibility }
+        recovery: {
+          kind: feasibility.route ? "continue" : "satisfy-prerequisite",
+          automatic: false,
+          requiredInputs: feasibility.route ? [] : (feasibility.probes ?? []).filter(
+            (probe) => probe.required !== false && !["observed", "not-available"].includes(
+              probe.classification
+            )
+          ).map((probe) => `${probe.probe}: ${probe.resolution}`).slice(0, 32),
+          commands: feasibility.route ? [] : [{ arguments: ["workflow", "preflight", ...arguments_] }]
+        },
+        data: { feasibility, nextAction: feasibility.nextAction }
       });
     }
   });

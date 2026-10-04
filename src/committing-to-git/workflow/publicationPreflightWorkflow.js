@@ -108,7 +108,26 @@ export async function runPublicationPreflightCommand(
         publicationState: "not-requested",
         publicationAllowed: false,
         documentation: "references/publication-routing.md",
-        data: { feasibility },
+        recovery: {
+          kind: feasibility.route ? "continue" : "satisfy-prerequisite",
+          automatic: false,
+          requiredInputs: feasibility.route
+            ? []
+            : (feasibility.probes ?? [])
+                .filter(
+                  (probe) =>
+                    probe.required !== false &&
+                    !["observed", "not-available"].includes(
+                      probe.classification,
+                    ),
+                )
+                .map((probe) => `${probe.probe}: ${probe.resolution}`)
+                .slice(0, 32),
+          commands: feasibility.route
+            ? []
+            : [{ arguments: ["workflow", "preflight", ...arguments_] }],
+        },
+        data: { feasibility, nextAction: feasibility.nextAction },
       });
     },
   });

@@ -1,0 +1,20 @@
+[
+  {
+    "path": "skills/committing-to-git/references/diagnostics.md",
+    "originalSha256": "ab8fbe4b535b2b241e1af9f635380ab9b2ce045c0fac76fb86f9682298b35bf9",
+    "byteLength": 11962,
+    "sha256": "cdd569f3f4e923924ca1e2efa3c4536323edce4e052621dcbdd2d1693574b963"
+  },
+  {
+    "path": "skills/committing-to-git/references/publication-routing.md",
+    "originalSha256": "8329e581230392d5f1e0afe0d172bf767c14aa58a46a9b8dfb760395f285b88c",
+    "byteLength": 22221,
+    "sha256": "67f88899250d35ae57f1011c28a3ce4ce6a8729036b083ef83240bcd7a53f3b5"
+  },
+  {
+    "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+    "originalSha256": "97b6404b6999744f76af348882241bc5bdcde7be417f4bfc619172ceb71f154c",
+    "byteLength": 840837,
+    "sha256": "3f2e4b47b176c807303e68b5d1d58e82283ca2367e3809b5a9b63e340a8c6b67"
+  }
+]

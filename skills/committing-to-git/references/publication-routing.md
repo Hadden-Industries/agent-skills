@@ -23,7 +23,27 @@ Read `feasibility`, not common `route` (which remains the message route). `publi
 | `blocked` | Explain the concrete conflict before drafting. |
 | `unknown` | Resolve missing evidence through bounded native read-only inspection; never test permission with a push. |
 
-The helper observes local identity/signing configuration, active Git operations, effective push URL, API actor, target SHA, classic protection, inherited active branch rules, push rules and allowed methods. It does not prove signing-key availability, token mutation permissions, future CI success, or selected content compliance. Inspect returned rules against exact paths, sizes, messages, identity, outgoing commits and branch names before mutation. An unrecognized rule, incomplete pagination, failed API query or inaccessible policy remains unknown. A 404 alone does not establish the absence of protection. Unsupported providers and transports need an explicit separately evidenced route; do not infer support or install tools.
+The helper observes local identity/signing configuration, active Git operations, effective push URL, API actor, target SHA, classic protection, inherited active branch rules, push rules and allowed methods. It does not prove signing-key availability, token mutation permissions, future CI success, or selected content compliance. Inspect returned rules against exact paths, sizes, messages, identity, outgoing commits and branch names before mutation. An unrecognized rule, incomplete pagination or inaccessible policy remains unknown. A 404 alone does not establish the absence of protection. Unsupported providers and transports need an explicit separately evidenced route; do not infer support or install tools.
+
+## Probe outcomes
+
+`feasibility.probes` records each issued probe by name, classification, stable code, sanitized reason, resolution and HTTP status when available. Derived merge settings and API permissions are separate observations. Source policy is inspected when the target route needs it; unissued probes are not presented as observations.
+
+| Classification | Meaning and next step |
+| --- | --- |
+| `observed` | Complete supported evidence, including empty rule lists or no classic protection. Compute the route normally. |
+| `not-available` | A definitive feature limit. Continue with remaining complete observations and retain the limit. |
+| `inaccessible` | Evidence may exist but cannot be read: authentication, permission or SSO denial, ambiguous 404, or an unresolved native command. Restore the named prerequisite, then repeat preflight. |
+| `transient` | Rate limiting, server failure, timeout or network interruption. Wait for reset/recovery, then repeat preflight. The helper performs no automatic retries. |
+| `incomplete` | Malformed/partial JSON or GraphQL, pagination limits, changed observations, or unsupported rule semantics. Obtain a complete supported response before repeating preflight. |
+
+Only a 403 on GitHub's branch-rules or repository-ruleset inventory endpoint with the exact known Pro/Team upgrade message and a GitHub REST rules documentation URL establishes plan unavailability. Other 403s and all ambiguous 404s remain unresolved. An unavailable ruleset detail cannot erase an already observed active ruleset; feature absence that conflicts with returned rulesets also remains incomplete. A protected branch must still have readable effective policy.
+
+An unprotected branch with classic protection absent and rulesets unavailable on its plan returns direct `viable`. Exact payload, signature, ancestry and freshness checks still apply before publication; those universal checks do not change complete policy evidence into `viable-with-prerequisites`. Returned content/signature/check/review restrictions remain actual route prerequisites.
+
+Required unresolved probes leave feasibility `unknown`. Read the exact probe's `code` and `resolution`, and follow `resolve-named-probe`, `resolve-command-prerequisite` or `retry-preflight-after-provider-recovery`. Do not invent manual API probing or use a push to test access. API account permissions and supplementary transport evidence retain their separate requiredness: their absence does not grant permission or block an otherwise authorized ordinary Git route merely to improve identity evidence.
+
+This classification follows [GitHub REST troubleshooting](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api), [rules API contracts](https://docs.github.com/en/rest/repos/rules) and [ruleset availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets). Unknown hosts or undocumented feature-disable responses are unresolved; no unsupported endpoint is inferred from a 404.
 
 For classic wildcard protection on a not-yet-existing source branch, use native provider evidence of its effective rule or select a source branch whose policy can be established. Do not approximate provider matching with a different glob engine. Do not create a branch just to probe its protection.
 
@@ -31,7 +51,7 @@ Select direct signed publication when ordinary permissions and satisfied rules p
 
 ## Reuse discovery within the task
 
-Retain the successful result in task context. `feasibility.discoveryReuse` supplies the observed binding, refresh triggers and before-publication checks. It is advisory guidance, not a persisted cache, permission or proof of current policy. `eligible: false` means resolve blocked/unknown discovery before publication.
+Retain the successful result in task context. `feasibility.discoveryReuse` supplies the observed binding, probes, refresh triggers and before-publication checks. Include those probes, especially `not-available` limits, in the publication handoff. `discoveryEvidence.provider.probes` preserves provider classifications across eligible same-task reuse. It is advisory guidance, not a persisted cache, permission or proof of current policy. `eligible: false` means resolve blocked/unknown discovery before publication.
 
 Reuse requires the same task, local/provider repository, configured remote, effective push URL, target/source refs, API account and signing requirements. Preserve any established Git identity evidence and its limitations; absence of optional identity evidence does not invalidate an otherwise usable route. Rediscover policy when its binding changes, a policy change is known, a definitive publication rejection occurs, or prior context is unavailable. Resolve a changed destination or method's authorization before acting. Starting preparation, creating a commit, reaching publication, or elapsed time alone does not invalidate discovery.
 

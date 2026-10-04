@@ -5,6 +5,7 @@ import {
   observeNativeSsh,
 } from "../../src/committing-to-git/publication/nativeTransportObservation.js";
 import { assessTransportIdentity } from "../../src/committing-to-git/publication/transportIdentity.js";
+import { githubApi } from "../../src/committing-to-git/publication/githubPolicy.js";
 
 const binding = {
   repositoryRoot: "/fixture",
@@ -12,6 +13,34 @@ const binding = {
   pushUrl: "https://github.com/owner/project.git",
 };
 const secret = "credential-canary-PRIVATE";
+
+test("transport HTTP failures retain taxonomy for identity and separate permissions", async () => {
+  for (const permissionsOnly of [false, true]) {
+    const result = await observeNativeTransport(binding, {
+      runCommand: nativeGit,
+      env: {},
+      githubGet: async (endpoint) => {
+        if (permissionsOnly && endpoint === "/user")
+          return { login: "publisher", id: 42 };
+        return githubApi(endpoint, {}, () => ({
+          status: 1,
+          stdout:
+            'HTTP/2.0 429 Response\r\nRetry-After: 60\r\n\r\n{"message":"secret-provider-output"}',
+        }));
+      },
+    });
+    const outcome = permissionsOnly
+      ? result.permissions.probeOutcome
+      : result.probeOutcome;
+    assert.equal(outcome?.classification, "transient");
+    assert.equal(outcome.code, "GITHUB_RATE_LIMITED");
+    assert.equal(result.state, permissionsOnly ? "established" : "unavailable");
+    assert.doesNotMatch(
+      JSON.stringify(result),
+      /secret-provider-output|credential-canary/,
+    );
+  }
+});
 function nativeGit(executable, args, options) {
   assert.equal(executable, "git");
   const command = args.join(" ");

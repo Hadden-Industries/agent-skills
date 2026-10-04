@@ -19,6 +19,21 @@ test("runtime inventory matches 57 maintained payload identities and approved JS
     ),
   );
   const actual = regularFileInventory(join(root, "skills"));
+  // Keep the migration baseline immutable; bind later maintenance to exact bytes.
+  const maintenance = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/issue-12-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(maintenance.map(({ path }) => path).sort(), [
+    "skills/committing-to-git/references/diagnostics.md",
+    "skills/committing-to-git/references/publication-routing.md",
+    "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  ]);
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -38,6 +53,11 @@ test("runtime inventory matches 57 maintained payload identities and approved JS
     const bytes = actual.get(file.path.slice("skills/".length));
     assert.ok(bytes, file.path);
     const formatting = approved.find(({ path }) => path === file.path);
+    const change = maintenance.find(({ path }) => path === file.path);
+    if (change) {
+      assert.equal(change.originalSha256, file.sha256, file.path);
+      assert.equal(formatting, undefined, file.path);
+    }
     if (formatting) {
       assert.equal(formatting.originalSha256, file.sha256, file.path);
       assert.equal(
@@ -46,7 +66,15 @@ test("runtime inventory matches 57 maintained payload identities and approved JS
         file.path,
       );
     }
-    assert.equal(bytes.length, (formatting ?? file).byteLength, file.path);
-    assert.equal(sha256Hex(bytes), (formatting ?? file).sha256, file.path);
+    assert.equal(
+      bytes.length,
+      (change ?? formatting ?? file).byteLength,
+      file.path,
+    );
+    assert.equal(
+      sha256Hex(bytes),
+      (change ?? formatting ?? file).sha256,
+      file.path,
+    );
   }
 });

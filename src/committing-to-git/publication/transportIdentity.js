@@ -2,6 +2,33 @@ import { commandFailure } from "./publicationCommands.js";
 
 const LOGIN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/u;
 
+/** Retain only taxonomy identifiers, never native/provider error prose. */
+function probeOutcome(value) {
+  if (
+    ![
+      "observed",
+      "not-available",
+      "inaccessible",
+      "transient",
+      "incomplete",
+    ].includes(value?.classification) ||
+    !/^(?:GITHUB|TRANSPORT)_[A-Z_]{1,80}$/u.test(value?.code ?? "")
+  )
+    return {};
+  return {
+    probeOutcome: {
+      classification: value.classification,
+      code: value.code,
+      httpStatus:
+        Number.isInteger(value.httpStatus) &&
+        value.httpStatus >= 100 &&
+        value.httpStatus <= 599
+          ? value.httpStatus
+          : null,
+    },
+  };
+}
+
 /** Project native observation data; caller labels and account lists are not proof. */
 export function projectTransportObservation(observation) {
   const unavailable = {
@@ -20,6 +47,7 @@ export function projectTransportObservation(observation) {
         ? observation.reason
         : "native-evidence-unavailable",
       commandFailure: commandFailure(observation?.commandFailure),
+      ...probeOutcome(observation?.probeOutcome),
     };
   }
   const principal = observation.principal;
@@ -44,7 +72,11 @@ export function projectTransportObservation(observation) {
       observation.permissions?.state === "established" &&
       typeof observation.permissions.canPush === "boolean"
         ? { state: "established", canPush: observation.permissions.canPush }
-        : { state: "unavailable", canPush: null },
+        : {
+            state: "unavailable",
+            canPush: null,
+            ...probeOutcome(observation.permissions?.probeOutcome),
+          },
   };
 }
 
