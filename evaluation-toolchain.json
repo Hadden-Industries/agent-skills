@@ -14,7 +14,7 @@
     "license": "Apache-2.0",
     "platforms": {
       "win32-x64": {
-        "qualification": "assured-disabled-descendant-survived",
+        "qualification": "assured-qualified",
         "archive": "skill-up_0.12.0_windows_amd64.zip",
         "byteLength": 13761039,
         "sha256": "21595d0ccfe3bea85ce0047dbb71b13149e8d0b9bccd08e4f0ba6c9e53de53ca",
