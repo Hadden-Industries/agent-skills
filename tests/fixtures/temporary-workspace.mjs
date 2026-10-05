@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
   realpathSync,
   writeFileSync,
@@ -12,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { deriveOutcomeReference } from "../../scripts/evaluation/derive-reports.js";
+import { readStableFile } from "../../src/committing-to-git/filesystem/stableFile.js";
 
 const ownerName = ".test-workspace-owner.json";
 const fileTimeEpoch = 11644473600000000000n;
@@ -72,12 +72,9 @@ export function createTestWorkspace(
     )
       throw new Error("Fixture path or directory identity changed");
     const marker = join(root, ownerName);
-    const stat = lstatSync(marker);
-    if (
-      !stat.isFile() ||
-      stat.isSymbolicLink() ||
-      !readFileSync(marker).equals(ownerBytes)
-    )
+    // Validate and read one bounded file object, rather than checking a path
+    // whose target could change before a later pathname read.
+    if (!readStableFile(marker, ownerBytes.length).bytes.equals(ownerBytes))
       throw new Error("Fixture ownership marker changed");
   };
   const retain = (reason, ownershipIntact) => {
@@ -212,9 +209,11 @@ function protectedState(root) {
       ["run.json", "result.json"].includes(basename(path))
     ) {
       if (stat.size > 2097152) return "run evidence exceeds inspection bound";
+      let bytes;
       let run;
       try {
-        run = JSON.parse(readFileSync(path, "utf8"));
+        bytes = readStableFile(path, 2097152).bytes;
+        run = JSON.parse(bytes.toString("utf8"));
       } catch {
         return "run evidence is unreadable";
       }
@@ -230,7 +229,7 @@ function protectedState(root) {
         // Reuse the maintained outcome validator; a lone "safe" string is not
         // sufficient evidence to release a consumed evaluation fixture.
         try {
-          deriveOutcomeReference({
+          const reference = deriveOutcomeReference({
             path,
             profile: "test-fixture-cleanup",
             transmissionSha256: run.transmissionSha256,
@@ -239,6 +238,14 @@ function protectedState(root) {
                 ? "legacy-v1"
                 : "evaluation-trial-v1",
           });
+          // The validator independently rereads the outcome. It must validate
+          // the same bytes inspected here, including their safe closure.
+          if (
+            reference.authoritativeSha256 !==
+              createHash("sha256").update(bytes).digest("hex") ||
+            reference.closureStatus !== "safe"
+          )
+            return "terminal evaluation evidence changed during validation";
         } catch {
           return "terminal evaluation evidence cannot be validated";
         }
