@@ -148,16 +148,6 @@ test("scoped verification runs only selected checks and reports global omissions
 
   const skillsRef = join(root, ".venv", "Scripts", "skills-ref.exe");
   assert.deepEqual(calls, [
-    [skillsRef, ["validate", join(root, "skills", "reading-epubs")], undefined],
-    [
-      "node",
-      [
-        "--test",
-        join(root, "tests", "evals", "reading-epubs", "alpha.test.mjs"),
-        join(root, "tests", "reading-epubs", "nested", "zeta.test.mjs"),
-      ],
-      { cwd: root },
-    ],
     [
       "git",
       [
@@ -172,15 +162,25 @@ test("scoped verification runs only selected checks and reports global omissions
       ],
       { cwd: root },
     ],
+    [skillsRef, ["validate", join(root, "skills", "reading-epubs")], undefined],
+    [
+      "node",
+      [
+        "--test",
+        join(root, "tests", "evals", "reading-epubs", "alpha.test.mjs"),
+        join(root, "tests", "reading-epubs", "nested", "zeta.test.mjs"),
+      ],
+      { cwd: root },
+    ],
   ]);
   assert.deepEqual(result.passedStages, [
+    { name: "target diff whitespace", pathsChecked: 4 },
     { name: "canonical ASCII", filesValidated: 1 },
     { name: "canonical Markdown wrapping", filesValidated: 1 },
     { name: "evaluation contract", suitesValidated: 1 },
     { name: "generated artifacts", artifactsChecked: 1 },
     { name: "skills-ref validation", skillsValidated: 1 },
     { name: "target tests", testsDiscovered: 2 },
-    { name: "target diff whitespace", pathsChecked: 4 },
   ]);
   assert.deepEqual(result.globalOnlyNotRun, [
     "repository-wide Prettier and ESLint",
@@ -213,20 +213,45 @@ test("scoped verification reports zero discovered tests without launching Node",
   );
 });
 
-test("invalid selected suites fail before any process check runs", async (t) => {
+test("whitespace failure stops before build validation or later processes", async (t) => {
   const root = createRepository(t);
+  const calls = [];
   writeFileSync(join(root, "src", "reading-epubs", "evals", "evals.json"), "{");
 
   await assert.rejects(
     verifySkill({
       repositoryRoot: root,
       skillName: "reading-epubs",
-      run() {
-        assert.fail("process checks must not run after contract failure");
+      run(command, args) {
+        calls.push([command, args]);
+        assert.equal(command, "git");
+        throw new Error("whitespace check failed");
+      },
+    }),
+    /whitespace check failed/u,
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][1].slice(0, 4), ["diff", "--check", "HEAD", "--"]);
+});
+
+test("invalid selected suites stop after whitespace and before validation or tests", async (t) => {
+  const root = createRepository(t);
+  const calls = [];
+  writeFileSync(join(root, "src", "reading-epubs", "evals", "evals.json"), "{");
+
+  await assert.rejects(
+    verifySkill({
+      repositoryRoot: root,
+      skillName: "reading-epubs",
+      run(command) {
+        calls.push(command);
+        assert.equal(command, "git");
       },
     }),
     /reading-epubs[\\/]evals[\\/]evals\.json/u,
   );
+  assert.deepEqual(calls, ["git"]);
 });
 
 test("unknown skills fail before any process check runs", async (t) => {
@@ -263,8 +288,8 @@ test("a failed process stage prevents later checks and a success summary", async
     /target tests failed/u,
   );
 
-  assert.equal(
-    calls.some(([command]) => command === "git"),
-    false,
+  assert.deepEqual(
+    calls.map(([command]) => command),
+    ["git", join(root, ".venv", "Scripts", "skills-ref.exe"), "node"],
   );
 });

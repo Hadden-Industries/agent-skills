@@ -111,6 +111,11 @@ export async function verifySkill({
   const resolvedRepositoryRoot = resolve(repositoryRoot);
   selectCanonicalSkillNames(join(resolvedRepositoryRoot, "src"), [skillName]);
 
+  const diffPaths = targetOwnedPaths(resolvedRepositoryRoot, skillName);
+  run("git", ["diff", "--check", "HEAD", "--", ...diffPaths], {
+    cwd: resolvedRepositoryRoot,
+  });
+
   const buildResult = await buildRepository({
     checkOnly: true,
     repositoryRoot: resolvedRepositoryRoot,
@@ -137,14 +142,10 @@ export async function verifySkill({
     });
   }
 
-  const diffPaths = targetOwnedPaths(resolvedRepositoryRoot, skillName);
-  run("git", ["diff", "--check", "HEAD", "--", ...diffPaths], {
-    cwd: resolvedRepositoryRoot,
-  });
-
   return {
     skillName,
     passedStages: [
+      { name: "target diff whitespace", pathsChecked: diffPaths.length },
       {
         name: "canonical ASCII",
         filesValidated: buildResult.skillFilesValidated,
@@ -166,7 +167,6 @@ export async function verifySkill({
         skillsValidated: skillValidation.skillsValidated,
       },
       { name: "target tests", testsDiscovered: tests.length },
-      { name: "target diff whitespace", pathsChecked: diffPaths.length },
     ],
     globalOnlyNotRun: [...GLOBAL_ONLY_NOT_RUN],
   };

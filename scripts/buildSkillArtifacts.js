@@ -45,7 +45,7 @@ async function generateArtifact(definition, repositoryRoot) {
     bundle: true,
     format: "esm",
     platform: "node",
-    target: "node22",
+    target: "node24",
     minify: false,
     sourcemap: false,
     legalComments: "inline",

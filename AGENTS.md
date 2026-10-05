@@ -22,7 +22,10 @@
 
 ## Completion Verification
 
+- During implementation, run focused tests for the changed behavior and affected checks at integration. Reserve the full completion gate below for the final candidate; it is not required after every edit or intermediate slice.
+- Before code review, pass `npm run format:check` and `npm run lint` for the review candidate and resolve failures. Passing `npm run build:check` or `npm run verify` satisfies these prerequisites when the relevant inputs are unchanged. After a review fix, refresh affected evidence before another review.
 - Before completing a change to a repository-authored skill under `skills/`, maintained skill source under `src/`, related tests, or repository authoring/build scripts, run `npm run verify`.
+- A HISEW `full` profile run that executes the current `npm run verify` for the final candidate satisfies the same repository gate. Keep its evidence and complete the required native handoff; run the command again only when inputs changed, a check failed, or the engine requires a fresh invocation.
 - Passing `npm run verify` establishes only deterministic local gates. It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of `git status` and the complete diff.
 
 # Git Guidance
