@@ -7,7 +7,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
-test("runtime inventory matches 57 maintained payload identities and approved JSON formatting", () => {
+test("runtime inventory matches 57 maintained payload identities and approved formatting or source relocation", () => {
   const root = resolve(import.meta.dirname, "../..");
   const baseline = JSON.parse(
     readFileSync(
@@ -52,6 +52,27 @@ test("runtime inventory matches 57 maintained payload identities and approved JS
   for (const file of baseline) {
     const bytes = actual.get(file.path.slice("skills/".length));
     assert.ok(bytes, file.path);
+    let comparisonBytes = bytes;
+    if (file.path === "skills/committing-to-git/scripts/commitWorkflow.mjs") {
+      // Preserve the historical hash: reverse only the two approved esbuild
+      // source-location labels, requiring each relocated label exactly once.
+      let text = bytes.toString("utf8");
+      assert.ok(Buffer.from(text, "utf8").equals(bytes), file.path);
+      for (const label of [
+        "// lib/filesystem/stableFile.js\n",
+        '  "lib/filesystem/stableFile.js"() {\n',
+      ]) {
+        assert.equal(text.split(label).length, 2, file.path);
+        text = text.replace(
+          label,
+          label.replace(
+            "lib/filesystem/stableFile.js",
+            "src/committing-to-git/filesystem/stableFile.js",
+          ),
+        );
+      }
+      comparisonBytes = Buffer.from(text, "utf8");
+    }
     const formatting = approved.find(({ path }) => path === file.path);
     const change = maintenance.find(({ path }) => path === file.path);
     if (change) {
@@ -67,12 +88,12 @@ test("runtime inventory matches 57 maintained payload identities and approved JS
       );
     }
     assert.equal(
-      bytes.length,
+      comparisonBytes.length,
       (change ?? formatting ?? file).byteLength,
       file.path,
     );
     assert.equal(
-      sha256Hex(bytes),
+      sha256Hex(comparisonBytes),
       (change ?? formatting ?? file).sha256,
       file.path,
     );
