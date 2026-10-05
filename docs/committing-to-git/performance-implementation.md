@@ -55,6 +55,8 @@ Raw samples, methods, failures, profiles and reviewed candidate inventories are 
 
 Formatting/lint passed before review. Affected `verify:skill` passed 668 tests with 3 skips; all 13 selected shared build/distribution/package tests passed. The native R2 full verification of the frozen signed candidate remains the canonical completion gate. Independent review, final native receipts and the existing Linux workflow's exact-revision result are retained in final task evidence; passing these checks never proves installation or real-agent performance. Windows is the only measured performance platform. Linux runtime qualification uses the existing workflow; no Linux latency estimate is inferred from its test results.
 
+The first native full run caught a stale evaluation-preservation maintenance identity for the regenerated helper (1368 passed, 1 failed, 6 skipped). The correction retains the immutable 57-file migration baseline and all Issue-12 identities, adds one exact performance-maintenance identity linked to the preceding helper digest, and updates the existing preservation oracle to apply that single allowlisted transition. Its comparison uses the existing reversible source-location normalization; production bytes and benchmark samples are unchanged. A targeted test, fresh formatting/lint, one narrow independent follow-up and a fresh final full run qualify this correction.
+
 Reproduce domain measurements explicitly, outside normal tests, using:
 
 ```powershell

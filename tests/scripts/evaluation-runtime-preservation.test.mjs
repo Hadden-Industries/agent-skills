@@ -7,7 +7,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
-test("runtime inventory matches 57 maintained payload identities and approved formatting or source relocation", () => {
+test("runtime inventory matches 57 maintained payload identities and approved runtime maintenance", () => {
   const root = resolve(import.meta.dirname, "../..");
   const baseline = JSON.parse(
     readFileSync(
@@ -34,6 +34,19 @@ test("runtime inventory matches 57 maintained payload identities and approved fo
     "skills/committing-to-git/references/publication-routing.md",
     "skills/committing-to-git/scripts/commitWorkflow.mjs",
   ]);
+  const performance = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/committing-performance-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    performance.map(({ path }) => path),
+    ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
+  );
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -75,8 +88,17 @@ test("runtime inventory matches 57 maintained payload identities and approved fo
     }
     const formatting = approved.find(({ path }) => path === file.path);
     const change = maintenance.find(({ path }) => path === file.path);
+    const laterChange = performance.find(({ path }) => path === file.path);
     if (change) {
       assert.equal(change.originalSha256, file.sha256, file.path);
+      assert.equal(formatting, undefined, file.path);
+    }
+    if (laterChange) {
+      assert.equal(
+        laterChange.previousSha256,
+        (change ?? file).sha256,
+        file.path,
+      );
       assert.equal(formatting, undefined, file.path);
     }
     if (formatting) {
@@ -89,12 +111,12 @@ test("runtime inventory matches 57 maintained payload identities and approved fo
     }
     assert.equal(
       comparisonBytes.length,
-      (change ?? formatting ?? file).byteLength,
+      (laterChange ?? change ?? formatting ?? file).byteLength,
       file.path,
     );
     assert.equal(
       sha256Hex(comparisonBytes),
-      (change ?? formatting ?? file).sha256,
+      (laterChange ?? change ?? formatting ?? file).sha256,
       file.path,
     );
   }
