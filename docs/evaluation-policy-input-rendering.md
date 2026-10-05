@@ -100,8 +100,19 @@ the executable contract before interpreting future text-only scores. The other
 sampled cases have substantial direct policy guidance in the current prose.
 
 No skill policy or assertion meaning changes here. The original 18 sessions and
-their diagnosed input loss remain historical evidence. Deterministic preparation
-and native-record replay verify the repair's mechanism; a new bounded, exact
-packet-authorized provider contrast is still needed to establish retention and
-behavior for the revised treatment. No new inference or judge call is implied
-by source changes, build checks, local inspection or independent code review.
+their diagnosed input loss remain historical evidence. Two subsequently approved
+current-guidance diagnostics, cases 3 then 24, completed with the complete prompt
+present in both inspected native generation records. Case 3 substantially applied
+the explicit prose with one spacing-formula inconsistency; case 24 still missed
+requirements of its unchanged complete contract. See the
+[diagnostic readback](evaluation-real-provider-observations.md#revised-guidance-diagnostic-readback)
+for exact identities, scope and limitations.
+
+Those two selected cells establish local input retention for that treatment and
+pinned Antigravity 1.2.16 executable. They are not a matched six-case contrast,
+independent semantic acceptance, or a live qualification of the subsequently
+admitted 1.2.17 CLI. Their authority is consumed. Further experiments require a
+new question, fresh exact packets and separate call authorization. Deciding new
+caller policy or changing assertion meaning is outside the original preservation
+plan; unchanged failures remain failures. Source changes, build checks, local
+inspection and independent code review authorize no inference or judge call.

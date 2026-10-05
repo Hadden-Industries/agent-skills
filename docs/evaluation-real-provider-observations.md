@@ -95,3 +95,57 @@ general helper assessment, versioning, local generation inspection and remaining
 qualification boundaries. A fresh real-provider contrast requires new exact
 packets and separately authorized calls; the repair does not retroactively
 qualify the original campaign or establish that revised answers pass.
+
+## Revised-guidance diagnostic readback
+
+The owner subsequently approved exactly two current-guidance diagnostic calls,
+case 3 followed by case 24, under the `markdown-guidance-v2` protocol. Both used
+the separately pinned Antigravity 1.2.16 executable and Google
+`gemini-3.8-flash-low`, effort low. This was a selected two-cell diagnosis, not a
+repeat of the original six-case matched campaign.
+
+| Identity or observation | Value |
+| --- | --- |
+| Runtime/current treatment commit | `531c4f6435c5279292653fb9588a8c7b89b0cc61` |
+| Campaign | `1fbb2e5b24ebb25a41b4fbcacb8d1eaeaf91031dce685f4c966c0e412df78e95` |
+| Approval manifest SHA-256 | `515d6919334ed6c448fc40173bbe3267fb7d1258644f6658456c309b819c1f07` |
+| Exact prompt bytes, cases 3 / 24 | 87,121 / 87,095 UTF-8 bytes |
+| Operational completion | Two one-turn sessions; zero tool/subagent steps, retries or judge calls |
+| Reported total tokens | 68,319; monetary cost unavailable |
+| Local generation inspection | Both complete exact prompts present in native user and generation records |
+| Windows workload closure | Verified signed proofs; zero active job processes |
+
+The implementing agent's unblinded response assessment remains supplemental;
+authoritative outcomes retain `grading: not-graded`. Case 3 substantially followed
+the explicit inventory policy, including the count-free heading, detailed/bulk
+boundary and dynamic spacing. It gave the correct general continuation formula
+`w+6` and concrete eight-space continuation for ten items, but one parenthetical
+incorrectly said `w+8`. These examples were not executable message finalization.
+
+Case 24 rejected numbered directories and `owner.json` handover, but omitted
+non-reuse of occupied artifacts, exclusive CSPRNG UUIDv4 allocation and
+serialization of same-worktree mutation. Passing an opaque transaction across
+agents does not establish those invariants. The complete existing case remains
+unsatisfied; no assertion was relaxed or implementation-derived answer key added.
+
+These observations support the rendering repair's mechanism and establish local
+prompt retention for two samples. They do not prove final service context,
+universal context limits, independent semantic acceptance, or that every earlier
+failure arose from truncation. The helper implementation remains appropriate for
+execution, provenance and focused source review. Caller policy and executable
+helper invariants require distinct proof; changing either policy or the oracle
+requires a separately accepted scope, rather than silently relabeling failures.
+
+Raw evidence is retained under
+`C:/Users/maksy/.hi/w/e/operator-evidence/2026-10-05-policy-guidance-qualification-pinned/`.
+`qualification-observations.md` records the assessment; `batch-execution.json`,
+the two dispatch and generation-inspection records, original packets, used
+authority and native closure artifacts retain execution provenance. Required
+session/carrier evidence remains held for diagnosis and grading reproduction,
+with reassessment at the next campaign design review and reminder 2026-10-12;
+no automatic cleanup or schedule is created.
+
+Both approvals are consumed. The later latest-only adapter change admits
+Antigravity 1.2.17 for new prepared launches and explicitly refuses version drift;
+historical offline readers retain 1.2.16 support. These completed 1.2.16 diagnostics
+are not a live 1.2.17 experiment and cannot be replayed under the new adapter.

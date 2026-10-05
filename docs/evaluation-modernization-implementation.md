@@ -1,5 +1,12 @@
 # Evaluation modernization implementation evidence
 
+Current readback, 2026-10-05: all eight original slices are delivered. Windows
+assured dispatch is qualified and enabled by later exact owner approval; Linux
+assured dispatch remains disabled. Subsequent revised-guidance diagnostics,
+latest-only CLI qualification and test-fixture cleanup are recorded in the
+[continuation closeout](#continuation-closeout). Original dated receipts below
+remain evidence for their own candidates.
+
 Original implementation baseline: `0c59a3877b58de234347e2c19488e0b407c8ee9d`; branch `evaluation-modernization`. Delivered executable/test candidate: `e2c00f5e6267f7d4747c3e404b835dc0d0b33ac2`, tree `c3b235d089e4d4f92909cdcf045d5f3f64f6e745`. Governed full verification, independent source review and Windows/Linux CI passed for that candidate. The original documentation reconciliation changed no executable, test, configuration or generated payload. The dated records below retain their original candidate identities; the [Windows recovery and enablement continuation](#windows-recovery-and-enablement-continuation) records later work separately.
 
 ## Preserved identities and approved exceptions
@@ -120,6 +127,57 @@ Linux remains disabled with marker `pending` and needs its own approved lifecycl
 
 ## Antigravity adapter and real-provider continuation
 
+This section records the earlier 1.2.16 adapter checkpoint; its legacy launch
+support was subsequently retired as recorded in the closeout below.
+
 The separately approved Antigravity 1.2.16 adapter was integrated through [PR #19](https://github.com/Hadden-Industries/agent-skills/pull/19) at `e24aba6151a8d083e54ee7f9dce8ae4af1e80533`, tree `0e70c1d411b0a25547c254458fb372df76c98c5e`. It retains the legacy 1.1.19 profile and exact model/effort authority. Its bounded review used the approved Codex fallback after the native Antigravity static attempt supplied no usable review, followed by one narrow correction review. Canonical full verification completed 1,322 tests: 1,316 passed, six skipped and zero failed/cancelled; Windows/Ubuntu consumer CI and CodeQL passed. Exact delivery and review records remain under `C:/Users/maksy/.hi/w/e/operator-evidence/2026-10-05-antigravity-1-2-16-adapter/`.
 
 On that unchanged candidate, a separately approved 18-session Windows Google campaign completed operationally on 2026-10-05. All common artifact identities, native outcome references, exact submitted CLI frames and signed zero-active closure proofs were verified. The primary assessment found current full-bundle answers missed all six sampled case contracts; no independent semantic grade or general skill regression conclusion follows. See [real-provider observations](evaluation-real-provider-observations.md) for treatment identities, scores, usage, limitations and retained evidence. These later observations supplement the original handoff without rewriting its identities or authorizing another model call, Linux enablement or a skill-content change.
+
+## Continuation closeout
+
+The original plan's implementation scope is delivered. The following later
+owner-authorized changes and observations supplement its dated handoff; they do
+not replace earlier receipts or claim unperformed experiments.
+
+| Continuation | Delivered evidence and remaining limit |
+| --- | --- |
+| Policy input rendering | `531c4f6435c5279292653fb9588a8c7b89b0cc61` delivered versioned task/entry/reference ordering, Markdown guidance selection, bounded preparation and exact local generation inspection. Executable package bytes remain in provenance. |
+| Revised-guidance diagnostics | Exactly two approved 1.2.16 calls, cases 3 then 24, retained complete local generation inputs. Case 3 had a residual spacing inconsistency; case 24 remained unsatisfied. No independent semantic acceptance or matched six-case comparison; approvals consumed. |
+| Latest qualified CLI only | `c86ac6acf08eda58982275e583780b6946073604` delivered Antigravity 1.2.17 qualification and explicit refusal of installed-version drift. Obsolete launch profiles retired; historical offline readers retained. Full run `ba8226c0-b4ab-4cec-8c3e-7b594d5e51ec`: 1,334 discovered, 1,328 passed, six skipped, zero failures/cancellations. [CodeQL](https://github.com/Hadden-Industries/agent-skills/actions/runs/37288161099) passed for that candidate. |
+| Durable test-fixture cleanup | `419b64f12983af38fca5bec3260201d6d5678aeb`, tree `d25e60af92c6f44d82109f14e5a51e0261c903ea`, delivered fresh-root ownership, child-close tracking, protected-evidence holds and recoverable teardown for Git/defining/Windows matrix fixtures. Explicit nested consumer placement preserves omitted-option behavior. Full run `e2a0a87b-40ba-48ff-b6f4-4ab6fc805006`: 1,357 discovered, 1,351 passed, six skipped, zero failures/cancellations. Windows matrix passed 12/12 under its unchanged deadline; [CodeQL](https://github.com/Hadden-Industries/agent-skills/actions/runs/37294911413) passed for that candidate. |
+
+See [policy input rendering](evaluation-policy-input-rendering.md) and the
+[diagnostic readback](evaluation-real-provider-observations.md#revised-guidance-diagnostic-readback)
+for the helper/prose distinction and exact diagnostic identities. The latest-only
+adapter does not admit arbitrary future CLI versions. It does not turn the
+historical 1.2.16 diagnostics into a live 1.2.17 experiment.
+
+Cleanup received one consolidated Antigravity static review and one narrow Codex
+correction review under the authorized fallback. Its final focused checks and
+governed full run cover the resulting fixes; no further independent review round
+was started. The helper recycles eligible newly owned roots only after successful
+tests and closed tracked children. Failed, cancelled, nonterminal, leased,
+redirected or otherwise uncertain evidence remains held; disposal errors are
+visible and have no permanent-deletion fallback. Prior unowned Temp directories
+were preserved. Failed lifecycle fixtures and matrices with retained leases or
+nonterminal consumed input remain diagnostic evidence; passing their test does
+not authorize disposal. Runtime cleanup documentation is in
+[evaluation runtime](evaluation-runtime.md).
+
+Exact source/review/verification/delivery records remain respectively under
+`C:/Users/maksy/.hi/w/e/operator-evidence/2026-10-05-policy-input-fidelity/`,
+`2026-10-05-policy-guidance-qualification-pinned/`,
+`2026-10-05-antigravity-qualified-version/` and
+`2026-10-05-evaluation-fixture-cleanup/` within the same operator-evidence root.
+Native verification receipts establish their captured deterministic commands;
+operator assessments and static reviews retain their stated, narrower scopes.
+
+Remaining qualification boundaries are explicit: Linux assured lifecycle remains
+disabled; OS-level egress isolation, real-home recovery, automatic host activation,
+independent semantic grading and further provider campaigns are unqualified or
+unperformed. Direct Hadden execution and safety orchestration remain maintained.
+Changes to caller policy, assertion meaning or campaign thresholds are outside
+this preservation plan. No remaining boundary authorizes new calls, replays,
+configuration changes or historical evidence deletion. Any further qualification
+must address a concrete question under its separately accepted scope.

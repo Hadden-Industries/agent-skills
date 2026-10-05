@@ -6,6 +6,17 @@ Status: executable planning dossier, not an implementation-completion claim. It 
 
 ## Outcome, scope and governing baseline
 
+Implementation readback, 2026-10-05: all eight slices have delivered dispositions
+in the [implementation evidence](../evaluation-modernization-implementation.md).
+Later owner-approved changes qualified and enabled Windows assured dispatch,
+repaired policy input rendering, qualified only Antigravity 1.2.17 for new
+launches, and added owned test-fixture cleanup. The two approved revised-guidance
+diagnostics have completed; their authority is consumed. Linux assured dispatch,
+host activation, independent semantic grading and further real-provider
+experiments remain separate qualification boundaries, not unfinished permission
+to run them. This dated readback supplements the original plan; its requirements,
+assertion meanings and configuration proposals below retain their original scope.
+
 Deliver one canonical source project per skill, exact generated runtime distributions, conventional portable evaluation bases plus lossless extensions, maintained ordinary evaluation/reporting, independent conformance, and preserved Hadden assurance. This includes all four current skills, shared execution modules, Git plugin/archive packaging and byte-preserved tracked history.
 
 Exclude skill-content optimization, changed assertion meaning, new campaign thresholds, a TypeScript conversion, new providers, automatic WSL migration, unrequested installation/publication, a generic security/process framework, or rewriting historical evidence. No plan step grants an external model call. Assured sessions retain exact packet-bound authorization. Ordinary native target/judge runs require a separately approved frozen experiment and cannot claim or replace that assurance gate.
