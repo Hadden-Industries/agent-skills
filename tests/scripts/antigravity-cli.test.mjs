@@ -106,7 +106,7 @@ async function exists(path) {
   }
 }
 
-async function inspectionFixture(t, scenario = "happy") {
+async function inspectionFixture(t, scenario = "happy", cliVersion = "1.1.19") {
   const root = await mkdtemp(join(tmpdir(), "antigravity-inspection-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const recordFile = join(root, "invocations.jsonl");
@@ -115,6 +115,8 @@ async function inspectionFixture(t, scenario = "happy") {
     fixturePath,
     "--scenario",
     scenario,
+    "--cli-version",
+    cliVersion,
     "--record-file",
     recordFile,
   ];
@@ -129,7 +131,13 @@ async function inspectionFixture(t, scenario = "happy") {
 async function executionFixture(
   t,
   scenario = "happy",
-  { continuation = null, timeoutMs = 2_000 } = {},
+  {
+    continuation = null,
+    timeoutMs = 2_000,
+    cliVersion = "1.1.19",
+    model = "gemini-3.5-flash-low",
+    effort = "low",
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "antigravity-adapter-"));
   t.after(async () => {
@@ -152,6 +160,8 @@ async function executionFixture(
     fixturePath,
     "--scenario",
     scenario,
+    "--cli-version",
+    cliVersion,
     "--record-file",
     recordFile,
   ];
@@ -204,8 +214,8 @@ async function executionFixture(
       suiteArtifacts: [],
     },
     provider: "google",
-    model: "gemini-3.5-flash-low",
-    effort: "low",
+    model,
+    effort,
     transport: "antigravity-cli",
     toolchain,
     runtimeFingerprint: {
@@ -374,6 +384,60 @@ test("inspection pins executable identity, version, help, and capability profile
   );
 });
 
+test("inspection accepts the independently observed 1.2.16 CLI profile", async (t) => {
+  const fixture = await inspectionFixture(t, "happy", "1.2.16");
+  assert.equal(fixture.toolchain.version, "1.2.16");
+  assert.equal(fixture.toolchain.capabilityProfile.version, "1.2.16");
+  assert.equal(fixture.toolchain.help.streams.stdout.byteLength, 0);
+  assert.ok(fixture.toolchain.help.streams.stderr.byteLength > 0);
+  assert.match(fixture.toolchain.help.streams.stderr.sha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    fixture.toolchain.capabilityProfile.invocation.effortBinding,
+    "model-slug",
+  );
+});
+
+test("1.2.16 binds effort through its model slug and preserves one-process follow-up", async (t) => {
+  const fixture = await executionFixture(t, "happy", {
+    cliVersion: "1.2.16",
+    model: "gemini-3.8-flash-low",
+    continuation: "Give the second answer.",
+  });
+  const result = await executeFixture(fixture);
+  assert.equal(result.status, "completed");
+  const records = await recordsAt(fixture.recordFile);
+  const launches = records.filter(({ mode }) => mode === "model");
+  assert.equal(launches.length, 1);
+  assert.deepEqual(launches[0].arguments, [
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--model",
+    "gemini-3.8-flash-low",
+    "--sandbox",
+    "--disable-slash-commands",
+  ]);
+  assert.deepEqual(
+    records
+      .filter(({ mode }) => mode === "input")
+      .map(({ message }) => message.message.content[0].text),
+    ["Explain the packet-bound policy.", "Give the second answer."],
+  );
+  assert.equal(result.normalizedUsage.totalTokens, 240);
+  assert.equal(result.closure.status, "safe");
+  assert.equal(await exists(join(fixture.destination, "attempt.json")), true);
+  await assert.rejects(
+    executeFixture(fixture),
+    /already|exists|attempt|authorization/iu,
+  );
+  assert.equal(
+    (await recordsAt(fixture.recordFile)).filter(({ mode }) => mode === "model")
+      .length,
+    1,
+  );
+});
+
 test("inspection rejects every unreviewed Antigravity version", async (t) => {
   const fixture = await inspectionFixture(t, "version-drift-after-first");
   await assert.rejects(
@@ -386,17 +450,106 @@ test("inspection rejects every unreviewed Antigravity version", async (t) => {
   );
 });
 
+for (const cliVersion of ["1.2.15", "1.2.17"]) {
+  test(`inspection rejects unreviewed adjacent CLI ${cliVersion}`, async (t) => {
+    await assert.rejects(
+      inspectionFixture(t, "happy", cliVersion),
+      /not a reviewed version/u,
+    );
+  });
+}
+
+test("1.2.16 inspection rejects a missing required stream flag", async (t) => {
+  await assert.rejects(
+    inspectionFixture(t, "missing-stream-input-flag", "1.2.16"),
+    /help lacks required --input-format/u,
+  );
+});
+
+for (const [model, effort] of [
+  ["gemini-3.8-flash", "low"],
+  ["gemini-3.8-flash-high", "low"],
+  ["gemini-3.8-flash-max", "max"],
+  ["gemini-3.8-flash-xhigh", "xhigh"],
+]) {
+  test(`1.2.16 refuses unsupported ${effort} effort for ${model} before consumption`, async (t) => {
+    const fixture = await executionFixture(t, "happy", {
+      cliVersion: "1.2.16",
+      model,
+      effort,
+    });
+    const adapterResult = await antigravityCliAdapter.execute(
+      directContext(fixture),
+    );
+    assert.equal(adapterResult.failureClass, "preflight-rejected");
+    assert.equal(adapterResult.error.code, "MODEL_EFFORT_UNREPRESENTABLE");
+    const result = await executeFixture(fixture);
+    assert.equal(result.status, "failed");
+    // The common runtime rejects an unconsumed adapter return separately; it
+    // never creates an attempt or turns that pre-launch refusal into a call.
+    assert.equal(result.failureClass, "provider-failed");
+    assert.match(
+      result.error.message,
+      /without consuming its launch capability/u,
+    );
+    assert.equal(
+      await exists(join(fixture.destination, "attempt.json")),
+      false,
+    );
+    assert.equal(
+      (await recordsAt(fixture.recordFile)).some(
+        ({ mode }) => mode === "model",
+      ),
+      false,
+    );
+  });
+}
+
+for (const scenario of [
+  "model-mismatch",
+  "permission-mode-mismatch",
+  "tool-use",
+  "subagent-use",
+  "external-advertised-tool",
+]) {
+  test(`1.2.16 preserves the ${scenario} refusal`, async (t) => {
+    const fixture = await executionFixture(t, scenario, {
+      cliVersion: "1.2.16",
+      model: "gemini-3.8-flash-low",
+    });
+    const result = await executeFixture(fixture);
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureClass, "capability-rejected");
+    assert.equal(await exists(join(fixture.destination, "attempt.json")), true);
+    assert.equal(
+      (await recordsAt(fixture.recordFile)).filter(
+        ({ mode }) => mode === "model",
+      ).length,
+      1,
+    );
+  });
+}
+
 test("inspection rejects provider-control prefix arguments before any subprocess", async (t) => {
   const fixture = await inspectionFixture(t);
   const before = await recordsAt(fixture.recordFile);
   for (const argument of [
     "-p",
+    "-c",
+    "-i",
     "--agent=research",
     "--allowed-tools=run_command",
     "--continue",
     "--dangerously-skip-permissions",
     "--mcp-config=external.json",
     "--model=unreviewed-model",
+    "--mode=accept-edits",
+    "--add-dir=C:\\unapproved",
+    "--project=unapproved",
+    "--new-project=unapproved",
+    "--remote-control",
+    "--json-schema=unapproved.json",
+    "--log-file=unapproved.log",
     "--permission-mode=always-proceed",
     "--plugin-dir=external-plugin",
   ]) {
@@ -539,6 +692,21 @@ test("toolchain drift fails before launch-capability consumption", async (t) => 
   const result = await antigravityCliAdapter.execute(directContext(fixture));
   assert.equal(result.status, "failed");
   assert.equal(result.failureClass, "preflight-rejected");
+  assert.equal(
+    (await recordsAt(fixture.recordFile)).some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
+test("1.2.16 stderr help drift fails before launch-capability consumption", async (t) => {
+  const fixture = await executionFixture(t, "help-drift-after-first", {
+    cliVersion: "1.2.16",
+    model: "gemini-3.8-flash-low",
+  });
+  const result = await antigravityCliAdapter.execute(directContext(fixture));
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "preflight-rejected");
+  assert.equal(result.error.code, "TOOLCHAIN_DRIFT");
   assert.equal(
     (await recordsAt(fixture.recordFile)).some(({ mode }) => mode === "model"),
     false,

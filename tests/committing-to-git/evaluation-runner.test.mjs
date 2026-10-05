@@ -1061,77 +1061,86 @@ test("CLI policy-plan freezes the pushed candidate without model execution", (t)
   );
 });
 
-test("CLI prepare-policy pins Antigravity and creates no fixture or model turn", (t) => {
-  const root = temporaryRoot(t, "committing-to-git-policy-cli-");
-  const { repository } = createPushedCandidateRepository(t);
-  const candidate = resolvePushedEvaluationCandidate(repository);
-  const campaignPath = join(root, "campaign.json");
-  const destination = join(root, "prepared");
-  const workingDirectory = join(root, "working");
-  const recordFile = join(root, "antigravity.jsonl");
-  mkdirSync(workingDirectory);
-  const campaign = createPolicyEvaluationCampaignPlan({
-    candidate,
-    caseIds: [3],
-    effort: "low",
-    model: "gemini-3.5-flash-low",
-    provider: "google",
-    repetitions: 1,
-    seed: "cli-policy-seed",
-  });
-  const session = campaign.sessions.find(({ arm }) => arm === "new-skill");
-  writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, "utf8");
-  const result = spawnSync(
-    process.execPath,
-    [
-      RUNNER_CLI,
-      "prepare-policy",
-      "--repository-root",
-      repository,
-      "--campaign-plan",
-      campaignPath,
-      "--sequence",
-      String(session.sequence),
-      "--working-dir",
-      workingDirectory,
-      "--destination",
-      destination,
-      "--antigravity-command",
+for (const cliVersion of ["1.1.19", "1.2.16"]) {
+  test(`CLI prepare-policy pins Antigravity ${cliVersion} and creates no fixture or model turn`, (t) => {
+    const root = temporaryRoot(t, "committing-to-git-policy-cli-");
+    const { repository } = createPushedCandidateRepository(t);
+    const candidate = resolvePushedEvaluationCandidate(repository);
+    const campaignPath = join(root, "campaign.json");
+    const destination = join(root, "prepared");
+    const workingDirectory = join(root, "working");
+    const recordFile = join(root, "antigravity.jsonl");
+    mkdirSync(workingDirectory);
+    const campaign = createPolicyEvaluationCampaignPlan({
+      candidate,
+      caseIds: [3],
+      effort: "low",
+      model:
+        cliVersion === "1.2.16"
+          ? "gemini-3.8-flash-low"
+          : "gemini-3.5-flash-low",
+      provider: "google",
+      repetitions: 1,
+      seed: "cli-policy-seed",
+    });
+    const session = campaign.sessions.find(({ arm }) => arm === "new-skill");
+    writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, "utf8");
+    const result = spawnSync(
       process.execPath,
-      "--antigravity-prefix-arg",
-      FAKE_ANTIGRAVITY,
-      "--antigravity-prefix-arg",
-      "--record-file",
-      "--antigravity-prefix-arg",
-      recordFile,
-    ],
-    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
-  );
-  assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
-  assert.equal(output.command, "prepare-policy");
-  assert.equal(output.campaignId, campaign.campaignId);
-  assert.equal(output.modelCalls, 0);
-  assert.equal(output.profile, "policy-only");
-  assert.equal(existsSync(join(destination, "fixture")), false);
-  const packet = JSON.parse(
-    readFileSync(join(destination, "packet.json"), "utf8"),
-  );
-  assert.equal(packet.transmission.provider, "google");
-  assert.equal(
-    packet.transmission.session.metadata.campaignId,
-    campaign.campaignId,
-  );
-  assert.equal(packet.transmission.toolchain.version, "1.1.19");
-  const records = readFileSync(recordFile, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map(JSON.parse);
-  assert.equal(
-    records.some(({ mode }) => mode === "model"),
-    false,
-  );
-});
+      [
+        RUNNER_CLI,
+        "prepare-policy",
+        "--repository-root",
+        repository,
+        "--campaign-plan",
+        campaignPath,
+        "--sequence",
+        String(session.sequence),
+        "--working-dir",
+        workingDirectory,
+        "--destination",
+        destination,
+        "--antigravity-command",
+        process.execPath,
+        "--antigravity-prefix-arg",
+        FAKE_ANTIGRAVITY,
+        "--antigravity-prefix-arg",
+        "--cli-version",
+        "--antigravity-prefix-arg",
+        cliVersion,
+        "--antigravity-prefix-arg",
+        "--record-file",
+        "--antigravity-prefix-arg",
+        recordFile,
+      ],
+      { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.command, "prepare-policy");
+    assert.equal(output.campaignId, campaign.campaignId);
+    assert.equal(output.modelCalls, 0);
+    assert.equal(output.profile, "policy-only");
+    assert.equal(existsSync(join(destination, "fixture")), false);
+    const packet = JSON.parse(
+      readFileSync(join(destination, "packet.json"), "utf8"),
+    );
+    assert.equal(packet.transmission.provider, "google");
+    assert.equal(
+      packet.transmission.session.metadata.campaignId,
+      campaign.campaignId,
+    );
+    assert.equal(packet.transmission.toolchain.version, cliVersion);
+    const records = readFileSync(recordFile, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map(JSON.parse);
+    assert.equal(
+      records.some(({ mode }) => mode === "model"),
+      false,
+    );
+  });
+}
 
 test("CLI prepare derives every schedule field from the reviewed campaign", (t) => {
   const root = temporaryRoot(t, "committing-to-git-prepare-cli-");

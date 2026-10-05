@@ -195,8 +195,9 @@ node src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs prepare
 ```
 
 Repeatable `--antigravity-prefix-arg` options are available only for a reviewed
-wrapper toolchain. Preparation pins Antigravity CLI version 1.1.19, its help and
-executable fingerprints, the no-tool capability profile, the complete prompt,
+wrapper toolchain. Preparation admits only reviewed Antigravity CLI versions
+1.1.19 and 1.2.16 and pins the selected version, help and executable fingerprints,
+its version-specific no-tool capability profile, the complete prompt,
 and every treatment byte into the ordinary shared transmission packet. Review
 and authorize that exact packet through the common authorization boundary, then
 invoke the ordinary `run` command:
@@ -211,6 +212,17 @@ disables slash commands, requests sandboxing and the `request-review`
 permission mode, and rejects any observed tool or subagent step. Do not use
 `--dangerously-skip-permissions`, change Antigravity settings, or infer provider
 readiness by making an unapproved model call.
+
+The 1.1.19 profile retains its separate `--effort` argument. For 1.2.16, select an
+explicit native model slug carrying the exact requested effort, such as
+`gemini-3.8-flash-low` with packet effort `low`; the adapter omits the unsupported
+separate effort flag. A bare slug or contradictory effort refuses before launch
+consumption; only native tiers `low`, `medium` and `high` are reviewed.
+Native initialization must still confirm the exact model,
+`request-review` and workspace. Model availability and actual behavioral success
+require their own observations; `agy models` and zero-turn protocol inspection
+are not model evaluations. Provider-control prefix arguments cannot override the
+packet's model, execution mode, workspace, schema, logs or interactive behavior.
 
 Only records labeled `profile: "policy-only"` are valid outputs of this lane.
 Native cumulative Antigravity usage is useful for comparisons within this
@@ -287,7 +299,7 @@ Production consumer mode currently fails closed because process containment is u
 
 ## Historical results
 
-The three `2026-08-22-*.json` files predate schema version 2 and remain immutable historical evidence. They document a Luna policy pilot, a Luna permission-boundary smoke run, and a Gemini explicit-activation run, including their limitations. The Gemini record used Antigravity 1.1.18 and is not migrated into the pinned 1.1.19 policy-only profile. These records are not active post-cutover treatment results and must not be used to claim the successor passed model or human gates.
+The three `2026-08-22-*.json` files predate schema version 2 and remain immutable historical evidence. They document a Luna policy pilot, a Luna permission-boundary smoke run, and a Gemini explicit-activation run, including their limitations. The Gemini record used Antigravity 1.1.18 and is not migrated into either reviewed policy-only profile. These records are not active post-cutover treatment results and must not be used to claim the successor passed model or human gates.
 
 Run deterministic repository verification with:
 

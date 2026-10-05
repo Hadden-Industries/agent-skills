@@ -8,11 +8,13 @@ function option(name) {
 }
 
 const fixtureOptions = new Set([
+  "--cli-version",
   "--record-file",
   "--remove-directory",
   "--scenario",
 ]);
 const scenario = option("--scenario") ?? "happy";
+const cliVersion = option("--cli-version") ?? "1.1.19";
 const recordFile = option("--record-file");
 const removeDirectory = option("--remove-directory");
 const operationalArguments = process.argv
@@ -55,7 +57,7 @@ if (
   process.stdout.write(
     scenario === "version-drift-after-first" && calls > 0
       ? "1.1.20\n"
-      : "1.1.19\n",
+      : `${cliVersion}\n`,
   );
   process.exit(0);
 }
@@ -64,9 +66,15 @@ if (operationalArguments.length === 1 && operationalArguments[0] === "--help") {
   const prior = await records();
   const calls = prior.filter(({ mode }) => mode === "help").length;
   await record({ mode: "help", arguments: operationalArguments });
-  process.stdout.write(
-    "Usage: agy [options]\n  --input-format <format>\n  --output-format <format>\n  --sandbox\n  --disable-slash-commands\n",
+  const helpStream = cliVersion === "1.2.16" ? process.stderr : process.stdout;
+  helpStream.write(
+    scenario === "missing-stream-input-flag"
+      ? "Usage: agy --output-format --model --effort --sandbox --disable-slash-commands\n"
+      : "Usage: agy [options]\n  --input-format <format>\n  --output-format <format>\n  --model <model>\n  --effort <effort>\n  --sandbox\n  --disable-slash-commands\n",
   );
+  if (scenario === "help-drift-after-first" && calls > 0) {
+    helpStream.write("Changed native help\n");
+  }
   if (scenario === "launch-failure" && calls > 0 && removeDirectory !== null) {
     await rm(removeDirectory, { recursive: true, force: true });
   }
@@ -80,6 +88,11 @@ await record({
   environmentNames: Object.keys(process.env).sort(),
   visibleEnvironment: process.env.EVALUATION_VISIBLE ?? null,
 });
+// The observed 1.2.16 CLI rejects a separate effort for an effort-bearing slug.
+if (cliVersion === "1.2.16" && option("--effort") !== null) {
+  writeEvent({ event: "result", result: { status: "ERROR", num_turns: 0 } });
+  process.exit(1);
+}
 process.stderr.write("fake antigravity diagnostic\n");
 
 const conversationId = "fake-google-conversation";

@@ -9,7 +9,6 @@ import {
   sha256Hex,
 } from "./runtime.js";
 
-const PINNED_VERSION = "1.1.19";
 const CODE_EXTENSIONS = new Set([
   ".bat",
   ".bash",
@@ -39,6 +38,7 @@ const FAILURE_CLASSES = new Set([
 const MAX_EVENT_BYTES = 16 * 1024 * 1024;
 const RESERVED_PREFIX_OPTION_STEMS = Object.freeze([
   "--agent",
+  "--add-dir",
   "--allow",
   "--approval",
   "--continue",
@@ -48,14 +48,21 @@ const RESERVED_PREFIX_OPTION_STEMS = Object.freeze([
   "--effort",
   "--hook",
   "--input-format",
+  "--json-schema",
+  "--log-file",
   "--mcp",
   "--model",
+  "--mode",
   "--network",
+  "--new-project",
   "--output-format",
   "--permission",
   "--plugin",
+  "--print",
+  "--project",
   "--prompt",
   "--resume",
+  "--remote-control",
   "--sandbox",
   "--settings",
   "--skill",
@@ -69,9 +76,9 @@ const EXPECTED_CAPABILITIES = Object.freeze({
   tools: [],
   providerFacilities: ["provider-default-context"],
 });
-const CAPABILITY_PROFILE = immutable({
+const LEGACY_CAPABILITY_PROFILE = immutable({
   schemaVersion: 1,
-  version: PINNED_VERSION,
+  version: "1.1.19",
   authentication: {
     mode: "cached-cli-credentials",
     zeroTurnStatusCommand: null,
@@ -88,6 +95,19 @@ const CAPABILITY_PROFILE = immutable({
     crossProcessConversationPersistence: false,
     observedToolUse: "reject",
     observedSubagentUse: "reject",
+  },
+});
+// Native 1.2.16 models carry their effort in the selected slug; passing a
+// separate --effort rejects them. Keep the reviewed legacy invocation intact.
+const CAPABILITY_PROFILES = immutable({
+  "1.1.19": LEGACY_CAPABILITY_PROFILE,
+  "1.2.16": {
+    ...LEGACY_CAPABILITY_PROFILE,
+    version: "1.2.16",
+    invocation: {
+      ...LEGACY_CAPABILITY_PROFILE.invocation,
+      effortBinding: "model-slug",
+    },
   },
 });
 
@@ -195,6 +215,8 @@ function assertReviewedPrefixArguments(prefixArguments) {
     const optionName = argument.split("=", 1)[0];
     if (
       argument.startsWith("-p") ||
+      argument === "-c" ||
+      argument === "-i" ||
       RESERVED_PREFIX_OPTION_STEMS.some((stem) => optionName.startsWith(stem))
     ) {
       fail(`Antigravity prefix argument is reserved or forbidden: ${argument}`);
@@ -319,11 +341,11 @@ function parseVersion(stdout) {
       "Antigravity returned an invalid version",
     );
   }
-  if (match[1] !== PINNED_VERSION) {
+  if (!Object.hasOwn(CAPABILITY_PROFILES, match[1])) {
     throw sessionError(
       "preflight-rejected",
       "UNSUPPORTED_VERSION",
-      `Antigravity ${match[1]} is not the reviewed ${PINNED_VERSION} version`,
+      `Antigravity ${match[1]} is not a reviewed version (${Object.keys(CAPABILITY_PROFILES).join(", ")})`,
     );
   }
   return match[1];
@@ -372,6 +394,51 @@ export async function inspectAntigravityCliToolchain({
       "Antigravity help probe failed",
     );
   }
+  let help = {
+    byteLength: helpProbe.stdout.byteLength,
+    sha256: sha256Hex(helpProbe.stdout),
+  };
+  if (version === "1.2.16") {
+    // Native 1.2.16 writes help to stderr. Bind both streams independently so
+    // moving bytes between streams or changing diagnostics invalidates a packet.
+    const streams = Object.fromEntries(
+      ["stdout", "stderr"].map((name) => [
+        name,
+        {
+          byteLength: helpProbe[name].byteLength,
+          sha256: sha256Hex(helpProbe[name]),
+        },
+      ]),
+    );
+    help = {
+      byteLength: helpProbe.stdout.byteLength + helpProbe.stderr.byteLength,
+      sha256: sha256Hex(canonicalJsonBytes(streams)),
+      streams,
+    };
+    const flags = new Set(
+      [helpProbe.stdout, helpProbe.stderr].flatMap(
+        (bytes) =>
+          new TextDecoder("utf-8", { fatal: true })
+            .decode(bytes)
+            .match(/--[a-z][a-z-]*/gu) ?? [],
+      ),
+    );
+    for (const flag of [
+      "--input-format",
+      "--output-format",
+      "--model",
+      "--sandbox",
+      "--disable-slash-commands",
+    ]) {
+      if (!flags.has(flag)) {
+        throw sessionError(
+          "preflight-rejected",
+          "MISSING_NATIVE_FLAG",
+          `Antigravity ${version} help lacks required ${flag}`,
+        );
+      }
+    }
+  }
   return immutable({
     schemaVersion: 1,
     provider: "google",
@@ -380,11 +447,8 @@ export async function inspectAntigravityCliToolchain({
     command: commandIdentity,
     prefixArguments: boundArguments,
     boundPrefixFiles: await fingerprintPrefixFiles(boundArguments),
-    help: {
-      byteLength: helpProbe.stdout.byteLength,
-      sha256: sha256Hex(helpProbe.stdout),
-    },
-    capabilityProfile: CAPABILITY_PROFILE,
+    help,
+    capabilityProfile: CAPABILITY_PROFILES[version],
   });
 }
 
@@ -536,8 +600,11 @@ function assertToolchainShape(toolchain) {
     toolchain.schemaVersion !== 1 ||
     toolchain.provider !== "google" ||
     toolchain.transport !== "antigravity-cli" ||
-    toolchain.version !== PINNED_VERSION ||
-    !sameCanonical(toolchain.capabilityProfile, CAPABILITY_PROFILE)
+    !Object.hasOwn(CAPABILITY_PROFILES, toolchain.version) ||
+    !sameCanonical(
+      toolchain.capabilityProfile,
+      CAPABILITY_PROFILES[toolchain.version],
+    )
   ) {
     throw sessionError(
       "preflight-rejected",
@@ -548,6 +615,21 @@ function assertToolchainShape(toolchain) {
   assertPlainObject(toolchain.command, "toolchain command");
   assertNonemptyString(toolchain.command.path, "toolchain command path");
   assertReviewedPrefixArguments(toolchain.prefixArguments);
+}
+
+function assertModelEffortBinding(transmission) {
+  if (transmission.toolchain.version !== "1.2.16") return;
+  // This profile covers effort-bearing native slugs only. A bare model or a
+  // contradictory packet effort cannot silently inherit an ambient/default tier.
+  // The observed native model catalog supports low, medium and high tiers.
+  const match = transmission.model.match(/-(low|medium|high)$/u);
+  if (match === null || match[1] !== transmission.effort) {
+    throw sessionError(
+      "preflight-rejected",
+      "MODEL_EFFORT_UNREPRESENTABLE",
+      "Antigravity 1.2.16 requires the packet effort to match its model slug",
+    );
+  }
 }
 
 function assertCapabilities(transmission) {
@@ -1223,8 +1305,9 @@ async function executeModel(context, environment) {
     "stream-json",
     "--model",
     transmission.model,
-    "--effort",
-    transmission.effort,
+    ...(request.toolchain.version === "1.1.19"
+      ? ["--effort", transmission.effort]
+      : []),
     "--sandbox",
     "--disable-slash-commands",
   ];
@@ -1332,6 +1415,7 @@ async function runAdapter(context) {
   assertRequest(context);
   assertToolchainShape(context.request.toolchain);
   assertCapabilities(context.transmission);
+  assertModelEffortBinding(context.transmission);
   const environment = assertIsolation(context.transmission);
   await assertFreshWorkingDirectory(
     context.transmission.isolation.workingDirectory,
