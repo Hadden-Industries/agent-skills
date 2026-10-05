@@ -1131,7 +1131,7 @@ test("Antigravity preparation binds one explicit post-activation message without
   assert.equal(packet.transmission.provider, "google");
   assert.equal(packet.transmission.transport, "antigravity-cli");
   assert.equal(packet.transmission.session.arm, "candidate-skill");
-  assert.equal(packet.transmission.toolchain.version, "1.1.19");
+  assert.equal(packet.transmission.toolchain.version, "1.2.17");
   assert.deepEqual(packet.transmission.capabilities, {
     network: false,
     providerFacilities: ["provider-default-context"],

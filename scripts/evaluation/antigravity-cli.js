@@ -76,9 +76,12 @@ const EXPECTED_CAPABILITIES = Object.freeze({
   tools: [],
   providerFacilities: ["provider-default-context"],
 });
-const LEGACY_CAPABILITY_PROFILE = immutable({
+// Admission is intentionally exact: upgrading the installed CLI requires a new
+// native protocol qualification, not a floating version range or legacy fallback.
+const QUALIFIED_CLI_VERSION = "1.2.17";
+const CAPABILITY_PROFILE = immutable({
   schemaVersion: 1,
-  version: "1.1.19",
+  version: QUALIFIED_CLI_VERSION,
   authentication: {
     mode: "cached-cli-credentials",
     zeroTurnStatusCommand: null,
@@ -95,19 +98,7 @@ const LEGACY_CAPABILITY_PROFILE = immutable({
     crossProcessConversationPersistence: false,
     observedToolUse: "reject",
     observedSubagentUse: "reject",
-  },
-});
-// Native 1.2.16 models carry their effort in the selected slug; passing a
-// separate --effort rejects them. Keep the reviewed legacy invocation intact.
-const CAPABILITY_PROFILES = immutable({
-  "1.1.19": LEGACY_CAPABILITY_PROFILE,
-  "1.2.16": {
-    ...LEGACY_CAPABILITY_PROFILE,
-    version: "1.2.16",
-    invocation: {
-      ...LEGACY_CAPABILITY_PROFILE.invocation,
-      effortBinding: "model-slug",
-    },
+    effortBinding: "model-slug",
   },
 });
 
@@ -341,11 +332,11 @@ function parseVersion(stdout) {
       "Antigravity returned an invalid version",
     );
   }
-  if (!Object.hasOwn(CAPABILITY_PROFILES, match[1])) {
+  if (match[1] !== QUALIFIED_CLI_VERSION) {
     throw sessionError(
       "preflight-rejected",
       "UNSUPPORTED_VERSION",
-      `Antigravity ${match[1]} is not a reviewed version (${Object.keys(CAPABILITY_PROFILES).join(", ")})`,
+      `Antigravity ${match[1]} is not a reviewed version; only specifically qualified ${QUALIFIED_CLI_VERSION} is supported. Requalify the adapter before using a changed CLI.`,
     );
   }
   return match[1];
@@ -394,49 +385,43 @@ export async function inspectAntigravityCliToolchain({
       "Antigravity help probe failed",
     );
   }
-  let help = {
-    byteLength: helpProbe.stdout.byteLength,
-    sha256: sha256Hex(helpProbe.stdout),
+  // The qualified native CLI writes help to stderr. Bind both streams so
+  // moving bytes between streams or changing diagnostics invalidates a packet.
+  const streams = Object.fromEntries(
+    ["stdout", "stderr"].map((name) => [
+      name,
+      {
+        byteLength: helpProbe[name].byteLength,
+        sha256: sha256Hex(helpProbe[name]),
+      },
+    ]),
+  );
+  const help = {
+    byteLength: helpProbe.stdout.byteLength + helpProbe.stderr.byteLength,
+    sha256: sha256Hex(canonicalJsonBytes(streams)),
+    streams,
   };
-  if (version === "1.2.16") {
-    // Native 1.2.16 writes help to stderr. Bind both streams independently so
-    // moving bytes between streams or changing diagnostics invalidates a packet.
-    const streams = Object.fromEntries(
-      ["stdout", "stderr"].map((name) => [
-        name,
-        {
-          byteLength: helpProbe[name].byteLength,
-          sha256: sha256Hex(helpProbe[name]),
-        },
-      ]),
-    );
-    help = {
-      byteLength: helpProbe.stdout.byteLength + helpProbe.stderr.byteLength,
-      sha256: sha256Hex(canonicalJsonBytes(streams)),
-      streams,
-    };
-    const flags = new Set(
-      [helpProbe.stdout, helpProbe.stderr].flatMap(
-        (bytes) =>
-          new TextDecoder("utf-8", { fatal: true })
-            .decode(bytes)
-            .match(/--[a-z][a-z-]*/gu) ?? [],
-      ),
-    );
-    for (const flag of [
-      "--input-format",
-      "--output-format",
-      "--model",
-      "--sandbox",
-      "--disable-slash-commands",
-    ]) {
-      if (!flags.has(flag)) {
-        throw sessionError(
-          "preflight-rejected",
-          "MISSING_NATIVE_FLAG",
-          `Antigravity ${version} help lacks required ${flag}`,
-        );
-      }
+  const flags = new Set(
+    [helpProbe.stdout, helpProbe.stderr].flatMap(
+      (bytes) =>
+        new TextDecoder("utf-8", { fatal: true })
+          .decode(bytes)
+          .match(/--[a-z][a-z-]*/gu) ?? [],
+    ),
+  );
+  for (const flag of [
+    "--input-format",
+    "--output-format",
+    "--model",
+    "--sandbox",
+    "--disable-slash-commands",
+  ]) {
+    if (!flags.has(flag)) {
+      throw sessionError(
+        "preflight-rejected",
+        "MISSING_NATIVE_FLAG",
+        `Antigravity ${version} help lacks required ${flag}`,
+      );
     }
   }
   return immutable({
@@ -448,7 +433,7 @@ export async function inspectAntigravityCliToolchain({
     prefixArguments: boundArguments,
     boundPrefixFiles: await fingerprintPrefixFiles(boundArguments),
     help,
-    capabilityProfile: CAPABILITY_PROFILES[version],
+    capabilityProfile: CAPABILITY_PROFILE,
   });
 }
 
@@ -600,16 +585,13 @@ function assertToolchainShape(toolchain) {
     toolchain.schemaVersion !== 1 ||
     toolchain.provider !== "google" ||
     toolchain.transport !== "antigravity-cli" ||
-    !Object.hasOwn(CAPABILITY_PROFILES, toolchain.version) ||
-    !sameCanonical(
-      toolchain.capabilityProfile,
-      CAPABILITY_PROFILES[toolchain.version],
-    )
+    toolchain.version !== QUALIFIED_CLI_VERSION ||
+    !sameCanonical(toolchain.capabilityProfile, CAPABILITY_PROFILE)
   ) {
     throw sessionError(
       "preflight-rejected",
       "UNSUPPORTED_TOOLCHAIN",
-      "Antigravity toolchain does not match the reviewed capability profile",
+      `Antigravity toolchain does not match the sole reviewed ${QUALIFIED_CLI_VERSION} capability profile; requalify a changed CLI and prepare a new packet`,
     );
   }
   assertPlainObject(toolchain.command, "toolchain command");
@@ -618,7 +600,6 @@ function assertToolchainShape(toolchain) {
 }
 
 function assertModelEffortBinding(transmission) {
-  if (transmission.toolchain.version !== "1.2.16") return;
   // This profile covers effort-bearing native slugs only. A bare model or a
   // contradictory packet effort cannot silently inherit an ambient/default tier.
   // The observed native model catalog supports low, medium and high tiers.
@@ -627,7 +608,7 @@ function assertModelEffortBinding(transmission) {
     throw sessionError(
       "preflight-rejected",
       "MODEL_EFFORT_UNREPRESENTABLE",
-      "Antigravity 1.2.16 requires the packet effort to match its model slug",
+      `Antigravity ${QUALIFIED_CLI_VERSION} requires the packet effort to match its model slug`,
     );
   }
 }
@@ -1305,9 +1286,6 @@ async function executeModel(context, environment) {
     "stream-json",
     "--model",
     transmission.model,
-    ...(request.toolchain.version === "1.1.19"
-      ? ["--effort", transmission.effort]
-      : []),
     "--sandbox",
     "--disable-slash-commands",
   ];

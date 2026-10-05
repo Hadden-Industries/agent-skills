@@ -186,7 +186,7 @@ packets and results must remain with their original pinned runtime.
 
 The preparation limit is a conservative local guard, not a vendor context
 guarantee. Operational completion alone does not establish that the model saw
-the complete prompt. For a completed Antigravity 1.2.16 policy trial, inspect
+the complete prompt. For a completed Antigravity 1.2.16 or 1.2.17 policy trial, inspect
 its explicit, trial-owned native database without making another model call:
 
 ```text
@@ -226,9 +226,9 @@ node src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs prepare
 ```
 
 Repeatable `--antigravity-prefix-arg` options are available only for a reviewed
-wrapper toolchain. Preparation admits only reviewed Antigravity CLI versions
-1.1.19 and 1.2.16 and pins the selected version, help and executable fingerprints,
-its version-specific no-tool capability profile, the complete prompt,
+wrapper toolchain. Preparation admits only specifically qualified Antigravity
+CLI 1.2.17 and pins its version, help and executable fingerprints,
+its no-tool capability profile, the complete prompt,
 and every treatment byte into the ordinary shared transmission packet. Review
 and authorize that exact packet through the common authorization boundary, then
 invoke the ordinary `run` command:
@@ -244,8 +244,11 @@ permission mode, and rejects any observed tool or subagent step. Do not use
 `--dangerously-skip-permissions`, change Antigravity settings, or infer provider
 readiness by making an unapproved model call.
 
-The 1.1.19 profile retains its separate `--effort` argument. For 1.2.16, select an
-explicit native model slug carrying the exact requested effort, such as
+The older 1.1.19 and 1.2.16 launch profiles are retired. Any different installed
+CLI version refuses before model launch; explicitly requalify the adapter and
+prepare a new packet rather than relaxing the gate or reusing an old approval.
+Historical results and offline generation inspection remain separate read-only
+contracts. Select an explicit native model slug carrying the exact requested effort, such as
 `gemini-3.8-flash-low` with packet effort `low`; the adapter omits the unsupported
 separate effort flag. A bare slug or contradictory effort refuses before launch
 consumption; only native tiers `low`, `medium` and `high` are reviewed.

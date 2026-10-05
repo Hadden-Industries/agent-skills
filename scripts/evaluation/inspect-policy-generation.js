@@ -18,6 +18,9 @@ import {
 
 const MAXIMUM_NATIVE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const CONVERSATION_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
+// Offline evidence reading is separate from launch admission. Retain the exact
+// historical schema alongside the current schema; unknown versions fail closed.
+const READABLE_NATIVE_VERSIONS = new Set(["1.2.16", "1.2.17"]);
 
 function retainedBytes(directory, relativePath, run) {
   const bytes = readFileSync(join(directory, relativePath));
@@ -34,7 +37,7 @@ function retainedBytes(directory, relativePath, run) {
 }
 
 /**
- * Inspect only the named, completed Antigravity 1.2.16 policy trial's user step
+ * Inspect only the named, completed Antigravity policy trial's reviewed user step
  * and single generation record. No ambient home discovery, model call or raw
  * private payload export occurs. This is a local observation, not a sealed
  * service-context receipt or evidence of semantic policy compliance.
@@ -68,11 +71,11 @@ export async function inspectPolicyGenerationInput({
     transmission.suite !== "committing-to-git" ||
     transmission.provider !== "google" ||
     transmission.transport !== "antigravity-cli" ||
-    transmission.toolchain.version !== "1.2.16" ||
+    !READABLE_NATIVE_VERSIONS.has(transmission.toolchain.version) ||
     transmission.session.metadata?.profile !== "policy-only"
   ) {
     throw new Error(
-      "Generation inspection requires one completed Antigravity 1.2.16 policy trial",
+      "Generation inspection requires one completed Antigravity 1.2.16 or 1.2.17 policy trial",
     );
   }
   const users = transmission.harnessControlledInputs.filter(

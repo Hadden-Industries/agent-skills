@@ -193,26 +193,28 @@ Provider process launch belongs only to these three adapters. The operator login
 
 ### Antigravity protocol versions
 
-Google sessions admit only the separately reviewed 1.1.19 and 1.2.16 CLI
-profiles. Each packet pins the selected profile, executable, version and help
-bytes. Both use stdin NDJSON, one process for all declared turns, per-turn result
+Google sessions admit only the specifically qualified 1.2.17 CLI profile.
+Older 1.1.19 and 1.2.16 launch profiles are retired. A changed installed version,
+including a newer patch release, refuses preparation before any model call.
+Requalify the adapter explicitly and prepare fresh packets; there is no automatic
+upgrade, version range or fallback. Each packet pins the profile, executable,
+version and help bytes. The profile uses stdin NDJSON, one process for all declared turns, per-turn result
 events, cumulative usage, sandbox request and disabled slash-command expansion.
-Both require native initialization to confirm the exact model, workspace and
+It requires native initialization to confirm the exact model, workspace and
 `request-review`; any observed tool or subagent step fails the session.
 
-The legacy 1.1.19 profile keeps its separate `--effort` argument. Native 1.2.16
-rejects that argument for effort-bearing model slugs, so its profile binds effort
+Native 1.2.17 uses effort-bearing model slugs, so its profile binds effort
 through the explicit model slug instead. Its reviewed tiers are `low`, `medium`
 and `high`; the slug's final tier must equal the
 packet effort; a missing or contradictory tier refuses before consumption. The
-new profile fingerprints stdout and stderr separately (native help uses stderr)
+profile fingerprints stdout and stderr separately (native help uses stderr)
 and checks that help exposes the required stream, model, sandbox
 and slash-disable flags. Version/profile drift and provider-control prefix
 overrides remain refusals. The common runtime records an adapter return without
 launch consumption as `provider-failed`; no attempt or model process is created
 for that refusal, and its record is not a completed evaluation.
 
-The installed 1.2.16 zero-turn probe on 2026-10-05 confirmed
+The installed 1.2.17 zero-turn probe on 2026-10-05 confirmed
 `gemini-3.8-flash-low`, `request-review`, EOF exit and producer quiescence. It
 made no model turn and does not establish actual real-provider behavioral
 acceptance, instruction isolation or OS-level egress isolation. Preparation
@@ -220,7 +222,15 @@ still needs explicit model/effort and every real session still needs exact
 packet authorization. Protocol references: [Google headless
 mode](https://antigravity.google/docs/cli/headless/) and [execution
 modes](https://antigravity.google/docs/cli/modes). Persistent permission or
-provider settings are not changed by this adapter.
+provider settings are not changed by this adapter. The executable's observed
+SHA-256 was `6224a54c35d31b9b85232bbfb23e3306002c418481930442519743fab585f65a`;
+each preparation still fingerprints its own exact executable. Deterministic
+conformance and native zero-turn inspection qualify this protocol profile, not
+real-provider behavior or isolation. Older completed results remain readable;
+the offline generation inspector accepts exact 1.2.16 and 1.2.17 native schemas
+and rejects unknown versions without granting launch support. Its 1.2.17
+generation-payload checks have deterministic fixture evidence; no new real
+1.2.17 generation was requested as part of this adapter change.
 
 ## Evaluation Homes
 

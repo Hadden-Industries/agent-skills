@@ -1230,7 +1230,7 @@ test("CLI policy-plan freezes the pushed candidate without model execution", (t)
   );
 });
 
-for (const cliVersion of ["1.1.19", "1.2.16"]) {
+for (const cliVersion of ["1.2.17"]) {
   test(`CLI prepare-policy pins Antigravity ${cliVersion} and creates no fixture or model turn`, (t) => {
     const root = temporaryRoot(t, "committing-to-git-policy-cli-");
     const { repository } = createPushedCandidateRepository(t);
@@ -1244,10 +1244,7 @@ for (const cliVersion of ["1.1.19", "1.2.16"]) {
       candidate,
       caseIds: [3],
       effort: "low",
-      model:
-        cliVersion === "1.2.16"
-          ? "gemini-3.8-flash-low"
-          : "gemini-3.5-flash-low",
+      model: "gemini-3.8-flash-low",
       provider: "google",
       repetitions: 1,
       seed: "cli-policy-seed",

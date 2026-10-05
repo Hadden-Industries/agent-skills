@@ -71,7 +71,7 @@ unchanged; no consumed approval can authorize the revised prompt.
 
 ## Inspecting local generation fidelity
 
-After an authorized completed 1.2.16 trial, run the documented
+After an authorized completed 1.2.16 or 1.2.17 trial, run the documented
 `scripts/evaluation/inspect-policy-generation.js` command with its explicit
 prepared-session directory and exact conversation database. It verifies the
 retained packet/transcript hashes and native conversation identity, opens that

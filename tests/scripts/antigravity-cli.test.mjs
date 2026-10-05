@@ -106,7 +106,7 @@ async function exists(path) {
   }
 }
 
-async function inspectionFixture(t, scenario = "happy", cliVersion = "1.1.19") {
+async function inspectionFixture(t, scenario = "happy", cliVersion = "1.2.17") {
   const root = await mkdtemp(join(tmpdir(), "antigravity-inspection-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const recordFile = join(root, "invocations.jsonl");
@@ -128,13 +128,27 @@ async function inspectionFixture(t, scenario = "happy", cliVersion = "1.1.19") {
   return { environment, prefixArguments, recordFile, root, toolchain };
 }
 
+test("only the latest qualified 1.2.17 CLI is admitted", async (t) => {
+  const fixture = await inspectionFixture(t, "happy", "1.2.17");
+  assert.equal(fixture.toolchain.version, "1.2.17");
+});
+
+for (const cliVersion of ["1.1.19", "1.2.16"]) {
+  test(`retired launch profile ${cliVersion} refuses preparation`, async (t) => {
+    await assert.rejects(
+      inspectionFixture(t, "happy", cliVersion),
+      /not a reviewed version/u,
+    );
+  });
+}
+
 async function executionFixture(
   t,
   scenario = "happy",
   {
     continuation = null,
     timeoutMs = 2_000,
-    cliVersion = "1.1.19",
+    cliVersion = "1.2.17",
     model = "gemini-3.5-flash-low",
     effort = "low",
   } = {},
@@ -339,7 +353,7 @@ test("inspection pins executable identity, version, help, and capability profile
   assert.equal(fixture.toolchain.schemaVersion, 1);
   assert.equal(fixture.toolchain.provider, "google");
   assert.equal(fixture.toolchain.transport, "antigravity-cli");
-  assert.equal(fixture.toolchain.version, "1.1.19");
+  assert.equal(fixture.toolchain.version, "1.2.17");
   assert.equal(
     fixture.toolchain.command.path,
     await import("node:fs/promises").then(({ realpath }) =>
@@ -358,7 +372,7 @@ test("inspection pins executable identity, version, help, and capability profile
   assert.match(fixture.toolchain.boundPrefixFiles[0].sha256, /^[0-9a-f]{64}$/u);
   assert.deepEqual(fixture.toolchain.capabilityProfile, {
     schemaVersion: 1,
-    version: "1.1.19",
+    version: "1.2.17",
     authentication: {
       mode: "cached-cli-credentials",
       zeroTurnStatusCommand: null,
@@ -375,6 +389,7 @@ test("inspection pins executable identity, version, help, and capability profile
       crossProcessConversationPersistence: false,
       observedToolUse: "reject",
       observedSubagentUse: "reject",
+      effortBinding: "model-slug",
     },
   });
   assert.equal(Object.isFrozen(fixture.toolchain), true);
@@ -384,10 +399,10 @@ test("inspection pins executable identity, version, help, and capability profile
   );
 });
 
-test("inspection accepts the independently observed 1.2.16 CLI profile", async (t) => {
-  const fixture = await inspectionFixture(t, "happy", "1.2.16");
-  assert.equal(fixture.toolchain.version, "1.2.16");
-  assert.equal(fixture.toolchain.capabilityProfile.version, "1.2.16");
+test("inspection accepts the independently observed 1.2.17 CLI profile", async (t) => {
+  const fixture = await inspectionFixture(t, "happy", "1.2.17");
+  assert.equal(fixture.toolchain.version, "1.2.17");
+  assert.equal(fixture.toolchain.capabilityProfile.version, "1.2.17");
   assert.equal(fixture.toolchain.help.streams.stdout.byteLength, 0);
   assert.ok(fixture.toolchain.help.streams.stderr.byteLength > 0);
   assert.match(fixture.toolchain.help.streams.stderr.sha256, /^[0-9a-f]{64}$/u);
@@ -397,9 +412,9 @@ test("inspection accepts the independently observed 1.2.16 CLI profile", async (
   );
 });
 
-test("1.2.16 binds effort through its model slug and preserves one-process follow-up", async (t) => {
+test("1.2.17 binds effort through its model slug and preserves one-process follow-up", async (t) => {
   const fixture = await executionFixture(t, "happy", {
-    cliVersion: "1.2.16",
+    cliVersion: "1.2.17",
     model: "gemini-3.8-flash-low",
     continuation: "Give the second answer.",
   });
@@ -450,7 +465,7 @@ test("inspection rejects every unreviewed Antigravity version", async (t) => {
   );
 });
 
-for (const cliVersion of ["1.2.15", "1.2.17"]) {
+for (const cliVersion of ["1.2.15", "1.2.18"]) {
   test(`inspection rejects unreviewed adjacent CLI ${cliVersion}`, async (t) => {
     await assert.rejects(
       inspectionFixture(t, "happy", cliVersion),
@@ -459,9 +474,9 @@ for (const cliVersion of ["1.2.15", "1.2.17"]) {
   });
 }
 
-test("1.2.16 inspection rejects a missing required stream flag", async (t) => {
+test("1.2.17 inspection rejects a missing required stream flag", async (t) => {
   await assert.rejects(
-    inspectionFixture(t, "missing-stream-input-flag", "1.2.16"),
+    inspectionFixture(t, "missing-stream-input-flag", "1.2.17"),
     /help lacks required --input-format/u,
   );
 });
@@ -472,9 +487,9 @@ for (const [model, effort] of [
   ["gemini-3.8-flash-max", "max"],
   ["gemini-3.8-flash-xhigh", "xhigh"],
 ]) {
-  test(`1.2.16 refuses unsupported ${effort} effort for ${model} before consumption`, async (t) => {
+  test(`1.2.17 refuses unsupported ${effort} effort for ${model} before consumption`, async (t) => {
     const fixture = await executionFixture(t, "happy", {
-      cliVersion: "1.2.16",
+      cliVersion: "1.2.17",
       model,
       effort,
     });
@@ -512,9 +527,9 @@ for (const scenario of [
   "subagent-use",
   "external-advertised-tool",
 ]) {
-  test(`1.2.16 preserves the ${scenario} refusal`, async (t) => {
+  test(`1.2.17 preserves the ${scenario} refusal`, async (t) => {
     const fixture = await executionFixture(t, scenario, {
-      cliVersion: "1.2.16",
+      cliVersion: "1.2.17",
       model: "gemini-3.8-flash-low",
     });
     const result = await executeFixture(fixture);
@@ -598,8 +613,6 @@ test("authorized execution uses one exact streamed process and retains authorita
     "stream-json",
     "--model",
     "gemini-3.5-flash-low",
-    "--effort",
-    "low",
     "--sandbox",
     "--disable-slash-commands",
   ]);
@@ -698,9 +711,41 @@ test("toolchain drift fails before launch-capability consumption", async (t) => 
   );
 });
 
-test("1.2.16 stderr help drift fails before launch-capability consumption", async (t) => {
+for (const cliVersion of ["1.1.19", "1.2.16"]) {
+  test(`prepared retired profile ${cliVersion} refuses before launch-capability consumption`, async (t) => {
+    const fixture = await executionFixture(t);
+    const context = directContext(fixture);
+    const toolchain = {
+      ...fixture.toolchain,
+      version: cliVersion,
+      capabilityProfile: {
+        ...fixture.toolchain.capabilityProfile,
+        version: cliVersion,
+      },
+    };
+    context.request = { ...context.request, toolchain };
+    context.transmission = { ...context.transmission, toolchain };
+    const result = await antigravityCliAdapter.execute(context);
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureClass, "preflight-rejected");
+    assert.equal(result.error.code, "UNSUPPORTED_TOOLCHAIN");
+    assert.equal(result.closure.exitStatus, "not-started");
+    assert.equal(
+      await exists(join(fixture.destination, "attempt.json")),
+      false,
+    );
+    assert.equal(
+      (await recordsAt(fixture.recordFile)).some(
+        ({ mode }) => mode === "model",
+      ),
+      false,
+    );
+  });
+}
+
+test("1.2.17 stderr help drift fails before launch-capability consumption", async (t) => {
   const fixture = await executionFixture(t, "help-drift-after-first", {
-    cliVersion: "1.2.16",
+    cliVersion: "1.2.17",
     model: "gemini-3.8-flash-low",
   });
   const result = await antigravityCliAdapter.execute(directContext(fixture));

@@ -23,7 +23,10 @@ import {
 const conversationId = "bf7ae75a-a7a7-46bc-8933-14bd593c23fb";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-function nativeFixture(t, { generationSuffix = "", clipped = false } = {}) {
+function nativeFixture(
+  t,
+  { generationSuffix = "", clipped = false, cliVersion = "1.2.16" } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "policy-generation-input-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const session = join(root, "session");
@@ -48,7 +51,7 @@ function nativeFixture(t, { generationSuffix = "", clipped = false } = {}) {
     toolchain: {
       provider: "google",
       transport: "antigravity-cli",
-      version: "1.2.16",
+      version: cliVersion,
     },
     runtimeFingerprint: {
       gitCommit: "b".repeat(40),
@@ -130,6 +133,29 @@ function nativeFixture(t, { generationSuffix = "", clipped = false } = {}) {
   database.close();
   return { session, conversationDatabase, prompt };
 }
+
+test("policy generation inspection reads the qualified 1.2.17 schema without requiring legacy launch support", async (t) => {
+  const fixture = nativeFixture(t, { cliVersion: "1.2.17" });
+  const result = await inspectPolicyGenerationInput({
+    preparedSession: fixture.session,
+    conversationDatabase: fixture.conversationDatabase,
+  });
+  assert.equal(result.providerVersion, "1.2.17");
+  assert.equal(result.assessmentDisposition, "input-preserved");
+});
+
+test("policy generation inspection refuses an unreviewed native version without altering evidence", async (t) => {
+  const fixture = nativeFixture(t, { cliVersion: "1.2.18" });
+  const bytes = readFileSync(fixture.conversationDatabase);
+  await assert.rejects(
+    inspectPolicyGenerationInput({
+      preparedSession: fixture.session,
+      conversationDatabase: fixture.conversationDatabase,
+    }),
+    /1\.2\.16 or 1\.2\.17/u,
+  );
+  assert.deepEqual(readFileSync(fixture.conversationDatabase), bytes);
+});
 
 test("policy generation inspection distinguishes retained raw input from clipped generation input", async (t) => {
   const complete = nativeFixture(t);
