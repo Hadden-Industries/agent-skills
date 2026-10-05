@@ -1,11 +1,38 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
 import { assertRegularPath } from "./toolchain.js";
 import { projectSkillUp } from "./project-skill-up.js";
 
-export function createConsumerWorkspace({ repositoryRoot, compiled }) {
+/** Materialize a fresh consumer root; its caller owns retention and disposal.
+ * A fixture may select its owned temporary parent without changing global env.
+ */
+export function createConsumerWorkspace({
+  repositoryRoot,
+  compiled,
+  temporaryParent,
+}) {
+  // Preserve the existing OS-temp behavior, including OS-managed redirects.
+  // The stricter ordinary-directory contract belongs only to an explicit parent.
+  let parent = tmpdir();
+  if (temporaryParent !== undefined) {
+    if (!isAbsolute(temporaryParent))
+      throw new Error("Consumer temporary parent must be absolute");
+    const parentStat = lstatSync(temporaryParent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink())
+      throw new Error(
+        "Consumer temporary parent must be an ordinary directory",
+      );
+    parent = realpathSync.native(temporaryParent);
+  }
   const payload = new Map();
   for (const file of compiled.distribution) {
     const path = join(
@@ -47,7 +74,7 @@ export function createConsumerWorkspace({ repositoryRoot, compiled }) {
   const projection = projectSkillUp(compiled);
   for (const file of projection.cases)
     payload.set(file.path, Buffer.from(file.yaml));
-  const root = mkdtempSync(join(tmpdir(), "evaluation-workspace-"));
+  const root = mkdtempSync(join(parent, "evaluation-workspace-"));
   const skillRoot = join(root, compiled.skill_name);
   for (const [relativePath, bytes] of payload) {
     const path = join(skillRoot, relativePath);

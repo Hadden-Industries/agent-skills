@@ -1,16 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { createTestWorkspace } from "../../fixtures/temporary-workspace.mjs";
 
 import { createDefiningConceptController } from "../../../src/defining-concepts/evals/assurance/v1/session-controller.mjs";
 import { initializeEvaluationHomes } from "../../../scripts/evaluation/evaluation-homes.js";
@@ -53,8 +46,13 @@ const currentCompatibility =
 const candidateCompatibility =
   "Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.";
 
-function invoke(args) {
-  return spawnSync(process.execPath, [runner, ...args], { encoding: "utf8" });
+function invoke(workspace, args) {
+  const result = spawnSync(process.execPath, [runner, ...args], {
+    encoding: "utf8",
+    env: workspace.environment(),
+  });
+  if (result.status === null) workspace.retain("runner exit was not observed");
+  return result;
 }
 
 function bundleRecord({
@@ -173,10 +171,9 @@ function writeBundle(directory, bundle) {
   return target;
 }
 
-function fixture() {
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "defining-concepts-runner-"),
-  );
+function fixture(t) {
+  const workspace = createTestWorkspace(t, "defining-concepts-runner-");
+  const temporary = workspace.root;
   const caseFile = writeCase(temporary, {
     id: 1,
     prompt: "Define the registry concept Dataset.",
@@ -251,14 +248,14 @@ function fixture() {
     caseFile,
     record,
     temporary,
+    workspace,
     working,
   };
 }
 
-function googleFixture() {
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "defining-concepts-google-"),
-  );
+function googleFixture(t) {
+  const workspace = createTestWorkspace(t, "defining-concepts-google-");
+  const temporary = workspace.root;
   const caseFile = writeCase(temporary, {
     id: 1,
     prompt: "Define the registry concept Dataset.",
@@ -295,6 +292,7 @@ function googleFixture() {
     destination,
     record,
     temporary,
+    workspace,
     working,
     prepareArgs: [
       "prepare",
@@ -385,9 +383,9 @@ test("one-turn controller treats the adapter final answer as authoritative", asy
   );
 });
 
-test("prepare freezes packet inputs and performs no provider model turn", () => {
-  const context = fixture();
-  const result = invoke(context.prepareArgs);
+test("prepare freezes packet inputs and performs no provider model turn", (t) => {
+  const context = fixture(t);
+  const result = invoke(context.workspace, context.prepareArgs);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.equal(
     records(context.record).some(({ mode }) => mode === "model"),
@@ -447,29 +445,28 @@ test("prepare freezes packet inputs and performs no provider model turn", () => 
   assert.notEqual(retained, "mutated source prompt");
 });
 
-test("prepare requires a positive packet-bound execution timeout", () => {
-  const missing = fixture();
+test("prepare requires a positive packet-bound execution timeout", (t) => {
+  const missing = fixture(t);
   const flagIndex = missing.prepareArgs.indexOf("--execution-timeout-ms");
   missing.prepareArgs.splice(flagIndex, 2);
-  let result = invoke(missing.prepareArgs);
+  let result = invoke(missing.workspace, missing.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /execution-timeout-ms/iu);
   assert.equal(existsSync(missing.destination), false);
 
-  const invalid = fixture();
+  const invalid = fixture(t);
   invalid.prepareArgs[
     invalid.prepareArgs.indexOf("--execution-timeout-ms") + 1
   ] = "0";
-  result = invoke(invalid.prepareArgs);
+  result = invoke(invalid.workspace, invalid.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /execution-timeout-ms.*positive integer/iu);
   assert.equal(existsSync(invalid.destination), false);
 });
 
-test("prepare binds an exact clarification turn and Codex completes both turns", async () => {
-  const temporary = realpathSync.native(
-    mkdtempSync(path.join(tmpdir(), "defining-concepts-clarification-")),
-  );
+test("prepare binds an exact clarification turn and Codex completes both turns", async (t) => {
+  const workspace = createTestWorkspace(t, "defining-concepts-clarification-");
+  const temporary = workspace.root;
   const caseFile = writeCase(temporary, {
     id: 10,
     prompt: "Define charge for our glossary.",
@@ -506,7 +503,7 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
   const working = path.join(temporary, "working");
   const homes = path.join(temporary, "homes-v1");
   await initializeEvaluationHomes({ root: homes });
-  const prepared = invoke([
+  const prepared = invoke(workspace, [
     "prepare",
     "--case-file",
     caseFile,
@@ -569,7 +566,7 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
     })}\n`,
     "utf8",
   );
-  const result = invoke([
+  const result = invoke(workspace, [
     "run",
     "--prepared-session",
     destination,
@@ -584,48 +581,48 @@ test("prepare binds an exact clarification turn and Codex completes both turns",
   );
 });
 
-test("canonical arms enforce bundle presence, source kind, and one repetition", () => {
-  const context = fixture();
+test("canonical arms enforce bundle presence, source kind, and one repetition", (t) => {
+  const context = fixture(t);
   const armIndex = context.prepareArgs.indexOf("--arm") + 1;
   const bundleFlagIndex = context.prepareArgs.indexOf("--skill-bundle-file");
 
   const noSkillWithBundle = [...context.prepareArgs];
   noSkillWithBundle[armIndex] = "no-skill";
-  let result = invoke(noSkillWithBundle);
+  let result = invoke(context.workspace, noSkillWithBundle);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /no-skill forbids/iu);
 
   const currentWithoutBundle = [...context.prepareArgs];
   currentWithoutBundle.splice(bundleFlagIndex, 2);
-  result = invoke(currentWithoutBundle);
+  result = invoke(context.workspace, currentWithoutBundle);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /current-skill requires/iu);
 
   const repeated = [...context.prepareArgs];
   repeated[repeated.indexOf("--repetition") + 1] = "2";
-  result = invoke(repeated);
+  result = invoke(context.workspace, repeated);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /repetition 1/iu);
 
   const candidateWithCommittedBundle = [...context.prepareArgs];
   candidateWithCommittedBundle[armIndex] = "candidate-skill";
-  result = invoke(candidateWithCommittedBundle);
+  result = invoke(context.workspace, candidateWithCommittedBundle);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /working-tree skill bundle/iu);
 });
 
-test("prepare requires one exact capability reconciliation before packet creation", () => {
-  const missing = fixture();
+test("prepare requires one exact capability reconciliation before packet creation", (t) => {
+  const missing = fixture(t);
   const flagIndex = missing.prepareArgs.indexOf(
     "--capability-reconciliation-file",
   );
   missing.prepareArgs.splice(flagIndex, 2);
-  let result = invoke(missing.prepareArgs);
+  let result = invoke(missing.workspace, missing.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /capability-reconciliation-file/iu);
   assert.equal(existsSync(missing.destination), false);
 
-  const mismatched = fixture();
+  const mismatched = fixture(t);
   const reconciliation = JSON.parse(
     readFileSync(mismatched.capabilityReconciliationFile, "utf8"),
   );
@@ -637,16 +634,16 @@ test("prepare requires one exact capability reconciliation before packet creatio
     mismatched.capabilityReconciliationFile,
     canonicalJsonBytes(reconciliation),
   );
-  result = invoke(mismatched.prepareArgs);
+  result = invoke(mismatched.workspace, mismatched.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /capability reconciliation.*bundle/iu);
   assert.equal(existsSync(mismatched.destination), false);
 });
 
-test("run rejects absent authorization before a provider model turn", () => {
-  const context = fixture();
-  assert.equal(invoke(context.prepareArgs).status, 0);
-  const result = invoke([
+test("run rejects absent authorization before a provider model turn", (t) => {
+  const context = fixture(t);
+  assert.equal(invoke(context.workspace, context.prepareArgs).status, 0);
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -662,9 +659,9 @@ test("run rejects absent authorization before a provider model turn", () => {
   );
 });
 
-test("run rejects mismatched authorization before a provider model turn", () => {
-  const context = fixture();
-  assert.equal(invoke(context.prepareArgs).status, 0);
+test("run rejects mismatched authorization before a provider model turn", (t) => {
+  const context = fixture(t);
+  assert.equal(invoke(context.workspace, context.prepareArgs).status, 0);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
   );
@@ -683,7 +680,7 @@ test("run rejects mismatched authorization before a provider model turn", () => 
     }),
     "utf8",
   );
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -698,9 +695,9 @@ test("run rejects mismatched authorization before a provider model turn", () => 
   );
 });
 
-test("run launches only after exact authorization and retains shared evidence", () => {
-  const context = fixture();
-  const prepared = invoke(context.prepareArgs);
+test("run launches only after exact authorization and retains shared evidence", (t) => {
+  const context = fixture(t);
+  const prepared = invoke(context.workspace, context.prepareArgs);
   assert.equal(prepared.status, 0, prepared.stderr);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
@@ -720,7 +717,7 @@ test("run launches only after exact authorization and retains shared evidence", 
     })}\n`,
     "utf8",
   );
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -746,9 +743,9 @@ test("run launches only after exact authorization and retains shared evidence", 
   );
 });
 
-test("run rejects a runtime timeout override before a provider model turn", () => {
-  const context = fixture();
-  const prepared = invoke(context.prepareArgs);
+test("run rejects a runtime timeout override before a provider model turn", (t) => {
+  const context = fixture(t);
+  const prepared = invoke(context.workspace, context.prepareArgs);
   assert.equal(prepared.status, 0, prepared.stderr);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
@@ -769,7 +766,7 @@ test("run rejects a runtime timeout override before a provider model turn", () =
     "utf8",
   );
 
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -788,9 +785,9 @@ test("run rejects a runtime timeout override before a provider model turn", () =
   );
 });
 
-test("run propagates the evaluation trial evidence layout", () => {
-  const context = fixture();
-  const prepared = invoke(context.prepareArgs);
+test("run propagates the evaluation trial evidence layout", (t) => {
+  const context = fixture(t);
+  const prepared = invoke(context.workspace, context.prepareArgs);
   assert.equal(prepared.status, 0, prepared.stderr);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
@@ -811,7 +808,7 @@ test("run propagates the evaluation trial evidence layout", () => {
     "utf8",
   );
 
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -849,9 +846,9 @@ test("run propagates the evaluation trial evidence layout", () => {
   );
 });
 
-test("run rejects an unknown evidence layout before a provider model turn", () => {
-  const context = fixture();
-  assert.equal(invoke(context.prepareArgs).status, 0);
+test("run rejects an unknown evidence layout before a provider model turn", (t) => {
+  const context = fixture(t);
+  assert.equal(invoke(context.workspace, context.prepareArgs).status, 0);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
   );
@@ -871,7 +868,7 @@ test("run rejects an unknown evidence layout before a provider model turn", () =
     "utf8",
   );
 
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -890,18 +887,17 @@ test("run rejects an unknown evidence layout before a provider model turn", () =
   );
 });
 
-test("prepare rejects a nonempty destination", () => {
-  const context = fixture();
-  assert.equal(invoke(context.prepareArgs).status, 0);
-  const result = invoke(context.prepareArgs);
+test("prepare rejects a nonempty destination", (t) => {
+  const context = fixture(t);
+  assert.equal(invoke(context.workspace, context.prepareArgs).status, 0);
+  const result = invoke(context.workspace, context.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /destination|exist/u);
 });
 
-test("Codex preparation binds App Server transport and a managed execution home", async () => {
-  const temporary = realpathSync.native(
-    mkdtempSync(path.join(tmpdir(), "defining-concepts-codex-")),
-  );
+test("Codex preparation binds App Server transport and a managed execution home", async (t) => {
+  const workspace = createTestWorkspace(t, "defining-concepts-codex-");
+  const temporary = workspace.root;
   const caseFile = writeCase(temporary, {
     id: 1,
     prompt: "Define Dataset.",
@@ -925,7 +921,7 @@ test("Codex preparation binds App Server transport and a managed execution home"
     },
   );
   await initializeEvaluationHomes({ root: homes });
-  const result = invoke([
+  const result = invoke(workspace, [
     "prepare",
     "--case-file",
     caseFile,
@@ -1027,10 +1023,12 @@ test("Codex preparation binds App Server transport and a managed execution home"
   );
 });
 
-test("Codex preflight accepts available but disabled provider facilities without a model turn", async () => {
-  const temporary = realpathSync.native(
-    mkdtempSync(path.join(tmpdir(), "defining-concepts-codex-preflight-")),
+test("Codex preflight accepts available but disabled provider facilities without a model turn", async (t) => {
+  const workspace = createTestWorkspace(
+    t,
+    "defining-concepts-codex-preflight-",
   );
+  const temporary = workspace.root;
   const caseFile = writeCase(temporary, {
     id: 1,
     prompt: "Define Dataset.",
@@ -1054,7 +1052,7 @@ test("Codex preflight accepts available but disabled provider facilities without
     },
   );
   await initializeEvaluationHomes({ root: homes });
-  const prepared = invoke([
+  const prepared = invoke(workspace, [
     "prepare",
     "--case-file",
     caseFile,
@@ -1089,7 +1087,7 @@ test("Codex preflight accepts available but disabled provider facilities without
   ]);
   assert.equal(prepared.status, 0, prepared.stderr);
 
-  const result = invoke([
+  const result = invoke(workspace, [
     "preflight",
     "--prepared-session",
     destination,
@@ -1117,9 +1115,9 @@ test("Codex preflight accepts available but disabled provider facilities without
   assert.equal(existsSync(path.join(destination, "attempt.json")), false);
 });
 
-test("Antigravity preparation binds one explicit post-activation message without a model turn", () => {
-  const context = googleFixture();
-  const result = invoke(context.prepareArgs);
+test("Antigravity preparation binds one explicit post-activation message without a model turn", (t) => {
+  const context = googleFixture(t);
+  const result = invoke(context.workspace, context.prepareArgs);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     records(context.record).some(({ mode }) => mode === "model"),
@@ -1197,9 +1195,9 @@ test("Antigravity preparation binds one explicit post-activation message without
   );
 });
 
-test("Antigravity run launches only after exact authorization and retains shared evidence", () => {
-  const context = googleFixture();
-  const prepared = invoke(context.prepareArgs);
+test("Antigravity run launches only after exact authorization and retains shared evidence", (t) => {
+  const context = googleFixture(t);
+  const prepared = invoke(context.workspace, context.prepareArgs);
   assert.equal(prepared.status, 0, prepared.stderr);
   const packet = JSON.parse(
     readFileSync(path.join(context.destination, "packet.json"), "utf8"),
@@ -1219,7 +1217,7 @@ test("Antigravity run launches only after exact authorization and retains shared
     })}\n`,
     "utf8",
   );
-  const result = invoke([
+  const result = invoke(context.workspace, [
     "run",
     "--prepared-session",
     context.destination,
@@ -1241,11 +1239,11 @@ test("Antigravity run launches only after exact authorization and retains shared
   });
 });
 
-test("Antigravity preparation requires an explicit absolute executable", () => {
-  const context = googleFixture();
+test("Antigravity preparation requires an explicit absolute executable", (t) => {
+  const context = googleFixture(t);
   const commandIndex = context.prepareArgs.indexOf("--antigravity-command") + 1;
   context.prepareArgs[commandIndex] = "agy";
-  const result = invoke(context.prepareArgs);
+  const result = invoke(context.workspace, context.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /antigravity-command.*absolute/iu);
   assert.equal(existsSync(context.destination), false);
@@ -1255,15 +1253,15 @@ test("Antigravity preparation requires an explicit absolute executable", () => {
   );
 });
 
-test("Antigravity preparation rejects a working directory inside a repository", () => {
-  const context = googleFixture();
+test("Antigravity preparation rejects a working directory inside a repository", (t) => {
+  const context = googleFixture(t);
   const repository = path.join(context.temporary, "repository");
   const working = path.join(repository, "empty-working");
   mkdirSync(path.join(repository, ".git"), { recursive: true });
   mkdirSync(working);
   const workingIndex = context.prepareArgs.indexOf("--working-dir") + 1;
   context.prepareArgs[workingIndex] = working;
-  const result = invoke(context.prepareArgs);
+  const result = invoke(context.workspace, context.prepareArgs);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /working directory.*repository/iu);
   assert.equal(existsSync(context.destination), false);

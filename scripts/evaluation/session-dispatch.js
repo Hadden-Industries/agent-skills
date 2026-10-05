@@ -22,12 +22,14 @@ import { deriveOutcomeReference } from "./derive-reports.js";
 
 // The carrier is allocated before packet sealing. Direct remains the default;
 // qualification is enforced by prepareConsumerCarrier before any model work.
+// temporaryParent selects caller-owned scratch, never model-call authority.
 export function prepareSessionDispatch({
   executionMode = "direct",
   repositoryRoot,
   skillName,
   caseId,
   executionTimeoutMs,
+  temporaryParent,
 }) {
   if (executionMode === "direct") return null;
   if (executionMode !== "skill-up") throw new Error("Unknown execution mode");
@@ -37,6 +39,7 @@ export function prepareSessionDispatch({
     caseId,
     publicSessionId: randomUUID(),
     executionTimeoutMs,
+    temporaryParent,
   });
 }
 

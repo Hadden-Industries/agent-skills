@@ -234,6 +234,37 @@ generation-payload checks have deterministic fixture evidence; no new real
 
 ## Evaluation Homes
 
+### Evaluation test fixture cleanup
+
+The defining-concepts session-runner tests and Windows bridge matrix allocate
+their roots through `tests/fixtures/temporary-workspace.mjs`. The helper records
+ownership at creation and registers a Node test after hook immediately. Child
+processes receive fixture-local `TEMP`, `TMP` and `TMPDIR`, so their consumer and
+inspection scratch remains inside that owned root. This is test fixture policy;
+production evaluation evidence and reusable homes retain their existing contracts.
+In-process carrier allocation passes the fixture as `temporaryParent` through
+`prepareSessionDispatch`; omission keeps the normal OS temporary parent. The
+caller owns this location and its disposal; the option grants no launch authority.
+
+A successful fixture is eligible for recoverable disposal only after its tracked
+children emit `close`, its directory and owner marker retain their original
+identity, and a bounded inventory finds no links, active home leases, consumed
+attempts without terminal records, or unsafe/unknown process closure. Windows
+uses the native Recycle Bin API; Unix uses installed `/usr/bin/gio trash`. No
+permanent-delete fallback is permitted. An unavailable recoverable facility
+retains the fixture with a diagnostic; a disposal error fails the test hook.
+
+Failed or cancelled tests and unfinished recovery scenarios keep their exact
+working payload. `.test-workspace-retention.json` records the root, test, owner
+nonce, reason and reassessment condition when ownership still holds. Changed
+ownership is reported without writing into the substituted directory. A passing
+parent also preserves nested retention markers; an existing marker is never
+overwritten, including a hard link to a different file. A passing
+Windows bridge matrix intentionally retains scenarios whose leases or consumed
+attempts remain unresolved; passing assertions alone do not release that state.
+Reconcile those recorded consumers before later recoverable disposal. The helper
+never adopts old directories by name, age or marker, and does not sweep Temp.
+
 `scripts/evaluation/evaluation-homes.js` manages the reusable versioned root returned by `evaluationHomesRootFromLocalAppData(localAppData)`. It owns exactly two stable roles: `preflight` and `execution`. A role operation validates the approved absolute root and owner marker, acquires an exclusive lease, verifies path identity and containment, rotates the prior home into owned quarantine, creates the fresh stable path, carries forward only a validated single-link ordinary `auth.json`, binds `CODEX_HOME`, registers child processes, requires exact release evidence, retires the used generation, carries the possibly refreshed credential cache into the next clean stable path, and records immutable completion history. Every other Codex-created file is disposable runtime residue.
 
 Windows path attestation remains per-path and fail-closed, but it no longer starts PowerShell for every ancestor lookup. `scripts/evaluation/windows-path-metadata.js` owns one bounded JSONL worker per public manager operation, while `scripts/evaluation/windows-path-probe.ps1` performs the same read-only drive, attribute, resolved-path, and reparse checks for each identified request. The execution fingerprint binds both files.

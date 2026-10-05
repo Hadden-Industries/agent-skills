@@ -6,7 +6,9 @@ import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
 import { inspectToolchain, assertAssuredQualification } from "./toolchain.js";
 import { prepareProcessHost } from "./process-host.js";
 
-/** Allocate public carrier inputs before the Hadden packet is sealed. */
+/** Allocate public carrier inputs before packet sealing; optionally contain
+ * the workspace under its caller-owned temporary parent.
+ */
 export function prepareConsumerCarrier({
   repositoryRoot,
   compiled,
@@ -15,6 +17,7 @@ export function prepareConsumerCarrier({
   executionTimeoutMs,
   cleanupAllowanceMs = 10000,
   startupAllowanceMs = 10000,
+  temporaryParent,
 }) {
   const toolchain = inspectToolchain(repositoryRoot);
   assertAssuredQualification(toolchain);
@@ -32,7 +35,11 @@ export function prepareConsumerCarrier({
   ])
     if (!Number.isSafeInteger(value) || value <= 0)
       throw new Error("Carrier budgets must be positive safe integers");
-  const workspace = createConsumerWorkspace({ repositoryRoot, compiled });
+  const workspace = createConsumerWorkspace({
+    repositoryRoot,
+    compiled,
+    temporaryParent,
+  });
   const controlPath = join(workspace.root, "execution-index.json");
   const maximumSeconds = Math.ceil(
     (executionTimeoutMs + cleanupAllowanceMs + startupAllowanceMs) / 1000,

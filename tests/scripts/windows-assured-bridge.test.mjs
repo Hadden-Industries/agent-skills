@@ -4,16 +4,15 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import { createTestWorkspace } from "../fixtures/temporary-workspace.mjs";
 
 const repository = resolve(import.meta.dirname, "../..");
 const read = (file) => JSON.parse(readFileSync(file, "utf8"));
@@ -43,7 +42,8 @@ test(
     timeout: 180000,
   },
   async (t) => {
-    const root = mkdtempSync(join(tmpdir(), "windows-assured-bridge-"));
+    const workspace = createTestWorkspace(t, "windows-assured-bridge-");
+    const root = workspace.root;
     const checkout = join(root, "checkout");
     mkdirSync(checkout);
     const manifestBytes = readFileSync(
@@ -87,10 +87,12 @@ test(
     cpSync(join(repository, native), join(checkout, native), {
       recursive: true,
     });
-    const environment = Object.fromEntries(
-      ["SystemRoot", "WINDIR", "PATH", "PATHEXT", "TEMP", "TMP"]
-        .filter((key) => process.env[key])
-        .map((key) => [key, process.env[key]]),
+    const environment = workspace.environment(
+      Object.fromEntries(
+        ["SystemRoot", "WINDIR", "PATH", "PATHEXT", "TEMP", "TMP"]
+          .filter((key) => process.env[key])
+          .map((key) => [key, process.env[key]]),
+      ),
     );
     const globalConfig = join(root, "empty-gitconfig");
     writeFileSync(globalConfig, "", { mode: 0o600 });
@@ -206,6 +208,7 @@ test(
           skillName: "committing-to-git",
           caseId: 35,
           executionTimeoutMs: 10000,
+          temporaryParent: root,
         });
         const prepared = await prepareEvaluationSession({
           arm: "no-skill",
@@ -254,15 +257,17 @@ test(
           authorizationFile: authPath,
         });
         const consumerRoot = carrier.receipt.consumerRoot;
-        const wrapper = spawn(
-          process.execPath,
-          [join(checkout, "scripts/evaluation/run-skill-up.js"), controlPath],
-          {
-            cwd: checkout,
-            env: environment,
-            stdio: ["ignore", "pipe", "pipe"],
-            windowsHide: true,
-          },
+        const wrapper = workspace.trackChild(
+          spawn(
+            process.execPath,
+            [join(checkout, "scripts/evaluation/run-skill-up.js"), controlPath],
+            {
+              cwd: checkout,
+              env: environment,
+              stdio: ["ignore", "pipe", "pipe"],
+              windowsHide: true,
+            },
+          ),
         );
         let output = "";
         for (const stream of [wrapper.stdout, wrapper.stderr])
