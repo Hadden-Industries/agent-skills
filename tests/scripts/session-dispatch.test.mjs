@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cpSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -20,10 +21,41 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
+import { inspectToolchain } from "../../scripts/evaluation/toolchain.js";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 
-test("dispatch selection rejects unknown and unqualified modes without preparing a carrier", () => {
+test("dispatch selection rejects unknown and unqualified modes without preparing a carrier", (t) => {
+  // A production qualification decision must not redefine this refusal fixture.
+  const root = mkdtempSync(join(tmpdir(), "unqualified-dispatch-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const directory of ["src", "skills"])
+    cpSync(join(repositoryRoot, directory), join(root, directory), {
+      recursive: true,
+    });
+  const manifest = JSON.parse(
+    readFileSync(join(repositoryRoot, "evaluation-toolchain.json")),
+  );
+  const platform = `${process.platform}-${process.arch}`;
+  manifest.skillUp.platforms[platform].qualification =
+    "assured-disabled-descendant-survived";
+  writeFileSync(
+    join(root, "evaluation-toolchain.json"),
+    JSON.stringify(manifest),
+  );
+  for (const name of Object.keys(manifest.packages)) {
+    mkdirSync(join(root, "node_modules", name), { recursive: true });
+    cpSync(
+      join(repositoryRoot, "node_modules", name, "package.json"),
+      join(root, "node_modules", name, "package.json"),
+    );
+  }
+  const native = `.agent-tools/evaluation/skill-up-${manifest.skillUp.version}-${platform}`;
+  cpSync(join(repositoryRoot, native), join(root, native), { recursive: true });
+  assert.equal(
+    inspectToolchain(root).manifest.skillUp.platforms[platform].qualification,
+    "assured-disabled-descendant-survived",
+  );
   assert.equal(prepareSessionDispatch({ executionMode: "direct" }), null);
   assert.throws(
     () => prepareSessionDispatch({ executionMode: "automatic" }),
@@ -33,7 +65,7 @@ test("dispatch selection rejects unknown and unqualified modes without preparing
     () =>
       prepareSessionDispatch({
         executionMode: "skill-up",
-        repositoryRoot,
+        repositoryRoot: root,
         skillName: "defining-concepts",
         caseId: 10,
         executionTimeoutMs: 10000,
