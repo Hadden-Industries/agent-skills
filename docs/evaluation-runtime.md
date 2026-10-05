@@ -49,7 +49,7 @@ Consumer preparation allocates one carrier per selected session before sealing t
 
 The existing run command dispatches according to that prepared binding. It cannot turn a direct packet into a consumer packet or silently fall back to direct execution. Naming consumer requests use an `authorizationFile` path and literal `allowExternalModelCall: true`; direct naming requests may retain their existing inline authorization. Supplying both authorization forms is rejected. Native reports are never returned as authoritative outcomes: dispatch checks the retained Hadden outcome and artifact hashes. A failed native attempt retains its claim/control evidence and must be reconciled before any fresh preparation.
 
-Current qualification markers reject consumer preparation in the production checkout. Deterministic transport tests enable it only in disposable copies with fake providers. They compare direct and native Git policy sessions, Git fixture/controller sessions, and defining/naming follow-up traces; they do not authorize a model call or qualify process containment.
+Windows x64 permits consumer preparation through the qualified, packet-bound `windows-job-v2` path. Linux assured consumer preparation remains disabled. Deterministic transport tests compare direct and native Git policy sessions, Git fixture/controller sessions, and defining/naming follow-up traces with fake providers; those tests authorize no model call. The separately approved [Windows real-provider campaign](evaluation-real-provider-observations.md) records operational closure and primary policy observations without establishing semantic acceptance or host activation.
 
 ## Lifecycle
 
