@@ -250,6 +250,30 @@ export function compareChangeUnitsByRawPath(left, right) {
   return Buffer.compare(Buffer.from(left.id), Buffer.from(right.id));
 }
 
+// Canonical manifests contain plain data. Keys live only for this sort so a
+// later call observes changed fields on reused units, without mutating them.
+export function sortChangeUnitsByRawPath(units) {
+  if (units.length < 2) {
+    return [...units];
+  }
+
+  const empty = Buffer.alloc(0);
+  return units
+    .map((unit) => ({
+      unit,
+      destination: changeUnitPathBytes(unit, "destination") ?? empty,
+      source: changeUnitPathBytes(unit, "source") ?? empty,
+      id: Buffer.from(unit.id),
+    }))
+    .sort(
+      (left, right) =>
+        Buffer.compare(left.destination, right.destination) ||
+        Buffer.compare(left.source, right.source) ||
+        Buffer.compare(left.id, right.id),
+    )
+    .map(({ unit }) => unit);
+}
+
 export function formatMessagePath(rawPathBytes) {
   if (!Buffer.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
     throw new Error("Message path identity must be raw bytes.");

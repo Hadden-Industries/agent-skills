@@ -4132,22 +4132,19 @@ function resolveSemanticCoverage(manifest, content) {
     fileNotes
   };
 }
-function compareChangeUnitsByRawPath(left, right) {
-  const destination = Buffer2.compare(
-    changeUnitPathBytes(left, "destination") ?? Buffer2.alloc(0),
-    changeUnitPathBytes(right, "destination") ?? Buffer2.alloc(0)
-  );
-  if (destination !== 0) {
-    return destination;
+function sortChangeUnitsByRawPath(units) {
+  if (units.length < 2) {
+    return [...units];
   }
-  const source = Buffer2.compare(
-    changeUnitPathBytes(left, "source") ?? Buffer2.alloc(0),
-    changeUnitPathBytes(right, "source") ?? Buffer2.alloc(0)
-  );
-  if (source !== 0) {
-    return source;
-  }
-  return Buffer2.compare(Buffer2.from(left.id), Buffer2.from(right.id));
+  const empty = Buffer2.alloc(0);
+  return units.map((unit) => ({
+    unit,
+    destination: changeUnitPathBytes(unit, "destination") ?? empty,
+    source: changeUnitPathBytes(unit, "source") ?? empty,
+    id: Buffer2.from(unit.id)
+  })).sort(
+    (left, right) => Buffer2.compare(left.destination, right.destination) || Buffer2.compare(left.source, right.source) || Buffer2.compare(left.id, right.id)
+  ).map(({ unit }) => unit);
 }
 function formatMessagePath(rawPathBytes) {
   if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
@@ -4374,7 +4371,7 @@ function expectedDetailedInventory(manifest) {
       "Approved-message validation requires one exact nonempty manifest."
     );
   }
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const width = String(units.length).length;
   return units.map((unit, index) => ({
     id: unit.id,
@@ -7713,9 +7710,10 @@ function kindSummary(units) {
   return [...kindCounts.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
 }
 function orderedUnits(units) {
-  return [...units].sort(
-    (left, right) => Buffer.compare(unitPathBytes(left), unitPathBytes(right))
-  );
+  if (units.length < 2) {
+    return [...units];
+  }
+  return units.map((unit) => ({ unit, bytes: unitPathBytes(unit) })).sort((left, right) => Buffer.compare(left.bytes, right.bytes)).map(({ unit }) => unit);
 }
 function countedGroupLines(manifest, maximumGroups, maximumSamples) {
   return synopsisGroups(manifest, maximumGroups).map(({ display, units }) => {
@@ -8011,6 +8009,18 @@ var init_inlineEvidenceCapsule = __esm({
       "patchBytes",
       "patchText"
     ]);
+  }
+});
+
+// src/committing-to-git/selection/byteOrdering.js
+function sortByUtf8Bytes(values, key = (value) => value) {
+  if (values.length < 2) {
+    return [...values];
+  }
+  return values.map((value) => ({ value, bytes: Buffer.from(key(value), "utf8") })).sort((left, right) => Buffer.compare(left.bytes, right.bytes)).map(({ value }) => value);
+}
+var init_byteOrdering = __esm({
+  "src/committing-to-git/selection/byteOrdering.js"() {
   }
 });
 
@@ -10103,9 +10113,7 @@ function normalizedSelection(selection) {
   return Object.fromEntries(
     Object.entries(normalized).map(([field, value]) => [
       field,
-      Array.isArray(value) ? [...value].sort(
-        (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
-      ) : value
+      Array.isArray(value) ? sortByUtf8Bytes(value) : value
     ])
   );
 }
@@ -11022,9 +11030,7 @@ function queuePagesForCatalog(outputDirectory, catalogSha256) {
   }
   return readdirSync2(queuesDirectory).filter(
     (name) => /^(?:initial|delta)-[0-9a-f]{12}-Q[0-9]{6}\.json$/u.test(name)
-  ).sort(
-    (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
-  ).flatMap((name) => {
+  ).sort().flatMap((name) => {
     const path = join8(queuesDirectory, name);
     const bytes = readFileSync3(path);
     let page;
@@ -11231,6 +11237,7 @@ var PACKET_PREFIXES;
 var init_reviewCatalog = __esm({
   "src/committing-to-git/inspection/reviewCatalog.js"() {
     init_stableFile();
+    init_byteOrdering();
     init_workflowDiagnosticError();
     init_evidenceVocabulary();
     init_changeSelection();
@@ -11318,14 +11325,12 @@ function assertEvidencePlanBinding(content, evidencePlan) {
   }
   function normalizedGroup({ selection, policy, basis }) {
     const normalizedSelection2 = Object.fromEntries(
-      Object.entries(selection).sort(
-        ([left], [right]) => Buffer4.compare(Buffer4.from(left), Buffer4.from(right))
-      ).map(([field, value]) => [
-        field,
-        Array.isArray(value) ? [...value].sort(
-          (left, right) => Buffer4.compare(Buffer4.from(left), Buffer4.from(right))
-        ) : value
-      ])
+      sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
+        ([field, value]) => [
+          field,
+          Array.isArray(value) ? sortByUtf8Bytes(value) : value
+        ]
+      )
     );
     return {
       selection: normalizedSelection2,
@@ -11409,7 +11414,7 @@ function renderDetailedV2(manifest, coverage, sharedReasonSet) {
       "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains."
     );
   }
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const notes = notesByUnit(coverage, sharedReasonSet);
   const lines = ["File Changes:"];
   units.forEach((unit, index) => {
@@ -11518,7 +11523,7 @@ function renderCommitMessage({
   };
 }
 function projectedDetailedInventoryBytes(manifest) {
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const lines = ["a: A", "", "File Changes:"];
   units.forEach((unit, index) => {
     const layout = ordinalLayout(index + 1, units.length);
@@ -11569,6 +11574,7 @@ var BULK_FILE_THRESHOLD;
 var init_commitMessageRenderer = __esm({
   "src/committing-to-git/message/commitMessageRenderer.js"() {
     init_workflowDiagnosticError();
+    init_byteOrdering();
     init_approvedMessage();
     init_changeSelection2();
     BULK_FILE_THRESHOLD = 50;
@@ -16438,10 +16444,8 @@ function workspaceState(root) {
       index += 1;
     }
   }
-  for (const entries of Object.values(workspace)) {
-    entries.sort(
-      (left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path))
-    );
+  for (const [kind, entries] of Object.entries(workspace)) {
+    workspace[kind] = sortByUtf8Bytes(entries, ({ path }) => path);
   }
   return workspace;
 }
@@ -16964,6 +16968,7 @@ function renderCommitReport(report) {
 var CHECK_OUTCOMES, VERIFICATION_POLICIES2, SIGNATURE_STATUSES, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER8, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
 var init_commitReport = __esm({
   "src/committing-to-git/report/commitReport.js"() {
+    init_byteOrdering();
     init_checkReceipt();
     init_gitRepository();
     init_gitPath();
@@ -23032,14 +23037,12 @@ function canonicalContentGroups(evidencePlan) {
 }
 function canonicalSelection(selection) {
   return Object.fromEntries(
-    Object.entries(selection).sort(
-      ([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right))
-    ).map(([key, value]) => [
-      key,
-      Array.isArray(value) ? [...value].sort(
-        (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
-      ) : value
-    ])
+    sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
+      ([key, value]) => [
+        key,
+        Array.isArray(value) ? sortByUtf8Bytes(value) : value
+      ]
+    )
   );
 }
 function normalizeSemanticSelections(content) {
@@ -23367,6 +23370,7 @@ var CONTENT_NAME, STRICT_UTF8_DECODER14;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
     init_stableFile();
+    init_byteOrdering();
     init_transactionDiagnosticState();
     init_gitRepository();
     init_reviewCatalog();

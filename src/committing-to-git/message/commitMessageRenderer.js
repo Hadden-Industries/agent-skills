@@ -1,4 +1,5 @@
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { sortByUtf8Bytes } from "../selection/byteOrdering.js";
 import { Buffer } from "node:buffer";
 
 import {
@@ -7,7 +8,7 @@ import {
   validateApprovedMessage,
 } from "./approvedMessage.js";
 import {
-  compareChangeUnitsByRawPath,
+  sortChangeUnitsByRawPath,
   formatChangeUnitPath,
   resolveSemanticCoverage,
   selectMessagePresentation,
@@ -119,18 +120,12 @@ function assertEvidencePlanBinding(content, evidencePlan) {
 
   function normalizedGroup({ selection, policy, basis }) {
     const normalizedSelection = Object.fromEntries(
-      Object.entries(selection)
-        .sort(([left], [right]) =>
-          Buffer.compare(Buffer.from(left), Buffer.from(right)),
-        )
-        .map(([field, value]) => [
+      sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
+        ([field, value]) => [
           field,
-          Array.isArray(value)
-            ? [...value].sort((left, right) =>
-                Buffer.compare(Buffer.from(left), Buffer.from(right)),
-              )
-            : value,
-        ]),
+          Array.isArray(value) ? sortByUtf8Bytes(value) : value,
+        ],
+      ),
     );
 
     return {
@@ -249,7 +244,7 @@ function renderDetailedV2(manifest, coverage, sharedReasonSet) {
     );
   }
 
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const notes = notesByUnit(coverage, sharedReasonSet);
   const lines = ["File Changes:"];
 
@@ -390,7 +385,7 @@ export function renderCommitMessage({
 }
 
 function projectedDetailedInventoryBytes(manifest) {
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const lines = ["a: A", "", "File Changes:"];
 
   units.forEach((unit, index) => {

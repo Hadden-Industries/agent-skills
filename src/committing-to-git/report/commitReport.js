@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { sortByUtf8Bytes } from "../selection/byteOrdering.js";
 import { TextDecoder } from "node:util";
 
 import {
@@ -656,10 +657,8 @@ function workspaceState(root) {
     }
   }
 
-  for (const entries of Object.values(workspace)) {
-    entries.sort((left, right) =>
-      Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)),
-    );
+  for (const [kind, entries] of Object.entries(workspace)) {
+    workspace[kind] = sortByUtf8Bytes(entries, ({ path }) => path);
   }
 
   return workspace;

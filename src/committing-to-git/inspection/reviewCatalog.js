@@ -1,4 +1,5 @@
 import { readStableFile } from "../../../lib/filesystem/stableFile.js";
+import { sortByUtf8Bytes } from "../selection/byteOrdering.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import {
   EVIDENCE_POLICIES,
@@ -81,11 +82,7 @@ function normalizedSelection(selection) {
   return Object.fromEntries(
     Object.entries(normalized).map(([field, value]) => [
       field,
-      Array.isArray(value)
-        ? [...value].sort((left, right) =>
-            Buffer.compare(Buffer.from(left), Buffer.from(right)),
-          )
-        : value,
+      Array.isArray(value) ? sortByUtf8Bytes(value) : value,
     ]),
   );
 }
@@ -1566,9 +1563,7 @@ function queuePagesForCatalog(outputDirectory, catalogSha256) {
     .filter((name) =>
       /^(?:initial|delta)-[0-9a-f]{12}-Q[0-9]{6}\.json$/u.test(name),
     )
-    .sort((left, right) =>
-      Buffer.compare(Buffer.from(left), Buffer.from(right)),
-    )
+    .sort()
     .flatMap((name) => {
       const path = join(queuesDirectory, name);
       const bytes = readFileSync(path);

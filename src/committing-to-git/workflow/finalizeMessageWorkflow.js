@@ -1,4 +1,5 @@
 import { createOrVerifyFile } from "../../../lib/filesystem/stableFile.js";
+import { sortByUtf8Bytes } from "../selection/byteOrdering.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -318,18 +319,12 @@ function canonicalContentGroups(evidencePlan) {
 
 function canonicalSelection(selection) {
   return Object.fromEntries(
-    Object.entries(selection)
-      .sort(([left], [right]) =>
-        Buffer.compare(Buffer.from(left), Buffer.from(right)),
-      )
-      .map(([key, value]) => [
+    sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
+      ([key, value]) => [
         key,
-        Array.isArray(value)
-          ? [...value].sort((left, right) =>
-              Buffer.compare(Buffer.from(left), Buffer.from(right)),
-            )
-          : value,
-      ]),
+        Array.isArray(value) ? sortByUtf8Bytes(value) : value,
+      ],
+    ),
   );
 }
 

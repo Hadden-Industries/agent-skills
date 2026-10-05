@@ -341,9 +341,14 @@ function kindSummary(units) {
 }
 
 function orderedUnits(units) {
-  return [...units].sort((left, right) =>
-    Buffer.compare(unitPathBytes(left), unitPathBytes(right)),
-  );
+  if (units.length < 2) {
+    return [...units];
+  }
+
+  return units
+    .map((unit) => ({ unit, bytes: unitPathBytes(unit) }))
+    .sort((left, right) => Buffer.compare(left.bytes, right.bytes))
+    .map(({ unit }) => unit);
 }
 
 function countedGroupLines(manifest, maximumGroups, maximumSamples) {

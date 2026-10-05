@@ -5,7 +5,7 @@ import { Buffer } from "node:buffer";
 
 import {
   MAXIMUM_CANONICAL_MESSAGE_BYTES,
-  compareChangeUnitsByRawPath,
+  sortChangeUnitsByRawPath,
   formatChangeUnitPath,
   resolveSemanticCoverage,
 } from "./changeSelection.js";
@@ -263,7 +263,7 @@ function expectedDetailedInventory(manifest) {
     );
   }
 
-  const units = [...manifest.changeUnits].sort(compareChangeUnitsByRawPath);
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const width = String(units.length).length;
 
   return units.map((unit, index) => ({
