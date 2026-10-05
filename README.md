@@ -713,7 +713,7 @@ Use the [change-risk matrix](#change-risk-matrix) to decide how much evaluation 
 
 # Working on skill executables
 
-A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. All maintained scripts live under `src/<skill-name>/`. Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper is bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`.
+A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. Skill-specific implementations live under `src/<skill-name>/`; repository-owned JavaScript shared by independent consumers lives under `lib/`, with direct tests under `tests/<domain>/`. Shared modules must not depend on skill internals. Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper and its shared dependencies are bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`, so installed skills remain self-contained.
 
 For an executable change:
 

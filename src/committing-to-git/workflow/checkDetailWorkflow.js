@@ -1,4 +1,4 @@
-import { readStableFile } from "../filesystem/stableFile.js";
+import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";

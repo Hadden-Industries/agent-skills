@@ -1,7 +1,7 @@
 import {
   readStableFile,
   createOrVerifyFile,
-} from "../filesystem/stableFile.js";
+} from "../../../lib/filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";

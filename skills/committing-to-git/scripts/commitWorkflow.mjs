@@ -1028,7 +1028,7 @@ var init_commandExecution = __esm({
   }
 });
 
-// src/committing-to-git/filesystem/stableFile.js
+// lib/filesystem/stableFile.js
 import {
   closeSync,
   constants,
@@ -1104,7 +1104,7 @@ function createOrVerifyFile(path, bytes) {
   }
 }
 var init_stableFile = __esm({
-  "src/committing-to-git/filesystem/stableFile.js"() {
+  "lib/filesystem/stableFile.js"() {
   }
 });
 

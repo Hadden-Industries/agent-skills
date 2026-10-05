@@ -2,7 +2,7 @@ import { parseCommandArguments } from "../cli/commandArguments.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { readStableFile } from "../filesystem/stableFile.js";
+import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 
 /** Read-only discovery is intentionally separate from preparation and its index effects. */
 export async function runPublicationPreflightCommand(

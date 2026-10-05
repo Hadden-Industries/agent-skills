@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { deriveOutcomeReference } from "../../scripts/evaluation/derive-reports.js";
-import { readStableFile } from "../../src/committing-to-git/filesystem/stableFile.js";
+import { readStableFile } from "../../lib/filesystem/stableFile.js";
 
 const ownerName = ".test-workspace-owner.json";
 const fileTimeEpoch = 11644473600000000000n;

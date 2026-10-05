@@ -1,4 +1,4 @@
-import { readStableFile } from "../filesystem/stableFile.js";
+import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { snapshotExecution } from "../snapshot/recordedSnapshot.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";

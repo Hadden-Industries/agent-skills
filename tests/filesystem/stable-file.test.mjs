@@ -7,7 +7,7 @@ import test from "node:test";
 import {
   createOrVerifyFile,
   readStableFile,
-} from "../../src/committing-to-git/filesystem/stableFile.js";
+} from "../../lib/filesystem/stableFile.js";
 
 function fixture(t) {
   const directory = fs.mkdtempSync(join(tmpdir(), "stable-file-"));

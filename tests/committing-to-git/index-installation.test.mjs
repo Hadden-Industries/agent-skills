@@ -10,7 +10,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readStableFile } from "../../src/committing-to-git/filesystem/stableFile.js";
+import { readStableFile } from "../../lib/filesystem/stableFile.js";
 
 import {
   indexIdentitiesMatch,

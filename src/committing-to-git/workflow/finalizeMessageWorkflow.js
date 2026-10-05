@@ -1,4 +1,4 @@
-import { createOrVerifyFile } from "../filesystem/stableFile.js";
+import { createOrVerifyFile } from "../../../lib/filesystem/stableFile.js";
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";

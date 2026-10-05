@@ -1,4 +1,4 @@
-import { readStableFile } from "../filesystem/stableFile.js";
+import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createWorkflowResult,
