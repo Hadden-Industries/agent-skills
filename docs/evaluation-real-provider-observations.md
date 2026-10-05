@@ -40,7 +40,7 @@ The implementation agent assessed every response against all current canonical e
 
 All six current full-bundle answers summarized the ordinary commit workflow instead of resolving the specific requested policy decision. Some unrelated workflow rules were correct. The old skill's case-12 and case-15 failures reflect older policy that differs from the current expectations; they are not evidence of transport failure.
 
-The larger current prompt produced native input usage of 63,237-63,256 tokens, compared with 57,727-57,746 for the old prompt and 15,602-15,636 for baseline. This motivates investigating provider context handling, but does not prove truncation, compaction, a particular token ceiling or a general skill regression. One repetition, one model/effort/platform, full-bundle loading and the altered execution order limit interpretation.
+The larger current prompt produced native input usage of 63,237-63,256 tokens, compared with 57,727-57,746 for the old prompt and 15,602-15,636 for baseline. Usage alone did not prove truncation, compaction, a particular token ceiling or a general skill regression. The subsequent local generation-record inspection below established prompt loss independently. One repetition, one model/effort/platform, full-bundle loading and the altered execution order limit interpretation.
 
 | Arm | Sessions | Observed total tokens |
 | --- | --- | --- |
@@ -65,3 +65,33 @@ Durable operator evidence remains under `C:/Users/maksy/.hi/w/e/operator-evidenc
 `campaign-result.md` retains the complete handoff; `context-diagnosis-handoff.md` records falsifiable hypotheses and a bounded future diagnostic design. Original answers, packets, consumed authorization, streams, metrics and signed closure evidence remain retained. The earlier incomplete two-record grading-preparation refusal is preserved separately from the successful complete-block preparation.
 
 The task owner retains native consumer workspaces and packet copies for diagnosis/grading reproduction, with reassessment on 2026-10-12. No automatic cleanup or schedule is created. A revised resource-loading treatment, additional model/grade calls or a skill-content change needs its own concrete scope and authority. Linux assured dispatch remains disabled pending its separately approved lifecycle design. Existing deterministic verification and CI retain their original candidate identities.
+
+## Subsequent input-loss diagnosis and rendering repair
+
+Read-only inspection on 2026-10-05 matched the complete submitted prompt in the
+initial native user record for all 18 trial-owned conversations. Each of the six
+current-treatment generation metadata records retained only the first 191,985
+bytes of the original prompt, followed by an explicit truncation notice. The
+current 840,837-byte generated helper came before `SKILL.md` and the task; both
+were absent from those generation records. All 12 smaller control records
+retained their complete original prompts. This is stronger evidence than a
+clipped transcript display, but remains a local generation-record observation,
+not a sealed service-context receipt or proof of a universal token/byte cap.
+
+The original operational receipts, responses and supplemental 0/6 score remain
+unchanged. That score cannot establish compliance of the complete current skill
+because its principal instructions and exact tasks were missing from the
+inspected generation input. No new model or grading call was made by this
+diagnosis. The original generation inspection is retained at
+`C:/Users/maksy/.hi/w/e/operator-evidence/2026-10-05-policy-failure-diagnosis/`;
+`generation-input-inspection.json` SHA-256 is
+`16197dcef99de24c499b32a1687a5cdfab4233de6f79bab83cef5d13ef3efc0b`.
+
+The owner authorized a separate rendering repair: new policy campaigns bind a
+bounded Markdown guidance protocol, put the exact task and skill entry ahead
+of references, and retain executable package provenance outside model context.
+See [policy input rendering](evaluation-policy-input-rendering.md) for the
+general helper assessment, versioning, local generation inspection and remaining
+qualification boundaries. A fresh real-provider contrast requires new exact
+packets and separately authorized calls; the repair does not retroactively
+qualify the original campaign or establish that revised answers pass.

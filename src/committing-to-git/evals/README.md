@@ -167,9 +167,40 @@ Google Antigravity is supported only for the six active policy cases derived fro
 the manifest: IDs 3, 12, 15, 17, 23, and 24. This is a text-only reasoning
 profile, not another arm of the executable Git benchmark. It creates no Git
 fixture and permits no command, tool, approval, signing, commit, or push action.
-The control arm receives no treatment; the old-skill and new-skill arms receive
-the complete pinned treatment bundle explicitly composed into the packet-bound
-user message. The runner does not rely on ambient skill discovery.
+The control arm receives no treatment. New schema-3 campaigns use the
+`markdown-guidance-v2` protocol: the exact task comes first, followed by the
+complete pinned `SKILL.md` and all package Markdown resources. Executable source
+and other non-Markdown resources remain in the extracted, verified package and
+its provenance inventory, but are not dumped into the user message. This is an
+eager prose-only policy treatment, not an ordinary progressive-disclosure host
+activation or an executable-helper qualification. The runner does not rely on
+ambient skill discovery.
+
+The campaign digest binds selection, ordering and the 128,000 UTF-8 byte prompt
+limit. Preparation rejects overflow instead of truncating guidance. The packet
+binds the exact prompt hash, selected/excluded file hashes and full package
+inventory hash; execution rechecks them before launch. Schema-2 campaign
+selection remains readable, but preparing it with this runtime refuses rather
+than silently changing its original full-package treatment. Historical prepared
+packets and results must remain with their original pinned runtime.
+
+The preparation limit is a conservative local guard, not a vendor context
+guarantee. Operational completion alone does not establish that the model saw
+the complete prompt. For a completed Antigravity 1.2.16 policy trial, inspect
+its explicit, trial-owned native database without making another model call:
+
+```text
+node scripts/evaluation/inspect-policy-generation.js --prepared-session C:\absolute\completed-session --conversation-database C:\absolute\CONVERSATION-ID.db --output C:\absolute\outside-trial\input-observation.json
+```
+
+The command checks the retained packet/transcript identities and the database
+filename against the exact native conversation ID. It reads only the initial
+user payload and single generation metadata record using read-only SQLite.
+It exports hashes, lengths and full-prompt occurrence facts, never private
+payload text. Input loss, unsupported native records and unavailable evidence
+exit nonzero. A local `input-preserved` observation is not a sealed service
+context receipt or a semantic grade. Do not score a trial with known input loss
+as a measure of the complete selected guidance.
 
 | Requested behavior                                       | Policy-only disposition                                     |
 | -------------------------------------------------------- | ----------------------------------------------------------- |

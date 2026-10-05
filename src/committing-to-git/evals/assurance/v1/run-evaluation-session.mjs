@@ -417,6 +417,11 @@ async function runPreparePolicy(options) {
     "policy-plan",
     repositoryRoot,
   );
+  if (session.policyInputProtocol !== "markdown-guidance-v2") {
+    fail(
+      "Historical policy campaigns require their original pinned runtime; create a new policy-plan for bounded guidance",
+    );
+  }
   const carrier = prepareDispatch(options, repositoryRoot, session.caseId);
   const environment = environmentProfile();
   const toolchain = await inspectAntigravityCliToolchain({
@@ -440,6 +445,7 @@ async function runPreparePolicy(options) {
     toolchain,
     workingDirectory: resolve(required(options, "working-dir")),
     consumerProjectionSha256: carrier?.projectionReceiptSha256,
+    policyInputProtocol: session.policyInputProtocol,
   });
   retainSessionDispatch({
     preparedSession: prepared.preparedSession,

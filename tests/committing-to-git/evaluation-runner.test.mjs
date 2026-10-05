@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -866,7 +867,7 @@ test("Google policy schedule derives only manifest policy cases and leaves the e
   );
 });
 
-test("Google policy preparation composes the complete pinned treatment without a Git fixture or model turn", async (t) => {
+test("Google policy preparation binds bounded guidance and the complete package without a Git fixture or model turn", async (t) => {
   const { prepared, recordFile, workingDirectory } =
     await policyPreparedFixture(t);
   const packet = prepared.packet;
@@ -892,7 +893,6 @@ test("Google policy preparation composes the complete pinned treatment without a
     "references/publication-recovery.md",
     "references/signature-recovery.md",
     "references/transaction-recovery.md",
-    "scripts/commitWorkflow.mjs",
   ]) {
     const beginMarker = `<BEGIN_SKILL_FILE path="${path}">`;
     const endMarker = `<END_SKILL_FILE path="${path}">`;
@@ -910,6 +910,37 @@ test("Google policy preparation composes the complete pinned treatment without a
   }
   assert.match(prompt, /# User task/u);
   assert.match(prompt, /File Changes:/u);
+  assert.ok(
+    prompt.indexOf("# User task") < prompt.indexOf("<BEGIN_SKILL_FILE"),
+  );
+  assert.ok(
+    prompt.indexOf('<BEGIN_SKILL_FILE path="SKILL.md">') <
+      prompt.indexOf('<BEGIN_SKILL_FILE path="references/'),
+  );
+  assert.equal(
+    prompt.includes('<BEGIN_SKILL_FILE path="scripts/commitWorkflow.mjs">'),
+    false,
+    "executable implementation must not be dumped into policy context",
+  );
+  const context = JSON.parse(
+    packet.transmission.harnessControlledInputs.find(
+      ({ id }) => id === "suite-context",
+    ).content,
+  );
+  assert.equal(context.policyInput.protocol, "markdown-guidance-v2");
+  assert.equal(context.policyInput.promptBytes, Buffer.byteLength(prompt));
+  assert.ok(context.policyInput.promptBytes <= 128_000);
+  assert.ok(
+    context.policyInput.excludedFiles.some(
+      ({ path }) => path === "scripts/commitWorkflow.mjs",
+    ),
+  );
+  assert.ok(
+    context.treatment.files.some(
+      ({ path }) => path === "scripts/commitWorkflow.mjs",
+    ),
+    "full package provenance must retain executable bytes",
+  );
   const records = existsSync(recordFile)
     ? readFileSync(recordFile, "utf8")
         .split("\n")
@@ -961,6 +992,144 @@ test("Google policy preparation rejects executable cases before creating evidenc
     .map(JSON.parse);
   assert.equal(
     records.some(({ mode }) => mode === "model"),
+    false,
+  );
+});
+
+test("policy campaigns version bounded rendering and keep historical selection distinct", (t) => {
+  const { repository } = createPushedCandidateRepository(t);
+  const options = {
+    candidate: resolvePushedEvaluationCandidate(repository),
+    caseIds: [3],
+    effort: "low",
+    model: "gemini-3.8-flash-low",
+    provider: "google",
+    repetitions: 1,
+    seed: "rendering-version",
+  };
+  const historical = createPolicyEvaluationCampaignPlan({
+    ...options,
+    schemaVersion: 2,
+  });
+  const current = createPolicyEvaluationCampaignPlan(options);
+  assert.equal(current.schemaVersion, 3);
+  assert.notEqual(current.campaignId, historical.campaignId);
+  assert.equal(
+    selectEvaluationCampaignSession(historical, 1).policyInputProtocol,
+    undefined,
+  );
+  assert.equal(
+    selectEvaluationCampaignSession(current, 1).policyInputProtocol,
+    "markdown-guidance-v2",
+  );
+  const changed = structuredClone(current);
+  changed.policyInputProtocol.maximumPromptBytes += 1;
+  assert.throws(
+    () => selectEvaluationCampaignSession(changed, 1),
+    /integrity contract/u,
+  );
+});
+
+test("policy preparation refuses oversized UTF-8 guidance without truncation, evidence or launch", async (t) => {
+  const { repository } = createPushedCandidateRepository(t);
+  // Non-ASCII reference prose proves that the bound counts bytes, not characters.
+  writeFileSync(
+    join(repository, "skills/committing-to-git/references/message-format.md"),
+    "\u00e9".repeat(64_001),
+  );
+  writeFileSync(
+    join(repository, "src/committing-to-git/references/message-format.md"),
+    "\u00e9".repeat(64_001),
+  );
+  runGit(repository, ["add", "src", "skills"]);
+  runGit(repository, ["commit", "-m", "test: Oversized guidance"]);
+  const { prepared, recordFile, root, workingDirectory } =
+    await policyPreparedFixture(t, { arm: "no-skill" });
+  const destination = join(root, "overflow");
+  await assert.rejects(
+    preparePolicyEvaluationSession({
+      arm: "new-skill",
+      campaignId: TEST_CAMPAIGN_ID,
+      caseId: 3,
+      destination,
+      effort: "low",
+      environment: testEnvironment(),
+      model: "gemini-3.5-flash-low",
+      provider: "google",
+      repetition: 1,
+      repositoryRoot: repository,
+      seed: "overflow",
+      sequence: 1,
+      sourceCommit: runGit(repository, ["rev-parse", "HEAD"]),
+      toolchain: prepared.packet.transmission.toolchain,
+      workingDirectory,
+    }),
+    /exceeds 128000 UTF-8 bytes.*not be silently truncated/u,
+  );
+  assert.equal(existsSync(destination), false);
+  assert.equal(
+    readdirSync(root).some((name) => name.startsWith("overflow.staging-")),
+    false,
+  );
+  assert.equal(
+    readFileSync(recordFile, "utf8").includes('"mode":"model"'),
+    false,
+  );
+});
+
+test("policy input receipt retains every package identity and is checked before launch", async (t) => {
+  const { prepared, recordFile, root } = await policyPreparedFixture(t);
+  const packet = structuredClone(prepared.packet);
+  const input = packet.transmission.harnessControlledInputs.find(
+    ({ id }) => id === "suite-context",
+  );
+  const context = JSON.parse(input.content);
+  assert.deepEqual(
+    [...context.policyInput.selectedFiles, ...context.policyInput.excludedFiles]
+      .map(({ path }) => path)
+      .sort(),
+    context.treatment.files.map(({ path }) => path).sort(),
+  );
+  for (const file of [
+    ...context.policyInput.selectedFiles,
+    ...context.policyInput.excludedFiles,
+  ]) {
+    const bytes = readFileSync(
+      join(context.treatment.root, ...file.path.split("/")),
+    );
+    assert.equal(file.bytes, bytes.length);
+    assert.equal(file.sha256, createHash("sha256").update(bytes).digest("hex"));
+  }
+  context.policyInput.excludedFiles = [];
+  input.content = JSON.stringify(context);
+  input.byteLength = Buffer.byteLength(input.content);
+  input.sha256 = createHash("sha256").update(input.content).digest("hex");
+  // A new well-formed packet and its exact authorization still cannot bypass
+  // the suite-owned rendering contract. Test the real execution preflight.
+  const { createTransmissionPacket, prepareEvidenceSession } =
+    await import("../../scripts/evaluation/runtime.js");
+  const changed = createTransmissionPacket(packet.transmission);
+  const changedSession = await prepareEvidenceSession({
+    destination: join(root, "changed-session"),
+    packet: changed,
+    inputs: changed.transmission.harnessControlledInputs.map(
+      ({ id, mediaType, content }) => ({
+        id,
+        mediaType,
+        bytes: Buffer.from(content),
+      }),
+    ),
+  });
+  const result = await executePreparedEvaluationSession({
+    preparedSession: changedSession,
+    authorization: authorization(changed),
+    allowExternalModelCall: true,
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.failureClass, "preflight-rejected");
+  assert.match(result.error.message, /policy input.*rendering contract/u);
+  assert.equal(
+    readFileSync(recordFile, "utf8").includes('"mode":"model"'),
     false,
   );
 });

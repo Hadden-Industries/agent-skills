@@ -133,6 +133,14 @@ search, or network sources. Do not use tools or subagents. Explain how the
 request should be handled; do not claim that any Git action was executed.
 Use only the task-specific skill bundle below when one is present and the user
 task embedded in this exact message.`;
+// This conservative preparation bound is below the observed native clipping
+// boundary, not a vendor context guarantee. Generation fidelity is separate.
+const POLICY_INPUT_PROTOCOL = Object.freeze({
+  protocol: "markdown-guidance-v2",
+  maximumPromptBytes: 128_000,
+  selection: "all-package-markdown",
+  order: "task-entry-references",
+});
 
 function stableOrderKey(seed, value) {
   return sha256Hex(Buffer.from(`${seed}\0${value}`, "utf8"));
@@ -514,6 +522,7 @@ export function selectEvaluationCampaignSession(plan, sequence) {
             provider: plan?.policy?.provider,
             repetitions: plan?.policy?.repetitions,
             seed: plan?.seed,
+            schemaVersion: plan?.schemaVersion,
           })
         : createEvaluationCampaignPlan({
             candidate: plan?.candidate,
@@ -709,8 +718,12 @@ export function createPolicyEvaluationCampaignPlan({
   provider,
   repetitions,
   seed,
+  schemaVersion = 3,
 }) {
   assertCandidate(candidate);
+  if (![2, 3].includes(schemaVersion)) {
+    throw new Error("Unsupported policy campaign schema version");
+  }
   const policy = {
     caseIds: [...caseIds],
     effort,
@@ -722,6 +735,9 @@ export function createPolicyEvaluationCampaignPlan({
     (session) => ({
       ...session,
       sourceCommit: sourceCommitForArm(session.arm, candidate.commitOid),
+      ...(schemaVersion === 3
+        ? { policyInputProtocol: POLICY_INPUT_PROTOCOL.protocol }
+        : {}),
     }),
   );
   const plan = {
@@ -731,7 +747,10 @@ export function createPolicyEvaluationCampaignPlan({
     modelCalls: 0,
     pinnedRepositoryPaths: CAMPAIGN_REPOSITORY_PATHS,
     policy,
-    schemaVersion: 2,
+    schemaVersion,
+    ...(schemaVersion === 3
+      ? { policyInputProtocol: POLICY_INPUT_PROTOCOL }
+      : {}),
     seed,
     sessions,
   };
@@ -1383,28 +1402,64 @@ function runtimeFingerprint(repositoryRoot, provider = "openai") {
   };
 }
 
-function treatmentBundle(treatment) {
-  if (treatment === null) return "";
+/** Render caller guidance, preserving the full verified package outside context. */
+function policyEvaluationInput(evaluation, treatment) {
   const sections = [];
-  for (const file of [...treatment.files].sort((left, right) =>
-    left.path.localeCompare(right.path, "en"),
-  )) {
+  const selectedFiles = [];
+  const excludedFiles = [];
+  const inventory = [...(treatment?.files ?? [])].sort((left, right) =>
+    left.path === "SKILL.md"
+      ? -1
+      : right.path === "SKILL.md"
+        ? 1
+        : left.path.localeCompare(right.path, "en"),
+  );
+  for (const file of inventory) {
     const path = join(treatment.root, ...file.path.split("/"));
     const bytes = readFileSync(path);
     if (bytes.byteLength !== file.bytes || sha256Hex(bytes) !== file.sha256) {
       throw new Error(`Pinned treatment bytes drifted: ${file.path}`);
     }
+    const identity = {
+      path: file.path,
+      bytes: file.bytes,
+      sha256: file.sha256,
+    };
+    if (!file.path.toLowerCase().endsWith(".md")) {
+      excludedFiles.push(identity);
+      continue;
+    }
+    selectedFiles.push(identity);
     const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const framingNewline = content.endsWith("\n") ? "" : "\n";
     sections.push(
       `<BEGIN_SKILL_FILE path="${file.path}">\n${content}${framingNewline}<END_SKILL_FILE path="${file.path}">`,
     );
   }
-  return `\n\n# Task-specific skill bundle\n\n${sections.join("\n\n")}`;
-}
-
-function policyEvaluationPrompt(evaluation, treatment) {
-  return `${POLICY_EVALUATION_INSTRUCTIONS}${treatmentBundle(treatment)}\n\n# User task\n\n${evaluation.prompt}`;
+  const guidance =
+    treatment === null
+      ? ""
+      : `\n\n# Task-specific skill bundle\n\n${sections.join("\n\n")}`;
+  const prompt = `${POLICY_EVALUATION_INSTRUCTIONS}\n\n# User task\n\n${evaluation.prompt}${guidance}`;
+  const promptBytes = Buffer.byteLength(prompt, "utf8");
+  if (promptBytes > POLICY_INPUT_PROTOCOL.maximumPromptBytes) {
+    throw new Error(
+      `Policy input exceeds ${POLICY_INPUT_PROTOCOL.maximumPromptBytes} UTF-8 bytes (${promptBytes}); guidance must not be silently truncated`,
+    );
+  }
+  return {
+    prompt,
+    receipt: {
+      ...POLICY_INPUT_PROTOCOL,
+      selectedFiles,
+      excludedFiles,
+      packageInventorySha256: sha256Hex(
+        canonicalJsonBytes(treatment?.files ?? []),
+      ),
+      promptBytes,
+      promptSha256: sha256Hex(Buffer.from(prompt, "utf8")),
+    },
+  };
 }
 
 function suiteContext(transmission) {
@@ -1581,6 +1636,23 @@ function assertPreparedCurrent(transmission, context) {
       throw new Error("Policy-only context requires the Google provider");
     }
     assertPolicyWorkingDirectory(transmission.isolation.workingDirectory);
+    const expected = policyEvaluationInput(
+      readPolicyEvaluation(context.repositoryRoot, context.case.id),
+      context.treatment,
+    );
+    if (
+      transmission.session.metadata.policyInputProtocol !==
+        POLICY_INPUT_PROTOCOL.protocol ||
+      !canonicalJsonBytes(context.policyInput ?? null).equals(
+        canonicalJsonBytes(expected.receipt),
+      ) ||
+      transmission.harnessControlledInputs.find(({ role }) => role === "user")
+        ?.content !== expected.prompt
+    ) {
+      throw new Error(
+        "Prepared policy input does not match its rendering contract",
+      );
+    }
     return;
   }
   if (context.runtimeIsolationDiscovery) {
@@ -1852,7 +1924,13 @@ export async function preparePolicyEvaluationSession({
   toolchain,
   workingDirectory,
   consumerProjectionSha256,
+  policyInputProtocol = POLICY_INPUT_PROTOCOL.protocol,
 }) {
+  if (policyInputProtocol !== POLICY_INPUT_PROTOCOL.protocol) {
+    throw new Error(
+      "Historical policy campaigns require their original pinned runtime; create a new policy-plan for bounded guidance",
+    );
+  }
   if (
     consumerProjectionSha256 !== undefined &&
     !/^[a-f0-9]{64}$/u.test(consumerProjectionSha256)
@@ -1903,6 +1981,7 @@ export async function preparePolicyEvaluationSession({
             root: join(destination, "treatment"),
             sourceCommit: extracted.sourceCommit,
           };
+    const policyInput = policyEvaluationInput(evaluation, stagedTreatment);
     const context = {
       schemaVersion: 1,
       campaignId,
@@ -1917,14 +1996,10 @@ export async function preparePolicyEvaluationSession({
       repositoryRoot,
       sourceCommit: extracted?.sourceCommit ?? null,
       treatment: finalTreatment,
+      policyInput: policyInput.receipt,
     };
     const inputs = [
-      packetInput(
-        "prompt",
-        "user",
-        "text/markdown",
-        policyEvaluationPrompt(evaluation, stagedTreatment),
-      ),
+      packetInput("prompt", "user", "text/markdown", policyInput.prompt),
       packetInput(
         "suite-context",
         "configuration",
@@ -1945,6 +2020,7 @@ export async function preparePolicyEvaluationSession({
           campaignId,
           caseKey: evaluation.case_key,
           profile: "policy-only",
+          policyInputProtocol,
           seed,
           sourceCommit: extracted?.sourceCommit ?? null,
           compiledSuiteSha256: compileSuite({
