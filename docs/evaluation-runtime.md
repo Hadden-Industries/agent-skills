@@ -185,11 +185,42 @@ Codex provider and host inventories describe facilities that are available to th
 
 Anthropic sessions use the Claude CLI adapter. It pins one reviewed CLI version/capability profile, uses current documented safe-mode and output flags, preserves normal OAuth/keychain authentication, retains the provider-owned default system prompt outside the harness digest, captures provider output once, and normalizes the same result and closure interface. Unsupported versions or required capabilities fail before execution.
 
-Google sessions use the Antigravity CLI adapter. It pins reviewed version `1.1.19`, the exact executable and prefix files, and the `--help` bytes. It uses one process with `stream-json` input and output, explicit model and effort, terminal sandboxing, disabled slash commands, and request-review permissions. It never passes `--dangerously-skip-permissions`, an agent override, a conversation-resume flag, or permission allow rules. One `init` event and one terminal `result` per turn are required; raw NDJSON and stderr are retained, while final cumulative usage is normalized. Any observed tool or subagent step fails the run.
+Google sessions use the Antigravity CLI adapter. It pins a reviewed version/profile, the exact executable and prefix files, and the `--help` bytes. It uses one process with `stream-json` input and output, explicit model and version-specific effort binding, terminal sandboxing, disabled slash commands, and request-review permissions. It never passes `--dangerously-skip-permissions`, an agent override, a conversation-resume flag, or permission allow rules. One `init` event and one terminal `result` per turn are required; raw NDJSON and stderr are retained, while final cumulative usage is normalized. Any observed tool or subagent step fails the run.
 
 Antigravity's `init.tools` inventory is evidence of advertised built-in facilities, not a claim that the CLI disabled them. The policy profile proves that no tool step appeared in a completed run; it does not prove that provider-owned tools, default instructions, global customizations, or cached account context were unavailable. An advertised plugin or MCP tool fails closed. Treatment activation is therefore explicit and packet-bound rather than delegated to automatic skill discovery.
 
 Provider process launch belongs only to these three adapters. The operator login CLI is the sole separate Codex process-launch path and performs no model run. Suite controllers own domain conversation semantics and permission decisions; adapters contain no concept- or Git-specific parser.
+
+### Antigravity protocol versions
+
+Google sessions admit only the separately reviewed 1.1.19 and 1.2.16 CLI
+profiles. Each packet pins the selected profile, executable, version and help
+bytes. Both use stdin NDJSON, one process for all declared turns, per-turn result
+events, cumulative usage, sandbox request and disabled slash-command expansion.
+Both require native initialization to confirm the exact model, workspace and
+`request-review`; any observed tool or subagent step fails the session.
+
+The legacy 1.1.19 profile keeps its separate `--effort` argument. Native 1.2.16
+rejects that argument for effort-bearing model slugs, so its profile binds effort
+through the explicit model slug instead. Its reviewed tiers are `low`, `medium`
+and `high`; the slug's final tier must equal the
+packet effort; a missing or contradictory tier refuses before consumption. The
+new profile fingerprints stdout and stderr separately (native help uses stderr)
+and checks that help exposes the required stream, model, sandbox
+and slash-disable flags. Version/profile drift and provider-control prefix
+overrides remain refusals. The common runtime records an adapter return without
+launch consumption as `provider-failed`; no attempt or model process is created
+for that refusal, and its record is not a completed evaluation.
+
+The installed 1.2.16 zero-turn probe on 2026-10-05 confirmed
+`gemini-3.8-flash-low`, `request-review`, EOF exit and producer quiescence. It
+made no model turn and does not establish actual real-provider behavioral
+acceptance, instruction isolation or OS-level egress isolation. Preparation
+still needs explicit model/effort and every real session still needs exact
+packet authorization. Protocol references: [Google headless
+mode](https://antigravity.google/docs/cli/headless/) and [execution
+modes](https://antigravity.google/docs/cli/modes). Persistent permission or
+provider settings are not changed by this adapter.
 
 ## Evaluation Homes
 

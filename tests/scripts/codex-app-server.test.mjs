@@ -1515,7 +1515,6 @@ test("an upstream approval shape that cannot be normalized fails before the cont
   const execution = await executeAdapterFixture(t, {
     controller,
     scenario: "malformed-approval",
-    timeoutMs: 250,
   });
 
   assert.equal(execution.result.status, "failed");
@@ -1523,6 +1522,16 @@ test("an upstream approval shape that cannot be normalized fails before the cont
   assert.equal(approvalCalls, 0);
   const transcript = await readJsonLines(
     join(execution.preparedSession, "outputs", "transcript.jsonl"),
+  );
+  // This is a protocol-shape test, not a startup deadline test. Require the
+  // malformed native request to arrive within the standard fixture budget.
+  assert.equal(
+    transcript.some(
+      (message) =>
+        message?.id === 701 &&
+        message?.method === "item/commandExecution/requestApproval",
+    ),
+    true,
   );
   assert.equal(
     transcript.some(
