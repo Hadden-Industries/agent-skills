@@ -17,6 +17,8 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      VERIFICATION_REVISION: ${{ inputs.revision }}
     defaults:
       run:
         shell: bash
@@ -39,7 +41,7 @@ jobs:
           VERIFICATION_OUTPUT="$RUNNER_TEMP/committing-to-git-linux"
           echo "VERIFICATION_OUTPUT=$VERIFICATION_OUTPUT" >> "$GITHUB_ENV"
           mkdir -p "$VERIFICATION_OUTPUT"
-          {
+          node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage environment -- bash -e -o pipefail -c '
             git rev-parse HEAD
             cat /etc/os-release
             uname -a
@@ -48,28 +50,21 @@ jobs:
             git --version
             ssh -V
             command -v ssh-keygen
-          } 2>&1 | tee "$VERIFICATION_OUTPUT/environment.txt"
-          cat "$VERIFICATION_OUTPUT/environment.txt" >> "$GITHUB_STEP_SUMMARY"
+          '
 
       - name: Install locked dependencies
-        run: npm ci 2>&1 | tee "$VERIFICATION_OUTPUT/install.txt"
+        run: node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage install -- npm ci
 
       - name: Check formatting, lint, and generated artifacts
-        run: npm run build:check 2>&1 | tee "$VERIFICATION_OUTPUT/build-check.txt"
+        run: node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage build-check -- npm run build:check
 
       - name: Run committing-to-git and native adapter tests on Linux
         run: |
-          node --test --test-reporter=tap \
+          node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage tests -- node --test --test-reporter=tap \
             'tests/committing-to-git/**/*.test.mjs' \
             tests/scripts/evaluation-path-metadata.test.mjs \
-            tests/scripts/evaluation-homes.test.mjs \
-            2>&1 | tee "$VERIFICATION_OUTPUT/tests.tap"
+            tests/scripts/evaluation-homes.test.mjs
 
-      - name: Retain verification output
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: committing-to-git-linux-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/committing-to-git-linux/
-          if-no-files-found: error
-          retention-days: 30
+      - name: Report verification diagnostics
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/verificationEvidence.js report --verification-kind committing-to-git --output-root "$RUNNER_TEMP/committing-to-git-linux"
