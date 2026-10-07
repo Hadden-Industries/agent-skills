@@ -4,6 +4,7 @@ description: Create, assess, and refactor semantically precise, ecosystem-confor
 license: MPL-2.0
 compatibility: Optional lexical checker requires Python 3.9 or later, uses only the standard library, and requires no network access.
 metadata:
+  version: "0.1.0-dev.1"
   category: research
 ---
 

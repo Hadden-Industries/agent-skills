@@ -4,6 +4,7 @@ description: Engineers source-grounded concepts and definitions, including defin
 license: MPL-2.0
 compatibility: Requires access to bundled skill files. Tasks that require current external evidence also require web search and URL fetching.
 metadata:
+  version: "0.1.0-dev.1"
   category: research
 ---
 

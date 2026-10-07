@@ -5,6 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
+  version: "0.1.1-dev.2"
 ---
 
 # Committing to Git

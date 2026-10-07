@@ -8,7 +8,18 @@ The patch-base increment ensures the new version sorts after the historical hash
 
 `scripts/plugin-releases.json` is an append-only development-release ledger. Each entry binds a version to a full SHA-256 inventory digest of all published input bytes, including both host manifests with only their `version` fields excluded. The digest is separate from the complete generated package inventory and archive digests. The ledger itself is outside the published package, preventing a self-reference. Rebuilding unchanged inputs retains the same version and package bytes.
 
-When published inputs change, the build reports their new full digest and refuses to reuse the current version. After the exact configuration change is approved, append a record with the next numeric version and that digest, then rebuild. Do not alter earlier records. In a Git checkout, generation compares the ledger against `HEAD` and rejects edited or removed committed bindings; an exported source directory has no historical baseline and treats its supplied ledger as an input. This check is a local maintenance safeguard, not authenticated history or a defence against rewriting Git history. Build count, timestamps, dirty revisions and host paths never determine the version.
+Every maintained skill carries a readable string `metadata.version` in its canonical `src/<skill>/SKILL.md`, using the [Agent Skills metadata field](https://agentskills.io/specification). The build copies it into the distributed skill. For committing-to-git, the plugin build also rejects disagreement between this metadata and the selected ledger release. Earlier installed copies retain their original bytes, including the absence of version metadata.
+
+When published inputs change, the build reports their new full digest and refuses to reuse the current version. After the exact configuration change is approved, run one deliberate release operation:
+
+```powershell
+node scripts/buildPluginPackages.js --release-version 0.1.1-dev.2
+npm run build
+```
+
+Replace the example with the approved next version. The first command assigns that version to the canonical committing-to-git `SKILL.md`, regenerates its skill artifacts, computes the new input digest, appends the immutable release record, and regenerates both host manifests and the packaged skill. It preserves the Markdown body and unrelated frontmatter. The ordinary repository build covers the other maintained skills and validation; neither command advances versions implicitly. No manual digest calculation or edits to generated copies are needed. Invalid, repeated or backwards versions fail before source changes. A later generator or filesystem failure may leave intermediate files; retain them, inspect the error and finish the intended release rather than changing an old binding or automatically retrying. This command is a cooperative maintainer operation, not a concurrent-writer transaction.
+
+In a Git checkout, generation compares the ledger against `HEAD` and rejects edited or removed committed bindings; an exported source directory has no historical baseline and treats its supplied ledger as an input. This check is a local maintenance safeguard, not authenticated history or a defence against rewriting Git history. Build count, timestamps, dirty revisions and host paths never determine the version.
 
 Run formatting/lint and the applicable verification before review; complete `npm run verify` on the final candidate. Commit the generated package, ledger and source together through the repository's authorized Git workflow. Existing `npm run package:plugin -- --output <absolute directory>` continues to produce the desktop ZIP. To prepare an exact committed release with a revision-to-artifact mapping, use:
 

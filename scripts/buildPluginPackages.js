@@ -1,4 +1,5 @@
 import {
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -6,10 +7,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+
+import { isMap, isScalar, parseDocument } from "yaml";
 
 import { selectCanonicalSkillNames } from "./skillSelector.js";
-import { packageInputSha256, readReleaseLedger } from "./pluginRelease.js";
+import { assertUnredirectedPath } from "./skillDistribution.js";
+import {
+  packageInputSha256,
+  readReleaseLedger,
+  releaseLedgerPath,
+  validateReleaseLedger,
+} from "./pluginRelease.js";
 
 const defaultRepositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -103,7 +113,7 @@ function licenceNotice(repositoryRoot, packageName) {
   return readFileSync(join(directory, notices[0].name));
 }
 
-export function pluginPackageFiles(definition, repositoryRoot) {
+function pluginPackageInputs(definition, repositoryRoot) {
   const files = new Map();
 
   collectFiles(
@@ -134,12 +144,38 @@ export function pluginPackageFiles(definition, repositoryRoot) {
     [".claude-plugin/plugin.json", json(definition.identity)],
     [".codex-plugin/plugin.json", json(codexManifest(definition.identity))],
   ]);
+  return { files, codexManifest, contentSha256 };
+}
+
+function skillFrontmatter(text) {
+  const match = /^---\n([\s\S]*?\n)---(?:\n|$)/u.exec(text);
+  if (!match) throw new Error("SKILL.md requires LF YAML frontmatter.");
+  const document = parseDocument(match[1], { uniqueKeys: true });
+  if (document.errors.length) throw new Error(document.errors[0].message);
+  return { document, frontmatter: match[1] };
+}
+
+// SKILL.md is itself distributed identity, so it must agree before the digest
+// is checked. The normal build only validates; it never assigns a version.
+export function pluginPackageFiles(definition, repositoryRoot) {
+  const { files, codexManifest, contentSha256 } = pluginPackageInputs(
+    definition,
+    repositoryRoot,
+  );
   const releases =
     readReleaseLedger(repositoryRoot).plugins[definition.skillName];
   const release = releases?.at(-1);
+  const { document } = skillFrontmatter(
+    files.get(`skills/${definition.skillName}/SKILL.md`).toString("utf8"),
+  );
+  if (document.getIn(["metadata", "version"]) !== release?.version) {
+    throw new Error(
+      `${definition.skillName} SKILL.md metadata.version must agree with the selected release version.`,
+    );
+  }
   if (!release || release.contentSha256 !== contentSha256) {
     throw new Error(
-      `${definition.skillName} published inputs changed (${contentSha256}); deliberately advance the release version and digest in scripts/plugin-releases.json.`,
+      `${definition.skillName} published inputs changed (${contentSha256}); deliberately advance the release with buildPluginPackages.js --release-version <next-version>.`,
     );
   }
   const { version } = release;
@@ -149,6 +185,72 @@ export function pluginPackageFiles(definition, repositoryRoot) {
   files.set(".codex-plugin/plugin.json", json(codexManifest(manifest)));
 
   return { files, manifest, contentSha256 };
+}
+
+// One deliberate operation updates the canonical identity and invokes the same
+// generators as npm run build. Failures preserve intermediate files for review;
+// ordinary build/check will reject an incomplete release, never auto-advance it.
+export async function advancePluginRelease({
+  version,
+  repositoryRoot = defaultRepositoryRoot,
+}) {
+  const root = resolve(repositoryRoot);
+  const definition = pluginPackageDefinition("committing-to-git");
+  assertUnredirectedPath(join(root, releaseLedgerPath));
+  const previous = readReleaseLedger(root);
+  const ledger = structuredClone(previous);
+  const releases = ledger.plugins[definition.skillName];
+  releases.push({ version, contentSha256: "0".repeat(64) });
+  // Reject invalid/repeated/backwards versions before changing any files.
+  validateReleaseLedger(ledger, previous);
+  const sourcePath = join(root, "src", definition.skillName, "SKILL.md");
+  assertUnredirectedPath(sourcePath);
+  if (!lstatSync(sourcePath).isFile())
+    throw new Error("Canonical SKILL.md must be a regular source file.");
+  const text = readFileSync(sourcePath, "utf8");
+  const { document, frontmatter } = skillFrontmatter(text);
+  const metadata = document.get("metadata", true);
+  if (!isMap(metadata) || metadata.flow)
+    throw new Error("Canonical metadata must be a YAML block mapping.");
+  const existing = metadata.get("version", true);
+  if (existing && (!isScalar(existing) || typeof existing.value !== "string"))
+    throw new Error("Canonical metadata.version must be a string scalar.");
+  // Block scalar ranges include their final newline and header comments; a
+  // release number belongs in an inline scalar, so refuse before writing.
+  if (["BLOCK_FOLDED", "BLOCK_LITERAL"].includes(existing?.type))
+    throw new Error(
+      "Canonical metadata.version cannot use a block string scalar.",
+    );
+  // Native YAML node ranges keep descriptions, comments and body bytes intact.
+  const start = existing?.range[0] ?? metadata.range[1];
+  const end = existing?.range[1] ?? start;
+  const replacement = existing
+    ? JSON.stringify(version)
+    : `  version: ${JSON.stringify(version)}\n`;
+  const updated =
+    frontmatter.slice(0, start) + replacement + frontmatter.slice(end);
+  assertUnredirectedPath(sourcePath);
+  writeFileSync(
+    sourcePath,
+    `---\n${updated}${text.slice(4 + frontmatter.length)}`,
+  );
+  const { buildSkillArtifacts } = await import("./buildSkillArtifacts.js");
+  await buildSkillArtifacts({
+    repositoryRoot: root,
+    skillNames: [definition.skillName],
+  });
+  releases.at(-1).contentSha256 = pluginPackageInputs(
+    definition,
+    root,
+  ).contentSha256;
+  validateReleaseLedger(ledger, previous);
+  assertUnredirectedPath(join(root, releaseLedgerPath));
+  writeFileSync(join(root, releaseLedgerPath), json(ledger));
+  buildPluginPackages({
+    repositoryRoot: root,
+    skillNames: [definition.skillName],
+  });
+  return releases.at(-1);
 }
 
 function existingFiles(directory, prefix, paths) {
@@ -266,4 +368,30 @@ export function buildPluginPackages({
   }
 
   return { packagesChecked: selected.length, stalePackages };
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  try {
+    const { values } = parseArgs({
+      options: {
+        repository: { type: "string" },
+        "release-version": { type: "string" },
+      },
+    });
+    if (!values["release-version"])
+      throw new Error(
+        "Usage: buildPluginPackages.js [--repository <path>] --release-version <next-version>",
+      );
+    const release = await advancePluginRelease({
+      version: values["release-version"],
+      repositoryRoot: values.repository,
+    });
+    process.stdout.write(`${JSON.stringify(release, null, 2)}\n`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
