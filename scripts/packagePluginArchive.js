@@ -136,30 +136,23 @@ export function zipMembers(archive) {
   return members;
 }
 
-export function packagePluginArchive({
-  skillName,
-  outputDirectory,
-  repositoryRoot = defaultRepositoryRoot,
-}) {
-  const definition = pluginPackageDefinition(skillName);
-  const { files, manifest } = pluginPackageFiles(definition, repositoryRoot);
+// Both ordinary packaging and exact-commit release preparation use the same
+// archive construction, so one version never names two different ZIP layouts.
+export function pluginArchiveBytes(files, name) {
   const members = [...files].sort(([left], [right]) =>
     left.localeCompare(right, "en"),
   );
 
   members.push([
     desktopManifestPath,
-    Buffer.from(`${JSON.stringify({ name: manifest.name }, null, 2)}\n`),
+    Buffer.from(`${JSON.stringify({ name }, null, 2)}\n`),
   ]);
-
-  const archivePath = join(
-    outputDirectory,
-    `${manifest.name}-${manifest.version}-antigravity-desktop.zip`,
-  );
-
   const archive = zipArchive(members);
-
-  for (const [path, data] of zipMembers(archive)) {
+  const decoded = zipMembers(archive);
+  if (decoded.size !== members.length) {
+    throw new Error("Archive readback has a different member count.");
+  }
+  for (const [path, data] of decoded) {
     const expected = members.find(([member]) => member === path)?.[1];
 
     if (!expected?.equals(data)) {
@@ -168,6 +161,21 @@ export function packagePluginArchive({
       );
     }
   }
+  return { archive, members };
+}
+
+export function packagePluginArchive({
+  skillName,
+  outputDirectory,
+  repositoryRoot = defaultRepositoryRoot,
+}) {
+  const definition = pluginPackageDefinition(skillName);
+  const { files, manifest } = pluginPackageFiles(definition, repositoryRoot);
+  const { archive, members } = pluginArchiveBytes(files, manifest.name);
+  const archivePath = join(
+    outputDirectory,
+    `${manifest.name}-${manifest.version}-antigravity-desktop.zip`,
+  );
 
   mkdirSync(outputDirectory, { recursive: true });
   try {

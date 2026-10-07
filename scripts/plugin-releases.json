@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "plugins": {
+    "committing-to-git": [
+      {
+        "version": "0.1.1-dev.1",
+        "contentSha256": "3724bdb098f8866729fe86cf20cdd4bf9c4fee4cf75d4082e846ad287ffc081e"
+      }
+    ]
+  }
+}

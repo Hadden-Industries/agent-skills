@@ -101,7 +101,7 @@ Hosts with a plugin marketplace (Claude Code, Codex) install the generated, self
 }
 ```
 
-The package's manifest `version` is derived from its published bytes, so a host that caches plugins by version fetches a new copy exactly when the shipped skill changes. `npm run build` regenerates the package and `npm run build:check` fails when it is stale; never edit it by hand.
+The package uses ordered development versions such as `0.1.1-dev.1`, shared by both host manifests, its release tag and archive name. [`scripts/plugin-releases.json`](./scripts/plugin-releases.json) binds each version to the complete package-input digest. Changed published inputs require an explicitly advanced release record; committed version/digest pairs cannot be edited or removed. `npm run build` regenerates the package and `npm run build:check` rejects stale artifacts or an unadvanced release. Never edit generated manifests by hand. The complete SHA pin identifies the repository revision; it remains separate from the readable release version. See [release preparation and installation reporting](./docs/plugin-releases.md).
 
 Hosts without a marketplace (Antigravity desktop) install the release archive `committing-to-git-<version>-antigravity-desktop.zip`, produced by `npm run package:plugin -- --output <absolute directory>` and attached to the matching GitHub release. It holds the same package at the archive root plus the minimal desktop `plugin.json`; extract it into `<home>/.gemini/config/plugins/committing-to-git/`.
 

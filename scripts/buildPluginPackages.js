@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   mkdirSync,
   readdirSync,
@@ -10,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { selectCanonicalSkillNames } from "./skillSelector.js";
+import { packageInputSha256, readReleaseLedger } from "./pluginRelease.js";
 
 const defaultRepositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -103,25 +103,6 @@ function licenceNotice(repositoryRoot, packageName) {
   return readFileSync(join(directory, notices[0].name));
 }
 
-// The manifest version is derived from every published byte except the
-// manifests' own version fields, so hosts that cache plugins by version
-// (Claude Code does) fetch a new copy exactly when the shipped skill changes,
-// and an unchanged skill keeps its version across rebuilds.
-function contentVersion(files, manifests) {
-  const digest = createHash("sha256");
-  const entries = [...files, ...manifests].sort(([left], [right]) =>
-    left.localeCompare(right, "en"),
-  );
-
-  for (const [path, bytes] of entries) {
-    digest.update(
-      JSON.stringify([path, createHash("sha256").update(bytes).digest("hex")]),
-    );
-  }
-
-  return `0.1.0-dev.g${digest.digest("hex").slice(0, 16)}`;
-}
-
 export function pluginPackageFiles(definition, repositoryRoot) {
   const files = new Map();
 
@@ -149,16 +130,25 @@ export function pluginPackageFiles(definition, repositoryRoot) {
       longDescription: manifest.description,
     },
   });
-  const version = contentVersion(files, [
+  const contentSha256 = packageInputSha256(files, [
     [".claude-plugin/plugin.json", json(definition.identity)],
     [".codex-plugin/plugin.json", json(codexManifest(definition.identity))],
   ]);
+  const releases =
+    readReleaseLedger(repositoryRoot).plugins[definition.skillName];
+  const release = releases?.at(-1);
+  if (!release || release.contentSha256 !== contentSha256) {
+    throw new Error(
+      `${definition.skillName} published inputs changed (${contentSha256}); deliberately advance the release version and digest in scripts/plugin-releases.json.`,
+    );
+  }
+  const { version } = release;
   const manifest = { ...definition.identity, version };
 
   files.set(".claude-plugin/plugin.json", json(manifest));
   files.set(".codex-plugin/plugin.json", json(codexManifest(manifest)));
 
-  return { files, manifest };
+  return { files, manifest, contentSha256 };
 }
 
 function existingFiles(directory, prefix, paths) {

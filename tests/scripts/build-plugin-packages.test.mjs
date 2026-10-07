@@ -41,7 +41,7 @@ test("the committed plugin is self-contained and its manifests agree", () => {
   );
 
   assert.equal(claude.name, "committing-to-git");
-  assert.match(claude.version, /^0\.1\.0-dev\.g[0-9a-f]{16}$/u);
+  assert.match(claude.version, /^[0-9]+\.[0-9]+\.[0-9]+-dev\.[1-9][0-9]*$/u);
   assert.equal(codex.version, claude.version);
   assert.equal(codex.skills, "./skills/");
   assert.equal(codex.interface.longDescription, claude.description);
@@ -67,23 +67,20 @@ test("the committed plugin is self-contained and its manifests agree", () => {
   }
 });
 
-test("the version follows the shipped bytes, not the build", () => {
+test("unchanged builds retain the release; changed bytes require a new release", () => {
   const definition = pluginPackageDefinition("committing-to-git");
   const first = pluginPackageFiles(definition, REPOSITORY_ROOT);
   const second = pluginPackageFiles(definition, REPOSITORY_ROOT);
 
   assert.equal(first.manifest.version, second.manifest.version);
 
-  // One changed published byte must yield a different version, so hosts
-  // that cache plugins by version fetch the new copy.
-  const changed = pluginPackageFiles(
-    { ...definition, readme: `${definition.readme}\n` },
-    REPOSITORY_ROOT,
-  );
-
-  assert.notEqual(changed.manifest.version, first.manifest.version);
-  assert.equal(
-    JSON.parse(changed.files.get(".codex-plugin/plugin.json")).version,
-    changed.manifest.version,
+  // A release number is explicit. A changed payload must not silently reuse it.
+  assert.throws(
+    () =>
+      pluginPackageFiles(
+        { ...definition, readme: `${definition.readme}\n` },
+        REPOSITORY_ROOT,
+      ),
+    /published inputs changed.*advance.*release/iu,
   );
 });
