@@ -1,5 +1,4 @@
 import {
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -13,6 +12,8 @@ import { parseArgs } from "node:util";
 import { isMap, isScalar, parseDocument } from "yaml";
 
 import { selectCanonicalSkillNames } from "./skillSelector.js";
+import { readStableFile } from "../lib/filesystem/stableFile.js";
+import { replaceReleaseFile } from "./releaseFile.js";
 import { assertUnredirectedPath } from "./skillDistribution.js";
 import {
   packageInputSha256,
@@ -196,18 +197,24 @@ export async function advancePluginRelease({
 }) {
   const root = resolve(repositoryRoot);
   const definition = pluginPackageDefinition("committing-to-git");
-  assertUnredirectedPath(join(root, releaseLedgerPath));
-  const previous = readReleaseLedger(root);
+  const ledgerPath = join(root, releaseLedgerPath);
+  const ledgerSnapshot = readStableFile(ledgerPath, 32 * 1024 * 1024, {
+    rejectLinkedAncestors: true,
+  });
+  const previous = readReleaseLedger(root, ledgerSnapshot.bytes);
   const ledger = structuredClone(previous);
   const releases = ledger.plugins[definition.skillName];
   releases.push({ version, contentSha256: "0".repeat(64) });
   // Reject invalid/repeated/backwards versions before changing any files.
   validateReleaseLedger(ledger, previous);
   const sourcePath = join(root, "src", definition.skillName, "SKILL.md");
+  // Preserve the author-facing linked-path diagnostic; descriptor validation
+  // below, rather than this preliminary path check, establishes read safety.
   assertUnredirectedPath(sourcePath);
-  if (!lstatSync(sourcePath).isFile())
-    throw new Error("Canonical SKILL.md must be a regular source file.");
-  const text = readFileSync(sourcePath, "utf8");
+  const sourceSnapshot = readStableFile(sourcePath, 32 * 1024 * 1024, {
+    rejectLinkedAncestors: true,
+  });
+  const text = sourceSnapshot.bytes.toString("utf8");
   const { document, frontmatter } = skillFrontmatter(text);
   const metadata = document.get("metadata", true);
   if (!isMap(metadata) || metadata.flow)
@@ -229,10 +236,10 @@ export async function advancePluginRelease({
     : `  version: ${JSON.stringify(version)}\n`;
   const updated =
     frontmatter.slice(0, start) + replacement + frontmatter.slice(end);
-  assertUnredirectedPath(sourcePath);
-  writeFileSync(
+  replaceReleaseFile(
     sourcePath,
-    `---\n${updated}${text.slice(4 + frontmatter.length)}`,
+    sourceSnapshot,
+    Buffer.from(`---\n${updated}${text.slice(4 + frontmatter.length)}`),
   );
   const { buildSkillArtifacts } = await import("./buildSkillArtifacts.js");
   await buildSkillArtifacts({
@@ -244,8 +251,7 @@ export async function advancePluginRelease({
     root,
   ).contentSha256;
   validateReleaseLedger(ledger, previous);
-  assertUnredirectedPath(join(root, releaseLedgerPath));
-  writeFileSync(join(root, releaseLedgerPath), json(ledger));
+  replaceReleaseFile(ledgerPath, ledgerSnapshot, json(ledger));
   buildPluginPackages({
     repositoryRoot: root,
     skillNames: [definition.skillName],

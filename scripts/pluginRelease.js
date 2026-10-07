@@ -101,9 +101,11 @@ export function validateReleaseLedger(ledger, previous) {
   return ledger;
 }
 
-export function readReleaseLedger(repositoryRoot) {
+/** Validate supplied snapshot bytes, or read the ledger, against committed bindings. */
+export function readReleaseLedger(repositoryRoot, snapshotBytes) {
   const ledger = JSON.parse(
-    readFileSync(join(repositoryRoot, releaseLedgerPath), "utf8"),
+    snapshotBytes ??
+      readFileSync(join(repositoryRoot, releaseLedgerPath), "utf8"),
   );
   if (!existsSync(join(repositoryRoot, ".git"))) {
     return validateReleaseLedger(ledger);
