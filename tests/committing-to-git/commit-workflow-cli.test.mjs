@@ -117,7 +117,18 @@ test("unified workflow help exposes only the proportional command groups", () =>
 
 test("canonical skill teaches the proportional happy path and bounded decisions", () => {
   const source = readFileSync(CANONICAL_SKILL, "utf8");
-  const words = source.trim().split(/\s+/u);
+  // Distribution identity adds no instructions. Preserve the existing word
+  // budget by excluding only the one approved frontmatter version line.
+  const version = JSON.parse(
+    readFileSync(join(REPO_ROOT, "scripts/plugin-releases.json"), "utf8"),
+  ).plugins["committing-to-git"].at(-1).version;
+  const versionLine = `\n  version: "${version}"\n`;
+  const frontmatterEnd = source.indexOf("\n---", 4);
+  const frontmatter = source.slice(0, frontmatterEnd + 1);
+  assert.equal(frontmatter.split(versionLine).length, 2);
+  const instructionSource =
+    frontmatter.replace(versionLine, "\n") + source.slice(frontmatterEnd + 1);
+  const words = instructionSource.trim().split(/\s+/u);
   const first450 = words.slice(0, 450).join(" ");
 
   assert.ok(words.length <= 1_500, `skill has ${words.length} words`);
