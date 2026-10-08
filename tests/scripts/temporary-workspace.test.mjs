@@ -5,8 +5,11 @@ import fs from "node:fs";
 import {
   existsSync,
   chmodSync,
+  closeSync,
+  fstatSync,
   linkSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -137,12 +140,22 @@ test("a hard-linked payload is retained before native permission remedies", (act
     recycle: () => assert.fail("must preserve multiply linked files"),
   });
   linkSync(targetFile, join(workspace.root, "shared.txt"));
-  const originalMode = fs.statSync(targetFile).mode;
-  t.hooks[0]();
-  assert.equal(workspace.disposition.status, "retained");
-  assert.match(workspace.disposition.reason, /multiply linked file/u);
-  assert.equal(readFileSync(targetFile, "utf8"), "shared bytes must survive");
-  assert.equal(fs.statSync(targetFile).mode, originalMode);
+  // Observe the same file object before and after cleanup, even if its path changes.
+  const targetDescriptor = openSync(targetFile, "r");
+  try {
+    const originalMode = fstatSync(targetDescriptor).mode;
+    t.hooks[0]();
+    assert.equal(workspace.disposition.status, "retained");
+    assert.match(workspace.disposition.reason, /multiply linked file/u);
+    assert.equal(
+      readFileSync(targetDescriptor, "utf8"),
+      "shared bytes must survive",
+    );
+    assert.equal(fstatSync(targetDescriptor).mode, originalMode);
+    assert.ok(existsSync(targetFile));
+  } finally {
+    closeSync(targetDescriptor);
+  }
 });
 
 test("persistent native obstacle permits recycling only after permanent deletion", (actualT) => {
