@@ -246,13 +246,21 @@ In-process carrier allocation passes the fixture as `temporaryParent` through
 `prepareSessionDispatch`; omission keeps the normal OS temporary parent. The
 caller owns this location and its disposal; the option grants no launch authority.
 
-A successful fixture is eligible for recoverable disposal only after its tracked
+A successful fixture is eligible for disposal only after its tracked
 children emit `close`, its directory and owner marker retain their original
-identity, and a bounded inventory finds no links, active home leases, consumed
+identity, and a bounded inventory finds no symlinks, reparse points, multiply
+linked files, active home leases, consumed
 attempts without terminal records, or unsafe/unknown process closure. Windows
-uses the native Recycle Bin API; Unix uses installed `/usr/bin/gio trash`. No
-permanent-delete fallback is permitted. An unavailable recoverable facility
-retains the fixture with a diagnostic; a disposal error fails the test hook.
+and Unix first use Node's permanent recursive deletion. Native deletion handles
+read-only files on Windows and retries transient filesystem failures up to three
+times with linear backoff. Only a persistent busy, access, permission or
+nonempty-directory error permits a recoverable fallback. Before fallback, the
+helper rechecks ownership and the remaining evidence holds; changed ownership,
+a missing marker or unresolved remaining evidence refuses fallback. Windows
+then uses the native Recycle Bin API; Unix uses installed `/usr/bin/gio trash`.
+Fallback reports its reason. If recoverable disposal is unavailable, the fixture
+is retained with a diagnostic; unexpected errors and disposal failures fail the
+test hook. Cleanup does not elevate privileges, change ACLs or stop other processes.
 
 Failed or cancelled tests and unfinished recovery scenarios keep their exact
 working payload. `.test-workspace-retention.json` records the root, test, owner
@@ -262,7 +270,7 @@ parent also preserves nested retention markers; an existing marker is never
 overwritten, including a hard link to a different file. A passing
 Windows bridge matrix intentionally retains scenarios whose leases or consumed
 attempts remain unresolved; passing assertions alone do not release that state.
-Reconcile those recorded consumers before later recoverable disposal. The helper
+Reconcile those recorded consumers before later disposal. The helper
 never adopts old directories by name, age or marker, and does not sweep Temp.
 
 `scripts/evaluation/evaluation-homes.js` manages the reusable versioned root returned by `evaluationHomesRootFromLocalAppData(localAppData)`. It owns exactly two stable roles: `preflight` and `execution`. A role operation validates the approved absolute root and owner marker, acquires an exclusive lease, verifies path identity and containment, rotates the prior home into owned quarantine, creates the fresh stable path, carries forward only a validated single-link ordinary `auth.json`, binds `CODEX_HOME`, registers child processes, requires exact release evidence, retires the used generation, carries the possibly refreshed credential cache into the next clean stable path, and records immutable completion history. Every other Codex-created file is disposable runtime residue.

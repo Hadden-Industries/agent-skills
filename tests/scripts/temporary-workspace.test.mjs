@@ -4,11 +4,13 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import {
   existsSync,
+  chmodSync,
   linkSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -71,10 +73,11 @@ test("omitted consumer temporary parent preserves a redirected OS temp path", (t
   unlinkSync(alias);
 });
 
-const nativeUnavailable =
-  process.platform !== "win32" && !existsSync("/usr/bin/gio")
-    ? "native recoverable disposal unavailable"
-    : false;
+function deletionBlocked() {
+  throw Object.assign(new Error("persistent native deletion obstacle"), {
+    code: "EBUSY",
+  });
+}
 
 function context(passed, testContext) {
   const hooks = [];
@@ -92,76 +95,234 @@ function context(passed, testContext) {
   };
 }
 
-test(
-  "passing fake evaluation releases its newly owned workspace",
-  { skip: nativeUnavailable },
-  (t) => {
-    const workspace = createTestWorkspace(t, "evaluation-cleanup-regression-");
-    const environment = workspace.environment();
-    // This is a separate runner, not a worker of the enclosing node --test run.
-    delete environment.NODE_TEST_CONTEXT;
+test("released fixture is permanently deleted without calling the recycle adapter", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(t, "test-workspace-permanent-", {
+    recycle: () => assert.fail("permanent deletion must precede recycling"),
+  });
+  writeFileSync(join(workspace.root, "payload.txt"), "disposable payload");
+  t.hooks[0]();
+  assert.equal(existsSync(workspace.root), false);
+  assert.equal(workspace.disposition.status, "deleted");
+});
+
+test("native permanent deletion handles read-only payloads and long Unicode paths", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(t, "test-workspace-native-delete-", {
+    recycle: () => assert.fail("native remedies must precede recycling"),
+  });
+  const nested = join(
+    workspace.root,
+    ...Array(8).fill("long-unicode-path-\u00e9"),
+  );
+  mkdirSync(nested, { recursive: true });
+  const payload = join(nested, "read-only.txt");
+  writeFileSync(payload, "released payload");
+  chmodSync(payload, 0o444);
+  t.hooks[0]();
+  assert.equal(workspace.disposition.status, "deleted");
+  assert.equal(existsSync(workspace.root), false);
+});
+
+test("a hard-linked payload is retained before native permission remedies", (actualT) => {
+  const target = createTestWorkspace(
+    actualT,
+    "test-workspace-hardlink-target-",
+  );
+  const targetFile = join(target.root, "shared.txt");
+  writeFileSync(targetFile, "shared bytes must survive");
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(t, "test-workspace-hardlink-", {
+    deletePermanently: () => assert.fail("must preserve multiply linked files"),
+    recycle: () => assert.fail("must preserve multiply linked files"),
+  });
+  linkSync(targetFile, join(workspace.root, "shared.txt"));
+  const originalMode = fs.statSync(targetFile).mode;
+  t.hooks[0]();
+  assert.equal(workspace.disposition.status, "retained");
+  assert.match(workspace.disposition.reason, /multiply linked file/u);
+  assert.equal(readFileSync(targetFile, "utf8"), "shared bytes must survive");
+  assert.equal(fs.statSync(targetFile).mode, originalMode);
+});
+
+test("persistent native obstacle permits recycling only after permanent deletion", (actualT) => {
+  const t = context(true, actualT);
+  const operations = [];
+  const workspace = createTestWorkspace(t, "test-workspace-fallback-", {
+    deletePermanently: ({ root }) => {
+      operations.push("delete");
+      unlinkSync(join(root, "released.txt"));
+      deletionBlocked();
+    },
+    recycle: ({ root }) => {
+      operations.push("recycle");
+      assert.ok(existsSync(join(root, ".test-workspace-owner.json")));
+      rmSync(root, { recursive: true });
+      return { status: "recycled" };
+    },
+  });
+  writeFileSync(join(workspace.root, "released.txt"), "partial removal");
+  writeFileSync(join(workspace.root, "remaining.txt"), "remaining payload");
+  t.hooks[0]();
+  assert.deepEqual(operations, ["delete", "recycle"]);
+  assert.equal(workspace.disposition.status, "recycled");
+  assert.match(workspace.disposition.reason, /EBUSY/u);
+  assert.equal(existsSync(workspace.root), false);
+  assert.ok(
+    t.diagnostics.some((message) => message.includes("Fixture recycled")),
+  );
+});
+
+test("unexpected deletion errors retain the fixture without recycling", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(
+    t,
+    "test-workspace-unexpected-delete-",
+    {
+      deletePermanently: () => {
+        throw Object.assign(new Error("filesystem I/O failure"), {
+          code: "EIO",
+        });
+      },
+      recycle: () => assert.fail("unknown failures must not trigger recycling"),
+    },
+  );
+  assert.throws(t.hooks[0], /filesystem I\/O failure/u);
+  assert.equal(workspace.disposition.status, "retained");
+  assert.ok(existsSync(workspace.root));
+});
+
+test("partial deletion losing the owner marker refuses recycling", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(t, "test-workspace-marker-deleted-", {
+    deletePermanently: ({ root }) => {
+      unlinkSync(join(root, ".test-workspace-owner.json"));
+      deletionBlocked();
+    },
+    recycle: () =>
+      assert.fail("unprovable ownership must not trigger recycling"),
+  });
+  writeFileSync(join(workspace.root, "preserved.txt"), "remaining payload");
+  assert.throws(t.hooks[0], /ENOENT/u);
+  assert.equal(workspace.disposition.status, "retained");
+  assert.equal(
+    readFileSync(join(workspace.root, "preserved.txt"), "utf8"),
+    "remaining payload",
+  );
+  assert.equal(
+    existsSync(join(workspace.root, ".test-workspace-retention.json")),
+    false,
+  );
+});
+
+test("root replacement during deletion refuses recycling and preserves foreign bytes", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(
+    t,
+    "test-workspace-fallback-replacement-",
+    {
+      deletePermanently: ({ root }) => {
+        renameSync(root, `${root}-original`);
+        mkdirSync(root);
+        writeFileSync(join(root, "foreign.txt"), "foreign bytes");
+        deletionBlocked();
+      },
+      recycle: () =>
+        assert.fail("substituted roots must not trigger recycling"),
+    },
+  );
+  assert.throws(t.hooks[0], /identity changed/u);
+  assert.equal(
+    readFileSync(join(workspace.root, "foreign.txt"), "utf8"),
+    "foreign bytes",
+  );
+  assert.equal(
+    existsSync(join(workspace.root, ".test-workspace-retention.json")),
+    false,
+  );
+});
+
+test("new unresolved evaluation state after deletion refuses recycling", (actualT) => {
+  const t = context(true, actualT);
+  const workspace = createTestWorkspace(
+    t,
+    "test-workspace-fallback-evidence-",
+    {
+      deletePermanently: ({ root }) => {
+        writeFileSync(join(root, "attempt.json"), "{}");
+        deletionBlocked();
+      },
+      recycle: () =>
+        assert.fail("unresolved evaluation must not trigger recycling"),
+    },
+  );
+  assert.throws(t.hooks[0], /fallback refused.*lacks a terminal run/u);
+  assert.equal(workspace.disposition.status, "retained");
+  assert.equal(
+    readFileSync(join(workspace.root, "attempt.json"), "utf8"),
+    "{}",
+  );
+});
+
+test("passing fake evaluation releases its newly owned workspace", (t) => {
+  const workspace = createTestWorkspace(t, "evaluation-cleanup-regression-");
+  const environment = workspace.environment();
+  // This is a separate runner, not a worker of the enclosing node --test run.
+  delete environment.NODE_TEST_CONTEXT;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--test",
+      "--test-name-pattern=prepare freezes packet inputs and performs no provider model turn",
+      resolve(
+        import.meta.dirname,
+        "../evals/defining-concepts/run-evaluation-session.test.mjs",
+      ),
+    ],
+    { env: environment, encoding: "utf8", timeout: 30000 },
+  );
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(result.stdout.includes("prepare freezes packet inputs"), true);
+  // Do not infer release from a passing child exit: inspect its actual root.
+  assert.deepEqual(
+    readdirSync(workspace.root).filter(
+      (name) => !name.startsWith(".test-workspace-"),
+    ),
+    [],
+  );
+});
+
+test("real Node after hook deletes success and preserves failure or cancellation", (t) => {
+  const workspace = createTestWorkspace(t, "test-workspace-lifecycle-parent-");
+  for (const mode of ["success", "failure", "cancelled"]) {
     const result = spawnSync(
       process.execPath,
       [
-        "--test",
-        "--test-name-pattern=prepare freezes packet inputs and performs no provider model turn",
         resolve(
           import.meta.dirname,
-          "../evals/defining-concepts/run-evaluation-session.test.mjs",
+          "../fixtures/temporary-workspace-scenario.mjs",
         ),
+        mode,
       ],
-      { env: environment, encoding: "utf8", timeout: 30000 },
+      { env: workspace.environment(), encoding: "utf8", timeout: 15000 },
     );
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    assert.equal(result.stdout.includes("prepare freezes packet inputs"), true);
-    // Do not infer release from a passing child exit: inspect its actual root.
-    assert.deepEqual(
-      readdirSync(workspace.root).filter(
-        (name) => !name.startsWith(".test-workspace-"),
-      ),
-      [],
-    );
-  },
-);
-
-test(
-  "real Node after hook recycles success and preserves failure or cancellation",
-  { skip: nativeUnavailable },
-  (t) => {
-    const workspace = createTestWorkspace(
-      t,
-      "test-workspace-lifecycle-parent-",
-    );
-    for (const mode of ["success", "failure", "cancelled"]) {
-      const result = spawnSync(
-        process.execPath,
-        [
-          resolve(
-            import.meta.dirname,
-            "../fixtures/temporary-workspace-scenario.mjs",
-          ),
-          mode,
-        ],
-        { env: workspace.environment(), encoding: "utf8", timeout: 15000 },
+    const match = result.stdout.match(/\{"root":.*\}/u);
+    assert.ok(match, `${result.stdout}\n${result.stderr}`);
+    const root = JSON.parse(match[0]).root;
+    assert.equal(result.status, mode === "success" ? 0 : 1, result.stdout);
+    assert.equal(existsSync(root), mode !== "success", result.stdout);
+    if (mode !== "success") {
+      const retention = JSON.parse(
+        readFileSync(join(root, ".test-workspace-retention.json")),
       );
-      const match = result.stdout.match(/\{"root":.*\}/u);
-      assert.ok(match, `${result.stdout}\n${result.stderr}`);
-      const root = JSON.parse(match[0]).root;
-      assert.equal(result.status, mode === "success" ? 0 : 1, result.stdout);
-      assert.equal(existsSync(root), mode !== "success", result.stdout);
-      if (mode !== "success") {
-        const retention = JSON.parse(
-          readFileSync(join(root, ".test-workspace-retention.json")),
-        );
-        assert.equal(retention.reason, "test failed or was cancelled");
-        assert.equal(
-          readFileSync(join(root, "payload.txt"), "utf8"),
-          "recoverable fixture",
-        );
-      }
+      assert.equal(retention.reason, "test failed or was cancelled");
+      assert.equal(
+        readFileSync(join(root, "payload.txt"), "utf8"),
+        "recoverable fixture",
+      );
     }
-  },
-);
+  }
+});
 
 for (const state of [
   "failure",
@@ -184,6 +345,7 @@ for (const state of [
     );
     let calls = 0;
     const workspace = createTestWorkspace(t, "test-workspace-retention-", {
+      deletePermanently: deletionBlocked,
       recycle: () => {
         calls++;
         return { status: "unavailable" };
@@ -236,6 +398,7 @@ for (const state of [
 test("changed ownership refuses disposal and does not write into an unowned root", (actualT) => {
   const t = context(true, actualT);
   const workspace = createTestWorkspace(t, "test-workspace-owner-change-", {
+    deletePermanently: deletionBlocked,
     recycle: () => assert.fail("must not dispose"),
   });
   writeFileSync(
@@ -252,6 +415,7 @@ test("changed ownership refuses disposal and does not write into an unowned root
 test("root replacement refuses disposal of the substituted directory", (actualT) => {
   const t = context(true, actualT);
   const workspace = createTestWorkspace(t, "test-workspace-replacement-", {
+    deletePermanently: deletionBlocked,
     recycle: () => assert.fail("must not dispose"),
   });
   renameSync(workspace.root, `${workspace.root}-original`);
@@ -276,6 +440,7 @@ test("a nested junction or symlink retains the fixture and its external target",
     "test-workspace-link-target-",
   );
   const workspace = createTestWorkspace(t, "test-workspace-link-", {
+    deletePermanently: deletionBlocked,
     recycle: () => assert.fail("must not dispose"),
   });
   writeFileSync(join(target.root, "unrelated.txt"), "preserve target");
@@ -297,6 +462,7 @@ test("disposal failure is visible and retained without retry", (actualT) => {
   const t = context(true, actualT);
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-disposal-failure-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       throw new Error("native refusal");
@@ -313,6 +479,7 @@ test("a child close permits released-fixture disposal", (actualT) => {
   const child = new EventEmitter();
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-child-close-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       return { status: "unavailable" };
@@ -325,7 +492,7 @@ test("a child close permits released-fixture disposal", (actualT) => {
   assert.equal(calls, 1);
   assert.equal(
     workspace.disposition.reason,
-    "native recoverable disposal is unavailable",
+    "permanent deletion failed (EBUSY); native recoverable disposal is unavailable",
   );
 });
 
@@ -339,6 +506,7 @@ test("an existing linked retention marker cannot overwrite its external target",
   writeFileSync(targetFile, "external bytes must survive");
   const t = context(true, actualT);
   const workspace = createTestWorkspace(t, "test-workspace-marker-link-", {
+    deletePermanently: deletionBlocked,
     recycle: () => assert.fail("must retain"),
   });
   linkSync(targetFile, join(workspace.root, ".test-workspace-retention.json"));
@@ -352,6 +520,7 @@ test("a nested retained fixture prevents its successful parent from disposal", (
   const t = context(true, actualT);
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-nested-hold-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       return { status: "unavailable" };
@@ -371,6 +540,7 @@ test("owner replacement between metadata and byte inspection refuses recycling",
   const t = context(true, actualT);
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-owner-race-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       return { status: "unavailable" };
@@ -410,6 +580,7 @@ test("run evidence growth after inventory metadata is rejected before reading", 
   const t = context(true, actualT);
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-evidence-growth-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       return { status: "unavailable" };
@@ -465,6 +636,7 @@ test("same-length run replacement during descriptor reading retains evidence and
     t,
     "test-workspace-evidence-replacement-",
     {
+      deletePermanently: deletionBlocked,
       recycle: () => assert.fail("must retain raced evidence"),
     },
   );
@@ -603,6 +775,7 @@ for (const layout of ["legacy-v1", "evaluation-trial-v1"]) {
     const t = context(true, actualT);
     let calls = 0;
     const workspace = createTestWorkspace(t, "test-workspace-safe-outcome-", {
+      deletePermanently: deletionBlocked,
       recycle: () => {
         calls++;
         return { status: "unavailable" };
@@ -614,7 +787,7 @@ for (const layout of ["legacy-v1", "evaluation-trial-v1"]) {
     assert.equal(calls, 1);
     assert.equal(
       workspace.disposition.reason,
-      "native recoverable disposal is unavailable",
+      "permanent deletion failed (EBUSY); native recoverable disposal is unavailable",
     );
   });
 
@@ -626,6 +799,7 @@ for (const layout of ["legacy-v1", "evaluation-trial-v1"]) {
         t,
         "test-workspace-validator-race-",
         {
+          deletePermanently: deletionBlocked,
           recycle: () => {
             calls++;
             return { status: "unavailable" };
@@ -673,6 +847,7 @@ test("ordinary result JSON still permits recoverable disposal", (actualT) => {
   const t = context(true, actualT);
   let calls = 0;
   const workspace = createTestWorkspace(t, "test-workspace-ordinary-result-", {
+    deletePermanently: deletionBlocked,
     recycle: () => {
       calls++;
       return { status: "unavailable" };

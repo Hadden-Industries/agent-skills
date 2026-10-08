@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,7 +39,7 @@ const sameIdentity = (path, expected) => {
 export function createTestWorkspace(
   t,
   prefix,
-  { recycle = recycleNative } = {},
+  { deletePermanently = deletePermanentlyNative, recycle = recycleNative } = {},
 ) {
   if (!/^[a-z][a-z0-9-]{0,80}-$/u.test(prefix))
     throw new Error("Fixture prefix must be a plain directory-name prefix");
@@ -89,7 +90,7 @@ export function createTestWorkspace(
             owner: owner.nonce,
             test: owner.test,
             cleanupCondition:
-              "Reconcile the named failure or recovery state and release its consumers before recoverable disposal",
+              "Reconcile the named failure or recovery state and release its consumers before disposal",
           }),
           { flag: "wx", mode: 0o600 },
         );
@@ -129,24 +130,59 @@ export function createTestWorkspace(
     if (reason !== null) return retain(reason, true);
     try {
       verifyOwner();
-      const result = recycle({
+      const request = {
         root,
         parent,
         rootFileTime: rootIdentity.fileTime,
         parentFileTime: parentIdentity.fileTime,
         ownerSha256: createHash("sha256").update(ownerBytes).digest("hex"),
-      });
+      };
+      let deletionError;
+      try {
+        deletePermanently(request);
+      } catch (error) {
+        // Native deletion already remedies read-only files on Windows and
+        // retries transient failures. Only exhausted filesystem obstacles may
+        // enter recoverable disposal; unknown errors must stay visible.
+        if (!["EBUSY", "EACCES", "EPERM", "ENOTEMPTY"].includes(error.code))
+          throw error;
+        deletionError = error;
+      }
+      if (deletionError === undefined) {
+        if (existsSync(root))
+          throw new Error("Permanent deletion left fixture in place");
+        disposition = { status: "deleted", root };
+        return disposition;
+      }
+      // A partial delete may have removed the marker or evidence. Never
+      // recycle a substituted root or an unresolved remaining evaluation.
+      verifyOwner();
+      const remainingReason = protectedState(root);
+      if (remainingReason !== null)
+        throw new Error(`Recycle fallback refused: ${remainingReason}`, {
+          cause: deletionError,
+        });
+      verifyOwner();
+      const result = recycle(request);
       if (result?.status === "unavailable")
-        return retain("native recoverable disposal is unavailable", true);
+        return retain(
+          `permanent deletion failed (${deletionError.code}); native recoverable disposal is unavailable`,
+          true,
+        );
       if (existsSync(root))
         throw new Error("Native disposal left fixture in place");
-      disposition = { status: "recycled", root };
+      disposition = {
+        status: "recycled",
+        root,
+        reason: `permanent deletion failed (${deletionError.code}) after native remedies`,
+      };
+      t.diagnostic(`Fixture recycled at ${root}: ${disposition.reason}`);
       return disposition;
     } catch (error) {
       if (existsSync(root)) {
         try {
           verifyOwner();
-          retain(`recoverable disposal failed: ${error.message}`, true);
+          retain(`fixture disposal failed: ${error.message}`, true);
         } catch {
           retain("disposal outcome or ownership is unknown", false);
         }
@@ -188,6 +224,10 @@ function protectedState(root) {
     const stat = lstatSync(path);
     if (stat.isSymbolicLink())
       return "fixture contains a link or reparse point";
+    // Native permission remedies may affect every name of a hard-linked
+    // file. Such a payload is not exclusively owned by this directory.
+    if (stat.isFile() && stat.nlink > 1)
+      return "fixture contains a multiply linked file";
     if (basename(path) === ".test-workspace-retention.json")
       return "fixture contains an explicitly retained fixture";
     if (stat.isDirectory()) {
@@ -256,6 +296,15 @@ function protectedState(root) {
     return null;
   }
   return visit(root);
+}
+
+function deletePermanentlyNative(request) {
+  rmSync(request.root, {
+    recursive: true,
+    force: false,
+    maxRetries: 3,
+    retryDelay: 100,
+  });
 }
 
 function recycleNative(request) {
