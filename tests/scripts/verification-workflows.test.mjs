@@ -171,6 +171,68 @@ function workflows(name) {
   };
 }
 
+test("defining-concepts Linux route provisions the supported tools before the scoped verifier", () => {
+  const workflow = parse(
+    readFileSync(".github/workflows/defining-concepts-linux.yml", "utf8"),
+  );
+  assert.deepEqual(
+    workflow.on,
+    originalWorkflows["committing-to-git-linux"].on,
+  );
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  const job = workflow.jobs.verify;
+  assert.equal(job["runs-on"], "ubuntu-24.04");
+  assert.equal(job["timeout-minutes"], 30);
+  assert.equal(job.defaults.run.shell, "bash");
+  assert.equal(job.env.VERIFICATION_REVISION, "${{ inputs.revision }}");
+  const checkout = job.steps.find((step) =>
+    step.uses?.startsWith("actions/checkout@"),
+  );
+  assert.equal(checkout.with.ref, "${{ inputs.revision }}");
+  assert.equal(checkout.with["persist-credentials"], false);
+  assert.equal(checkout.with["fetch-depth"], 0);
+  assert.ok(
+    job.steps.some((step) => step.uses?.startsWith("actions/setup-python@")),
+  );
+  for (const step of job.steps.filter((step) => step.uses)) {
+    assert.match(
+      step.uses,
+      /^actions\/(?:checkout|setup-node|setup-python)@[0-9a-f]{40}$/u,
+    );
+  }
+  const scripts = job.steps.map((step) => step.run ?? "").join("\n");
+  const sequence = [
+    "--stage environment -- bash -e -o pipefail -c",
+    "--stage install -- npm ci",
+    "--stage acquisition -- bash -e -o pipefail -c",
+    "python -B scripts/set_up_evaluation_tools.py",
+    ".venv/bin/python -m pip show skills-ref",
+    "--stage tests -- npm run verify:skill -- --skill defining-concepts",
+  ];
+  let previous = -1;
+  for (const command of sequence) {
+    const position = scripts.indexOf(command);
+    assert.ok(position > previous, command);
+    previous = position;
+  }
+  assert.match(scripts, /git rev-parse HEAD/u);
+  assert.match(scripts, /python --version/u);
+  assert.match(scripts, /direct_url.json/u);
+  assert.doesNotMatch(
+    scripts,
+    /\$\{\{|\btee\b|set_up_development_environment|set_up_mcp_servers|eval:run/u,
+  );
+  assert.equal(job.steps.at(-1).if, "${{ !cancelled() }}");
+  assert.match(
+    job.steps.at(-1).run,
+    /report --verification-kind defining-concepts/u,
+  );
+  assert.equal(
+    job.steps.some((step) => /artifact/u.test(step.uses ?? "")),
+    false,
+  );
+});
+
 for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
   test(`${name} preserves triggers, runtimes, action identities and job policy`, () => {
     const { original, current } = workflows(name);

@@ -35,6 +35,7 @@ const DIRECTORY_ENTRY_LIMIT = 256;
 const RECORD_LIMIT = 2048;
 const STAGES_BY_VERIFICATION_KIND = {
   "committing-to-git": ["environment", "install", "build-check", "tests"],
+  "defining-concepts": ["environment", "install", "acquisition", "tests"],
   "evaluation-conformance": [
     "environment",
     "install",
@@ -855,7 +856,7 @@ export function reportEvidence({
       acquisition: acquisitionRoot,
     },
   };
-  for (const tool of verificationKind === "evaluation-conformance"
+  for (const tool of verificationKind !== "committing-to-git"
     ? ["npm", "python"]
     : ["npm"]) {
     const [executable, arguments_] = commandInvocation(tool, ["--version"]);

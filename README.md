@@ -1468,6 +1468,16 @@ npm run verify:skill -- --skill defining-concepts
 
 The scoped command checks that skill's ASCII-only canonical `SKILL.md`, one-physical-line prose in its canonical `SKILL.md` and reference Markdown, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths. It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run. A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python 3.14. Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
+
+```sh
+gh workflow run defining-concepts-linux.yml --ref main -f revision=<full-commit-id>
+```
+
+The workflow installs locked npm dependencies, then runs the supported standalone `scripts/set_up_evaluation_tools.py` component to provision repository validation tools, including `skills-ref`. It records the resolved checkout commit, OS and runtime versions, validator package version and upstream source commit. Setup follows current upstream tooling, so the recorded acquisition identities matter. Existing committing-to-git Linux coverage remains a separate workflow.
+
+Environment, installation, setup and verification output is retained in protected Actions logs and a bounded job summary on success and failure, without uploading workflow artifacts. Native nonzero exits propagate through the capture wrapper; cancellation can prevent final reporting. The Node test output reports skips explicitly, including the retained-campaign check when no current campaign is present. See [hosted runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/defining-concepts-linux.yml) for exact results. This route validates deterministic structure, references, formatting, generated artifacts, evaluation definitions, runners, session handling and retained-result contracts. It makes no model calls and establishes neither live behavioral quality nor trigger accuracy; those evaluations remain separately authorized. It introduces no mandatory multi-host release gate.
+
 Passing `npm run verify` establishes deterministic local gates. It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of repository state and the complete intended change through bounded artifacts.
 
 Use `npm run format` to apply Prettier to maintained JavaScript, JSON schemas, tests, and the root JavaScript/package configuration. Canonical skills, Markdown documentation, generated bundles, Python, Lua, and the lockfile remain outside that formatting scope. Use `npm run fix:all` to apply safe ESLint fixes before formatting.

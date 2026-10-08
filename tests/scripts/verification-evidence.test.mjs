@@ -74,6 +74,70 @@ function nativeRecord(f, rootName, file, text) {
   return path;
 }
 
+test("defining-concepts reports setup and scoped verification on success and failure", async (t) => {
+  for (const failedStage of [null, "acquisition", "tests"]) {
+    const f = fixture(t);
+    for (const stage of ["environment", "install", "acquisition", "tests"]) {
+      const result = await capture(
+        f,
+        stage,
+        `process.stdout.write('scope diagnostics\\n'); process.stderr.write('setup trace\\n'); process.exitCode=${stage === failedStage ? 19 : 0}`,
+        "defining-concepts",
+      );
+      assert.equal(result.exitCode, stage === failedStage ? 19 : 0);
+      if (stage === failedStage) break;
+    }
+    const report = reportEvidence({
+      ...f,
+      verificationKind: "defining-concepts",
+    });
+    assert.deepEqual(report.failures, []);
+    assert.deepEqual(
+      report.stages.map((stage) => stage.stage),
+      ["environment", "install", "acquisition", "tests"],
+    );
+    const summary = readFileSync(f.summaryPath, "utf8");
+    assert.match(summary, /defining-concepts/u);
+    assert.match(f.text(), /scope diagnostics/u);
+    assert.match(f.text(), /setup trace/u);
+    if (failedStage) {
+      assert.equal(
+        report.stages.find((stage) => stage.stage === failedStage).exitCode,
+        19,
+      );
+      if (failedStage === "acquisition") {
+        assert.equal(report.stages.at(-1).status, "not-started");
+      }
+    } else {
+      assert.ok(report.stages.every((stage) => stage.exitCode === 0));
+    }
+  }
+});
+
+test("defining-concepts CLI propagates the scoped verifier failure", (t) => {
+  const f = fixture(t);
+  const result = spawnSync(
+    process.execPath,
+    [
+      entryPoint,
+      "capture",
+      "--verification-kind",
+      "defining-concepts",
+      "--output-root",
+      f.outputRoot,
+      "--stage",
+      "tests",
+      "--",
+      process.execPath,
+      "-e",
+      "process.stderr.write('verification failed\\n'); process.exit(23)",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 23, result.stderr);
+  assert.match(result.stdout, /verification failed/u);
+});
+
 test("real child stdout/stderr and native exit survive protected capture", async (t) => {
   const f = fixture(t);
   const result = await capture(

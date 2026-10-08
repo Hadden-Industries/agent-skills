@@ -1,0 +1,79 @@
+name: Defining-concepts Linux verification
+run-name: Defining-concepts Linux verification (${{ inputs.revision }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Repository commit, tag, or branch to verify
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VERIFICATION_REVISION: ${{ inputs.revision }}
+      OTEL_SDK_DISABLED: "true"
+      DO_NOT_TRACK: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Record the tested revision and environment
+        run: |
+          VERIFICATION_OUTPUT="$RUNNER_TEMP/defining-concepts-linux"
+          echo "VERIFICATION_OUTPUT=$VERIFICATION_OUTPUT" >> "$GITHUB_ENV"
+          mkdir -p "$VERIFICATION_OUTPUT"
+          node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage environment -- bash -e -o pipefail -c '
+            git rev-parse HEAD
+            cat /etc/os-release
+            uname -a
+            node --version
+            npm --version
+            python --version
+            git --version
+          '
+
+      - name: Install locked dependencies
+        run: node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage install -- npm ci
+
+      - name: Set up supported repository validation tools
+        # The standalone component avoids unrelated host skills and MCP configuration.
+        run: |
+          node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage acquisition -- bash -e -o pipefail -c '
+            python -B scripts/set_up_evaluation_tools.py
+            .venv/bin/python --version
+            .venv/bin/python -m pip show skills-ref
+            .venv/bin/python -c "import importlib.metadata; print(importlib.metadata.distribution(\"skills-ref\").read_text(\"direct_url.json\"))"
+          '
+
+      - name: Verify defining-concepts on Linux
+        run: node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage tests -- npm run verify:skill -- --skill defining-concepts
+
+      - name: Report verification diagnostics
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/verificationEvidence.js report --verification-kind defining-concepts --output-root "$RUNNER_TEMP/defining-concepts-linux"
