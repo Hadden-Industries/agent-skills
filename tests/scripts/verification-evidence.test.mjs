@@ -347,19 +347,34 @@ test("required capture and started native process records are missing even on fa
   assert.match(f.text(), /native process failed/u);
 });
 
-test("summary escapes hostile markup and command arguments", async (t) => {
-  const f = fixture(t);
-  await capture(
-    f,
-    "environment",
-    "process.stdout.write('<script>bad</script> `markdown` ::error::x'); process.exitCode=1",
-  );
-  reportEvidence({ ...f, verificationKind: "committing-to-git" });
-  const summary = readFileSync(f.summaryPath, "utf8");
-  assert.match(summary, /&lt;script&gt;bad&lt;\/script&gt;/u);
-  assert.doesNotMatch(summary, /<script>/u);
-  assert.ok(Buffer.byteLength(summary) <= 64 * 1024);
-});
+for (const [markup, escapedMarkup] of [
+  ["<script>bad</script>", "&lt;script&gt;bad&lt;/script&gt;"],
+  ["<SCRIPT>bad</SCRIPT>", "&lt;SCRIPT&gt;bad&lt;/SCRIPT&gt;"],
+  [
+    "<ScRiPt src=hostile>bad</sCrIpT extra=ignored>",
+    "&lt;ScRiPt src=hostile&gt;bad&lt;/sCrIpT extra=ignored&gt;",
+  ],
+  ["<script >bad</script >", "&lt;script &gt;bad&lt;/script &gt;"],
+  ["<script", "&lt;script"],
+  [
+    "&lt;script&gt;bad&lt;/script&gt;",
+    "&amp;lt;script&amp;gt;bad&amp;lt;/script&amp;gt;",
+  ],
+]) {
+  test(`summary escapes hostile markup and command arguments: ${markup}`, async (t) => {
+    const f = fixture(t);
+    await capture(
+      f,
+      "environment",
+      `process.stdout.write(${JSON.stringify(`${markup} \`markdown\` ::error::x`)}); process.exitCode=1`,
+    );
+    reportEvidence({ ...f, verificationKind: "committing-to-git" });
+    const summary = readFileSync(f.summaryPath, "utf8");
+    assert.ok(summary.includes(escapedMarkup));
+    assert.doesNotMatch(summary, /<\/?script/iu);
+    assert.ok(Buffer.byteLength(summary) <= 64 * 1024);
+  });
+}
 
 test("redirected directories and out-of-root or hardlinked files are rejected", async (t) => {
   const f = fixture(t);
