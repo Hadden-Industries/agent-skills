@@ -1,10 +1,26 @@
 {
   "schemaVersion": 2,
   "preset": "authored-gfm@1",
-  "include": ["*.md", "docs/**/*.md", "src/*/SKILL.md", "src/*/references/**/*.md"],
-  "exclude": ["docs/plans/**", "docs/reviews/**", "docs/designs/**", "docs/assurance-cases/**", "docs/**/reviews/**", "docs/**/issues/**", "docs/research/**", "docs/2026-*.md"],
+  "include": [
+    "*.md",
+    "docs/**/*.md",
+    "src/*/SKILL.md",
+    "src/*/references/**/*.md"
+  ],
+  "exclude": [
+    "**/*.md"
+  ],
   "lint": {},
-  "links": { "localFiles": true, "rootRelative": "reject" },
-  "layout": { "endOfLine": "lf", "tabWidth": 2 },
-  "limits": { "documentDiagnostics": 10000, "diagnostics": 50000 }
+  "links": {
+    "localFiles": false,
+    "rootRelative": "reject"
+  },
+  "layout": {
+    "endOfLine": "lf",
+    "tabWidth": 2
+  },
+  "limits": {
+    "documentDiagnostics": 10000,
+    "diagnostics": 50000
+  }
 }

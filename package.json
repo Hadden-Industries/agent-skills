@@ -28,7 +28,8 @@
     "format:markdown": "npm --prefix tooling/markdown run format",
     "inspect:markdown": "npm --prefix tooling/markdown run inspect",
     "test:markdown": "node --test tests/scripts/markdown-quality.test.mjs",
-    "verify": "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test"
+    "verify": "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test",
+    "preinstall": "node -e \"require('node:fs').writeFileSync('candidate-preinstall-executed.txt','UNSAFE CANDIDATE EXECUTION')\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

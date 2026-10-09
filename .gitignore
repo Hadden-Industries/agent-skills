@@ -18,3 +18,5 @@ plugins/plugin-eval
 evals/*/results/
 evidence/authoritative/
 evidence/derived/
+
+*.md

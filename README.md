@@ -1787,3 +1787,5 @@ Third-party dependencies, imported skills, and external development tools retain
 ### In one sentence
 
 **Define the behavior, prove the baseline, make the smallest skill change, validate the artifact, measure the behavior, test the trigger, review the diff, then commit only what the evidence supports.**
+
+[Adversarial missing local target](markdown-quality-negative-missing-01a1228c.md)

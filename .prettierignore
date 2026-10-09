@@ -7,3 +7,5 @@ plugins/
 skills/
 docs/
 package-lock.json
+
+**/*.md
