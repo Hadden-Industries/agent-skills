@@ -3,10 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  validateCanonicalSkillAscii,
-  validateCanonicalSkillMarkdownWrapping,
-} from "../../../scripts/validateSkillRepository.js";
+import { validateCanonicalSkillAscii } from "../../../scripts/validateSkillRepository.js";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const skillsRoot = path.join(root, "skills");
@@ -80,18 +77,12 @@ test("router: every local Markdown link resolves within the skill", () => {
   }
 });
 
-test("router: source files preserve canonical ASCII and human-readable physical lines", async () => {
+test("router: source files preserve canonical ASCII", () => {
   assert.equal(
     validateCanonicalSkillAscii(skillsRoot, {
       skillNames: ["defining-concepts"],
     }),
     1,
-  );
-  assert.equal(
-    await validateCanonicalSkillMarkdownWrapping(skillsRoot, {
-      skillNames: ["defining-concepts"],
-    }),
-    10,
   );
 });
 

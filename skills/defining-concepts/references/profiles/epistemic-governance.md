@@ -1,6 +1,7 @@
 # Epistemic-Governance Profile
 
-This profile adds standpoint, authority, affected-party, and legitimacy checks to the terminology core. It does not manufacture consensus or grant the agent authority to settle contested meaning.
+This profile adds standpoint, authority, affected-party, and legitimacy checks to the terminology core.
+It does not manufacture consensus or grant the agent authority to settle contested meaning.
 
 ## Activation
 
@@ -16,27 +17,35 @@ Activate for contested, situated, normative, culturally sensitive, Indigenous, c
 
 ## Semantic distinctions
 
-Keep descriptive empirical disagreement distinct from terminology choice, normative judgment, legal definition, and perspective-dependent conceptualization. A cross-context synthesis, majority usage, technical standard, or interoperable representation does not automatically override locally legitimate authority.
+Keep descriptive empirical disagreement distinct from terminology choice, normative judgment, legal definition, and perspective-dependent conceptualization.
+A cross-context synthesis, majority usage, technical standard, or interoperable representation does not automatically override locally legitimate authority.
 
-Record standpoint, jurisdiction, community, responsible authority, affected parties, source role, consent or permission, disclosure limits, licensing, contestation, and review need when material. Preserve materially different definitions and designations when they answer different legitimate perspectives rather than forcing one universal extension.
+Record standpoint, jurisdiction, community, responsible authority, affected parties, source role, consent or permission, disclosure limits, licensing, contestation, and review need when material.
+Preserve materially different definitions and designations when they answer different legitimate perspectives rather than forcing one universal extension.
 
-Treat Indigenous and other community-governed data and knowledge as authority-sensitive. CARE-informed questions concern Collective Benefit, Authority to Control, Responsibility, and Ethics, but locally supplied governance, protocols, and decisions take precedence over a generic checklist.
+Treat Indigenous and other community-governed data and knowledge as authority-sensitive.
+CARE-informed questions concern Collective Benefit, Authority to Control, Responsibility, and Ethics, but locally supplied governance, protocols, and decisions take precedence over a generic checklist.
 
 ## Evidence
 
-Prioritize directly supplied or retrieved sources from the legitimate community, jurisdiction, legal authority, professional body, governance institution, or affected-party process for the claim it governs. Record whose authority a source represents, who may be absent, its scope and date, and whether it is binding, advisory, empirical, terminological, or advocacy material.
+Prioritize directly supplied or retrieved sources from the legitimate community, jurisdiction, legal authority, professional body, governance institution, or affected-party process for the claim it governs.
+Record whose authority a source represents, who may be absent, its scope and date, and whether it is binding, advisory, empirical, terminological, or advocacy material.
 
-Use the CARE Principles as a people- and purpose-oriented prompt when Indigenous data governance is applicable, not as proof that local consultation or consent occurred. Use FAIR as guidance for findability, accessibility, interoperability, and reuse properties only; FAIR does not establish legitimacy, authority, consent, or benefit.
+Use the CARE Principles as a people- and purpose-oriented prompt when Indigenous data governance is applicable, not as proof that local consultation or consent occurred.
+Use FAIR as guidance for findability, accessibility, interoperability, and reuse properties only; FAIR does not establish legitimacy, authority, consent, or benefit.
 
-If a source conflict reflects different jurisdictions, standpoints, or communities, preserve that structure. Do not average positions or let a technically convenient vocabulary erase a legitimate local concept.
+If a source conflict reflects different jurisdictions, standpoints, or communities, preserve that structure.
+Do not average positions or let a technically convenient vocabulary erase a legitimate local concept.
 
 ## Validation
 
 Check whose knowledge and standpoint the entry represents; jurisdiction and time; legitimate authority; affected parties and likely harms or benefits; consent, access, disclosure, licensing, and reuse limits; the type of disagreement; whether alternatives are preserved; and whether the proposed scope is narrower than the evidence and authority permit.
 
-For CARE-informed review ask: who receives Collective Benefit; who has Authority to Control; what Responsibilities attach to relationships, capability, and future use; and what Ethics, harms, benefits, and safeguards govern the work. Apply the questions proportionately and defer to applicable local frameworks.
+For CARE-informed review ask: who receives Collective Benefit; who has Authority to Control; what Responsibilities attach to relationships, capability, and future use; and what Ethics, harms, benefits, and safeguards govern the work.
+Apply the questions proportionately and defer to applicable local frameworks.
 
-Require provisional status, explicit alternatives, specialist or legal review, affected-community review, co-governance, a narrowed claim, or deferral when the agent cannot legitimately settle the concept. Never treat technical validation, source count, institutional prestige, or interoperability as a substitute for authority.
+Require provisional status, explicit alternatives, specialist or legal review, affected-community review, co-governance, a narrowed claim, or deferral when the agent cannot legitimately settle the concept.
+Never treat technical validation, source count, institutional prestige, or interoperability as a substitute for authority.
 
 ## Prohibited claims
 
@@ -50,7 +59,8 @@ Require provisional status, explicit alternatives, specialist or legal review, a
 
 When material, add standpoint and jurisdiction; represented and missing authorities; affected parties; disagreement type; alternative definitions or designations; consent, access, disclosure, licensing, benefit, responsibility, and ethics limits; qualitative status; required review or co-governance; and the next legitimate decision-maker or action.
 
-If no responsible universal definition is possible, provide a scoped or perspectival definition only when it helps and label it plainly. Otherwise state the blocker first and Defer without manufacturing neutral language that hides the authority dispute.
+If no responsible universal definition is possible, provide a scoped or perspectival definition only when it helps and label it plainly.
+Otherwise state the blocker first and Defer without manufacturing neutral language that hides the authority dispute.
 
 ## Reviewed sources
 
@@ -60,6 +70,8 @@ If no responsible universal definition is possible, provide a scoped or perspect
 
 ## Composition notes
 
-Compose with formal ontology when axioms or categories encode contested or authority-sensitive knowledge; an epistemic blocker can require alternatives, provisional formalization, review, or deferral even when syntax and reasoning pass. Compose with multilingual terminology when naming, translation, or equivalence authority belongs to a language community.
+Compose with formal ontology when axioms or categories encode contested or authority-sensitive knowledge; an epistemic blocker can require alternatives, provisional formalization, review, or deferral even when syntax and reasoning pass.
+Compose with multilingual terminology when naming, translation, or equivalence authority belongs to a language community.
 
-Compose with KOS for community-governed vocabularies and mappings and with data definitions for consequential or regulated data concepts. The terminology core owns the shared identity record, while this profile can limit scope or finality but must not silently change another profile's semantic type.
+Compose with KOS for community-governed vocabularies and mappings and with data definitions for consequential or regulated data concepts.
+The terminology core owns the shared identity record, while this profile can limit scope or finality but must not silently change another profile's semantic type.

@@ -17,23 +17,25 @@ language:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Domain / library module | `lowerCamelCase.js` | `invoiceParser.js` | Pure ESM explicit extension |
-| Standalone script | `kebab-case.mjs` | `rebuild-index.mjs` | Direct CLI / npm execution |
-| Class / Constructor | `PascalCase` | `CustomerRegistry` | Instantiable types |
-| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Action or property accessor |
-| Variable / Property | `lowerCamelCase` | `customerId` | Affirmative booleans (`isValid`) |
-| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_MS` | True module-level immutable |
-| Private field | `#privateField` | `#cache` | ECMAScript 2022 syntax |
-| Error code | `UPPER_SNAKE_CASE` | `INVOICE_NOT_FOUND` | Machine-readable `.code` |
+| Artefact Kind           | Convention          | Example              | Notes                            |
+| ----------------------- | ------------------- | -------------------- | -------------------------------- |
+| Domain / library module | `lowerCamelCase.js` | `invoiceParser.js`   | Pure ESM explicit extension      |
+| Standalone script       | `kebab-case.mjs`    | `rebuild-index.mjs`  | Direct CLI / npm execution       |
+| Class / Constructor     | `PascalCase`        | `CustomerRegistry`   | Instantiable types               |
+| Function / Method       | `lowerCamelCase`    | `calculateNetAmount` | Action or property accessor      |
+| Variable / Property     | `lowerCamelCase`    | `customerId`         | Affirmative booleans (`isValid`) |
+| Constant                | `UPPER_SNAKE_CASE`  | `DEFAULT_TIMEOUT_MS` | True module-level immutable      |
+| Private field           | `#privateField`     | `#cache`             | ECMAScript 2022 syntax           |
+| Error code              | `UPPER_SNAKE_CASE`  | `INVOICE_NOT_FOUND`  | Machine-readable `.code`         |
 
 ## File and module taxonomy
 
 Modern JavaScript distinguishes importable domain modules from standalone automation scripts and test suites:
 
-- Domain and library modules: use `lowerCamelCase.js` or `lowerCamelCase.mjs` (e.g. `invoiceParser.js`, `customerRegistry.js`). Pure ESM requires explicit file extensions in relative import specifiers.
-- Standalone automation and build scripts: use `kebab-case.mjs` (or `kebab-case.js` in ESM packages), such as `rebuild-index.mjs` or `verify-bundle.mjs`. These are executed directly by Node.js or npm scripts, not imported as library symbols.
+- Domain and library modules: use `lowerCamelCase.js` or `lowerCamelCase.mjs` (e.g. `invoiceParser.js`, `customerRegistry.js`).
+  Pure ESM requires explicit file extensions in relative import specifiers.
+- Standalone automation and build scripts: use `kebab-case.mjs` (or `kebab-case.js` in ESM packages), such as `rebuild-index.mjs` or `verify-bundle.mjs`.
+  These are executed directly by Node.js or npm scripts, not imported as library symbols.
 - Test suites:
   - Unit and faceted tests: `<module>.<facet>.test.js` (e.g. `invoiceParser.unit.test.js`, `invoiceParser.edge.test.js`).
   - Cross-runner isolation: `<subject>.<runner>.js` (e.g. `workflow.node.test.js` vs `workflow.browser.test.js`).

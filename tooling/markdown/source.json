@@ -1,0 +1,26 @@
+{
+  "sourceLockSha256": "4e0723698b853069fca5b07eb6a99f0bfb43ce73e4c9e68a5b4e4292c529c803",
+  "tree": "86ed05fb0603f893f93aa50ee8527cdb6ebf57fe",
+  "workflow": "aec44f56b528af592ad6ba7e1e114e333246c19c",
+  "schemaVersion": 1,
+  "source": "aec44f56b528af592ad6ba7e1e114e333246c19c",
+  "acquisition": "Exact clean latest-source development archives; isolated npm ci lock is authoritative. Registry upgrade target is metadata, not registry resolution.",
+  "archives": [
+    {
+      "filename": "hadden-industries-markdown-quality-win32-x64-1.0.3.tgz",
+      "sha256": "1207f1c49b0f73d8d7bf5c6a74dfdc928daffd132a5adf7d2dbc488f0d2d617d",
+      "integrity": "sha512-P2d2Y4nZkmHh1DrhOeNuPYh75b4t+oDzYiYap4FreKmZna+p5C/QvVUWbrVFlBRDsiyeWYawktTrQiHHARrVSQ=="
+    },
+    {
+      "filename": "hadden-industries-markdown-quality-linux-x64-1.0.3.tgz",
+      "sha256": "6182383485420b6763683b1beaed6707e76434381c3caf911ba192d33a5dfd73",
+      "integrity": "sha512-LuBFwv/Rf7oyz5GQLSoy4yRkTmTiUd3xpX+N1im6gljZWLFFmcHjTgzlGreQ5YbqxdI65qvjdUnfXYxUoXdZZQ=="
+    },
+    {
+      "filename": "hadden-industries-markdown-quality-1.0.3.tgz",
+      "sha256": "617471c15708e0dccd968be9b15f703e71bdb82aa3b4c0006d6b455e014a0e48",
+      "integrity": "sha512-MJvNmwEXLAZCKcAN+7yIUw3JxKNEp7ZVfabv64i/J/16Knas3LenipGIDeSTDt6N8mxceUmpGTzqQWCujoBL2A=="
+    }
+  ],
+  "version": "1.0.3"
+}

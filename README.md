@@ -12,23 +12,34 @@ The repository follows one core rule:
 > **Edit the canonical project under [`src/`](./src/), then run `npm run build` to generate [`skills/`](./skills/). Never edit an installed copy under `.agents/skills/` or `.claude/skills/`.**
 > Those agent-facing directories are generated local development state and may be deleted and recreated at any time.
 
-The source/distribution and evaluation contracts are documented in the [shared runtime guide](./docs/evaluation-runtime.md), [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md). Native consumer conformance, assured execution, semantic grading, and real host activation are separate acceptance claims. The assured skill-up bridge remains disabled on unqualified platforms.
+The source/distribution and evaluation contracts are documented in the [shared runtime guide](./docs/evaluation-runtime.md), [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md).
+Native consumer conformance, assured execution, semantic grading, and real host activation are separate acceptance claims.
+The assured skill-up bridge remains disabled on unqualified platforms.
 
 ## Available Skills
 
-* **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, creates and verifies explicitly approved signed commits, and guides authorized direct or GitHub pull-request delivery. For commit-and-publish requests, it checks publication feasibility before drafting. Use for message drafts, new local commits, or their delivery; not for amending history or continuing an existing local merge, rebase, cherry-pick, or revert operation.
+- **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, creates and verifies explicitly approved signed commits, and guides authorized direct or GitHub pull-request delivery.
+  For commit-and-publish requests, it checks publication feasibility before drafting.
+  Use for message drafts, new local commits, or their delivery; not for amending history or continuing an existing local merge, rebase, cherry-pick, or revert operation.
 
-* **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance. It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
+- **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance.
+  It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
 
-* **[naming-objects-in-software-engineering](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/naming-objects-in-software-engineering/SKILL.md)**: Create, assess, and refactor semantically precise, ecosystem-conformant names for programming and data artefacts. Use whenever naming or renaming files, directories, packages, modules, types, functions, methods, parameters, arguments, variables, fields, properties, constants, APIs, CLI commands/options, environment variables, or database objects; and during code review when naming quality, consistency, ambiguity, or terminology is relevant. Enforces conceptual discrimination before casing and separators.
+- **[naming-objects-in-software-engineering](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/naming-objects-in-software-engineering/SKILL.md)**: Create, assess, and refactor semantically precise, ecosystem-conformant names for programming and data artefacts.
+  Use whenever naming or renaming files, directories, packages, modules, types, functions, methods, parameters, arguments, variables, fields, properties, constants, APIs, CLI commands/options, environment variables, or database objects; and during code review when naming quality, consistency, ambiguity, or terminology is relevant.
+  Enforces conceptual discrimination before casing and separators.
 
-* **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow. Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
+- **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow.
+  Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
 
-  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm. Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book. See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/src/reading-epubs/evals/README.md) for the method, the null results, and the limits.
+  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm.
+  Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book.
+  See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/src/reading-epubs/evals/README.md) for the method, the null results, and the limits.
 
 ### What `committing-to-git` adds
 
-The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section. It separates agent judgment from mechanically enforceable guarantees:
+The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section.
+It separates agent judgment from mechanically enforceable guarantees:
 
 - read-only `workflow preflight` checks local readiness, GitHub API permissions, classic protection, inherited branch and push rules, allowed merge methods, and queue requirements before drafting for publication; API permissions do not establish Git transport permissions, and draft-only and local-only requests need no remote preflight;
 - publication prefers direct signed push, then normal PR merge, then disclosed squash, subject to policy and explicit signature requirements; missing policy remains unknown, while pending checks and reviews remain prerequisites;
@@ -49,19 +60,35 @@ The skill is an opinionated proportional review and transaction workflow, not a 
 - signature policy is `required`, `advisory`, or `skipped`, but every created commit still requires a signature header and recovery remains bound to the exact full OID; and
 - an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
 
-Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing. Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch. Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source. The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
+Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing.
+Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch.
+Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source.
+The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
 
-GitHub preflight additionally requires an authenticated GitHub CLI (`gh`) with access to the relevant policy. Its API account and permissions are separate from the account and permissions used by Git transport; different accounts alone require no additional approval.
+GitHub preflight additionally requires an authenticated GitHub CLI (`gh`) with access to the relevant policy.
+Its API account and permissions are separate from the account and permissions used by Git transport; different accounts alone require no additional approval.
 
-Git transport identity checks provide supplementary evidence. Unavailable, ambiguous, or guard-denied optional checks alone do not block an already authorized publication route or require a user prompt. A guard denial stops that operation without retries, equivalent commands, or requests to run it manually. Explicit account requirements, actor-specific provider restrictions, and positively established permission failures remain material. DCG and the supported Git Credential Manager or OpenSSH tooling are requirements only for optional identity collection, not new baseline runtime dependencies. See [publication routing](./skills/committing-to-git/references/publication-routing.md) for supported contexts, evidence reuse, and required-identity handling.
+Git transport identity checks provide supplementary evidence.
+Unavailable, ambiguous, or guard-denied optional checks alone do not block an already authorized publication route or require a user prompt.
+A guard denial stops that operation without retries, equivalent commands, or requests to run it manually.
+Explicit account requirements, actor-specific provider restrictions, and positively established permission failures remain material.
+DCG and the supported Git Credential Manager or OpenSSH tooling are requirements only for optional identity collection, not new baseline runtime dependencies.
+See [publication routing](./skills/committing-to-git/references/publication-routing.md) for supported contexts, evidence reuse, and required-identity handling.
 
-Feasibility is an observation, not mutation authorization or a guarantee that a future push will succeed. PR creation, merge, queue handling, and final integration verification use agent-guided native GitHub operations; they are not journaled by the helper's push transaction. Normal merge preserves the original signed commits as ancestors. Squash creates a different commit: GitHub's signature does not prove that the original author signed it. The publication-routing guidance also covers approval boundaries, head binding, recovery, and separate source/final verification.
+Feasibility is an observation, not mutation authorization or a guarantee that a future push will succeed.
+PR creation, merge, queue handling, and final integration verification use agent-guided native GitHub operations; they are not journaled by the helper's push transaction.
+Normal merge preserves the original signed commits as ancestors.
+Squash creates a different commit: GitHub's signature does not prove that the original author signed it.
+The publication-routing guidance also covers approval boundaries, head binding, recovery, and separate source/final verification.
 
-The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it. The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor. Historical design decisions are recorded separately in dated implementation plans.
+The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it.
+The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor.
+Historical design decisions are recorded separately in dated implementation plans.
 
 ## Installation
 
-The primary installation path is the repository's `main` tree through the open skills CLI. It automatically detects supported AI agents and places the selected skills in the correct directories.
+The primary installation path is the repository's `main` tree through the open skills CLI.
+It automatically detects supported AI agents and places the selected skills in the correct directories.
 
 To install all skills in this repository, run:
 
@@ -81,13 +108,21 @@ To install only `committing-to-git`, run:
 npx skills add Hadden-Industries/agent-skills --skill committing-to-git
 ```
 
-These commands install from the default branch and prompt for target agents. Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target. The publication-routing update is available on `main`. The earlier [tagged release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271) contain that version's pinned installation command, archive, and qualification evidence; they do not qualify the newer publication-routing behavior.
+These commands install from the default branch and prompt for target agents.
+Installation is project-local by default; add `--global` for a user-wide installation or `--agent codex` / `--agent claude-code` to select a target.
+The publication-routing update is available on `main`.
+The earlier [tagged release notes](https://github.com/Hadden-Industries/agent-skills/releases/tag/committing-to-git-0.1.0-dev.g1570fc9854432271) contain that version's pinned installation command, archive, and qualification evidence; they do not qualify the newer publication-routing behavior.
 
-Each generated `skills/<name>/` directory is deployable through this path. Runtime instructions, references, scripts, and assets are authored under `src/<name>/` and copied byte-for-byte, except the existing bundled Git helper. Maintainer cases, fixtures, protocol extensions, and evaluation programs live in `src/<name>/evals/` and are excluded from the distribution. Historical results live under `evidence/historical/`; new authoritative and derived evidence use separate ignored roots. See the [evaluation guide](./docs/evaluation-runtime.md).
+Each generated `skills/<name>/` directory is deployable through this path.
+Runtime instructions, references, scripts, and assets are authored under `src/<name>/` and copied byte-for-byte, except the existing bundled Git helper.
+Maintainer cases, fixtures, protocol extensions, and evaluation programs live in `src/<name>/evals/` and are excluded from the distribution.
+Historical results live under `evidence/historical/`; new authoritative and derived evidence use separate ignored roots.
+See the [evaluation guide](./docs/evaluation-runtime.md).
 
 ### Install `committing-to-git` as a host plugin
 
-Hosts with a plugin marketplace (Claude Code, Codex) install the generated, self-contained package under [`plugins/committing-to-git/`](./plugins/committing-to-git/). A marketplace entry points at that directory and pins an exact commit, so an installation is reproducible and updates only when the marketplace owner moves the pin:
+Hosts with a plugin marketplace (Claude Code, Codex) install the generated, self-contained package under [`plugins/committing-to-git/`](./plugins/committing-to-git/).
+A marketplace entry points at that directory and pins an exact commit, so an installation is reproducible and updates only when the marketplace owner moves the pin:
 
 ```json
 {
@@ -101,34 +136,45 @@ Hosts with a plugin marketplace (Claude Code, Codex) install the generated, self
 }
 ```
 
-The package uses ordered development versions such as `0.1.1-dev.1`, shared by both host manifests, its release tag and archive name. [`scripts/plugin-releases.json`](./scripts/plugin-releases.json) binds each version to the complete package-input digest. Changed published inputs require an explicitly advanced release record; committed version/digest pairs cannot be edited or removed. `npm run build` regenerates the package and `npm run build:check` rejects stale artifacts or an unadvanced release. Never edit generated manifests by hand. The complete SHA pin identifies the repository revision; it remains separate from the readable release version. See [release preparation and installation reporting](./docs/plugin-releases.md).
+The package uses ordered development versions such as `0.1.1-dev.1`, shared by both host manifests, its release tag and archive name.
+[`scripts/plugin-releases.json`](./scripts/plugin-releases.json) binds each version to the complete package-input digest.
+Changed published inputs require an explicitly advanced release record; committed version/digest pairs cannot be edited or removed. `npm run build` regenerates the package and `npm run build:check` rejects stale artifacts or an unadvanced release. Never edit generated manifests by hand. The complete SHA pin identifies the repository revision; it remains separate from the readable release version. See [release preparation and installation reporting](./docs/plugin-releases.md).
 
-Hosts without a marketplace (Antigravity desktop) install the release archive `committing-to-git-<version>-antigravity-desktop.zip`, produced by `npm run package:plugin -- --output <absolute directory>` and attached to the matching GitHub release. It holds the same package at the archive root plus the minimal desktop `plugin.json`; extract it into `<home>/.gemini/config/plugins/committing-to-git/`.
+Hosts without a marketplace (Antigravity desktop) install the release archive `committing-to-git-<version>-antigravity-desktop.zip`, produced by `npm run package:plugin -- --output <absolute directory>` and attached to the matching GitHub release.
+It holds the same package at the archive root plus the minimal desktop `plugin.json`; extract it into `<home>/.gemini/config/plugins/committing-to-git/`.
 
 ## How It Works
 
-These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices). They rely on a progressive disclosure model designed to protect your agent's context window. At startup, the agent only loads the skill's name and description. The full instructional body is only read into context when the agent explicitly decides the skill is relevant to your current prompt.
+Maintained Markdown uses the [shared Markdown quality controls](./docs/markdown-quality.md).
+Install their isolated locked toolchain with `npm run setup:markdown`; use `npm run check:markdown` for a read-only check and `npm run format:markdown` to apply policy.
+The complete verification gate includes these controls.
+
+These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices).
+They rely on a progressive disclosure model designed to protect your agent's context window.
+At startup, the agent only loads the skill's name and description.
+The full instructional body is only read into context when the agent explicitly decides the skill is relevant to your current prompt.
 
 ## For Developers
 
-| I want to… | Go to |
-|---|---|
-| Set up a fresh clone | [Bootstrap the repository](#bootstrap-the-repository) |
-| Create a new skill | [Create a new skill](#create-a-new-skill) |
-| Change an existing skill | [Modify an existing skill](#modify-an-existing-skill) |
-| Change code shipped as a skill executable | [Working on skill executables](#working-on-skill-executables) |
-| Validate or evaluate a skill | [Validation and evaluation](#validation-and-evaluation) |
-| Understand which tool to use | [Toolchain at a glance](#toolchain-at-a-glance) |
-| Know when a change is finished | [Definition of done](#definition-of-done) |
+| I want to…                                     | Go to                                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Set up a fresh clone                           | [Bootstrap the repository](#bootstrap-the-repository)                                             |
+| Create a new skill                             | [Create a new skill](#create-a-new-skill)                                                         |
+| Change an existing skill                       | [Modify an existing skill](#modify-an-existing-skill)                                             |
+| Change code shipped as a skill executable      | [Working on skill executables](#working-on-skill-executables)                                     |
+| Validate or evaluate a skill                   | [Validation and evaluation](#validation-and-evaluation)                                           |
+| Understand which tool to use                   | [Toolchain at a glance](#toolchain-at-a-glance)                                                   |
+| Know when a change is finished                 | [Definition of done](#definition-of-done)                                                         |
 | Review the evidence behind `committing-to-git` | [Current assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md) |
-| Refresh the local tooling | [Update the development environment](#update-the-development-environment) |
-| Diagnose setup problems | [Troubleshooting](#troubleshooting) |
+| Refresh the local tooling                      | [Update the development environment](#update-the-development-environment)                         |
+| Diagnose setup problems                        | [Troubleshooting](#troubleshooting)                                                               |
 
 ---
 
 ## Repository philosophy
 
-A good Agent Skill is not merely valid Markdown. It should:
+A good Agent Skill is not merely valid Markdown.
+It should:
 
 - **trigger for the right requests** and stay out of unrelated requests;
 - produce **materially better behavior** than the agent without the skill, or reach the same result at materially lower cost;
@@ -163,7 +209,8 @@ flowchart LR
 
 ## Repository layout
 
-This repository is structured so that compatible package managers and agents automatically crawl the root `skills/` directory to discover available capabilities. Every file beneath one `skills/<name>/` directory is treated as part of that deployable skill; repository-maintainer evaluation material is deliberately kept in the source-only `src/<name>/evals/` tree.
+This repository is structured so that compatible package managers and agents automatically crawl the root `skills/` directory to discover available capabilities.
+Every file beneath one `skills/<name>/` directory is treated as part of that deployable skill; repository-maintainer evaluation material is deliberately kept in the source-only `src/<name>/evals/` tree.
 
 The important paths are:
 
@@ -355,46 +402,44 @@ agent-skills/
 
 ### Source versus generated state
 
-| Path | Purpose | Commit? |
-|---|---|:---:|
-| `skills/` | Canonical deployable skill payloads maintained by this repository | **Yes** |
-| `src/<name>/evals/` | Maintainer-only portable definitions, extensions, fixtures, and programs | **Yes** |
-| `evidence/historical/` | Byte-preserved historical observations | **Yes** |
-| `evidence/authoritative/`, `evidence/derived/` | New execution evidence and one-way reports | No |
-| `src/` | Maintainable source and schemas for generated skill executables | **Yes** |
-| `scripts/` | Repository-wide build commands and reproducible development bootstrap | **Yes** |
-| `plugins/committing-to-git/` | Generated host plugin package of the canonical skill, regenerated by `npm run build` | **Yes** |
-| `package.json` and `package-lock.json` | Compatible authoring dependency ranges, reproducible resolutions, and commands | **Yes** |
-| `docs/` | Artifact-type-first designs, plans, assurance cases, and issue records, plus retained historical root-level documents | **Yes** |
-| `.tessl-plugin/plugin.json` | Tessl package root that makes `tessl skill lint` resolvable | **Yes** |
-| `tests/` | Contract tests for skill scripts and their committed schemas | **Yes** |
-| `.agents/skills/` | Local Codex/Antigravity authoring skills | No |
-| `.claude/skills/` | Local Claude Code authoring skills | No |
-| `.venv/` | Local `skills-ref` environment | No |
-| `.agent-tools/` | Tessl, Plugin Eval checkout, the GitHub MCP server binary, and wrappers | No |
-| `.agents/plugins/marketplace.json` | Generated local Plugin Eval metadata | No |
-| `plugins/plugin-eval` | Generated Plugin Eval junction/symlink | No |
-| `.mcp.json` | Generated MCP configuration for Claude Code | **Yes** |
-| `.codex/config.toml` | Generated MCP configuration for Codex | **Yes** |
-| `.agents/mcp_config.json` | Generated MCP configuration for Antigravity | **Yes** |
+| Path                                           | Purpose                                                                                                               | Commit? |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | :-----: |
+| `skills/`                                      | Canonical deployable skill payloads maintained by this repository                                                     | **Yes** |
+| `src/<name>/evals/`                            | Maintainer-only portable definitions, extensions, fixtures, and programs                                              | **Yes** |
+| `evidence/historical/`                         | Byte-preserved historical observations                                                                                | **Yes** |
+| `evidence/authoritative/`, `evidence/derived/` | New execution evidence and one-way reports                                                                            |   No    |
+| `src/`                                         | Maintainable source and schemas for generated skill executables                                                       | **Yes** |
+| `scripts/`                                     | Repository-wide build commands and reproducible development bootstrap                                                 | **Yes** |
+| `plugins/committing-to-git/`                   | Generated host plugin package of the canonical skill, regenerated by `npm run build`                                  | **Yes** |
+| `package.json` and `package-lock.json`         | Compatible authoring dependency ranges, reproducible resolutions, and commands                                        | **Yes** |
+| `docs/`                                        | Artifact-type-first designs, plans, assurance cases, and issue records, plus retained historical root-level documents | **Yes** |
+| `.tessl-plugin/plugin.json`                    | Tessl package root that makes `tessl skill lint` resolvable                                                           | **Yes** |
+| `tests/`                                       | Contract tests for skill scripts and their committed schemas                                                          | **Yes** |
+| `.agents/skills/`                              | Local Codex/Antigravity authoring skills                                                                              |   No    |
+| `.claude/skills/`                              | Local Claude Code authoring skills                                                                                    |   No    |
+| `.venv/`                                       | Local `skills-ref` environment                                                                                        |   No    |
+| `.agent-tools/`                                | Tessl, Plugin Eval checkout, the GitHub MCP server binary, and wrappers                                               |   No    |
+| `.agents/plugins/marketplace.json`             | Generated local Plugin Eval metadata                                                                                  |   No    |
+| `plugins/plugin-eval`                          | Generated Plugin Eval junction/symlink                                                                                |   No    |
+| `.mcp.json`                                    | Generated MCP configuration for Claude Code                                                                           | **Yes** |
+| `.codex/config.toml`                           | Generated MCP configuration for Codex                                                                                 | **Yes** |
+| `.agents/mcp_config.json`                      | Generated MCP configuration for Antigravity                                                                           | **Yes** |
 
-The three MCP configuration files are the one category of generated state that is
-committed. They name the server by a **repository-relative** path and configure
-no credential, so they hold nothing machine-specific and nothing secret. A fresh
-clone therefore gets a working GitHub MCP server on every supported host as soon
-as the bootstrap has downloaded the binary.
+The three MCP configuration files are the one category of generated state that is committed.
+They name the server by a **repository-relative** path and configure no credential, so they hold nothing machine-specific and nothing secret.
+A fresh clone therefore gets a working GitHub MCP server on every supported host as soon as the bootstrap has downloaded the binary.
 
-They are rewritten on every bootstrap run, so treat them like any other tracked
-file and review the diff. On a platform whose executable name differs from the
-committed one, a run rewrites `command` and leaves a one-line modification.
+They are rewritten on every bootstrap run, so treat them like any other tracked file and review the diff.
+On a platform whose executable name differs from the committed one, a run rewrites `command` and leaves a one-line modification.
 
-Generated paths belong in the repository's committed `.gitignore`. They should not rely on a developer-specific `.git/info/exclude`.
+Generated paths belong in the repository's committed `.gitignore`.
+They should not rely on a developer-specific `.git/info/exclude`.
 
 ---
 
-# Bootstrap the repository
+## Bootstrap the repository
 
-## Prerequisites
+### Prerequisites
 
 The bootstrap expects:
 
@@ -415,7 +460,7 @@ npx --version
 
 On macOS/Linux, use `python3` instead of `py` where appropriate.
 
-## Run the bootstrap
+### Run the bootstrap
 
 From the repository root:
 
@@ -432,44 +477,43 @@ py scripts\set_up_development_environment.py --allow-unverified-repo
 ```
 
 > [!NOTE]
-> The development toolchain deliberately follows **current upstream versions** rather than pinning them. Rerunning the bootstrap is both setup **and** update.
+> The development toolchain deliberately follows **current upstream versions** rather than pinning them.
+> Rerunning the bootstrap is both setup **and** update.
 
-## What the bootstrap installs
+### What the bootstrap installs
 
 The local authoring profile exposes these Agent Skills to Codex, Antigravity, and Claude Code:
 
-| Skill | Role |
-|---|---|
-| `skill-creator` | Create, improve, benchmark, and optimize Agent Skills |
-| `writing-skills` | Apply a test-driven methodology to skill authoring |
-| `test-driven-development` | Supports the RED → GREEN → REFACTOR discipline used by `writing-skills` |
-| `skill-check` | Additional static/semantic review for common skill-quality problems |
-| `committing-to-git` | Build, approve, verify, report, and optionally publish an exact signed commit transaction |
+| Skill                     | Role                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `skill-creator`           | Create, improve, benchmark, and optimize Agent Skills                                     |
+| `writing-skills`          | Apply a test-driven methodology to skill authoring                                        |
+| `test-driven-development` | Supports the RED → GREEN → REFACTOR discipline used by `writing-skills`                   |
+| `skill-check`             | Additional static/semantic review for common skill-quality problems                       |
+| `committing-to-git`       | Build, approve, verify, report, and optionally publish an exact signed commit transaction |
 
 The bootstrap also installs local evaluation tooling:
 
-| Tool | Local entry point | Primary role |
-|---|---|---|
-| `skills-ref` | `.agent-tools/bin/skills-ref.cmd` | Official Agent Skills format validation |
-| Tessl CLI | `.agent-tools/bin/tessl.cmd` | Independent lint of the plugin package (local); cloud review of skills (Tessl account required) |
-| OpenAI Plugin Eval | `.agent-tools/bin/plugin-eval.cmd` | Codex-oriented analysis, token-budget analysis, and benchmarks |
-| GitHub MCP server | `.agent-tools/bin/github-mcp-server.exe` | GitHub platform operations from any of the three agent hosts |
+| Tool               | Local entry point                        | Primary role                                                                                    |
+| ------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `skills-ref`       | `.agent-tools/bin/skills-ref.cmd`        | Official Agent Skills format validation                                                         |
+| Tessl CLI          | `.agent-tools/bin/tessl.cmd`             | Independent lint of the plugin package (local); cloud review of skills (Tessl account required) |
+| OpenAI Plugin Eval | `.agent-tools/bin/plugin-eval.cmd`       | Codex-oriented analysis, token-budget analysis, and benchmarks                                  |
+| GitHub MCP server  | `.agent-tools/bin/github-mcp-server.exe` | GitHub platform operations from any of the three agent hosts                                    |
 
-On macOS/Linux, the generated wrappers omit the `.cmd` suffix, and the GitHub
-MCP server binary omits the `.exe` suffix.
+On macOS/Linux, the generated wrappers omit the `.cmd` suffix, and the GitHub MCP server binary omits the `.exe` suffix.
 
-**Authentication is OAuth, not a personal access token.** On github.com the
-server runs its own browser-based OAuth flow the first time an agent uses it, and
-keeps the resulting token in memory only. Nothing needs to be exported, and no
-credential is written to the repository or to your environment.
+**Authentication is OAuth, not a personal access token.**
+On github.com the server runs its own browser-based OAuth flow the first time an agent uses it, and keeps the resulting token in memory only.
+Nothing needs to be exported, and no credential is written to the repository or to your environment.
 
 > [!IMPORTANT]
-> That flow runs **only when no token is set**. If
-> `GITHUB_PERSONAL_ACCESS_TOKEN` is present in the environment of the agent, the
-> server uses it and skips OAuth entirely. Unset it to authenticate through
-> OAuth. The bootstrap prints a note when it sees the variable set.
+> That flow runs **only when no token is set**.
+> If `GITHUB_PERSONAL_ACCESS_TOKEN` is present in the environment of the agent, the server uses it and skips OAuth entirely.
+> Unset it to authenticate through OAuth.
+> The bootstrap prints a note when it sees the variable set.
 
-## Verify setup
+### Verify setup
 
 A successful run verifies that the expected authoring skills and local wrappers exist.
 
@@ -481,7 +525,7 @@ You can also validate a canonical skill directly:
 
 ---
 
-# The golden workflow
+## The golden workflow
 
 Use this workflow for meaningful skill work.
 
@@ -498,13 +542,14 @@ flowchart TD
     I --> J["10. Commit"]
 ```
 
-The evaluation depth should be proportional to the change. A spelling fix does not need a benchmark suite; a change to triggering behavior or core workflow does.
+The evaluation depth should be proportional to the change.
+A spelling fix does not need a benchmark suite; a change to triggering behavior or core workflow does.
 
 ---
 
-# Create a new skill
+## Create a new skill
 
-## 1. Define the behavior before writing instructions
+### 1. Define the behavior before writing instructions
 
 Be explicit about:
 
@@ -519,16 +564,12 @@ Be explicit about:
 
 A useful skill should have a narrower purpose than “make the agent better at X”.
 
-Answer the cost question before writing anything. A skill whose value is
-efficiency is a legitimate and often easier skill to justify, because resource
-use is measurable where output quality is arguable — but it has to be built for
-that from the start. It will need a task the agent can already complete, a
-recorded baseline cost, and a saving large enough to clear the skill's own
-overhead. Deciding this afterwards tends to produce an evaluation that measures
-correctness, finds no difference, and concludes the skill is worthless when it
-is merely cheaper.
+Answer the cost question before writing anything.
+A skill whose value is efficiency is a legitimate and often easier skill to justify, because resource use is measurable where output quality is arguable — but it has to be built for that from the start.
+It will need a task the agent can already complete, a recorded baseline cost, and a saving large enough to clear the skill's own overhead.
+Deciding this afterwards tends to produce an evaluation that measures correctness, finds no difference, and concludes the skill is worthless when it is merely cheaper.
 
-## 2. Establish a baseline
+### 2. Establish a baseline
 
 Before adding the skill, exercise representative prompts **without the skill**.
 
@@ -539,10 +580,8 @@ Capture:
 - outputs that can be compared after the skill exists;
 - **what the task cost without the skill** — tokens consumed, tool calls, files opened — since a saving cannot be claimed against a figure that was never recorded.
 
-This prevents writing instructions for behavior the underlying agent already
-performs reliably. Note that "performs reliably" and "performs cheaply" are
-different findings: an agent that reaches the right answer by reading an entire
-document has succeeded, and is still worth improving.
+This prevents writing instructions for behavior the underlying agent already performs reliably.
+Note that "performs reliably" and "performs cheaply" are different findings: an agent that reaches the right answer by reading an entire document has succeeded, and is still worth improving.
 
 For behavioral or discipline-oriented skills, include pressure cases where appropriate:
 
@@ -553,7 +592,7 @@ For behavioral or discipline-oriented skills, include pressure cases where appro
 - already-invested effort;
 - incomplete evidence.
 
-## 3. Create the canonical skill directory
+### 3. Create the canonical skill directory
 
 Use a lowercase, hyphenated Agent Skills name:
 
@@ -569,7 +608,11 @@ src/my-skill/
     └── extensions/v1/suite.json
 ```
 
-Register the skill profile and any build-only source categories, then run `npm run build`. Only SKILL.md, references, assets and runtime scripts enter `skills/my-skill/`; evals never ship. Portable file references are skill-root-relative, for example `evals/files/sample.txt`. Evaluation programs address generated runtime files explicitly under `skills/my-skill/`. See [the compiler and runtime contract](./docs/evaluation-runtime.md).
+Register the skill profile and any build-only source categories, then run `npm run build`.
+Only SKILL.md, references, assets and runtime scripts enter `skills/my-skill/`; evals never ship.
+Portable file references are skill-root-relative, for example `evals/files/sample.txt`.
+Evaluation programs address generated runtime files explicitly under `skills/my-skill/`.
+See [the compiler and runtime contract](./docs/evaluation-runtime.md).
 
 The official Agent Skills specification requires the `name` to use lowercase letters, numbers, and hyphens and to be no more than 64 characters.
 
@@ -586,9 +629,10 @@ description: What the skill does and the concrete situations in which it should 
 ...
 ```
 
-The `description` is not a summary alone. It is a key discovery signal, so state both **what the skill does** and **when to use it**.
+The `description` is not a summary alone.
+It is a key discovery signal, so state both **what the skill does** and **when to use it**.
 
-## 4. Ask the agent to use the authoring skills
+### 4. Ask the agent to use the authoring skills
 
 A useful starting prompt is:
 
@@ -607,7 +651,7 @@ Create behavioral and triggering evaluations appropriate to the skill under
 
 The installed authoring skills should guide the detailed workflow; avoid duplicating their entire instructions in this README.
 
-## 5. Keep `SKILL.md` focused
+### 5. Keep `SKILL.md` focused
 
 The Agent Skills specification recommends:
 
@@ -632,7 +676,7 @@ my-skill/
 
 over putting every detail directly into `SKILL.md`.
 
-### Use `references/` for
+#### Use `references/` for
 
 - detailed domain rules;
 - long examples;
@@ -641,7 +685,7 @@ over putting every detail directly into `SKILL.md`.
 - schemas or protocols;
 - material needed only for a subset of tasks.
 
-### Use `scripts/` for
+#### Use `scripts/` for
 
 - deterministic transformations;
 - validation;
@@ -650,21 +694,26 @@ over putting every detail directly into `SKILL.md`.
 
 Scripts should be self-contained where practical, document unavoidable dependencies, validate inputs, emit actionable errors, and fail clearly rather than silently producing questionable output.
 
-The `skills/<skill-name>/` directory is the canonical source for content that is already deployable, including `SKILL.md`, references, assets, and self-contained scripts. Do not move those files through a redundant source-to-distribution copy stage.
+The `skills/<skill-name>/` directory is the canonical source for content that is already deployable, including `SKILL.md`, references, assets, and self-contained scripts.
+Do not move those files through a redundant source-to-distribution copy stage.
 
-When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`. Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory. The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly. `scripts/validateSkillRepository.js` owns deployable and evaluation validation, including the one-physical-line prose rule for canonical skill Markdown, while `scripts/buildRepository.js` composes validation with generated-artifact construction. Skill users run generated artifacts directly and do not install repository dependencies.
+When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`.
+Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory.
+The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly.
+`scripts/validateSkillRepository.js` owns deployable and evaluation validation, including the one-physical-line prose rule for canonical skill Markdown, while `scripts/buildRepository.js` composes validation with generated-artifact construction.
+Skill users run generated artifacts directly and do not install repository dependencies.
 
-## 6. Validate and evaluate
+### 6. Validate and evaluate
 
 Continue with [Validation and evaluation](#validation-and-evaluation).
 
 ---
 
-# Modify an existing skill
+## Modify an existing skill
 
 Changing an existing skill should be treated as a behavioral change, not merely a text-editing exercise.
 
-## 1. Understand the current contract
+### 1. Understand the current contract
 
 Read:
 
@@ -683,7 +732,7 @@ Identify:
 - existing maintainer evals under `src/<skill-name>/evals/` or examples;
 - behavior that must remain unchanged.
 
-## 2. Preserve a baseline
+### 2. Preserve a baseline
 
 For meaningful changes, compare against the **old skill**, not against no skill at all.
 
@@ -693,7 +742,7 @@ The question becomes:
 
 > Does the proposed version outperform the currently committed version on the behavior this change is meant to improve **without regressing important existing behavior**?
 
-## 3. Make the smallest change that solves the observed problem
+### 3. Make the smallest change that solves the observed problem
 
 Avoid opportunistically rewriting unrelated sections.
 
@@ -705,15 +754,18 @@ This improves:
 - rollback safety;
 - confidence that a regression came from the intended change.
 
-## 4. Re-run the appropriate evaluation depth
+### 4. Re-run the appropriate evaluation depth
 
 Use the [change-risk matrix](#change-risk-matrix) to decide how much evaluation is proportionate.
 
 ---
 
-# Working on skill executables
+## Working on skill executables
 
-A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation. Skill-specific implementations live under `src/<skill-name>/`; repository-owned JavaScript shared by independent consumers lives under `lib/`, with direct tests under `tests/<domain>/`. Shared modules must not depend on skill internals. Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper and its shared dependencies are bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`, so installed skills remain self-contained.
+A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation.
+Skill-specific implementations live under `src/<skill-name>/`; repository-owned JavaScript shared by independent consumers lives under `lib/`, with direct tests under `tests/<domain>/`.
+Shared modules must not depend on skill internals.
+Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper and its shared dependencies are bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`, so installed skills remain self-contained.
 
 For an executable change:
 
@@ -728,17 +780,19 @@ For an executable change:
 9. run at least one end-to-end agent scenario that exercises the executable; and
 10. verify that error output remains useful to an agent, not only to a human developer.
 
-Prefer machine-readable output for machine-consumed results. Keep diagnostics separate where the script's calling convention benefits from clean stdout.
+Prefer machine-readable output for machine-consumed results.
+Keep diagnostics separate where the script's calling convention benefits from clean stdout.
 
 Do not move large deterministic programs into `SKILL.md` merely to avoid maintaining a script.
 
 ---
 
-# Validation and evaluation
+## Validation and evaluation
 
-Validation is layered. Passing an earlier layer does not replace later layers.
+Validation is layered.
+Passing an earlier layer does not replace later layers.
 
-## Layer 1 — normative Agent Skills validation
+### Layer 1 — normative Agent Skills validation
 
 Run the reference validator first:
 
@@ -752,38 +806,45 @@ This checks the Agent Skills structure and frontmatter against the reference imp
 
 **Passing `skills-ref` means the skill is structurally valid. It does not prove the skill is useful.**
 
-## Layer 2 — independent lint and review
+### Layer 2 — independent lint and review
 
-Tessl splits into a local half and an account-gated half. Know which is which before relying on either.
+Tessl splits into a local half and an account-gated half.
+Know which is which before relying on either.
 
-### Lint (local, no account)
+#### Lint (local, no account)
 
-Tessl lint operates on a **plugin package root**, not on an individual skill directory. This repository provides one at `.tessl-plugin/plugin.json`, so lint runs against the whole `skills/` tree at once and needs no Tessl account:
+Tessl lint operates on a **plugin package root**, not on an individual skill directory.
+This repository provides one at `.tessl-plugin/plugin.json`, so lint runs against the whole `skills/` tree at once and needs no Tessl account:
 
 ```powershell
 .\.agent-tools\bin\tessl.cmd skill lint .
 ```
 
-Passing a single skill path fails with `Not a Tessl plugin: no .tessl-plugin/plugin.json or tile.json found in the package root`. That is the expected result of pointing lint below the package root, not a broken install.
+Passing a single skill path fails with `Not a Tessl plugin: no .tessl-plugin/plugin.json or tile.json found in the package root`.
+That is the expected result of pointing lint below the package root, not a broken install.
 
-### Review (cloud, account required)
+#### Review (cloud, account required)
 
-`tessl skill review` is deprecated. The current command runs an asynchronous review on Tessl's servers, so it requires a Tessl account, an authenticated session, and a workspace:
+`tessl skill review` is deprecated.
+The current command runs an asynchronous review on Tessl's servers, so it requires a Tessl account, an authenticated session, and a workspace:
 
 ```powershell
 .\.agent-tools\bin\tessl.cmd login
 .\.agent-tools\bin\tessl.cmd review run ".\skills\$Skill"
 ```
 
-Without `tessl login` the command exits with `Skill review requires you to be logged in`. The bootstrap deliberately does not authenticate, so this layer is optional; skipping it leaves Layers 1, 3 and 4 intact.
+Without `tessl login` the command exits with `Skill review requires you to be logged in`.
+The bootstrap deliberately does not authenticate, so this layer is optional; skipping it leaves Layers 1, 3 and 4 intact.
 
-Treat automated recommendations as review input, not unquestionable truth. In particular, do not let an external optimizer silently rewrite a carefully designed behavioral contract. If deliberately using Tessl's fix mode, inspect every resulting diff:
+Treat automated recommendations as review input, not unquestionable truth.
+In particular, do not let an external optimizer silently rewrite a carefully designed behavioral contract.
+If deliberately using Tessl's fix mode, inspect every resulting diff:
 
 ```powershell
 .\.agent-tools\bin\tessl.cmd review fix ".\skills\$Skill"
 ```
 
-## Layer 3 — `skill-check`
+### Layer 3 — `skill-check`
 
 Ask an agent with the repository's authoring profile loaded to review the canonical skill using `skill-check`.
 
@@ -799,7 +860,7 @@ Use it as a second-opinion static/semantic review for issues such as:
 
 Do not substitute it for behavioral evaluation.
 
-## Layer 4 — OpenAI Plugin Eval
+### Layer 4 — OpenAI Plugin Eval
 
 For Codex-oriented static analysis:
 
@@ -821,7 +882,9 @@ For a recommended next workflow:
     --format markdown
 ```
 
-For material skills, Plugin Eval can also initialize and run a benchmark. The current tool writes `.plugin-eval/` beneath its target, so do not target the generated `skills/<name>/` directory for this mutating workflow. Benchmark a UUID-named temporary copy of the deployable payload while writing the reviewable config and compact outputs under the maintainer suite:
+For material skills, Plugin Eval can also initialize and run a benchmark.
+The current tool writes `.plugin-eval/` beneath its target, so do not target the generated `skills/<name>/` directory for this mutating workflow.
+Benchmark a UUID-named temporary copy of the deployable payload while writing the reviewable config and compact outputs under the maintainer suite:
 
 ```powershell
 $BenchmarkTarget = Join-Path ([IO.Path]::GetTempPath()) ("agent-skills-plugin-eval-$Skill-" + [guid]::NewGuid().ToString())
@@ -833,11 +896,15 @@ Copy-Item -Recurse -LiteralPath ".\skills\$Skill" -Destination $BenchmarkTarget
 .\.agent-tools\bin\plugin-eval.cmd benchmark "$BenchmarkTarget" --config "$BenchmarkConfig" --usage-out "$BenchmarkUsage" --result-out "$BenchmarkResult" --format markdown
 ```
 
-Review and tailor the generated configuration before the final command: the current CLI has no simulated `--dry-run`. Plugin Eval's detailed run logs remain under the temporary copy's `.plugin-eval/` directory; retain any evidence the suite needs, then remove that temporary copy when it is no longer useful.
+Review and tailor the generated configuration before the final command: the current CLI has no simulated `--dry-run`.
+Plugin Eval's detailed run logs remain under the temporary copy's `.plugin-eval/` directory; retain any evidence the suite needs, then remove that temporary copy when it is no longer useful.
 
-## Layer 5 — behavioral evaluation
+### Layer 5 — behavioral evaluation
 
-Keep portable cases, fixtures, protocol extensions, and evaluation programs under `src/<skill-name>/evals/`. Compile the suite before preparation; the consumer workspace combines verified generated runtime bytes with only the referenced evaluation fixtures. Resolve portable `files` entries from the skill root, using `evals/files/...`. New authoritative evidence belongs under `evidence/authoritative/`; reports belong under `evidence/derived/`.
+Keep portable cases, fixtures, protocol extensions, and evaluation programs under `src/<skill-name>/evals/`.
+Compile the suite before preparation; the consumer workspace combines verified generated runtime bytes with only the referenced evaluation fixtures.
+Resolve portable `files` entries from the skill root, using `evals/files/...`.
+New authoritative evidence belongs under `evidence/authoritative/`; reports belong under `evidence/derived/`.
 
 For a **new skill**:
 
@@ -871,13 +938,10 @@ Evaluate what matters for that skill, for example:
 
 When the difference is subjective or high-impact, use blind comparison where the available authoring tooling supports it.
 
-### Score consumption, not only correctness
+#### Score consumption, not only correctness
 
-A capable agent often reaches the right answer with or without the skill, so a
-correctness rubric reports no difference and the evaluation looks like a
-failure. `reading-epubs` was measured this way: **every arm of every controlled
-run answered correctly**, and the skill's value appeared only in what answering
-cost — 45% fewer tokens for Haiku 4.5, 9% for Opus.
+A capable agent often reaches the right answer with or without the skill, so a correctness rubric reports no difference and the evaluation looks like a failure.
+`reading-epubs` was measured this way: **every arm of every controlled run answered correctly**, and the skill's value appeared only in what answering cost — 45% fewer tokens for Haiku 4.5, 9% for Opus.
 
 Capture, from each run's own usage report:
 
@@ -888,57 +952,49 @@ Capture, from each run's own usage report:
 
 The first three need no human grading.
 
-### Vary the model, not just the skill
+#### Vary the model, not just the skill
 
-Benefit frequently scales *inversely* with model capability, because much of
-what a skill supplies is what a strong model would work out unaided. Running
-one model hides this. Run at least a weak and a strong one: the interesting
-comparison is often the diagonal, where a weaker agent with the skill
-outperforms a stronger agent without it.
+Benefit frequently scales *inversely* with model capability, because much of what a skill supplies is what a strong model would work out unaided.
+Running one model hides this.
+Run at least a weak and a strong one: the interesting comparison is often the diagonal, where a weaker agent with the skill outperforms a stronger agent without it.
 
-### Isolate the baseline deliberately
+#### Isolate the baseline deliberately
 
-A "without skill" arm that can see the skill is not a baseline. Omitting to
-mention it is not enough — an agent will find a skill in its own working
-directory, and a scratch path containing the repository name is a strong hint.
-Instruct the baseline explicitly to work from first principles and to report
-whether it encountered relevant tooling, then check that report before
-believing the numbers.
+A "without skill" arm that can see the skill is not a baseline.
+Omitting to mention it is not enough — an agent will find a skill in its own working directory, and a scratch path containing the repository name is a strong hint.
+Instruct the baseline explicitly to work from first principles and to report whether it encountered relevant tooling, then check that report before believing the numbers.
 
-### Net the skill's own cost
+#### Net the skill's own cost
 
-A skill is not free. Its `description` is loaded in every session whether or not
-it is used, and its body is loaded on every activation. A saving only counts
-once it has paid for both:
+A skill is not free.
+Its `description` is loaded in every session whether or not it is used, and its body is loaded on every activation.
+A saving only counts once it has paid for both:
 
 ```text
 net benefit  =  (saving per use  −  invoke cost)  ×  uses
                 −  trigger cost  ×  every session
 ```
 
-The trigger term is the unforgiving one, because it is charged even in sessions
-where the skill never fires. A narrowly useful skill with a verbose description
-can be net negative across a fleet while looking beneficial in every run that
-used it.
+The trigger term is the unforgiving one, because it is charged even in sessions where the skill never fires.
+A narrowly useful skill with a verbose description can be net negative across a fleet while looking beneficial in every run that used it.
 
-`plugin-eval explain-budget` reports both costs. For `reading-epubs` they are
-roughly 98 trigger tokens and 1,500 invoke tokens, against a measured saving of
-about 30,000 tokens on one real book — clearing its own overhead about twentyfold
-on a single use. A skill saving 500 tokens per use would not clear it at all.
+`plugin-eval explain-budget` reports both costs.
+For `reading-epubs` they are roughly 98 trigger tokens and 1,500 invoke tokens, against a measured saving of about 30,000 tokens on one real book — clearing its own overhead about twentyfold on a single use.
+A skill saving 500 tokens per use would not clear it at all.
 
-State this ratio when claiming an efficiency benefit. "Saves tokens" is not a
-result; "saves 20× what it costs to carry" is.
+State this ratio when claiming an efficiency benefit.
+"Saves tokens" is not a result; "saves 20× what it costs to carry" is.
 
-### Do not over-read a single run
+#### Do not over-read a single run
 
-One run per arm has no statistical power. Published work in this area has found
-apparent single-digit improvements that did not survive a properly powered
-study. Treat a handful of runs as directional evidence, record the sample size
-alongside the result, and say plainly what the numbers do not establish.
+One run per arm has no statistical power.
+Published work in this area has found apparent single-digit improvements that did not survive a properly powered study.
+Treat a handful of runs as directional evidence, record the sample size alongside the result, and say plainly what the numbers do not establish.
 
-## Layer 6 — trigger evaluation
+### Layer 6 — trigger evaluation
 
-A well-written skill that never activates is ineffective. A skill that activates everywhere wastes context and can distort unrelated work.
+A well-written skill that never activates is ineffective.
+A skill that activates everywhere wastes context and can distort unrelated work.
 
 Store the committed trigger cases at `evals/<skill-name>/trigger-evals.json`, beside the behavioral definitions and outside the deployable skill.
 
@@ -958,11 +1014,12 @@ SHOULD NOT TRIGGER
 ✗ cases another specialist skill should own
 ```
 
-Anthropic's `skill-creator` includes a description-optimization workflow for should-trigger and should-not-trigger prompts. Use it when trigger behavior materially matters.
+Anthropic's `skill-creator` includes a description-optimization workflow for should-trigger and should-not-trigger prompts.
+Use it when trigger behavior materially matters.
 
 Avoid optimizing only against the same examples used to design the description; keep held-out cases where practical.
 
-## Layer 7 — cross-agent smoke test
+### Layer 7 — cross-agent smoke test
 
 When a skill is intended to be portable, test it in the supported hosts available to you:
 
@@ -983,41 +1040,41 @@ A cross-agent skill should avoid host-specific instructions unless the host dist
 
 ---
 
-# Change-risk matrix
+## Change-risk matrix
 
 Use the smallest evaluation set that provides credible evidence for the change.
 
-| Change | Minimum expected evaluation |
-|---|---|
-| Typo / prose clarification with no semantic change | `skills-ref`, diff review |
-| Reference documentation change | `skills-ref`, affected scenario smoke test |
-| Script implementation change | `npm test` + `skills-ref` + end-to-end scenario |
-| Script output-shape change | `npm test`, with the source JSON schema and every consumer updated in the same change |
-| `description` / trigger change | `skills-ref` + positive/negative trigger evals |
-| Core workflow instruction change | old-vs-new behavioral eval + static review |
-| New mandatory constraint | pressure/failure cases + regression scenarios |
-| New skill | baseline-without-skill + behavioral eval + trigger eval + static review + baseline-versus-skill resource measurement |
-| Skill justified on efficiency rather than output | the above, plus consumption measured across at least two model tiers, and the saving netted against the skill's own trigger and invoke cost |
-| Large/refactored skill | full layered review + token/progressive-disclosure review |
-| Host-specific behavior change | affected-host test + at least one portability sanity check |
+| Change                                             | Minimum expected evaluation                                                                                                                 |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Typo / prose clarification with no semantic change | `skills-ref`, diff review                                                                                                                   |
+| Reference documentation change                     | `skills-ref`, affected scenario smoke test                                                                                                  |
+| Script implementation change                       | `npm test` + `skills-ref` + end-to-end scenario                                                                                             |
+| Script output-shape change                         | `npm test`, with the source JSON schema and every consumer updated in the same change                                                       |
+| `description` / trigger change                     | `skills-ref` + positive/negative trigger evals                                                                                              |
+| Core workflow instruction change                   | old-vs-new behavioral eval + static review                                                                                                  |
+| New mandatory constraint                           | pressure/failure cases + regression scenarios                                                                                               |
+| New skill                                          | baseline-without-skill + behavioral eval + trigger eval + static review + baseline-versus-skill resource measurement                        |
+| Skill justified on efficiency rather than output   | the above, plus consumption measured across at least two model tiers, and the saving netted against the skill's own trigger and invoke cost |
+| Large/refactored skill                             | full layered review + token/progressive-disclosure review                                                                                   |
+| Host-specific behavior change                      | affected-host test + at least one portability sanity check                                                                                  |
 
 ---
 
-# Toolchain at a glance
+## Toolchain at a glance
 
 The tools intentionally overlap, but they answer different questions.
 
-| Tool | Best question to ask it |
-|---|---|
-| **Agent Skills specification** | “What is valid and portable?” |
-| **`skills-ref`** | “Does this artifact conform to the specification?” |
-| **`skill-creator`** | “How should I create/improve and empirically evaluate this skill?” |
-| **`writing-skills`** | “What failure am I correcting, and can I prove the skill changes behavior?” |
-| **`test-driven-development`** | “Can I establish RED before implementing GREEN?” |
-| **`skill-check`** | “What static/semantic quality smells have we missed?” |
-| **Tessl** | “What does an independent Agent Skills reviewer/linter find?” |
-| **OpenAI Plugin Eval** | “How does this look from Codex/plugin evaluation and token-budget perspectives?” |
-| **`committing-to-git`** | “How do I turn an approved snapshot into an accurate signed commit and, when separately authorized, publish that exact object?” |
+| Tool                           | Best question to ask it                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent Skills specification** | “What is valid and portable?”                                                                                                   |
+| **`skills-ref`**               | “Does this artifact conform to the specification?”                                                                              |
+| **`skill-creator`**            | “How should I create/improve and empirically evaluate this skill?”                                                              |
+| **`writing-skills`**           | “What failure am I correcting, and can I prove the skill changes behavior?”                                                     |
+| **`test-driven-development`**  | “Can I establish RED before implementing GREEN?”                                                                                |
+| **`skill-check`**              | “What static/semantic quality smells have we missed?”                                                                           |
+| **Tessl**                      | “What does an independent Agent Skills reviewer/linter find?”                                                                   |
+| **OpenAI Plugin Eval**         | “How does this look from Codex/plugin evaluation and token-budget perspectives?”                                                |
+| **`committing-to-git`**        | “How do I turn an approved snapshot into an accurate signed commit and, when separately authorized, publish that exact object?” |
 
 ### Authority order
 
@@ -1035,13 +1092,14 @@ authoring/evaluation methodologies
 style preferences
 ```
 
-A methodology may be intentionally stricter than the specification. It should not silently redefine the specification.
+A methodology may be intentionally stricter than the specification.
+It should not silently redefine the specification.
 
 ---
 
-# Agent Skills authoring principles
+## Agent Skills authoring principles
 
-## Frontmatter
+### Frontmatter
 
 At minimum:
 
@@ -1061,7 +1119,7 @@ Current Agent Skills constraints include:
 - `description` is required;
 - maximum description length: 1,024 characters.
 
-## Progressive disclosure
+### Progressive disclosure
 
 Design for three stages:
 
@@ -1079,7 +1137,7 @@ Design for three stages:
 
 Do not make every agent pay the context cost of details needed by only a small proportion of invocations.
 
-## File references
+### File references
 
 Prefer direct, skill-root-relative references:
 
@@ -1091,9 +1149,10 @@ Run:
 python scripts/convert.py input.epub
 ```
 
-Keep reference chains shallow. The Agent Skills specification recommends direct references from `SKILL.md` rather than deeply nested “read this, which tells you to read that” chains.
+Keep reference chains shallow.
+The Agent Skills specification recommends direct references from `SKILL.md` rather than deeply nested “read this, which tells you to read that” chains.
 
-## Instructions
+### Instructions
 
 Prefer instructions that are:
 
@@ -1109,7 +1168,7 @@ Avoid padding a skill with general advice the model already follows reliably.
 
 ---
 
-# Definition of done
+## Definition of done
 
 For a meaningful new or modified skill:
 
@@ -1123,7 +1182,7 @@ For a meaningful new or modified skill:
 - [ ] Detailed material is progressively disclosed through `references/`, `scripts/`, or `assets/`.
 - [ ] File references resolve correctly.
 - [ ] Every repository-authored canonical `SKILL.md` contains ASCII bytes only.
-- [ ] Prose blocks in canonical `SKILL.md` and `references/**/*.md` files use one physical line and rely on viewer soft wrapping.
+- [ ] Maintained Markdown passes the shared policy through `npm run check:markdown`; historical evidence and portable fixtures retain their bytes.
 - [ ] Scripts have been exercised independently where applicable.
 - [ ] Bundled executables were changed in `src/`, regenerated with `npm run build`, and checked for drift.
 - [ ] `skills-ref validate` passes.
@@ -1139,9 +1198,9 @@ For a meaningful new or modified skill:
 
 ---
 
-# Git workflow
+## Git workflow
 
-## Before editing
+### Before editing
 
 Start from a clean understanding of repository state:
 
@@ -1151,9 +1210,12 @@ git diff --stat HEAD
 git diff --numstat HEAD
 ```
 
-Use the overview to choose a bounded inspection strategy. A small diff can be read with `git diff HEAD`; split a large diff by path or use the `committing-to-git` inspection artifacts so terminal truncation never becomes implicit approval. Inspect untracked content separately. Do not assume that every existing uncommitted change belongs to your task.
+Use the overview to choose a bounded inspection strategy.
+A small diff can be read with `git diff HEAD`; split a large diff by path or use the `committing-to-git` inspection artifacts so terminal truncation never becomes implicit approval.
+Inspect untracked content separately.
+Do not assume that every existing uncommitted change belongs to your task.
 
-## Before committing
+### Before committing
 
 Recheck the complete state:
 
@@ -1161,11 +1223,13 @@ Recheck the complete state:
 git status --porcelain=v2 --branch --untracked-files=all
 ```
 
-Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and explicitly authorized publication. For commit-and-publish requests, establish publication feasibility before drafting and include the selected route and permitted fallbacks in the approval proposal. The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
+Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and explicitly authorized publication.
+For commit-and-publish requests, establish publication feasibility before drafting and include the selected route and permitted fallbacks in the approval proposal.
+The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
 
 ---
 
-# Update the development environment
+## Update the development environment
 
 There is no separate updater.
 
@@ -1175,7 +1239,8 @@ Rerun:
 py scripts\set_up_development_environment.py
 ```
 
-The runner converges the local development environment on current upstream tooling. To refresh only one part, run that part's script directly instead.
+The runner converges the local development environment on current upstream tooling.
+To refresh only one part, run that part's script directly instead.
 
 In particular, it refreshes:
 
@@ -1188,26 +1253,26 @@ In particular, it refreshes:
 
 Because the toolchain follows latest upstream versions, behavior can legitimately change between runs.
 
-The **canonical skills in this repository are not replaced by the bootstrap**. It refreshes the tools used to work on them.
+The **canonical skills in this repository are not replaced by the bootstrap**.
+It refreshes the tools used to work on them.
 
 ---
 
-# How the bootstrap works
+## How the bootstrap works
 
 <details>
 <summary><strong>Expand implementation details</strong></summary>
 
 ### Structure
 
-`scripts/set_up_development_environment.py` is a runner. It verifies the
-repository's identity once, then sequences three setup scripts that each do one
-job and each run standalone:
+`scripts/set_up_development_environment.py` is a runner.
+It verifies the repository's identity once, then sequences three setup scripts that each do one job and each run standalone:
 
-| Script | Owns |
-|---|---|
-| `set_up_agent_skills.py` | The authoring skills declared in `skills-lock.json` |
+| Script                       | Owns                                                          |
+| ---------------------------- | ------------------------------------------------------------- |
+| `set_up_agent_skills.py`     | The authoring skills declared in `skills-lock.json`           |
 | `set_up_evaluation_tools.py` | `skills-ref`, Tessl CLI, OpenAI Plugin Eval, and the wrappers |
-| `set_up_mcp_servers.py` | MCP servers and each host's configuration |
+| `set_up_mcp_servers.py`      | MCP servers and each host's configuration                     |
 
 Run one directly when only that part needs refreshing:
 
@@ -1215,32 +1280,23 @@ Run one directly when only that part needs refreshing:
 py scripts\set_up_mcp_servers.py
 ```
 
-Two internal modules, marked non-public by their leading underscore, hold what
-all of them need: `_commands.py` runs external commands and locates executables,
-and `_repository.py` derives and interrogates the Git working tree.
+Two internal modules, marked non-public by their leading underscore, hold what all of them need: `_commands.py` runs external commands and locates executables, and `_repository.py` derives and interrogates the Git working tree.
 
 ### Repository identity
 
-Each script derives the repository root from its own location — the directory one
-level above it — and requires Git to agree that this is the working tree's top
-level. The name of the directory holding the scripts is never checked, so the
-same files work in a repository that calls it `util/` instead.
+Each script derives the repository root from its own location — the directory one level above it — and requires Git to agree that this is the working tree's top level.
+The name of the directory holding the scripts is never checked, so the same files work in a repository that calls it `util/` instead.
 
-The runner additionally verifies the Git repository identity before anything
-generated is changed, because every part deletes and rewrites directories and
-doing that in the wrong clone would destroy unrelated work. That check lives in
-the runner alone, which keeps the three parts reusable in other repositories.
+The runner additionally verifies the Git repository identity before anything generated is changed, because every part deletes and rewrites directories and doing that in the wrong clone would destroy unrelated work.
+That check lives in the runner alone, which keeps the three parts reusable in other repositories.
 
 `--allow-unverified-repo` exists for intentional forks or worktrees.
 
 ### Generated Agent Skill views
 
-`set_up_agent_skills.py` reads `skills-lock.json` — the standard lock the
-`skills` CLI already writes — and re-adds each declared skill from its recorded
-source. The declared set therefore lives in exactly one place, rather than being
-duplicated between a lock file and a hardcoded list of install commands. Skills
-sharing a source are re-added in a single invocation, because `skills add` clones
-the whole source repository once per call.
+`set_up_agent_skills.py` reads `skills-lock.json` — the standard lock the `skills` CLI already writes — and re-adds each declared skill from its recorded source.
+The declared set therefore lives in exactly one place, rather than being duplicated between a lock file and a hardcoded list of install commands.
+Skills sharing a source are re-added in a single invocation, because `skills add` clones the whole source repository once per call.
 
 It rebuilds:
 
@@ -1251,23 +1307,14 @@ It rebuilds:
 
 rather than allowing stale development skills to accumulate indefinitely.
 
-Before removing either root it checks two things and refuses on either: that Git
-tracks nothing underneath it, and that the root is actually covered by an ignore
-rule. The second check is what stops a missing `.gitignore` entry from turning
-generated state into an untracked mess after every run.
+Before removing either root it checks two things and refuses on either: that Git tracks nothing underneath it, and that the root is actually covered by an ignore rule.
+The second check is what stops a missing `.gitignore` entry from turning generated state into an untracked mess after every run.
 
-Afterwards it verifies that each root holds **exactly** the declared skills —
-an unexpected leftover skill fails the run just as a missing one does — and
-reports whether `npx skills` modified `skills-lock.json` while refreshing.
+Afterwards it verifies that each root holds **exactly** the declared skills — an unexpected leftover skill fails the run just as a missing one does — and reports whether `npx skills` modified `skills-lock.json` while refreshing.
 
-For upstream suites whose skills reference a sibling `../_shared/` directory, it
-vendors that directory into the installed skill as `references/_shared/` and
-rewrites the references, so a selected module from a bundle repository is
-self-contained. It reads upstream through a shallow, blobless, cone-mode sparse
-checkout limited to the `_shared` directories actually needed, so a large suite
-repository is never materialized in full. None of this repository's canonical
-skills currently use `../_shared`, so the step normally reports that it found
-nothing.
+For upstream suites whose skills reference a sibling `../_shared/` directory, it vendors that directory into the installed skill as `references/_shared/` and rewrites the references, so a selected module from a bundle repository is self-contained.
+It reads upstream through a shallow, blobless, cone-mode sparse checkout limited to the `_shared` directories actually needed, so a large suite repository is never materialized in full.
+None of this repository's canonical skills currently use `../_shared`, so the step normally reports that it found nothing.
 
 ### Python tooling
 
@@ -1291,7 +1338,9 @@ Tessl's npm launcher is installed under:
 .agent-tools/tessl/
 ```
 
-rather than as a global npm package. Tessl's launcher manages a platform-native runtime binary separately. The bootstrap updates both layers: it installs `@tessl/cli@latest`, then runs `tessl cli update` so an existing runtime cannot remain behind the launcher version.
+rather than as a global npm package.
+Tessl's launcher manages a platform-native runtime binary separately.
+The bootstrap updates both layers: it installs `@tessl/cli@latest`, then runs `tessl cli update` so an existing runtime cannot remain behind the launcher version.
 
 Use the generated wrapper:
 
@@ -1299,9 +1348,12 @@ Use the generated wrapper:
 .agent-tools/bin/tessl.cmd
 ```
 
-The bootstrap does not log in to Tessl. Authentication/preferences used later by Tessl may be user-level state.
+The bootstrap does not log in to Tessl.
+Authentication/preferences used later by Tessl may be user-level state.
 
-`tessl skill lint` needs no account, but it resolves a plugin package root rather than a skill directory. The committed `.tessl-plugin/plugin.json` supplies that root, so lint works immediately after bootstrap. `tessl review run` and `tessl review fix` execute on Tessl's servers and require `tessl login` plus a workspace; without them, Layer 2's review half is unavailable.
+`tessl skill lint` needs no account, but it resolves a plugin package root rather than a skill directory.
+The committed `.tessl-plugin/plugin.json` supplies that root, so lint works immediately after bootstrap.
+`tessl review run` and `tessl review fix` execute on Tessl's servers and require `tessl login` plus a workspace; without them, Layer 2's review half is unavailable.
 
 ### OpenAI Plugin Eval
 
@@ -1323,56 +1375,38 @@ The direct wrapper is the unambiguous command-line entry point; do not assume ge
 
 ### GitHub MCP server
 
-The bootstrap installs the official release binary rather than building it with
-`go install`, so Go is not a prerequisite. It resolves the latest release from
-the GitHub API, picks the asset matching this machine's operating system and
-architecture, verifies the download against the release's own `checksums.txt`
-before anything is written, and extracts only the executable to:
+The bootstrap installs the official release binary rather than building it with `go install`, so Go is not a prerequisite.
+It resolves the latest release from the GitHub API, picks the asset matching this machine's operating system and architecture, verifies the download against the release's own `checksums.txt` before anything is written, and extracts only the executable to:
 
 ```text
 .agent-tools/bin/github-mcp-server[.exe]
 ```
 
-Reruns converge without re-downloading. `.agent-tools/github-mcp-server/install.json`
-records the installed tag, asset, and the SHA-256 of the executable actually on
-disk; the download is skipped while all three still agree.
+Reruns converge without re-downloading.
+`.agent-tools/github-mcp-server/install.json` records the installed tag, asset, and the SHA-256 of the executable actually on disk; the download is skipped while all three still agree.
 
-It then points each supported host at that binary, in the file that host reads
-from the project or workspace root:
+It then points each supported host at that binary, in the file that host reads from the project or workspace root:
 
-| Host | File | Entry |
-|---|---|---|
-| Claude Code | `.mcp.json` | `mcpServers.github` |
-| Codex | `.codex/config.toml` | `[mcp_servers.github]` |
-| Antigravity | `.agents/mcp_config.json` | `mcpServers.github` |
+| Host        | File                      | Entry                  |
+| ----------- | ------------------------- | ---------------------- |
+| Claude Code | `.mcp.json`               | `mcpServers.github`    |
+| Codex       | `.codex/config.toml`      | `[mcp_servers.github]` |
+| Antigravity | `.agents/mcp_config.json` | `mcpServers.github`    |
 
-Every entry names the same repository-relative command, so the configuration
-survives the clone moving and is identical on every machine of the same
-platform. Each host starts a stdio server with that root as its working
-directory, which is what makes a relative command resolve.
+Every entry names the same repository-relative command, so the configuration survives the clone moving and is identical on every machine of the same platform.
+Each host starts a stdio server with that root as its working directory, which is what makes a relative command resolve.
 
-Every entry carries only `command` and `args`. No credential is configured for
-any host, because the server's OAuth flow triggers only when no token is set:
-naming or forwarding `GITHUB_PERSONAL_ACCESS_TOKEN` would silently replace an
-in-memory OAuth token with a long-lived one. `tests/scripts/github-mcp-server.test.mjs`
-asserts that no generated file mentions a token variable.
+Every entry carries only `command` and `args`.
+No credential is configured for any host, because the server's OAuth flow triggers only when no token is set: naming or forwarding `GITHUB_PERSONAL_ACCESS_TOKEN` would silently replace an in-memory OAuth token with a long-lived one.
+`tests/scripts/github-mcp-server.test.mjs` asserts that no generated file mentions a token variable.
 
-These files are shared with servers this repository knows nothing about, so the
-merge is deliberately conservative:
+These files are shared with servers this repository knows nothing about, so the merge is deliberately conservative:
 
-- the JSON files are parsed and only the `github` entry is rewritten, preserving
-  other servers, unrelated top-level keys, and any option hand-added to the
-  `github` entry itself;
-- the Codex file is TOML that carries comments and ordering a parse-and-rewrite
-  round trip would flatten, so only a marker-delimited block is generated and
-  everything outside it is copied through untouched. A hand-written
-  `[mcp_servers.github]` outside that block is refused rather than duplicated,
-  because TOML forbids declaring the same table twice and appending would break
-  the whole Codex configuration rather than just this server.
+- the JSON files are parsed and only the `github` entry is rewritten, preserving other servers, unrelated top-level keys, and any option hand-added to the `github` entry itself;
+- the Codex file is TOML that carries comments and ordering a parse-and-rewrite round trip would flatten, so only a marker-delimited block is generated and everything outside it is copied through untouched.
+  A hand-written `[mcp_servers.github]` outside that block is refused rather than duplicated, because TOML forbids declaring the same table twice and appending would break the whole Codex configuration rather than just this server.
 
-`tests/scripts/github-mcp-server.test.mjs` covers the platform-to-asset mapping,
-the archive extraction, and every one of those merge guarantees without touching
-the network.
+`tests/scripts/github-mcp-server.test.mjs` covers the platform-to-asset mapping, the archive extraction, and every one of those merge guarantees without touching the network.
 
 ### Latest-following policy
 
@@ -1384,9 +1418,10 @@ That policy optimizes this repository for **current skill-engineering practice**
 
 ---
 
-# Adding or changing an authoring dependency
+## Adding or changing an authoring dependency
 
-The bootstrap's authoring dependencies are repository infrastructure. Change them deliberately.
+The bootstrap's authoring dependencies are repository infrastructure.
+Change them deliberately.
 
 For an Agent Skill dependency:
 
@@ -1410,9 +1445,9 @@ For a CLI/tool dependency:
 
 ---
 
-# Common workflows
+## Common workflows
 
-## Validate one skill
+### Validate one skill
 
 ```powershell
 $Skill = "committing-to-git"
@@ -1429,36 +1464,41 @@ Tessl lint is not per-skill; it validates the whole plugin package root at once:
 
 `tessl review run` additionally requires an authenticated Tessl account (see Layer 2).
 
-## Run the script contract tests
+### Run the script contract tests
 
 ```powershell
 npm test
 ```
 
-`npm test` uses the exact dependency graph recorded in `package-lock.json`, while `package.json` permits compatible dependency updates. These tests cover skills that ship executable scripts and the repository tooling that builds or installs them. Skill contract tests run published executables the way an agent does - as subprocesses against throwaway inputs or Git repositories - and assert that their JSON output still conforms to the source schemas.
+`npm test` uses the exact dependency graph recorded in `package-lock.json`, while `package.json` permits compatible dependency updates.
+These tests cover skills that ship executable scripts and the repository tooling that builds or installs them.
+Skill contract tests run published executables the way an agent does - as subprocesses against throwaway inputs or Git repositories - and assert that their JSON output still conforms to the source schemas.
 
 This matters because a skill's instructions branch on specific output fields.
-`committing-to-git` passes a versioned snapshot, transaction-bound packet stream,
-semantic-only content input, validation result, witnessed check receipts,
-exact-commit signature result, optional publication result, and post-commit
-report between its public routes in one published workflow bundle. If one output changes without its
-schema and consumer, the workflow can silently stage, inspect, approve, verify,
-publish, or report a different state. The suite validates representative
-cross-route payloads; exact Git-tree, path, signature, report, and publication
-invariants; transactional staging failure behavior; CLI help and exit semantics;
-and agreement between validator issue codes and schema enums.
+`committing-to-git` passes a versioned snapshot, transaction-bound packet stream, semantic-only content input, validation result, witnessed check receipts, exact-commit signature result, optional publication result, and post-commit report between its public routes in one published workflow bundle.
+If one output changes without its schema and consumer, the workflow can silently stage, inspect, approve, verify, publish, or report a different state.
+The suite validates representative cross-route payloads; exact Git-tree, path, signature, report, and publication invariants; transactional staging failure behavior; CLI help and exit semantics; and agreement between validator issue codes and schema enums.
 
-The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with Node 24. It records the tested commit and tool versions and retains build and TAP output. See [workflow runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/committing-to-git-linux.yml) for results and [native evaluation platform boundaries](./docs/evaluation-platform-boundaries.md) for supported storage, credential handling, and platform limitations. Deterministic Linux verification does not establish additional agent-host behavioral coverage.
+The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with Node 24.
+It records the tested commit and tool versions and retains build and TAP output.
+See [workflow runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/committing-to-git-linux.yml) for results and [native evaluation platform boundaries](./docs/evaluation-platform-boundaries.md) for supported storage, credential handling, and platform limitations.
+Deterministic Linux verification does not establish additional agent-host behavioral coverage.
 
-The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges. Published generated skill artifacts have no third-party runtime dependency. Run `npm run build` after changing maintainer source under `src/`. Its prebuild gate checks formatting and lint before regenerating artifacts. Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, one-physical-line prose in canonical `SKILL.md` and reference Markdown, and committed artifact currency. Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
+The repository keeps esbuild, ESLint, and Prettier as development-only dependencies with compatible version ranges.
+Published generated skill artifacts have no third-party runtime dependency.
+Run `npm run build` after changing maintainer source under `src/`.
+Its prebuild gate checks formatting and lint before regenerating artifacts.
+Run the non-mutating `npm run build:check` to check formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, one-physical-line prose in canonical `SKILL.md` and reference Markdown, and committed artifact currency.
+Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
-## Run deterministic local verification
+### Run deterministic local verification
 
 ```powershell
 npm run verify
 ```
 
-This visible package-script chain runs `build:check`, the complete Node test suite, `skills-ref` against every canonical skill, local Tessl lint against the repository plugin package, and `git diff --check HEAD`. The repository-managed `skills-ref` and Tessl wrappers must already exist; run the development-environment setup first when they are missing.
+This visible package-script chain runs `build:check`, the complete Node test suite, `skills-ref` against every canonical skill, local Tessl lint against the repository plugin package, and `git diff --check HEAD`.
+The repository-managed `skills-ref` and Tessl wrappers must already exist; run the development-environment setup first when they are missing.
 
 For a focused inner loop, validate exactly one canonical skill by name:
 
@@ -1466,23 +1506,38 @@ For a focused inner loop, validate exactly one canonical skill by name:
 npm run verify:skill -- --skill defining-concepts
 ```
 
-The scoped command checks that skill's ASCII-only canonical `SKILL.md`, one-physical-line prose in its canonical `SKILL.md` and reference Markdown, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths. It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run. A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
+The scoped command checks that skill's ASCII-only canonical `SKILL.md`, one-physical-line prose in its canonical `SKILL.md` and reference Markdown, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths.
+It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
+A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
-The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python 3.14. Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python 3.14.
+Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
 
 ```sh
 gh workflow run defining-concepts-linux.yml --ref main -f revision=<full-commit-id>
 ```
 
-The workflow installs locked npm dependencies, then runs the supported standalone `scripts/set_up_evaluation_tools.py` component to provision repository validation tools, including `skills-ref`. It records the resolved checkout commit, OS and runtime versions, validator package version and upstream source commit. Setup follows current upstream tooling, so the recorded acquisition identities matter. Existing committing-to-git Linux coverage remains a separate workflow.
+The workflow installs locked npm dependencies, then runs the supported standalone `scripts/set_up_evaluation_tools.py` component to provision repository validation tools, including `skills-ref`.
+It records the resolved checkout commit, OS and runtime versions, validator package version and upstream source commit.
+Setup follows current upstream tooling, so the recorded acquisition identities matter.
+Existing committing-to-git Linux coverage remains a separate workflow.
 
-Environment, installation, setup and verification output is retained in protected Actions logs and a bounded job summary on success and failure, without uploading workflow artifacts. Native nonzero exits propagate through the capture wrapper; cancellation can prevent final reporting. The Node test output reports skips explicitly, including the retained-campaign check when no current campaign is present. See [hosted runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/defining-concepts-linux.yml) for exact results. This route validates deterministic structure, references, formatting, generated artifacts, evaluation definitions, runners, session handling and retained-result contracts. It makes no model calls and establishes neither live behavioral quality nor trigger accuracy; those evaluations remain separately authorized. It introduces no mandatory multi-host release gate.
+Environment, installation, setup and verification output is retained in protected Actions logs and a bounded job summary on success and failure, without uploading workflow artifacts.
+Native nonzero exits propagate through the capture wrapper; cancellation can prevent final reporting.
+The Node test output reports skips explicitly, including the retained-campaign check when no current campaign is present.
+See [hosted runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/defining-concepts-linux.yml) for exact results.
+This route validates deterministic structure, references, formatting, generated artifacts, evaluation definitions, runners, session handling and retained-result contracts.
+It makes no model calls and establishes neither live behavioral quality nor trigger accuracy; those evaluations remain separately authorized.
+It introduces no mandatory multi-host release gate.
 
-Passing `npm run verify` establishes deterministic local gates. It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of repository state and the complete intended change through bounded artifacts.
+Passing `npm run verify` establishes deterministic local gates.
+It does not replace behavioral or trigger evaluation when applicable, cross-agent portability checks when applicable, or semantic review of repository state and the complete intended change through bounded artifacts.
 
-Use `npm run format` to apply Prettier to maintained JavaScript, JSON schemas, tests, and the root JavaScript/package configuration. Canonical skills, Markdown documentation, generated bundles, Python, Lua, and the lockfile remain outside that formatting scope. Use `npm run fix:all` to apply safe ESLint fixes before formatting.
+Use `npm run format` to apply Prettier to maintained JavaScript, JSON schemas, tests, and the root JavaScript/package configuration.
+Canonical skills, Markdown documentation, generated bundles, Python, Lua, and the lockfile remain outside that formatting scope.
+Use `npm run fix:all` to apply safe ESLint fixes before formatting.
 
-## Inspect token-budget concerns
+### Inspect token-budget concerns
 
 ```powershell
 $Skill = "committing-to-git"
@@ -1491,13 +1546,13 @@ $Skill = "committing-to-git"
     --format markdown
 ```
 
-## Refresh all authoring tools
+### Refresh all authoring tools
 
 ```powershell
 py scripts\set_up_development_environment.py
 ```
 
-## Review the final repository change
+### Review the final repository change
 
 ```powershell
 git status --porcelain=v2 --branch --untracked-files=all
@@ -1505,11 +1560,12 @@ git diff --stat HEAD
 git diff --numstat HEAD
 ```
 
-Then read the complete diff in bounded path-level or workflow-generated artifacts. Do not treat a truncated aggregate `git diff HEAD` response as complete review evidence.
+Then read the complete diff in bounded path-level or workflow-generated artifacts.
+Do not treat a truncated aggregate `git diff HEAD` response as complete review evidence.
 
 ---
 
-# Troubleshooting
+## Troubleshooting
 
 <details>
 <summary><strong>The bootstrap refuses to remove a generated path because Git tracks files there</strong></summary>
@@ -1550,10 +1606,8 @@ Project-wide generated artifacts belong in `.gitignore`, not in a developer-spec
 <details>
 <summary><strong>The repository-local Python reports that its base executable is missing or inaccessible</strong></summary>
 
-Python virtual environments retain the base-interpreter location used when they
-were created. If that Python installation moves, is removed, or becomes
-inaccessible to a sandbox, `.venv\Scripts\python.exe` may fail even though the
-current `python` or `py` command works normally.
+Python virtual environments retain the base-interpreter location used when they were created.
+If that Python installation moves, is removed, or becomes inaccessible to a sandbox, `.venv\Scripts\python.exe` may fail even though the current `python` or `py` command works normally.
 
 Rerun the evaluation-tool setup with an accessible Python 3.11 or newer:
 
@@ -1561,11 +1615,9 @@ Rerun the evaluation-tool setup with an accessible Python 3.11 or newer:
 py scripts\set_up_evaluation_tools.py
 ```
 
-The bootstrap probes an existing repository-owned `.venv` before reuse. When
-the interpreter cannot start, it reports the previous error, clears that
-generated environment, recreates it from the Python running the bootstrap, and
-verifies the replacement before installing anything. It refuses to clear
-`.venv` when that path is a symlink or junction.
+The bootstrap probes an existing repository-owned `.venv` before reuse.
+When the interpreter cannot start, it reports the previous error, clears that generated environment, recreates it from the Python running the bootstrap, and verifies the replacement before installing anything.
+It refuses to clear `.venv` when that path is a symlink or junction.
 
 </details>
 
@@ -1587,7 +1639,8 @@ The bootstrap force-reinstalls the current upstream `skills-ref` implementation 
 
 The bootstrap installs Tessl locally but intentionally does not authenticate it.
 
-Authentication and preferences are separate user concerns. Follow Tessl's current authentication flow when a command requires it; do not add credentials to this repository.
+Authentication and preferences are separate user concerns.
+Follow Tessl's current authentication flow when a command requires it; do not add credentials to this repository.
 
 </details>
 
@@ -1607,24 +1660,20 @@ The local checkout and generated workspace metadata are development conveniences
 <details>
 <summary><strong>The bootstrap cannot replace <code>github-mcp-server.exe</code> because it is in use</strong></summary>
 
-Windows keeps a running executable locked, and an agent connected to the GitHub
-MCP server holds it open.
+Windows keeps a running executable locked, and an agent connected to the GitHub MCP server holds it open.
 
-Close the agents currently using it — Claude Code, Codex, Antigravity — and
-rerun. The bootstrap only tries to replace the binary when the release actually
-changed, so this cannot block an otherwise up-to-date rerun.
+Close the agents currently using it — Claude Code, Codex, Antigravity — and rerun.
+The bootstrap only tries to replace the binary when the release actually changed, so this cannot block an otherwise up-to-date rerun.
 
 </details>
 
 <details>
 <summary><strong>The GitHub MCP server download fails with HTTP 403 or 429</strong></summary>
 
-The bootstrap resolves the latest release through the unauthenticated GitHub
-API, which allows 60 requests an hour per address. Wait for the window to reset
-and rerun.
+The bootstrap resolves the latest release through the unauthenticated GitHub API, which allows 60 requests an hour per address.
+Wait for the window to reset and rerun.
 
-Nothing is written until the download has been checked against the release
-checksum manifest, so a failed attempt leaves the previous install intact.
+Nothing is written until the download has been checked against the release checksum manifest, so a failed attempt leaves the previous install intact.
 
 </details>
 
@@ -1633,14 +1682,13 @@ checksum manifest, so a failed attempt leaves the previous install intact.
 
 Check the two things the bootstrap cannot verify for you.
 
-First, authentication. The server opens a browser for OAuth on first use, so an
-agent running somewhere that cannot open one — a remote shell, a container — has
-no way to complete the flow. Nothing is cached between runs, since the token is
-held in memory only.
+First, authentication.
+The server opens a browser for OAuth on first use, so an agent running somewhere that cannot open one — a remote shell, a container — has no way to complete the flow.
+Nothing is cached between runs, since the token is held in memory only.
 
-Second, the working directory. The generated configuration names the binary by a
-repository-relative path, which resolves only if the host was started at the
-repository root. Confirm the binary runs:
+Second, the working directory.
+The generated configuration names the binary by a repository-relative path, which resolves only if the host was started at the repository root.
+Confirm the binary runs:
 
 ```powershell
 .\.agent-tools\bin\github-mcp-server.exe --version
@@ -1667,9 +1715,9 @@ Record or explain intentional deviations when they are likely to surprise a futu
 
 ---
 
-# Maintainer guidance
+## Maintainer guidance
 
-## Keep the repository's own authoring profile narrow
+### Keep the repository's own authoring profile narrow
 
 Adding another development skill has costs:
 
@@ -1680,7 +1728,7 @@ Adding another development skill has costs:
 
 Add a skill when it provides a distinct, recurring benefit—not merely because it is interesting.
 
-## Prefer upstream canonical sources
+### Prefer upstream canonical sources
 
 When adding external authoring tooling:
 
@@ -1689,13 +1737,13 @@ When adding external authoring tooling:
 - verify that the selected skill is still maintained;
 - understand whether it expects sibling files, external tools, or host-specific capabilities.
 
-## Treat automated rewrites as code changes
+### Treat automated rewrites as code changes
 
 An optimizer that edits a skill has changed executable agent behavior.
 
 Always inspect the diff and re-run relevant evals.
 
-## Keep generated state disposable
+### Keep generated state disposable
 
 A fresh clone plus:
 
@@ -1709,7 +1757,7 @@ If important knowledge exists only in `.venv/`, `.agent-tools/`, `.agents/skills
 
 ---
 
-# Standards and upstream references
+## Standards and upstream references
 
 These are the primary external references for this workflow:
 
@@ -1726,12 +1774,13 @@ When upstream guidance changes, prefer updating this repository's development wo
 
 ---
 
-# License
+## License
 
-Repository-authored source code, documentation, and canonical skills are licensed under the [Mozilla Public License 2.0](./LICENSE). Third-party dependencies, imported skills, and external development tools retain their respective licenses.
+Repository-authored source code, documentation, and canonical skills are licensed under the [Mozilla Public License 2.0](./LICENSE).
+Third-party dependencies, imported skills, and external development tools retain their respective licenses.
 
 ---
 
-## In one sentence
+### In one sentence
 
 **Define the behavior, prove the baseline, make the smallest skill change, validate the artifact, measure the behavior, test the trigger, review the diff, then commit only what the evidence supports.**

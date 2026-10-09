@@ -17,16 +17,16 @@ language:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Source file | `snake_case.ts` / `.tsx` | `payment_transaction_payload.ts` | Google TS style profile |
-| Declaration file | `snake_case.d.ts` | `customer_registry.d.ts` | Type definitions |
-| Interface / Type | `UpperCamelCase` | `PaymentTransactionPayload` | No `I` prefix |
-| Class / Enum | `UpperCamelCase` | `CustomerRegistry` | Instantiable or enumerations |
-| Function / Method | `lowerCamelCase` | `calculateNetAmount` | Action or accessor |
-| Property / Variable | `lowerCamelCase` | `isSettled`, `timeoutMs` | Explicit units, affirmative booleans |
-| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_MS` | True module-level immutable |
-| Type parameter | `UpperCamelCase` | `T`, `KeyT` | Single letter or descriptive |
+| Artefact Kind       | Convention               | Example                          | Notes                                |
+| ------------------- | ------------------------ | -------------------------------- | ------------------------------------ |
+| Source file         | `snake_case.ts` / `.tsx` | `payment_transaction_payload.ts` | Google TS style profile              |
+| Declaration file    | `snake_case.d.ts`        | `customer_registry.d.ts`         | Type definitions                     |
+| Interface / Type    | `UpperCamelCase`         | `PaymentTransactionPayload`      | No `I` prefix                        |
+| Class / Enum        | `UpperCamelCase`         | `CustomerRegistry`               | Instantiable or enumerations         |
+| Function / Method   | `lowerCamelCase`         | `calculateNetAmount`             | Action or accessor                   |
+| Property / Variable | `lowerCamelCase`         | `isSettled`, `timeoutMs`         | Explicit units, affirmative booleans |
+| Constant            | `UPPER_SNAKE_CASE`       | `DEFAULT_TIMEOUT_MS`             | True module-level immutable          |
+| Type parameter      | `UpperCamelCase`         | `T`, `KeyT`                      | Single letter or descriptive         |
 
 ## Source files
 
@@ -57,4 +57,5 @@ const DEFAULT_TIMEOUT_SECONDS = 30;
 
 ## Interfaces and Hungarian notation
 
-Do not prefix an interface with `I` merely to announce that it is an interface (e.g. use `InvoiceReader`, not `IInvoiceReader`). Avoid Hungarian notation and container/type suffixes already expressed by TypeScript's type system (e.g. use `customers`, not `customerArray`).
+Do not prefix an interface with `I` merely to announce that it is an interface (e.g. use `InvoiceReader`, not `IInvoiceReader`).
+Avoid Hungarian notation and container/type suffixes already expressed by TypeScript's type system (e.g. use `customers`, not `customerArray`).

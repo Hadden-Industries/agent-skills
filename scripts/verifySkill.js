@@ -12,6 +12,7 @@ const USAGE = "Usage: verifySkill.js --skill <canonical-skill-name>";
 const CANONICAL_SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const GLOBAL_ONLY_NOT_RUN = [
   "repository-wide Prettier and ESLint",
+  "shared repository Markdown quality",
   "Tessl plugin-package lint",
   "unrelated Node tests",
   "repository-wide diff whitespace checking",
@@ -149,10 +150,6 @@ export async function verifySkill({
       {
         name: "canonical ASCII",
         filesValidated: buildResult.skillFilesValidated,
-      },
-      {
-        name: "canonical Markdown wrapping",
-        filesValidated: buildResult.markdownFilesValidated,
       },
       {
         name: "evaluation contract",

@@ -1,0 +1,30 @@
+name: Trusted Markdown qualification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      trusted_sha:
+        description: Reviewed full agent-skills commit containing trusted policy and archives
+        required: true
+        type: string
+      candidate_sha:
+        description: Full candidate commit to inspect as data
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  markdown:
+    permissions:
+      contents: read
+    uses: Hadden-Industries/markdown-quality/.github/workflows/markdown-quality.yml@aec44f56b528af592ad6ba7e1e114e333246c19c
+    with:
+      trusted-repository: Hadden-Industries/agent-skills
+      trusted-sha: ${{ inputs.trusted_sha || github.event.pull_request.base.sha || github.sha }}
+      candidate-repository: Hadden-Industries/agent-skills
+      candidate-sha: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+      profile: .markdown-quality-execution.json

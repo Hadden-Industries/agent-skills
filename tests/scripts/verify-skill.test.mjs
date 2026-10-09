@@ -176,7 +176,6 @@ test("scoped verification runs only selected checks and reports global omissions
   assert.deepEqual(result.passedStages, [
     { name: "target diff whitespace", pathsChecked: 4 },
     { name: "canonical ASCII", filesValidated: 1 },
-    { name: "canonical Markdown wrapping", filesValidated: 1 },
     { name: "evaluation contract", suitesValidated: 1 },
     { name: "generated artifacts", artifactsChecked: 1 },
     { name: "skills-ref validation", skillsValidated: 1 },
@@ -184,6 +183,7 @@ test("scoped verification runs only selected checks and reports global omissions
   ]);
   assert.deepEqual(result.globalOnlyNotRun, [
     "repository-wide Prettier and ESLint",
+    "shared repository Markdown quality",
     "Tessl plugin-package lint",
     "unrelated Node tests",
     "repository-wide diff whitespace checking",

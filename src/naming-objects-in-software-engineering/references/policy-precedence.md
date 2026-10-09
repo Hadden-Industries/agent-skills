@@ -16,9 +16,11 @@ official ecosystem convention or explicitly selected style profile
 this skill's generic fallback policy
 ```
 
-The first level is not a style preference. A name required for discovery, compilation, interoperability, or protocol conformance must be retained.
+The first level is not a style preference.
+A name required for discovery, compilation, interoperability, or protocol conformance must be retained.
 
-Direct task instructions and scoped repository instructions are explicit governance. When two explicit instructions conflict:
+Direct task instructions and scoped repository instructions are explicit governance.
+When two explicit instructions conflict:
 
 1. preserve validity and external contracts;
 2. prefer the instruction with the narrowest applicable scope;
@@ -71,7 +73,8 @@ or a serializer/annotation/alias supplied by the language or framework.
 
 Where a public rename is required, provide the appropriate compatibility mechanism: alias, adapter, migration, deprecation period, versioned endpoint/schema, release note, and consumer communication.
 
-An external misspelling may need to remain externally. Do not reproduce it internally unless the mapping would be more dangerous than the inconsistency.
+An external misspelling may need to remain externally.
+Do not reproduce it internally unless the mapping would be more dangerous than the inconsistency.
 
 ## 4. Tool- and framework-required names are scoped exceptions
 
@@ -99,13 +102,15 @@ required-name: SKILL.md
 scope: root file of an Agent Skill
 ```
 
-Never generalise the exception into a broader convention. `SKILL.md` does not make PascalCase generic filenames acceptable.
+Never generalise the exception into a broader convention.
+`SKILL.md` does not make PascalCase generic filenames acceptable.
 
 ## 5. Generated code
 
 Do not hand-edit generated names unless the generation workflow explicitly supports it.
 
-Find and change the source of generation, template, schema, or generator configuration. Then regenerate and verify the output.
+Find and change the source of generation, template, schema, or generator configuration.
+Then regenerate and verify the output.
 
 If a generator produces poor internal names from an external schema, prefer generator-supported mappings or a handwritten adapter rather than a post-generation patch that will be overwritten.
 
@@ -127,21 +132,25 @@ Rename when the change is reasonably scoped and verification can establish safet
 
 ### Semantically misleading internal name
 
-Prioritise correction even when the lexical form is already valid. A perfectly cased lie is more dangerous than a casing defect.
+Prioritise correction even when the lexical form is already valid.
+A perfectly cased lie is more dangerous than a casing defect.
 
 ### Public or externally consumed legacy name
 
-Preserve at the boundary or migrate explicitly. Introduce a precise internal name and mapping when useful.
+Preserve at the boundary or migrate explicitly.
+Introduce a precise internal name and mapping when useful.
 
 ### Broad inconsistency requiring a campaign
 
-Do not mix an unbounded repository-wide rename into an unrelated change. Define a migration plan, automate detection, split changes into reviewable units, and prevent new violations immediately.
+Do not mix an unbounded repository-wide rename into an unrelated change.
+Define a migration plan, automate detection, split changes into reviewable units, and prevent new violations immediately.
 
 A touched-file rule may be appropriate only when it does not leave a misleading half-rename or inconsistent public API.
 
 ## 7. Compatibility versus correctness
 
-Compatibility is not a blanket reason to retain poor internal names. Semantic correctness is not a blanket reason to break contracts.
+Compatibility is not a blanket reason to retain poor internal names.
+Semantic correctness is not a blanket reason to break contracts.
 
 Use the following decision:
 
@@ -180,7 +189,8 @@ Use an explicit two-step rename when needed:
 oldName.ts -> temporary-name.ts -> old_name.ts
 ```
 
-Verify repository status and the exact casing committed. Check imports on case-sensitive CI or deployment systems.
+Verify repository status and the exact casing committed.
+Check imports on case-sensitive CI or deployment systems.
 
 ## 10. Exception acceptance criteria
 
@@ -215,4 +225,5 @@ A rename is complete only after checking applicable items:
 - backwards compatibility, aliases, deprecation, and release notes;
 - formatter, linter, analyser, type checker, tests, build, and a repository search for the old designation.
 
-Do not perform a text-only replacement when the same token denotes multiple concepts. Rename by symbol or review every occurrence semantically.
+Do not perform a text-only replacement when the same token denotes multiple concepts.
+Rename by symbol or review every occurrence semantically.

@@ -2,7 +2,8 @@
 
 Checked on 2026-09-03.
 
-This file distinguishes external authority from explicit house policy. A selected style guide is not misrepresented as a language specification, and the ISO-inspired semantic model is not described as formal ISO conformance.
+This file distinguishes external authority from explicit house policy.
+A selected style guide is not misrepresented as a language specification, and the ISO-inspired semantic model is not described as formal ISO conformance.
 
 ## Agent Skills format
 
@@ -37,7 +38,8 @@ This file distinguishes external authority from explicit house policy. A selecte
 - Canonical product/lifecycle page: https://www.iso.org/standard/60341.html
 - Official browsing entry: https://www.iso.org/obp/ui/en/
 - Applied to: the research report's forward-looking interpretation that the naming framework is relevant beyond metadata registries and can accommodate programming conventions and system constraints.
-- Status caveat: a Draft International Standard can change before publication. The published 2015 edition remains the current International Standard until replaced.
+- Status caveat: a Draft International Standard can change before publication.
+  The published 2015 edition remains the current International Standard until replaced.
 
 ## Python
 
@@ -46,7 +48,8 @@ This file distinguishes external authority from explicit house policy. A selecte
 - URL: https://peps.python.org/pep-0008/
 - Authority: Python Enhancement Proposal published on the official Python PEP site.
 - Applied to: lowercase module names, optional underscores for module readability, lowercase-with-underscores functions and variables, CapWords classes, exception classes ending with `Error`, uppercase-with-underscores constants, `self`, `cls`, non-public underscores, and keyword-collision handling.
-- House-policy addition: standalone executable Python scripts use `kebab-case.py`. PEP 8's importable-module convention remains separate.
+- House-policy addition: standalone executable Python scripts use `kebab-case.py`.
+  PEP 8's importable-module convention remains separate.
 
 ### PEP 484 and PEP 695 -- Type Hints and Type Parameter Syntax
 
@@ -106,7 +109,8 @@ This file distinguishes external authority from explicit house policy. A selecte
 - URL: https://go.dev/doc/effective_go#names
 - Authority: official Go documentation.
 - Applied to: short lowercase single-word package names, package context, getter naming, one-method interface idioms, canonical method meanings, and `MixedCaps`/`mixedCaps`.
-- Status caveat: the document says it was written for the 2009 release and is not actively updated. Use it for stable core idioms and consult current standard-library practice for newer ecosystem concerns.
+- Status caveat: the document says it was written for the 2009 release and is not actively updated.
+  Use it for stable core idioms and consult current standard-library practice for newer ecosystem concerns.
 
 ### Go Code Review Comments -- Initialisms
 
@@ -148,7 +152,7 @@ This file distinguishes external authority from explicit house policy. A selecte
 
 - URL: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions
 - Authority: Microsoft Learn.
-- Applied to: `_camelCase` instance fields, `s_camelCase` static fields, and current .NET examples for member naming.
+- Applied to: `_camelCase` instance fields, `s_camelCase` static fields, and current `.NET` examples for member naming.
 
 ### .NET naming rules
 
@@ -207,7 +211,8 @@ This file distinguishes external authority from explicit house policy. A selecte
 - Pinned release: `v9.7.0` (commit `e0c78d62c42abae6122235d8e68a7aa43eef89da`).
 - Status used here: normative source for canonical repository language names, internal GitHub language IDs (`language_id`), language categories (`type`), display colors (`color`), and parent grouping (`group`).
 - Applied to: canonical language taxonomy in `language-conventions.md` and ecosystem reference metadata.
-- Important limit: `language_id` is an internal identifier used by GitHub, not a public persistent IRI scheme (e.g. `https://github.com/languages/183` does not exist). The taxonomy is canonical for the pinned release rather than an immutable global registry.
+- Important limit: `language_id` is an internal identifier used by GitHub, not a public persistent IRI scheme (e.g. `https://github.com/languages/183` does not exist).
+  The taxonomy is canonical for the pinned release rather than an immutable global registry.
 
 ## Explicit house policies
 
@@ -232,4 +237,5 @@ ck_<table>__<rule_concept>
 ix_<table>__<semantic_columns>
 ```
 
-Repositories may replace a house profile with a clearly documented, explicitly governed alternative according to `policy-precedence.md`. Mere legacy frequency is not sufficient.
+Repositories may replace a house profile with a clearly documented, explicitly governed alternative according to `policy-precedence.md`.
+Mere legacy frequency is not sufficient.

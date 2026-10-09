@@ -1,6 +1,7 @@
 # Multilingual-Terminology Profile
 
-This profile adds multilingual designation records and cross-language equivalence analysis to the terminology core. It starts from concepts, not isolated word translation.
+This profile adds multilingual designation records and cross-language equivalence analysis to the terminology core.
+It starts from concepts, not isolated word translation.
 
 ## Activation
 
@@ -14,31 +15,41 @@ Activate when two or more languages, language varieties, scripts, jurisdictions,
 - Do grammatical behavior, register, connotation, legal status, cultural framing, or extension change the mapping?
 - Is the requested machine representation terminology exchange, KOS labels, or lexical grounding for an ontology, and which profile or dialect applies?
 
-Treat missing language variety, jurisdiction, or designation authority as an unresolved scope dimension rather than an automatic blocker. When a responsible comparison or package can preserve alternatives under explicit language and jurisdiction assumptions, proceed with provisional concept formulations; ask a focused clarification first only when every plausible scoped formulation would materially mislead.
+Treat missing language variety, jurisdiction, or designation authority as an unresolved scope dimension rather than an automatic blocker.
+When a responsible comparison or package can preserve alternatives under explicit language and jurisdiction assumptions, proceed with provisional concept formulations; ask a focused clarification first only when every plausible scoped formulation would materially mislead.
 
 ## Semantic distinctions
 
-Preserve concept orientation before translation: establish the source concept's identity and boundary, then determine whether a target-language community lexicalizes the same concept. Shared spelling, cognates, dictionary glosses, corpus co-occurrence, and machine translation are not sufficient evidence of concept equivalence.
+Preserve concept orientation before translation: establish the source concept's identity and boundary, then determine whether a target-language community lexicalizes the same concept.
+Shared spelling, cognates, dictionary glosses, corpus co-occurrence, and machine translation are not sufficient evidence of concept equivalence.
 
-Record language, language variety, script, jurisdiction, community, grammatical information, register, usage status, source, and designation status only when material. Do not treat a language tag as proof of linguistic or community validation.
+Record language, language variety, script, jurisdiction, community, grammatical information, register, usage status, source, and designation status only when material.
+Do not treat a language tag as proof of linguistic or community validation.
 
-Distinguish full equivalence from partial equivalence, directional equivalence, pragmatic equivalence for a stated task, and absent equivalence. Preserve a lexical gap, broader or narrower target concept, culturally different partition, or non-equivalent legal category rather than forcing one label-to-label translation.
+Distinguish full equivalence from partial equivalence, directional equivalence, pragmatic equivalence for a stated task, and absent equivalence.
+Preserve a lexical gap, broader or narrower target concept, culturally different partition, or non-equivalent legal category rather than forcing one label-to-label translation.
 
-Keep TBX terminology-resource exchange, SKOS language-tagged labels, and OntoLex-Lemon lexical-ontology representation distinct. Representation choice does not determine the underlying equivalence.
+Keep TBX terminology-resource exchange, SKOS language-tagged labels, and OntoLex-Lemon lexical-ontology representation distinct.
+Representation choice does not determine the underlying equivalence.
 
 ## Evidence
 
-Use directly retrieved concept records, term records, subject-field sources, corpora, standards, legal or policy texts, and community sources appropriate to each language and jurisdiction. Record who assigns preference or acceptability and whether a source supports lexical use, concept identity, domain meaning, or community authority.
+Use directly retrieved concept records, term records, subject-field sources, corpora, standards, legal or policy texts, and community sources appropriate to each language and jurisdiction.
+Record who assigns preference or acceptability and whether a source supports lexical use, concept identity, domain meaning, or community authority.
 
-For consequential use, seek native-language domain expertise or legitimate community review proportionate to risk. A machine-generated translation or general bilingual dictionary may discover candidates but cannot establish specialist, legal, scientific, or community-governed equivalence alone.
+For consequential use, seek native-language domain expertise or legitimate community review proportionate to risk.
+A machine-generated translation or general bilingual dictionary may discover candidates but cannot establish specialist, legal, scientific, or community-governed equivalence alone.
 
-Use ISO 30042:2019 only when TBX representation or terminology-resource interchange is actually requested. Use the 2016 OntoLex-Lemon Community Group Report only for applicable lexical grounding of ontology or vocabulary entities; it is a W3C Community Group Report, not a W3C Standard or Recommendation.
+Use ISO 30042:2019 only when TBX representation or terminology-resource interchange is actually requested.
+Use the 2016 OntoLex-Lemon Community Group Report only for applicable lexical grounding of ontology or vocabulary entities; it is a W3C Community Group Report, not a W3C Standard or Recommendation.
 
 ## Validation
 
-Test source and target concept intension, extension, category, scope, granularity, system position, jurisdiction, time, register, and intended use. Test positive examples, exclusions, siblings, and near misses in both languages where possible, and state whether the mapping is symmetric or directional.
+Test source and target concept intension, extension, category, scope, granularity, system position, jurisdiction, time, register, and intended use.
+Test positive examples, exclusions, siblings, and near misses in both languages where possible, and state whether the mapping is symmetric or directional.
 
-Validate each designation's language or variety, script, grammatical and usage information, source, and status only to the depth the task needs. Distinguish linguistic review, domain review, community review, parser validation, TBX dialect validation, RDF validation, and ontology reasoning.
+Validate each designation's language or variety, script, grammatical and usage information, source, and status only to the depth the task needs.
+Distinguish linguistic review, domain review, community review, parser validation, TBX dialect validation, RDF validation, and ontology reasoning.
 
 When native-speaker, domain-specialist, or community review is needed but unavailable, mark the entry proposed or provisional, specify the review question, and avoid operationally final language.
 
@@ -54,9 +65,11 @@ When native-speaker, domain-specialist, or community review is needed but unavai
 
 When material, add concept identity shared across languages; designation records with language, variety, script, jurisdiction, source, and status; equivalence type and direction; decisive mismatches; candidate recommendations by use context; required review; and requested representation plus validation state.
 
-For consequential use, include an explicit `Required review:` item naming each applicable reviewer type - native-language, domain-specialist, legal, or affected-community - and the question that reviewer must settle. Mark unavailable review as `not performed`; do not leave the review need implicit in general cautionary prose.
+For consequential use, include an explicit `Required review:` item naming each applicable reviewer type - native-language, domain-specialist, legal, or affected-community - and the question that reviewer must settle.
+Mark unavailable review as `not performed`; do not leave the review need implicit in general cautionary prose.
 
-For a compact answer, keep the definition first, then state the recommended designation and the one material equivalence limitation. Do not display exchange-format fields unless the user requests them.
+For a compact answer, keep the definition first, then state the recommended designation and the one material equivalence limitation.
+Do not display exchange-format fields unless the user requests them.
 
 ## Reviewed sources
 
@@ -68,6 +81,8 @@ For a compact answer, keep the definition first, then state the recommended desi
 
 ## Composition notes
 
-Compose with data definitions when multilingual designations belong to metadata items or TBX output is requested; preserve the shared concept and add language-specific records without duplicating the Part 4 audit. Compose with KOS for multilingual labels and cross-scheme mappings, and with formal ontology for OntoLex-Lemon or language-tagged ontology annotations.
+Compose with data definitions when multilingual designations belong to metadata items or TBX output is requested; preserve the shared concept and add language-specific records without duplicating the Part 4 audit.
+Compose with KOS for multilingual labels and cross-scheme mappings, and with formal ontology for OntoLex-Lemon or language-tagged ontology annotations.
 
-Compose with epistemic governance when language authority, naming rights, contested translation, or community conceptualization is material. The terminology core owns concept identity; this profile must not override locally legitimate governance with an ostensibly universal translation.
+Compose with epistemic governance when language authority, naming rights, contested translation, or community conceptualization is material.
+The terminology core owns concept identity; this profile must not override locally legitimate governance with an ostensibly universal translation.

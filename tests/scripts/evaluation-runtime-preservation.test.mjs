@@ -56,6 +56,19 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
       "utf8",
     ),
   ).files;
+  const markdownMaintenance = JSON.parse(
+    readFileSync(
+      join(root, "evidence/migrations/2026-10-10-markdown-formatting.json"),
+      "utf8",
+    ),
+  ).files;
+  assert.deepEqual(
+    markdownMaintenance.map(({ path }) => path).sort(),
+    baseline
+      .filter(({ path }) => path.endsWith(".md"))
+      .map(({ path }) => path)
+      .sort(),
+  );
   assert.deepEqual(approved.map(({ path }) => path).sort(), [
     "skills/naming-objects-in-software-engineering/assets/naming-policy.json",
     "skills/reading-epubs/scripts/conversion-result.schema.json",
@@ -112,6 +125,9 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
     const formatting = approved.find(({ path }) => path === file.path);
     const change = maintenance.find(({ path }) => path === file.path);
     const laterChange = performance.find(({ path }) => path === file.path);
+    const markdownChange = markdownMaintenance.find(
+      ({ path }) => path === file.path,
+    );
     if (change) {
       assert.equal(change.originalSha256, file.sha256, file.path);
       assert.equal(formatting, undefined, file.path);
@@ -132,14 +148,22 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
         file.path,
       );
     }
+    if (markdownChange) {
+      assert.equal(
+        markdownChange.previousSha256,
+        (laterChange ?? change ?? formatting ?? file).sha256,
+        file.path,
+      );
+    }
     assert.equal(
       comparisonBytes.length,
-      (laterChange ?? change ?? formatting ?? file).byteLength,
+      (markdownChange ?? laterChange ?? change ?? formatting ?? file)
+        .byteLength,
       file.path,
     );
     assert.equal(
       sha256Hex(comparisonBytes),
-      (laterChange ?? change ?? formatting ?? file).sha256,
+      (markdownChange ?? laterChange ?? change ?? formatting ?? file).sha256,
       file.path,
     );
   }

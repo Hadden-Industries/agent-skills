@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "e422427826073285d8de9ddd18dd56c6c475cdcb",
+  "reason": "Owner-authorized shared Markdown formatting; original 57-file baseline and previous maintenance bindings retained. Version metadata normalization is unchanged. Inline code marking for .NET removes ambiguous prose diagnostics without changing naming guidance.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/SKILL.md",
+      "previousSha256": "e4f1f75fc88e98af0495e3e08ee94897056613e701ef859f3a8889f06749a872",
+      "byteLength": 13128,
+      "sha256": "47d42381178c4d9d9b53252d2bc811892505614386ccfe569249c658b216fc10"
+    },
+    {
+      "path": "skills/committing-to-git/references/check-evidence.md",
+      "previousSha256": "95ec59b6a1ea5368a2694c67372f120165d061161fb748eb56271df3491c45cc",
+      "byteLength": 7497,
+      "sha256": "402a7b443100594fb7f8b524b842f93c9f04fae1d2bf3709402646e6e332d737"
+    },
+    {
+      "path": "skills/committing-to-git/references/diagnostics.md",
+      "previousSha256": "cdd569f3f4e923924ca1e2efa3c4536323edce4e052621dcbdd2d1693574b963",
+      "byteLength": 14205,
+      "sha256": "16282cac16a89506a3f06360db12f78b4f005c557d5c4cbae4df38456fadcc83"
+    },
+    {
+      "path": "skills/committing-to-git/references/inspection-recovery.md",
+      "previousSha256": "7087f3d8ec9b751157b0224b7acc42ff75fb7ecbde0d6b50aa1d654f3713fc57",
+      "byteLength": 4861,
+      "sha256": "d2fbe33ec6eaa8af657f564242ea70f3fa2f7643347edd9c17dbf1ab1a15dfa3"
+    },
+    {
+      "path": "skills/committing-to-git/references/message-format.md",
+      "previousSha256": "dca994022709b0ee7ed078021dac366993e36a49ffedeb71ce2ef611800b635d",
+      "byteLength": 12285,
+      "sha256": "d8f48ad5ab1ee6a8a5928b7c1c4a6dbff1dd919f042d6719ad8896128e3fb440"
+    },
+    {
+      "path": "skills/committing-to-git/references/native-execution.md",
+      "previousSha256": "c9c195e12e24bbe1f33e11069ae93b510186d75d6a834da9496ea7b807ee7401",
+      "byteLength": 3827,
+      "sha256": "da2ab5bf4bfcc3a8502051e001adb663e5f7db6246af6bca1c5ac783f8691293"
+    },
+    {
+      "path": "skills/committing-to-git/references/publication-recovery.md",
+      "previousSha256": "4c587cf8dd5572d69af71196bf95f4ee0d45ac9c9d1863ef0d050a13cc59a34f",
+      "byteLength": 4395,
+      "sha256": "52f2541db92bb1d1aaadc9e4fb39d99436a436a5e7e4707fb02145f24e86d693"
+    },
+    {
+      "path": "skills/committing-to-git/references/publication-routing.md",
+      "previousSha256": "67f88899250d35ae57f1011c28a3ce4ce6a8729036b083ef83240bcd7a53f3b5",
+      "byteLength": 23255,
+      "sha256": "9a3bd53ddf9272de31d4645ad37d40cf4abff4c8270658e94a8fca90b8565c60"
+    },
+    {
+      "path": "skills/committing-to-git/references/signature-recovery.md",
+      "previousSha256": "e414098d3913a5a353ffe298c3b63950c55da8491faf4c7082994c507d90a221",
+      "byteLength": 3932,
+      "sha256": "5edb1b91841423fd2ff679d06e6d0700fe8dbc9dca3e163b9591ebf28016da8e"
+    },
+    {
+      "path": "skills/committing-to-git/references/transaction-recovery.md",
+      "previousSha256": "23dcbfd83ffe0a559e701604634d2173212b16ffa002dbc64dcff73525b68c79",
+      "byteLength": 2692,
+      "sha256": "071e00eca23068afe34a271657b18f352f0a3f2e780b4b0d691ba0e96660672a"
+    },
+    {
+      "path": "skills/defining-concepts/SKILL.md",
+      "previousSha256": "c2b1aa0da6f4cef8730895a0c0b64daa37dc4cfc7a86519edd8ff2d93ab44a63",
+      "byteLength": 18171,
+      "sha256": "2c57438e270ca280ccc754acf4d012dab0a4765caa5a6b219a7f24b05b96f2a2"
+    },
+    {
+      "path": "skills/defining-concepts/references/concept-entry-model.md",
+      "previousSha256": "4b40616a0eb88ac7e0f6fea5900b6943547f407453332449d472e15dddc245a7",
+      "byteLength": 7782,
+      "sha256": "dd073f131e6b33e9ed6b6fbe0dad803f8b08a575255ef7168fdbbca828201fc6"
+    },
+    {
+      "path": "skills/defining-concepts/references/concept-entry-presentation.md",
+      "previousSha256": "1666de28eadd02fcf92cec2bccc701a32dc51bccd16bb141ee745cb216616d03",
+      "byteLength": 6515,
+      "sha256": "516a4db9f54f74943edfecde95b0b6c06f23a63a63ebb9d573c99b9e3ef24d15"
+    },
+    {
+      "path": "skills/defining-concepts/references/concept-entry-serialization.md",
+      "previousSha256": "d918ecb5c232062d251fe6a2d26247720829881191d74ce3a3c13c72e2288471",
+      "byteLength": 6316,
+      "sha256": "8ec1958b0e7c08096168571e1c067653c2704defa4ec7ab79ff44e8e83fc55f6"
+    },
+    {
+      "path": "skills/defining-concepts/references/evidence-and-provenance.md",
+      "previousSha256": "53d0cdd624fd0a60077facc68cdabc28bdec4b482319a2f0acbb21eb1e26cb3e",
+      "byteLength": 9691,
+      "sha256": "bd0c2732fab1cccd85da85ab126dae56ae1ce1231c9630924d04f5af81c6e054"
+    },
+    {
+      "path": "skills/defining-concepts/references/profiles/data-definitions.md",
+      "previousSha256": "9bb414a4488d3e4a90ec2ad89374de567b8f4dc7949c2753e394cfdf02cf9ea7",
+      "byteLength": 8684,
+      "sha256": "b1b99dcf9a14b69b9cbd0033eb63d0616d0afd45d7a1fd00d159502a696c0bed"
+    },
+    {
+      "path": "skills/defining-concepts/references/profiles/epistemic-governance.md",
+      "previousSha256": "1810865227593ebf09c8c4b8393410bfa0ae5e813ae4aee5d3e185118b3cbc35",
+      "byteLength": 7162,
+      "sha256": "b773ecca20b437bdabaf5105fd7f5f143e07d305e1fc5ff35c92c3647909ab24"
+    },
+    {
+      "path": "skills/defining-concepts/references/profiles/formal-ontology.md",
+      "previousSha256": "58d7a9f7d73d975685cd398bf0339a7e3ce327b41d45f1913505b952b9292f25",
+      "byteLength": 7702,
+      "sha256": "8d90d52e7277f0babb27f2167228eb3104b0adac1d9f2187cbc611efe1931d5d"
+    },
+    {
+      "path": "skills/defining-concepts/references/profiles/knowledge-organization-systems.md",
+      "previousSha256": "75fd7a125423b2edcbc2ce8564716bb58c765420fef1100e3417470313d68c8a",
+      "byteLength": 7076,
+      "sha256": "9a6f6b6d45714fde9fc0e9a58719d76ec5e54488e378e59ebef5375c244ea503"
+    },
+    {
+      "path": "skills/defining-concepts/references/profiles/multilingual-terminology.md",
+      "previousSha256": "260d29aca679b3421092c47433b546a0afe976f9091d80b57f9d3cc33112c4de",
+      "byteLength": 7963,
+      "sha256": "b00568ace6de7ca164242668eb0f6c5f3c5dc4525bfa037f0db9f03baac57943"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/SKILL.md",
+      "previousSha256": "c41fb2b3d8ec0eb615e89907c8efdc9fc8c0892233c5e23465a5e15dd48371b1",
+      "byteLength": 12299,
+      "sha256": "24648d80c63641db4103efc78800bc9a3d32f64fd7f2b7ef02f7f46a6178f403"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/language-conventions.md",
+      "previousSha256": "05083bcc34334cdf1f132148b502b125f6dfa6ef387c350ba5f9ec1ec19a5578",
+      "byteLength": 20718,
+      "sha256": "986169682aa5217e632b24855098d4a4d76581a8e388536b56bddc5196029f8f"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/cli-environment.md",
+      "previousSha256": "c752e0229b15a4c2f1e273d4bbcc05f1c411e50c1fd172322ee0ff377b86a3a3",
+      "byteLength": 2262,
+      "sha256": "5e8f89cbfa3c917c2ec60609e814637eb1c47e86a21b6c6aefc9316223db7ee8"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/cpp.md",
+      "previousSha256": "35c57df167768fafab2a5ca19383fc8e651b216470863b2ca43101668fc60e76",
+      "byteLength": 2335,
+      "sha256": "466eb4fa76a7a8e3d2def8e216a0b8526e3de43507ef157eb525fdc8717f4c0b"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/csharp.md",
+      "previousSha256": "e729aa671f47bf91ae161987ec0c0b77677a0d0cac097e1b939abeb2fcdc1449",
+      "byteLength": 2561,
+      "sha256": "d95e082e43a2dfeae232e3c738379f9f3770240c20c182d4bfc98dbb0a279016"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/css.md",
+      "previousSha256": "8dfc38dec395725fb68f0f1fb7bf4d5f47b83eba5ebef420a217501c822225d3",
+      "byteLength": 3360,
+      "sha256": "f16b0aba302b4defb5544f57a1c4a5bf875c801a4ca9c5abd7c6b82e1eb42d20"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/go.md",
+      "previousSha256": "5cc2e47af94b2127ce662ae0168b3902c6dff7d38876f14ac91ab4ba1d7311c2",
+      "byteLength": 2668,
+      "sha256": "e7e884de234c8c2fbf438690f2b28e9c29a3778a2288db35b9ab8687f435a68d"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/html.md",
+      "previousSha256": "eb07082e70f84696d690c7e7971b2dc7b67c90fa18f780e1a9a737a6c28ed8ff",
+      "byteLength": 2510,
+      "sha256": "5515ba2e8e16a47cc6ed4c75a7c51458fbd718b019127a49a1d277b537d9a384"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/java.md",
+      "previousSha256": "2502905d4b19793764be202c13abc60a36485250e1ca83c499e5305efd11990a",
+      "byteLength": 2134,
+      "sha256": "2d73f046ed56ba3f36c79a7128e0063ab2c5e5a2175e35cf1537da6f8d7c38b8"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/javascript.md",
+      "previousSha256": "efe8f7a778d4c6d4c56a50fa09f4c49163935a78bc83bfb9f2b508d4f1da6c58",
+      "byteLength": 3787,
+      "sha256": "09639d8cd2bf258bb6e73ef33fc8f10ce15cd9a3d536f11fec826f49e000e37f"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/kotlin.md",
+      "previousSha256": "cbfb84e3cb65b2563ebf7a0a5638cccc59171823dc7801bc1f6bbc13a4cb2809",
+      "byteLength": 2252,
+      "sha256": "6e914e2188e0bcffaaff931c4f182789e2ccf8db561ba8ac153a6597a44ccf0d"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/powershell.md",
+      "previousSha256": "5028aa25e39820e197777c41b5ecc9d9286f72bb228100a586ae15dc11a3b949",
+      "byteLength": 3825,
+      "sha256": "df54b008c9aa59bb5b1855c5563ce9aca365c0c8c15109b07276a6f7d43aa42e"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/python.md",
+      "previousSha256": "d234316d2ef6ac6fd004f301147ef6ac45f2674b2b0840b31defd5a0e7afbc1a",
+      "byteLength": 5521,
+      "sha256": "130fe33fc25f5c47d1c82e692ad9f796d575183f9285671bcef16e5193f2a7eb"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/react.md",
+      "previousSha256": "ebe310e9d97c2e714de62cd6a74a0137c1e89c6f233977614e25470bd6acc3d1",
+      "byteLength": 3653,
+      "sha256": "e9217283fcd3bf6811d57496af2da94b73542f43615cbcc6fa8e9d08f3871cea"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/rust.md",
+      "previousSha256": "4bba48a33ebb697c3f9ebb09b27961b46f894b58d09530e3546017a755ba898e",
+      "byteLength": 2464,
+      "sha256": "eebe5c85b4d0310a56a25fa80de390ea232584e5ea884252efa2f4903e19a827"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/sql.md",
+      "previousSha256": "9a1cb84bee0a52465cd270f0108eacfd6d8e4449fb8e01ae70d5c122ac5bd609",
+      "byteLength": 2730,
+      "sha256": "d58d57b43e0e4c2829b6715a9395fabd8dfa16c5efb16dc24bc23f899f6e7644"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/swift.md",
+      "previousSha256": "0a651b67555a8df6b5de363509fb73286d390dbe11da04c88b31d5a60a5fde86",
+      "byteLength": 2407,
+      "sha256": "ffdfc2201dc3030f6a75c06ac332369a2374b6616994eff317be5120ccdbc1ee"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/typescript.md",
+      "previousSha256": "fae414a51a69c72c7deb7593b57e38f9db8715873db954d620f50fe67ca55708",
+      "byteLength": 2717,
+      "sha256": "f116f9721dfd55b1daa17539f23ca2eeee7910ab704124efb6683f01f8688be0"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/languages/xslt.md",
+      "previousSha256": "7320f0b03bb5efbe681ad343a74f718989b8f747296e133f0487d6d02ac255a0",
+      "byteLength": 3007,
+      "sha256": "5de849b4e204a5f71d125662cc8d440e71bf7da0a111a5f6d398f3e25c11afc8"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/policy-precedence.md",
+      "previousSha256": "f839177ae6ccfeb3b46c9ecb845a9f7e6d3ac79bd2c1d6f8fdd62751e9cd8eb9",
+      "byteLength": 8691,
+      "sha256": "310122cadbe283f24a73d25be0739fe2899f1e589a3a6121b5059dce2fee98fa"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/semantic-naming.md",
+      "previousSha256": "dc8a125171817737d9eda9339a25ae476f9e91ee7957c06336316fedbe2e0dbd",
+      "byteLength": 21490,
+      "sha256": "de4640177b938f7bf4c933c7812ba241f1d609fe3586f9144055e5f92a3e7352"
+    },
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/source-authorities.md",
+      "previousSha256": "eaa8b80763ae5c479ac3599df35572eb04d92b1f9f1804b33af1e3109b88b66f",
+      "byteLength": 11889,
+      "sha256": "24e8eb4400730adddca52fe3efba70efedb98745cf1a717dbd724e1b7dd8c436"
+    },
+    {
+      "path": "skills/reading-epubs/SKILL.md",
+      "previousSha256": "1a57d39337c2f5c1e0d108814944f09da871bb92f2880f63fd3199bbf9e97e1a",
+      "byteLength": 7829,
+      "sha256": "c34a59508b8677b955cd66379eb51440ee2854e93df2361a11f043acec713714"
+    },
+    {
+      "path": "skills/reading-epubs/references/conversion-troubleshooting.md",
+      "previousSha256": "abdfc61e78be3583b53b0666c215cb8542e6e07e3592203c1e0bc6fee273d21d",
+      "byteLength": 3907,
+      "sha256": "a852f31d0b83d2480ca0812fcaf6a4a19f882ae553811adc03f7f7bc543d9e40"
+    },
+    {
+      "path": "skills/reading-epubs/references/pandoc-installation.md",
+      "previousSha256": "44249d8b7e73d8c5a508a47f7e2ef98885e594b60038150327b629445586d768",
+      "byteLength": 2277,
+      "sha256": "ff36891e32c401bb6b135ca0582f7721d6a2b72c4522fc8b8d0728c70d1d2e2e"
+    }
+  ]
+}

@@ -9,6 +9,10 @@
       {
         "version": "0.1.1-dev.2",
         "contentSha256": "f8522fcedcaf17070b3c3e35ac864e112ecace78c6da2bda4a2d2ffdff17b23f"
+      },
+      {
+        "version": "0.1.1-dev.3",
+        "contentSha256": "1ddb7afc6f2aad7355fdfb62e8d2d310de904d50f4e7979ec89ca08f1c885cb2"
       }
     ]
   }

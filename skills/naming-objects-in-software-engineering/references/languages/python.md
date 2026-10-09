@@ -17,18 +17,18 @@ language:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Importable module | `snake_case.py` | `customer_registry.py` | Valid import identifier |
-| Executable script | `kebab-case.py` | `rebuild-index.py` | Standalone CLI execution only |
-| Package directory | `lowercase` | `billing` | Avoid underscores if possible |
-| Class / Type | `PascalCase` | `CustomerRegistry` | CapWords per PEP 8 |
-| Function / Method | `snake_case` | `calculate_net_amount` | Verb or verb-noun |
-| Variable / Parameter | `snake_case` | `gross_amount` | Affirmative booleans (`is_valid`) |
-| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | True module-level immutable |
-| Exception | `PascalCaseError` | `InvoiceNotFoundError` | Must end in `Error` per PEP 8 |
-| TypeVar / Generic | `PascalCase` | `KeyT`, `ValueT` | PEP 484 / PEP 695 |
-| Non-public member | `_snake_case` | `_internal_cache` | Single leading underscore |
+| Artefact Kind        | Convention         | Example                   | Notes                             |
+| -------------------- | ------------------ | ------------------------- | --------------------------------- |
+| Importable module    | `snake_case.py`    | `customer_registry.py`    | Valid import identifier           |
+| Executable script    | `kebab-case.py`    | `rebuild-index.py`        | Standalone CLI execution only     |
+| Package directory    | `lowercase`        | `billing`                 | Avoid underscores if possible     |
+| Class / Type         | `PascalCase`       | `CustomerRegistry`        | CapWords per PEP 8                |
+| Function / Method    | `snake_case`       | `calculate_net_amount`    | Verb or verb-noun                 |
+| Variable / Parameter | `snake_case`       | `gross_amount`            | Affirmative booleans (`is_valid`) |
+| Constant             | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | True module-level immutable       |
+| Exception            | `PascalCaseError`  | `InvoiceNotFoundError`    | Must end in `Error` per PEP 8     |
+| TypeVar / Generic    | `PascalCase`       | `KeyT`, `ValueT`          | PEP 484 / PEP 695                 |
+| Non-public member    | `_snake_case`      | `_internal_cache`         | Single leading underscore         |
 
 ## Standalone scripts versus importable modules
 
@@ -49,7 +49,9 @@ rebuild_index.py       valid
 rebuild-index.py       invalid because '-' cannot form an ordinary import identifier
 ```
 
-Classify a `.py` file before naming it. A command-line entry point can be implemented in an importable module; the distribution console command and the module do not need the same physical spelling. Packages use short lowercase names, avoiding underscores unless necessary for readability.
+Classify a `.py` file before naming it.
+A command-line entry point can be implemented in an importable module; the distribution console command and the module do not need the same physical spelling.
+Packages use short lowercase names, avoiding underscores unless necessary for readability.
 
 ## Identifiers and constants
 
@@ -77,7 +79,9 @@ class InvoiceNotFoundError(LookupError): ...
 class ValidationFailureError(ValueError): ...
 ```
 
-Do not suffix an exception with `Exception`. Reserve generic suffixes such as `BaseException` or built-in root exceptions to their standard library contexts. Specific error types distinguish failures by condition, not merely by the word "Exception".
+Do not suffix an exception with `Exception`.
+Reserve generic suffixes such as `BaseException` or built-in root exceptions to their standard library contexts.
+Specific error types distinguish failures by condition, not merely by the word "Exception".
 
 ## Type parameters and protocols
 

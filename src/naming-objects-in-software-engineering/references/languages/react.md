@@ -21,16 +21,16 @@ framework:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Component | `PascalCase` | `CustomerInvoiceCard` | Function or class |
-| Component file | `PascalCase.jsx` / `.tsx` | `CustomerInvoiceCard.tsx` | Matches primary exported component |
-| Custom hook | `usePascalCase` | `useCustomerAccount` | React Rules of Hooks requirement |
-| Callback prop | `onEvent` | `onInvoiceSubmit` | External contract passed from parent |
-| Internal handler | `handleEvent` | `handleInvoiceSubmit` | Local event management implementation |
-| Context object | `PascalCaseContext` | `AuthContext` | Created via `createContext` |
-| Context provider | `PascalCaseProvider` | `AuthProvider` | JSX Provider component wrapper |
-| Higher-order component | `withPascalCase` | `withAuthentication` | Factory wrapper function |
+| Artefact Kind          | Convention                | Example                   | Notes                                 |
+| ---------------------- | ------------------------- | ------------------------- | ------------------------------------- |
+| Component              | `PascalCase`              | `CustomerInvoiceCard`     | Function or class                     |
+| Component file         | `PascalCase.jsx` / `.tsx` | `CustomerInvoiceCard.tsx` | Matches primary exported component    |
+| Custom hook            | `usePascalCase`           | `useCustomerAccount`      | React Rules of Hooks requirement      |
+| Callback prop          | `onEvent`                 | `onInvoiceSubmit`         | External contract passed from parent  |
+| Internal handler       | `handleEvent`             | `handleInvoiceSubmit`     | Local event management implementation |
+| Context object         | `PascalCaseContext`       | `AuthContext`             | Created via `createContext`           |
+| Context provider       | `PascalCaseProvider`      | `AuthProvider`            | JSX Provider component wrapper        |
+| Higher-order component | `withPascalCase`          | `withAuthentication`      | Factory wrapper function              |
 
 ## Components and filenames
 
@@ -40,16 +40,20 @@ framework:
 
 ## Custom hooks
 
-Custom hooks MUST begin with `use` followed by `PascalCase` (e.g. `useCustomerAccount`, `useWindowDimensions`). This prefix is required by the React Rules of Hooks to enable automated linting and execution order enforcement.
+Custom hooks MUST begin with `use` followed by `PascalCase` (e.g. `useCustomerAccount`, `useWindowDimensions`).
+This prefix is required by the React Rules of Hooks to enable automated linting and execution order enforcement.
 
-Do not name a hook with a generic noun (`customerAccount`) or getter verb (`getCustomerAccount`). The `use` prefix is an authoritative runtime contract.
+Do not name a hook with a generic noun (`customerAccount`) or getter verb (`getCustomerAccount`).
+The `use` prefix is an authoritative runtime contract.
 
 ## Event callback props versus event handlers
 
 Maintain strict discrimination between the interface contract and the internal implementation:
 
-- Event callback props: MUST use `on[Event]` (e.g. `onInvoiceSubmit`, `onCustomerSelect`, `onCancel`). This establishes the external interface contract that parents bind to.
-- Internal event handlers: MUST use `handle[Event]` (e.g. `handleInvoiceSubmit`, `handleCustomerSelect`, `handleCancel`). This identifies the concrete local function that handles DOM or child events.
+- Event callback props: MUST use `on[Event]` (e.g. `onInvoiceSubmit`, `onCustomerSelect`, `onCancel`).
+  This establishes the external interface contract that parents bind to.
+- Internal event handlers: MUST use `handle[Event]` (e.g. `handleInvoiceSubmit`, `handleCustomerSelect`, `handleCancel`).
+  This identifies the concrete local function that handles DOM or child events.
 
 ```jsx
 import React, { useState } from "react";

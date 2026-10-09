@@ -27,10 +27,12 @@ A lexically valid but vague name such as `process_data`, `processData`, or `Proc
 
 - Read `references/semantic-naming.md` for every non-trivial name, ambiguous rename, API name, domain term, or semantic review.
 - Consult `references/language-conventions.md` for the cross-ecosystem baseline profile table.
-- **On-demand single-spoke loading rule**: When naming artefacts in a specific language, framework, styling system, or runtime, load ONLY the single dedicated spoke file under `references/languages/<ecosystem>.md` (e.g. `references/languages/python.md` or `references/languages/react.md`). Do NOT load the entire references directory or unrelated language files into your context window.
+- **On-demand single-spoke loading rule**: When naming artefacts in a specific language, framework, styling system, or runtime, load ONLY the single dedicated spoke file under `references/languages/<ecosystem>.md` (e.g. `references/languages/python.md` or `references/languages/react.md`).
+  Do NOT load the entire references directory or unrelated language files into your context window.
 - Read `references/policy-precedence.md` whenever policies conflict, the repository is inconsistent, an external contract exists, or a generated/framework-required name is involved.
 - Read `references/source-authorities.md` when checking provenance or explaining why a convention was selected.
-- Use `assets/naming-policy.json` and `scripts/check-name.py` for supported lexical checks. A passing check never certifies semantics.
+- Use `assets/naming-policy.json` and `scripts/check-name.py` for supported lexical checks.
+  A passing check never certifies semantics.
 
 ## Mandatory workflow
 
@@ -62,15 +64,18 @@ Apply this order:
 3. an official ecosystem convention, or the explicitly selected style profile where no language-owned convention exists;
 4. this skill's generic fallback policy.
 
-Observed legacy usage is evidence, not governance. Do not perpetuate a poor convention merely because it is common in the existing codebase.
+Observed legacy usage is evidence, not governance.
+Do not perpetuate a poor convention merely because it is common in the existing codebase.
 
-Preserve externally owned API names, wire fields, schemas, and protocol tokens at their boundary. Prefer an idiomatic internal designation plus an explicit mapping when the external spelling conflicts with internal policy.
+Preserve externally owned API names, wire fields, schemas, and protocol tokens at their boundary.
+Prefer an idiomatic internal designation plus an explicit mapping when the external spelling conflicts with internal policy.
 
 See `references/policy-precedence.md` for conflict and exception handling.
 
 ### 3. Establish the concept before choosing words
 
-Inspect definitions, call sites, types, tests, documentation, schemas, domain glossaries, ontologies, and neighbouring names. Do not guess from the implementation body alone.
+Inspect definitions, call sites, types, tests, documentation, schemas, domain glossaries, ontologies, and neighbouring names.
+Do not guess from the implementation body alone.
 
 For a non-trivial name, establish at least:
 
@@ -91,7 +96,8 @@ conceptual-name:
 
 The analysis may remain implicit for an obvious local variable, but it MUST be recoverable from evidence.
 
-Use the repository's governed glossary, ontology, schema vocabulary, or ubiquitous language when one exists. Do not invent `client`, `consumer`, `account_holder`, and `buyer` as stylistic variants of a governed `customer` concept.
+Use the repository's governed glossary, ontology, schema vocabulary, or ubiquitous language when one exists.
+Do not invent `client`, `consumer`, `account_holder`, and `buyer` as stylistic variants of a governed `customer` concept.
 
 ### 4. Pass the semantic review gate
 
@@ -111,7 +117,8 @@ Reject the proposed name unless every applicable answer is yes:
 
 **Remove contextual redundancy; never remove conceptual discrimination.**
 
-For example, `customer.id` may be sufficient when the receiver supplies stable context. `registry.id` is insufficient when the domain distinguishes a registry identifier from a registration identifier in that scope.
+For example, `customer.id` may be sufficient when the receiver supplies stable context.
+`registry.id` is insufficient when the domain distinguishes a registry identifier from a registration identifier in that scope.
 
 ### 5. Treat generic semantic heads as presumptive defects
 
@@ -155,13 +162,15 @@ schema_migration_manager
 cryptographic_key_service
 ```
 
-Do not mechanically replace one vague word with another. Determine the actual responsibility.
+Do not mechanically replace one vague word with another.
+Determine the actual responsibility.
 
 ### 6. Express behaviour truthfully
 
 Do not treat `get`, `find`, `fetch`, `read`, `load`, `parse`, `decode`, `validate`, `build`, `create`, `save`, `persist`, `delete`, and `remove` as interchangeable stylistic synonyms.
 
-Select a verb whose contract matches the operation. Account for:
+Select a verb whose contract matches the operation.
+Account for:
 
 - whether I/O or a remote boundary is crossed;
 - whether absence is expected;
@@ -216,13 +225,16 @@ Important hard defaults include:
 - TypeScript source files: `snake_case.ts` or `snake_case.tsx` under the selected Google profile;
 - SQL schemas, tables, views, and columns: `lower_snake_case` under this skill's explicit house policy.
 
-`SKILL.md` is not precedent for generic filenames. Its exact spelling is required by the Agent Skills specification and is therefore a tooling exception.
+`SKILL.md` is not precedent for generic filenames.
+Its exact spelling is required by the Agent Skills specification and is therefore a tooling exception.
 
 ### 9. Check the name at its use site
 
-Read the declaration and representative call sites aloud or mentally as code. A declaration can look concise while producing an ambiguous or ungrammatical API.
+Read the declaration and representative call sites aloud or mentally as code.
+A declaration can look concise while producing an ambiguous or ungrammatical API.
 
-For APIs, inspect the full phrase formed by receiver/type, function or method name, argument labels, parameters, and return context. Clarity at use MUST outrank brevity in isolation.
+For APIs, inspect the full phrase formed by receiver/type, function or method name, argument labels, parameters, and return context.
+Clarity at use MUST outrank brevity in isolation.
 
 ### 10. Run lexical validation where supported
 
@@ -277,9 +289,11 @@ reason: <the concept, convention, or contract that requires the change>
 evidence: <definition, call site, type, glossary, policy, or source>
 ```
 
-Do not flood a review with merely stylistic alternatives. Report names that are misleading, ambiguous, inconsistent with governing vocabulary, incompatible with the artefact kind, or likely to cause operational errors.
+Do not flood a review with merely stylistic alternatives.
+Report names that are misleading, ambiguous, inconsistent with governing vocabulary, incompatible with the artefact kind, or likely to cause operational errors.
 
-When proposing a new non-trivial name, state the intended concept and the nearest rejected alternative. This makes semantic precision auditable.
+When proposing a new non-trivial name, state the intended concept and the nearest rejected alternative.
+This makes semantic precision auditable.
 
 ## Non-goals
 

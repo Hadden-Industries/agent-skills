@@ -62,10 +62,12 @@ jobs:
         run: node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage install -- npm ci
 
       - name: Set up supported repository validation tools
+        # Markdown integration tests use the separate locked development graph.
         # The standalone component avoids unrelated host skills and MCP configuration.
         run: |
           node scripts/ci/verificationEvidence.js capture --verification-kind defining-concepts --output-root "$VERIFICATION_OUTPUT" --stage acquisition -- bash -e -o pipefail -c '
             python -B scripts/set_up_evaluation_tools.py
+            npm run setup:markdown
             .venv/bin/python --version
             .venv/bin/python -m pip show skills-ref
             .venv/bin/python -c "import importlib.metadata; print(importlib.metadata.distribution(\"skills-ref\").read_text(\"direct_url.json\"))"

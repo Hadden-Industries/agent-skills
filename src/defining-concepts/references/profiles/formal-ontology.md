@@ -1,6 +1,7 @@
 # Formal-Ontology Profile
 
-This profile adds explicit ontological commitments, constraints, and validation-state distinctions to the terminology core. It does not turn every concept definition into an ontology class.
+This profile adds explicit ontological commitments, constraints, and validation-state distinctions to the terminology core.
+It does not turn every concept definition into an ontology class.
 
 ## Activation
 
@@ -16,29 +17,39 @@ Activate for classes, individuals, object or data properties, roles, qualities, 
 
 ## Semantic distinctions
 
-Keep class, individual, property, role, quality, process, information object, and carrier distinct. Separate textual definition from necessary conditions, sufficient conditions, constraints, mappings, annotations, competency questions, and intended inferences.
+Keep class, individual, property, role, quality, process, information object, and carrier distinct.
+Separate textual definition from necessary conditions, sufficient conditions, constraints, mappings, annotations, competency questions, and intended inferences.
 
 Distinguish taxonomy from partonomy, class membership from subclassing, identity from equivalence or close mapping, a role from a rigid type, a quality from its measured value, a process from its result, and information content from its physical or digital carrier.
 
-Use OntoClean-style identity, unity, rigidity, and dependence diagnostics only when they expose a likely taxonomic error. Do not label a quick diagnostic a complete OntoClean analysis.
+Use OntoClean-style identity, unity, rigidity, and dependence diagnostics only when they expose a likely taxonomic error.
+Do not label a quick diagnostic a complete OntoClean analysis.
 
 ## Evidence
 
-Base formal commitments on the ConceptBrief, verified domain evidence, the target ontology's exact version and documentation, and the competency questions. Retrieve every reused class, property, identifier, namespace, import, and mapping destination that materially affects the proposal.
+Base formal commitments on the ConceptBrief, verified domain evidence, the target ontology's exact version and documentation, and the competency questions.
+Retrieve every reused class, property, identifier, namespace, import, and mapping destination that materially affects the proposal.
 
-Use the normative OWL 2 Recommendation-family specifications for OWL commitments and conformance questions; the OWL 2 overview is an informative roadmap. Use SHACL Recommendation 20 July 2017 for claims about SHACL 1.0 validation. SHACL 1.2 Core was a Working Draft dated 16 May 2026 when reviewed and must not silently replace the Recommendation.
+Use the normative OWL 2 Recommendation-family specifications for OWL commitments and conformance questions; the OWL 2 overview is an informative roadmap.
+Use SHACL Recommendation 20 July 2017 for claims about SHACL 1.0 validation.
+SHACL 1.2 Core was a Working Draft dated 16 May 2026 when reviewed and must not silently replace the Recommendation.
 
-Treat OBO Foundry principles as conditional norms for OBO Foundry ontologies, not global ontology law. Treat CIDOC CRM as conditional cultural-heritage practice and use an official or stable release rather than a newer draft unless the task explicitly targets that draft.
+Treat OBO Foundry principles as conditional norms for OBO Foundry ontologies, not global ontology law.
+Treat CIDOC CRM as conditional cultural-heritage practice and use an official or stable release rather than a newer draft unless the task explicitly targets that draft.
 
 ## Validation
 
 Begin with competency questions and intended inferences, then test category, identity criteria, superordinate placement, sibling discrimination, part-versus-kind relations, necessary and sufficient conditions, and the justification for domain, range, disjointness, quantification, and cardinality.
 
-Keep result states separate in this order: proposed semantics; parser-valid syntax; applicable OWL profile or other conformance check; SHACL data-graph conformance; reasoner consistency and class satisfiability; competency-question inference result; and conceptual correctness. One passing layer does not establish another.
+Keep result states separate in this order: proposed semantics; parser-valid syntax; applicable OWL profile or other conformance check; SHACL data-graph conformance; reasoner consistency and class satisfiability; competency-question inference result; and conceptual correctness.
+One passing layer does not establish another.
 
-Run a parser, SHACL processor, reasoner, query, or mapping checker only when the tool, exact ontology bytes, imports, profile, and authorization are available. Record the tool and version, input, check, result, warnings, and limitation. An LLM review is not an execution result.
+Run a parser, SHACL processor, reasoner, query, or mapping checker only when the tool, exact ontology bytes, imports, profile, and authorization are available.
+Record the tool and version, input, check, result, warnings, and limitation.
+An LLM review is not an execution result.
 
-For OntoClean-style review, ask whether identity criteria are supplied or inherited, whether instances form relevant wholes, whether membership in the class is essential to instances, and whether the class depends on another entity. Use the answers to diagnose category and subsumption errors, not to manufacture metaproperties unsupported by evidence.
+For OntoClean-style review, ask whether identity criteria are supplied or inherited, whether instances form relevant wholes, whether membership in the class is essential to instances, and whether the class depends on another entity.
+Use the answers to diagnose category and subsumption errors, not to manufacture metaproperties unsupported by evidence.
 
 ## Prohibited claims
 
@@ -52,7 +63,8 @@ For OntoClean-style review, ask whether identity criteria are supplied or inheri
 
 When material, add competency questions and intended inferences; selected ontological category; textual definition; proposed necessary and sufficient conditions; justified axioms or constraints; mapping semantics; ontology, imports, and version; tool-result states; unresolved modeling choices; and the next validation or domain-review action.
 
-Put the textual definition first in a human concept package unless a blocker prevents it. Label every formal artifact `proposed` until its stated validation has actually occurred.
+Put the textual definition first in a human concept package unless a blocker prevents it.
+Label every formal artifact `proposed` until its stated validation has actually occurred.
 
 ## Reviewed sources
 
@@ -68,4 +80,5 @@ Put the textual definition first in a human concept package unless a blocker pre
 
 Compose with epistemic governance when ontology commitments represent contested, situated, community-governed, or authority-dependent knowledge; the governance profile may require alternative models, provisional status, review, co-governance, or deferral even when an axiom is syntactically valid.
 
-Compose with KOS when linking SKOS concepts and ontology entities, but preserve each model's relation semantics. Compose with multilingual terminology for lexicalization or OntoLex-Lemon and with data definitions for metadata constructs; the terminology core owns shared concept identity and definition.
+Compose with KOS when linking SKOS concepts and ontology entities, but preserve each model's relation semantics.
+Compose with multilingual terminology for lexicalization or OntoLex-Lemon and with data definitions for metadata constructs; the terminology core owns shared concept identity and definition.

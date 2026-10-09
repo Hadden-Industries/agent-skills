@@ -14,7 +14,6 @@ test("repository build composes scoped validation and artifact checks", async ()
     deployableSkillsValidated: 1,
     evaluationFileReferencesValidated: 0,
     evaluationSuitesValidated: 1,
-    markdownFilesValidated: 10,
     packagesChecked: 0,
     skillFilesValidated: 1,
     staleArtifacts: [],
@@ -32,6 +31,5 @@ test("repository build preserves full-repository validation counts", async () =>
   assert.equal(result.deployableSkillsValidated, 4);
   assert.equal(result.evaluationSuitesValidated, 4);
   assert.equal(result.evaluationFileReferencesValidated, 5);
-  assert.equal(result.markdownFilesValidated, 45);
   assert.ok(result.skillFilesValidated > 0);
 });

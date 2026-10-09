@@ -17,15 +17,15 @@ language:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Package | `lowercase` | `com.example.billing` | No underscores |
-| Class / Interface / Record | `UpperCamelCase` | `CustomerRegistry` | Instantiable types |
-| Method | `lowerCamelCase` | `calculateNetAmount` | Verbs / verb phrases |
-| Variable / Parameter | `lowerCamelCase` | `grossAmount` | Local and instance scope |
-| Constant | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | `static final` immutables |
-| Type parameter | `UpperCamelCase` | `T`, `KeyT` | Single letter or capitalized |
-| Source file | `PascalCase.java` | `CustomerRegistry.java` | Matches top-level public type |
+| Artefact Kind              | Convention         | Example                   | Notes                         |
+| -------------------------- | ------------------ | ------------------------- | ----------------------------- |
+| Package                    | `lowercase`        | `com.example.billing`     | No underscores                |
+| Class / Interface / Record | `UpperCamelCase`   | `CustomerRegistry`        | Instantiable types            |
+| Method                     | `lowerCamelCase`   | `calculateNetAmount`      | Verbs / verb phrases          |
+| Variable / Parameter       | `lowerCamelCase`   | `grossAmount`             | Local and instance scope      |
+| Constant                   | `UPPER_SNAKE_CASE` | `DEFAULT_TIMEOUT_SECONDS` | `static final` immutables     |
+| Type parameter             | `UpperCamelCase`   | `T`, `KeyT`               | Single letter or capitalized  |
+| Source file                | `PascalCase.java`  | `CustomerRegistry.java`   | Matches top-level public type |
 
 ## Packages and types
 
@@ -49,4 +49,5 @@ final class CustomerRegistry {
 
 Methods, parameters, and local variables use `lowerCamelCase` (e.g. `calculateNetAmount`, `customerId`).
 
-Constants, as semantically defined by Google Java Style (immutable values whose methods have no detectable side effects), use `UPPER_SNAKE_CASE`. Do not mechanically uppercase every `static final` field.
+Constants, as semantically defined by Google Java Style (immutable values whose methods have no detectable side effects), use `UPPER_SNAKE_CASE`.
+Do not mechanically uppercase every `static final` field.

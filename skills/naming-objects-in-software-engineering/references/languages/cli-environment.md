@@ -24,13 +24,13 @@ relatedLanguages:
 
 ## At-a-glance summary
 
-| Artefact Kind | Convention | Example | Notes |
-| --- | --- | --- | --- |
-| Environment variable | `UPPER_SNAKE_CASE` | `DATABASE_URL`, `TIMEOUT_MS` | Process environment standard |
-| CLI executable command | `kebab-case` | `git-sync`, `check-name` | Shell binary or script |
-| CLI long option / flag | `--kebab-case` | `--timeout-seconds`, `--force` | GNU / POSIX utility syntax |
-| CLI short option | `-single-letter` | `-v`, `-h`, `-f` | Single-letter shortcut |
-| CLI subcommand | `kebab-case` | `rebuild-index` | Subcommand dispatch |
+| Artefact Kind          | Convention         | Example                        | Notes                        |
+| ---------------------- | ------------------ | ------------------------------ | ---------------------------- |
+| Environment variable   | `UPPER_SNAKE_CASE` | `DATABASE_URL`, `TIMEOUT_MS`   | Process environment standard |
+| CLI executable command | `kebab-case`       | `git-sync`, `check-name`       | Shell binary or script       |
+| CLI long option / flag | `--kebab-case`     | `--timeout-seconds`, `--force` | GNU / POSIX utility syntax   |
+| CLI short option       | `-single-letter`   | `-v`, `-h`, `-f`               | Single-letter shortcut       |
+| CLI subcommand         | `kebab-case`       | `rebuild-index`                | Subcommand dispatch          |
 
 ## Environment variables
 
@@ -56,6 +56,8 @@ validate-ontology
 --max-retries
 ```
 
-A short option is an independent artefact and follows the CLI framework syntax (for example `-o` or `-v`). Do not force long-option rules onto short options.
+A short option is an independent artefact and follows the CLI framework syntax (for example `-o` or `-v`).
+Do not force long-option rules onto short options.
 
-Published CLI commands and options represent external compatibility contracts. Renaming them requires aliases, deprecation warnings, documentation updates, and shell-completion maintenance.
+Published CLI commands and options represent external compatibility contracts.
+Renaming them requires aliases, deprecation warnings, documentation updates, and shell-completion maintenance.

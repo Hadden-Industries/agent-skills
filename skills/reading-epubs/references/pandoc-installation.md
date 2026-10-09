@@ -5,9 +5,12 @@ Read this file **only when** `scripts/check_pandoc.py` exits `10` (missing) or `
 ## Rules
 
 1. Prefer an existing platform package manager over downloading an arbitrary binary.
-2. Use one installation method only. Do not create a second Pandoc installation merely because the first shell has not refreshed its `PATH`.
-3. After installation, rerun `python <skill-path>/scripts/check_pandoc.py`, resolving the path relative to this skill's directory. Do not continue until it reports `"status":"ok"` (exit `0`).
-4. If installation requires credentials, elevation, or interaction the agent cannot provide, report the exact blocked command to the user. Do not bypass the requirement by reading the EPUB directly.
+2. Use one installation method only.
+   Do not create a second Pandoc installation merely because the first shell has not refreshed its `PATH`.
+3. After installation, rerun `python <skill-path>/scripts/check_pandoc.py`, resolving the path relative to this skill's directory.
+   Do not continue until it reports `"status":"ok"` (exit `0`).
+4. If installation requires credentials, elevation, or interaction the agent cannot provide, report the exact blocked command to the user.
+   Do not bypass the requirement by reading the EPUB directly.
 
 ## Windows
 
@@ -23,7 +26,8 @@ If WinGet is unavailable but Chocolatey is already installed:
 choco install pandoc -y
 ```
 
-A fresh installer may update `PATH` only for new processes. The bundled checker also probes common Pandoc install locations, so rerun it before assuming installation failed.
+A fresh installer may update `PATH` only for new processes.
+The bundled checker also probes common Pandoc install locations, so rerun it before assuming installation failed.
 
 ## macOS
 
@@ -37,7 +41,8 @@ If Homebrew is unavailable, use Pandoc's official macOS installer rather than an
 
 ## Linux
 
-Use the distribution package manager when it provides a sufficiently current Pandoc. Common examples:
+Use the distribution package manager when it provides a sufficiently current Pandoc.
+Common examples:
 
 ```bash
 # Debian / Ubuntu
@@ -50,7 +55,8 @@ sudo dnf install -y pandoc
 sudo pacman -S --noconfirm pandoc
 ```
 
-If the distribution package is too old or unavailable, use the official Pandoc release package or an already-configured Conda Forge environment. Do not compile Pandoc from source merely to read an EPUB unless the user explicitly requests that approach.
+If the distribution package is too old or unavailable, use the official Pandoc release package or an already-configured Conda Forge environment.
+Do not compile Pandoc from source merely to read an EPUB unless the user explicitly requests that approach.
 
 ## Verification
 

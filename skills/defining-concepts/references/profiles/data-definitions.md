@@ -1,12 +1,15 @@
 # Data-Definitions Profile
 
-This profile adds data- and metadata-specific distinctions to the terminology core. It uses ISO/IEC 11179-4:2004 as the reviewed formulation baseline within its actual scope and ISO/IEC 11179-5:2015 only when metadata-registry naming is material.
+This profile adds data- and metadata-specific distinctions to the terminology core.
+It uses ISO/IEC 11179-4:2004 as the reviewed formulation baseline within its actual scope and ISO/IEC 11179-5:2015 only when metadata-registry naming is material.
 
 ## Activation
 
 Activate for a data element, data element concept, metadata item, metadata registry, object class, property, conceptual domain, value domain, permissible value, representation class, field, code, datatype, unit, syntax, or another data construct; for an explicit ISO/IEC 11179 request; or as the router's fallback for an otherwise unqualified deliberate definition.
 
-The fallback supplies formulation discipline only. If context establishes another domain or profile, replace or compose the fallback. An ordinary concept outside data and metadata scope must not be converted into a data element, registry record, or compliance target.
+The fallback supplies formulation discipline only.
+If context establishes another domain or profile, replace or compose the fallback.
+An ordinary concept outside data and metadata scope must not be converted into a data element, registry record, or compliance target.
 
 ## Additional questions
 
@@ -20,25 +23,34 @@ The fallback supplies formulation discipline only. If context establishes anothe
 
 Keep a data element concept distinct from a data element and its representation; an object class distinct from the objects it classifies; a property distinct from a value; a conceptual domain distinct from a value domain; a permissible value distinct from the concept it denotes; and the semantic construct distinct from a field, column, code, datatype, unit, syntax, interface, storage location, transport form, or registry record.
 
-A value list is boundary evidence unless the concept is responsibly defined extensionally. A field or code may represent a concept without being that concept. A registry's acceptance, identifier, status, and naming convention describe an administered record and must not be inferred from definition quality.
+A value list is boundary evidence unless the concept is responsibly defined extensionally.
+A field or code may represent a concept without being that concept.
+A registry's acceptance, identifier, status, and naming convention describe an administered record and must not be inferred from definition quality.
 
-Use the immediate superordinate concept and delimiting characteristics when an intensional definition fits. Match specificity to context, users, data-sharing needs, and the exact metadata-item or data-construct type. Do not embed secondary definitions, implementation instructions, permissible values, examples, rationale, or measurement procedures in the definition unless constitutive.
+Use the immediate superordinate concept and delimiting characteristics when an intensional definition fits.
+Match specificity to context, users, data-sharing needs, and the exact metadata-item or data-construct type.
+Do not embed secondary definitions, implementation instructions, permissible values, examples, rationale, or measurement procedures in the definition unless constitutive.
 
 ## Evidence
 
-Treat the official ISO product page as edition and lifecycle evidence, and an authorized copy as the rule source. Record ISO/IEC 11179-4:2004, Edition 2, and the exact clauses applied. The official page describes Part 4 as covering semantic requirements and recommendations for definitions of data, metadata, data elements, and related data constructs, not formatting rules for every concept.
+Treat the official ISO product page as edition and lifecycle evidence, and an authorized copy as the rule source.
+Record ISO/IEC 11179-4:2004, Edition 2, and the exact clauses applied.
+The official page describes Part 4 as covering semantic requirements and recommendations for definitions of data, metadata, data elements, and related data constructs, not formatting rules for every concept.
 
 Use ISO/IEC 11179-5:2015, Edition 3, only for naming concepts, data element concepts, conceptual domains, data elements, and value domains in metadata registries. Its official lifecycle page was at stage 90.92, to be revised, with ISO/IEC DIS 11179-5 under development when reviewed on 2026-08-29; do not silently substitute the draft for the published edition.
 
-Supplement standards rules with directly retrieved domain, registry, neighboring-concept, value-domain, and representation evidence. A registry candidate establishes only what its retrieved record and version support.
+Supplement standards rules with directly retrieved domain, registry, neighboring-concept, value-domain, and representation evidence.
+A registry candidate establishes only what its retrieved record and version support.
 
 ## Validation
 
-For an ISO/IEC 11179-4:2004 audit, first test whether the statement represents one concept and differentiates it from related concepts. Then apply the reviewed mandatory formulation checks: singular form unless the concept itself is plural; positive declaration; descriptive phrase or grammatically complete sentence rather than a synonym or rearranged designation; full words except commonly understood or adopted abbreviations, with acronyms expanded when needed; and no embedded definitions of other concepts.
+For an ISO/IEC 11179-4:2004 audit, first test whether the statement represents one concept and differentiates it from related concepts.
+Then apply the reviewed mandatory formulation checks: singular form unless the concept itself is plural; positive declaration; descriptive phrase or grammatically complete sentence rather than a synonym or rearranged designation; full words except commonly understood or adopted abbreviations, with acronyms expanded when needed; and no embedded definitions of other concepts.
 
 Apply the reviewed recommendations proportionately: essential meaning at the context-appropriate specificity; precision and one defensible interpretation; concision without lost discrimination; standalone intelligibility; no extraneous rationale, usage, domain, procedure, or implementation detail in the sentence; no circular reasoning; consistent terminology and logical structure among related definitions; and appropriateness for the actual metadata-item or data-construct type.
 
-Perform an additional category and substitutability check: substitute the definition for the designation in representative statements, compare it with plausible siblings, and test that it does not conflate concept with process, result, representation, carrier, field, code, datatype, unit, syntax, conceptual domain, value domain, permissible value, or registry record. Label this category test as a skill safeguard, not an extra ISO/IEC 11179-4 requirement.
+Perform an additional category and substitutability check: substitute the definition for the designation in representative statements, compare it with plausible siblings, and test that it does not conflate concept with process, result, representation, carrier, field, code, datatype, unit, syntax, conceptual domain, value domain, permissible value, or registry record.
+Label this category test as a skill safeguard, not an extra ISO/IEC 11179-4 requirement.
 
 ## Prohibited claims
 
@@ -52,7 +64,8 @@ Perform an additional category and substitutability check: substitute the defini
 
 When material, add the identified data or metadata construct type; object class and property; conceptual-domain and value-domain boundary; representation details kept outside the definition; exact Part 4 checks performed and their results; naming context under Part 5; and a narrow conformance or audit statement.
 
-If fallback use was ordinary and out of Part 4 scope, state only that terminology and data-definition formulation discipline informed the result. Do not add an ISO section or compliance statement that the user does not need.
+If fallback use was ordinary and out of Part 4 scope, state only that terminology and data-definition formulation discipline informed the result.
+Do not add an ISO section or compliance statement that the user does not need.
 
 ## Reviewed sources
 
@@ -63,6 +76,8 @@ If fallback use was ordinary and out of Part 4 scope, state only that terminolog
 
 ## Composition notes
 
-Compose with the multilingual profile when designations, language varieties, translation equivalence, or TBX exchange are material; keep the data construct's identity shared while each profile adds its own checks. Compose with the KOS profile for code lists or controlled vocabularies only after deciding whether a permissible value, concept, label, notation, and mapping are actually distinct.
+Compose with the multilingual profile when designations, language varieties, translation equivalence, or TBX exchange are material; keep the data construct's identity shared while each profile adds its own checks.
+Compose with the KOS profile for code lists or controlled vocabularies only after deciding whether a permissible value, concept, label, notation, and mapping are actually distinct.
 
-Compose with formal ontology for class, property, or axiom commitments and with epistemic governance for authority-sensitive data concepts. The terminology core owns identity and definition; this profile must not overwrite a multilingual equivalence judgment, KOS mapping, ontology category, or legitimate governance decision.
+Compose with formal ontology for class, property, or axiom commitments and with epistemic governance for authority-sensitive data concepts.
+The terminology core owns identity and definition; this profile must not overwrite a multilingual equivalence judgment, KOS mapping, ontology category, or legitimate governance decision.

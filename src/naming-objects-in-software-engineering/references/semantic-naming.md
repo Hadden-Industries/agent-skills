@@ -1,8 +1,10 @@
 # Semantic naming
 
-This reference governs what a name means. Apply it before selecting case or separators.
+This reference governs what a name means.
+Apply it before selecting case or separators.
 
-The model is inspired by the concept-, context-, and name-part approach of ISO/IEC 11179-5. It is not a claim of formal ISO conformance, and it does not reproduce the standard's normative text.
+The model is inspired by the concept-, context-, and name-part approach of ISO/IEC 11179-5.
+It is not a claim of formal ISO conformance, and it does not reproduce the standard's normative text.
 
 ## 1. Separate concept from designation
 
@@ -20,7 +22,8 @@ CustomerBirthDate       C# public-member designation
 customer-birth-date     generic filesystem designation
 ```
 
-Do not mistake lexical variation for conceptual variation. Conversely, do not collapse two different concepts merely because their current spellings are similar.
+Do not mistake lexical variation for conceptual variation.
+Conversely, do not collapse two different concepts merely because their current spellings are similar.
 
 ## 2. Establish a concept dossier
 
@@ -86,7 +89,8 @@ A useful conceptual decomposition is:
 [qualifier] + [object class] + [property or behaviour] + [representation or unit]
 ```
 
-Not every name needs every part. Include a part only when it contributes information at the use site.
+Not every name needs every part.
+Include a part only when it contributes information at the use site.
 
 - **Qualifier:** narrows or differentiates the concept, such as `billing`, `shipping`, `primary`, `approved`, or `effective`.
 - **Object class:** identifies the kind of thing, such as `customer`, `invoice`, `address`, or `policy`.
@@ -102,7 +106,8 @@ request + timeout + milliseconds
 invoice + serialize + json
 ```
 
-Do not force this ordering mechanically when an ecosystem's grammar reads more naturally another way. It is a semantic analysis tool, not a universal concatenation formula.
+Do not force this ordering mechanically when an ecosystem's grammar reads more naturally another way.
+It is a semantic analysis tool, not a universal concatenation formula.
 
 ## 4. Prefer governed vocabulary
 
@@ -128,7 +133,8 @@ buyer
 
 when all five refer to the same governed concept.
 
-Different terms are valid when the domain defines different concepts. Semantic consolidation requires evidence, not word similarity.
+Different terms are valid when the domain defines different concepts.
+Semantic consolidation requires evidence, not word similarity.
 
 ## 5. Discriminate nearest concepts
 
@@ -188,42 +194,43 @@ The rule is:
 
 ## 7. Choose truthful verbs
 
-Verb meaning is part of the contract. The following is a decision guide, not a substitute for an established repository glossary or ecosystem idiom.
+Verb meaning is part of the contract.
+The following is a decision guide, not a substitute for an established repository glossary or ecosystem idiom.
 
-| Verb | Prefer when the operation... | Do not imply accidentally... |
-|---|---|---|
-| `get` | returns an already-owned value, property, cache entry, or direct accessor result | network I/O, expensive search, construction, or persistence |
-| `find` | searches using criteria and absence is a normal outcome | guaranteed existence |
-| `list` | returns or enumerates multiple values | exactly one value |
-| `fetch` | crosses a remote, service, or otherwise explicit I/O boundary to retrieve data | a cheap local accessor |
-| `read` | consumes from a file, stream, buffer, reader, or textual/binary source | parsing or domain reconstruction unless it actually occurs |
-| `load` | brings persisted or configured state into memory, often reconstructing a usable object | a direct accessor |
-| `parse` | converts syntax or text into a structured representation and can fail on invalid syntax | semantic validation or remote retrieval |
-| `decode` | reverses an encoding into its represented value | parsing an unrelated grammar |
-| `deserialize` | reconstructs a value or object from a serialization format | simple text parsing without object reconstruction |
-| `serialize` | produces a defined serialized representation | persistence by itself |
-| `validate` | checks conformance and reports or returns validity without silently repairing | mutation or normalization |
-| `normalize` | converts equivalent representations into a canonical representation | merely checking validity |
-| `convert` | changes representation or type while preserving relevant meaning | arbitrary business transformation |
-| `transform` | applies a defined mapping that can change structure or semantics | a no-op accessor |
-| `calculate` / `compute` | derives a result from inputs without persistence as the primary effect | retrieval of stored state |
-| `derive` | infers a value from other authoritative values or rules | direct copying |
-| `build` | assembles a complex in-memory value, often stepwise | persistence or registration |
-| `create` | creates a new domain object or resource according to the API contract | guaranteed persistence unless documented |
-| `new` / `make` | follows an ecosystem constructor or allocation idiom | a generic synonym outside that idiom |
-| `save` | writes current state so it can be recovered later | insert-only semantics |
-| `persist` | crosses a persistence boundary intentionally | a transient in-memory update |
-| `store` | places a value into a repository, cache, or durable medium identified by context | validation or transformation |
-| `write` | emits bytes, text, or records to a writer or target | domain-level persistence semantics not present in the API |
-| `add` | includes a value while preserving existing values | replacement |
-| `set` | assigns or replaces a property or current value | appending to a collection |
-| `update` | changes an existing value or resource | creation when absence is expected |
-| `upsert` | creates or updates according to explicit key/existence semantics | plain update |
-| `remove` | detaches from a collection, relationship, or in-memory structure | durable deletion unless that is the defined contract |
-| `delete` | removes a persisted resource or durable record | mere detachment |
-| `clear` | removes all content or resets a bounded value | deleting the containing object |
-| `ensure` | makes a postcondition true, commonly idempotently | a read-only check |
-| `try` | follows an ecosystem pattern where failure/absence is returned rather than thrown | best-effort vagueness without a defined outcome |
+| Verb                    | Prefer when the operation...                                                            | Do not imply accidentally...                                |
+| ----------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `get`                   | returns an already-owned value, property, cache entry, or direct accessor result        | network I/O, expensive search, construction, or persistence |
+| `find`                  | searches using criteria and absence is a normal outcome                                 | guaranteed existence                                        |
+| `list`                  | returns or enumerates multiple values                                                   | exactly one value                                           |
+| `fetch`                 | crosses a remote, service, or otherwise explicit I/O boundary to retrieve data          | a cheap local accessor                                      |
+| `read`                  | consumes from a file, stream, buffer, reader, or textual/binary source                  | parsing or domain reconstruction unless it actually occurs  |
+| `load`                  | brings persisted or configured state into memory, often reconstructing a usable object  | a direct accessor                                           |
+| `parse`                 | converts syntax or text into a structured representation and can fail on invalid syntax | semantic validation or remote retrieval                     |
+| `decode`                | reverses an encoding into its represented value                                         | parsing an unrelated grammar                                |
+| `deserialize`           | reconstructs a value or object from a serialization format                              | simple text parsing without object reconstruction           |
+| `serialize`             | produces a defined serialized representation                                            | persistence by itself                                       |
+| `validate`              | checks conformance and reports or returns validity without silently repairing           | mutation or normalization                                   |
+| `normalize`             | converts equivalent representations into a canonical representation                     | merely checking validity                                    |
+| `convert`               | changes representation or type while preserving relevant meaning                        | arbitrary business transformation                           |
+| `transform`             | applies a defined mapping that can change structure or semantics                        | a no-op accessor                                            |
+| `calculate` / `compute` | derives a result from inputs without persistence as the primary effect                  | retrieval of stored state                                   |
+| `derive`                | infers a value from other authoritative values or rules                                 | direct copying                                              |
+| `build`                 | assembles a complex in-memory value, often stepwise                                     | persistence or registration                                 |
+| `create`                | creates a new domain object or resource according to the API contract                   | guaranteed persistence unless documented                    |
+| `new` / `make`          | follows an ecosystem constructor or allocation idiom                                    | a generic synonym outside that idiom                        |
+| `save`                  | writes current state so it can be recovered later                                       | insert-only semantics                                       |
+| `persist`               | crosses a persistence boundary intentionally                                            | a transient in-memory update                                |
+| `store`                 | places a value into a repository, cache, or durable medium identified by context        | validation or transformation                                |
+| `write`                 | emits bytes, text, or records to a writer or target                                     | domain-level persistence semantics not present in the API   |
+| `add`                   | includes a value while preserving existing values                                       | replacement                                                 |
+| `set`                   | assigns or replaces a property or current value                                         | appending to a collection                                   |
+| `update`                | changes an existing value or resource                                                   | creation when absence is expected                           |
+| `upsert`                | creates or updates according to explicit key/existence semantics                        | plain update                                                |
+| `remove`                | detaches from a collection, relationship, or in-memory structure                        | durable deletion unless that is the defined contract        |
+| `delete`                | removes a persisted resource or durable record                                          | mere detachment                                             |
+| `clear`                 | removes all content or resets a bounded value                                           | deleting the containing object                              |
+| `ensure`                | makes a postcondition true, commonly idempotently                                       | a read-only check                                           |
+| `try`                   | follows an ecosystem pattern where failure/absence is returned rather than thrown       | best-effort vagueness without a defined outcome             |
 
 ### Verb review questions
 
@@ -234,7 +241,8 @@ Verb meaning is part of the contract. The following is a decision guide, not a s
 - Does the name reveal the principal externally observable effect?
 - Does the ecosystem reserve or strongly conventionally associate the verb with a signature or behaviour?
 
-`process`, `handle`, `manage`, `execute`, and `run` are acceptable only when the bounded process, handler role, command, job, or execution contract is already explicit. Otherwise they usually conceal the actual behaviour.
+`process`, `handle`, `manage`, `execute`, and `run` are acceptable only when the bounded process, handler role, command, job, or execution contract is already explicit.
+Otherwise they usually conceal the actual behaviour.
 
 ## 8. Name Boolean values as propositions
 
@@ -262,7 +270,8 @@ check
 value
 ```
 
-Prefer positive names. Double negation increases cognitive load:
+Prefer positive names.
+Double negation increases cognitive load:
 
 ```text
 is_enabled            preferred
@@ -271,19 +280,21 @@ is_not_disabled       reject unless the domain truly models that distinct state
 
 ### Negative Boolean Anti-Patterns vs. Affirmative Replacements
 
-Negative Boolean identifiers force double-negation logic at call sites (`if (!is_not_empty)`, `if (!disable_cache)`), creating cognitive hazards and defect vectors. Always name Boolean flags and predicates as positive assertions:
+Negative Boolean identifiers force double-negation logic at call sites (`if (!is_not_empty)`, `if (!disable_cache)`), creating cognitive hazards and defect vectors.
+Always name Boolean flags and predicates as positive assertions:
 
-| Negative Anti-Pattern (Reject) | Affirmative Replacement (Preferred) | Rationale |
-| --- | --- | --- |
-| `is_not_empty` / `not_empty` | `is_populated` / `has_items` / `has_elements` | Eliminates `!not_empty` double-negation when checking emptiness. |
-| `disable_cache` / `no_cache` | `enable_cache` / `use_cache` | Affirmative configuration flag representing active capability. |
-| `is_invalid` | `is_valid` | Positive assertion of contract conformity. |
-| `unauthorized` | `is_authorized` / `has_access` | Clean, unambiguous permission predicate. |
-| `skip_validation` | `enforce_validation` / `validate` | Affirmative policy flag rather than bypass logic. |
-| `not_found` | `is_found` / `exists` | Direct, positive existential check. |
-| `ignore_errors` | `suppress_errors` / `allow_errors` | Explicit affirmative intent without negative prefix. |
+| Negative Anti-Pattern (Reject) | Affirmative Replacement (Preferred)           | Rationale                                                        |
+| ------------------------------ | --------------------------------------------- | ---------------------------------------------------------------- |
+| `is_not_empty` / `not_empty`   | `is_populated` / `has_items` / `has_elements` | Eliminates `!not_empty` double-negation when checking emptiness. |
+| `disable_cache` / `no_cache`   | `enable_cache` / `use_cache`                  | Affirmative configuration flag representing active capability.   |
+| `is_invalid`                   | `is_valid`                                    | Positive assertion of contract conformity.                       |
+| `unauthorized`                 | `is_authorized` / `has_access`                | Clean, unambiguous permission predicate.                         |
+| `skip_validation`              | `enforce_validation` / `validate`             | Affirmative policy flag rather than bypass logic.                |
+| `not_found`                    | `is_found` / `exists`                         | Direct, positive existential check.                              |
+| `ignore_errors`                | `suppress_errors` / `allow_errors`            | Explicit affirmative intent without negative prefix.             |
 
-Do not prefix a Boolean mechanically when the ecosystem's API reads more naturally without it. Swift and some fluent APIs often achieve proposition-like clarity through the full use-site phrase.
+Do not prefix a Boolean mechanically when the ecosystem's API reads more naturally without it.
+Swift and some fluent APIs often achieve proposition-like clarity through the full use-site phrase.
 
 ## 9. Express cardinality semantically
 
@@ -343,9 +354,11 @@ payload: bytes
 exchange_rate: Decimal
 ```
 
-A type is not always visible at every use site, especially across serialization, SQL, configuration, telemetry, or dynamically typed boundaries. Judge the actual context.
+A type is not always visible at every use site, especially across serialization, SQL, configuration, telemetry, or dynamically typed boundaries.
+Judge the actual context.
 
-Use standard unit symbols or governed names consistently. Do not alternate among `ms`, `millis`, and `milliseconds` without a policy.
+Use standard unit symbols or governed names consistently.
+Do not alternate among `ms`, `millis`, and `milliseconds` without a policy.
 
 ## 11. Treat lifecycle and time terms precisely
 
@@ -392,7 +405,8 @@ val
 
 unless the ecosystem or governed vocabulary establishes them.
 
-Render accepted acronyms according to the ecosystem convention. For example, Rust commonly treats an acronym as a word in `UpperCamelCase` (`Uuid`), while an external protocol token may require `HTTP` or `UUID` exactly.
+Render accepted acronyms according to the ecosystem convention.
+For example, Rust commonly treats an acronym as a word in `UpperCamelCase` (`Uuid`), while an external protocol token may require `HTTP` or `UUID` exactly.
 
 ## 13. Avoid type and implementation encoding by default
 
@@ -407,7 +421,8 @@ IUserService       in a TypeScript profile that rejects interface prefixes
 
 Encode representation when it is semantically material, not merely because of the current implementation.
 
-A public `customer_ids` concept may remain correct if its internal container changes from list to set. `customer_list` becomes misleading.
+A public `customer_ids` concept may remain correct if its internal container changes from list to set.
+`customer_list` becomes misleading.
 
 ## 14. Generic nouns require a bounded role
 
@@ -443,12 +458,15 @@ collection.remove(at: index)
 view.dismiss(animated: true)
 ```
 
-A declaration that appears concise in isolation may be repetitive or ambiguous at the call site. Clarity at use outranks declaration-only neatness.
+A declaration that appears concise in isolation may be repetitive or ambiguous at the call site.
+Clarity at use outranks declaration-only neatness.
 
 ### Inspect call sites and inner invocations during review
 
 When conducting naming reviews on code diffs or function declarations:
-- Inspect the entire function body and inner call sites, not merely the signature change. Check whether inner calls invoke improper I/O verbs (for example, invoking `fetch_...` for an in-memory cache lookup or `compute_...` for an operation performing durable database writes).
+
+- Inspect the entire function body and inner call sites, not merely the signature change.
+  Check whether inner calls invoke improper I/O verbs (for example, invoking `fetch_...` for an in-memory cache lookup or `compute_...` for an operation performing durable database writes).
 - Ensure internal verbs and arguments match the operational boundaries defined in Section 7 (such as `get` for in-memory or cache access, `fetch` for remote HTTP calls, and `derive` or `calculate` for pure computations).
 - Verify that unvalidated payloads or raw storage representations (such as `mongo_doc` or `raw_dict`) do not leak into domain logic across abstraction seams.
 
@@ -466,7 +484,8 @@ Map them explicitly:
 customer_id = payload["cust_id"]
 ```
 
-Do not spread the external spelling through the internal model. Do not break the external contract merely to satisfy internal style.
+Do not spread the external spelling through the internal model.
+Do not break the external contract merely to satisfy internal style.
 
 ## 17. Worked review examples
 

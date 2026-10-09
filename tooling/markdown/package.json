@@ -1,0 +1,20 @@
+{
+  "name": "agent-skills-markdown-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "cd ../.. && markdown-quality check --inventory git --diagnostic-level warning",
+    "format": "cd ../.. && markdown-quality format --inventory git",
+    "inspect": "cd ../.. && markdown-quality inspect --inventory git --json"
+  },
+  "devDependencies": {
+    "@hadden-industries/markdown-quality": "file:archives/hadden-industries-markdown-quality-1.0.3.tgz"
+  },
+  "optionalDependencies": {
+    "@hadden-industries/markdown-quality-win32-x64": "file:archives/hadden-industries-markdown-quality-win32-x64-1.0.3.tgz",
+    "@hadden-industries/markdown-quality-linux-x64": "file:archives/hadden-industries-markdown-quality-linux-x64-1.0.3.tgz"
+  },
+  "registryUpgradeTarget": { "@hadden-industries/markdown-quality": ">=1.0.3" },
+  "overrides": { "micromark-extension-math": { "katex": ">=0.19.0" } }
+}

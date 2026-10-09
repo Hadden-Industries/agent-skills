@@ -55,6 +55,9 @@ jobs:
       - name: Install locked dependencies
         run: node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage install -- npm ci
 
+      - name: Acquire locked Markdown development tools without lifecycle scripts
+        run: npm run setup:markdown
+
       - name: Check formatting, lint, and generated artifacts
         run: node scripts/ci/verificationEvidence.js capture --verification-kind committing-to-git --output-root "$VERIFICATION_OUTPUT" --stage build-check -- npm run build:check
 

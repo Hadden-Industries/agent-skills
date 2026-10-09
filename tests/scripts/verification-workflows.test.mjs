@@ -456,13 +456,30 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
   );
 });
 
-test("the evidence npm entry point adds no dependency or verification-order change", () => {
+test("evidence and Markdown entry points retain the root dependency graph and existing verification order", () => {
   const current = JSON.parse(readFileSync("package.json", "utf8"));
   assert.equal(
     current.scripts["ci:evidence"],
     "node scripts/ci/verificationEvidence.js",
   );
   delete current.scripts["ci:evidence"];
+  assert.equal(
+    current.scripts.verify,
+    "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test",
+  );
+  current.scripts.verify = current.scripts.verify.replace(
+    " && npm run check:markdown",
+    "",
+  );
+  for (const name of [
+    "setup:markdown",
+    "check:markdown",
+    "format:markdown",
+    "inspect:markdown",
+    "test:markdown",
+  ]) {
+    delete current.scripts[name];
+  }
   assert.equal(
     createHash("sha256").update(JSON.stringify(current)).digest("hex"),
     originalPackageDigest,
