@@ -31,7 +31,6 @@ test("repository validation composes canonical and evaluation checks", async (t)
       deployableSkillsValidated: 1,
       evaluationFileReferencesValidated: 0,
       evaluationSuitesValidated: 0,
-      markdownFilesValidated: 1,
       skillFilesValidated: 1,
     },
   );
