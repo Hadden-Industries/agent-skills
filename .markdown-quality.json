@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "preset": "authored-gfm@1",
   "include": ["*.md", "docs/**/*.md", "src/*/SKILL.md", "src/*/references/**/*.md"],
-  "exclude": ["docs/plans/**", "docs/reviews/**", "docs/designs/**", "docs/assurance-cases/**", "docs/**/reviews/**", "docs/**/issues/**", "docs/research/**", "docs/2026-*.md"],
+  "exclude": ["skills/**", "plugins/**", "src/*/evals/**", "evidence/**", ".agents/**", ".claude/**", "docs/plans/**", "docs/reviews/**", "docs/designs/**", "docs/assurance-cases/**", "docs/**/reviews/**", "docs/**/issues/**", "docs/research/**", "docs/2026-*.md"],
   "lint": {},
   "links": { "localFiles": true, "rootRelative": "reject" },
   "layout": { "endOfLine": "lf", "tabWidth": 2 },

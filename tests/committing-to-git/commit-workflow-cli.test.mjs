@@ -132,7 +132,14 @@ test("canonical skill teaches the proportional happy path and bounded decisions"
   const first450 = words.slice(0, 450).join(" ");
 
   assert.ok(words.length <= 1_500, `skill has ${words.length} words`);
-  assert.ok(Buffer.byteLength(source, "utf8") <= 12 * 1024);
+  // Shared formatting pads table cells and separator rules. Keep the same
+  // instruction budget while excluding only that presentation padding.
+  const budgetSource = instructionSource.replace(/^\|.*\|$/gmu, (line) =>
+    line
+      .replace(/[ \t]*\|[ \t]*/gu, "|")
+      .replace(/(?<=\|)-{3,}(?=\|)/gu, "---"),
+  );
+  assert.ok(Buffer.byteLength(budgetSource, "utf8") <= 12 * 1024);
   assert.match(first450, /hint.+hypothesis|test.+hint.+evidence/iu);
   assert.match(first450, /workflow prepare/u);
   assert.match(first450, /exact approval/iu);

@@ -98,9 +98,6 @@ jobs:
           node scripts/ci/verificationEvidence.js capture --verification-kind evaluation-conformance --output-root "$env:RUNNER_TEMP/evaluation-verification-evidence" --acquisition-root .agent-tools/evaluation/acquisition-failures --stage acquisition -- python -B scripts/set_up_evaluation_execution_tools.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Acquire locked Markdown development tools without lifecycle scripts
-        run: npm run setup:markdown
-
       - name: Verify generated distribution and deterministic consumer contracts
         env:
           OTEL_SDK_DISABLED: "true"
