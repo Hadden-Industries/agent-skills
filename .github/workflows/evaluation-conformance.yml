@@ -3,12 +3,66 @@ name: Evaluation consumer conformance
 on:
   pull_request:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
+  verification:
+    name: Conformance verification strategy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.verify.outputs.reuse }}
+      proof: ${{ steps.verify.outputs.proof }}
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up the assessed Node runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - name: Select an exact successful PR receipt
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/conformanceReuse.js select
+        timeout-minutes: 1
+      - name: Download only the selected immutable receipt
+        id: download
+        if: steps.select.outputs.available == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ steps.select.outputs.artifact_id }}
+          run-id: ${{ steps.select.outputs.run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/conformance-reuse/download
+          merge-multiple: false
+          digest-mismatch: error
+      - name: Authenticate proof or require fresh conformance
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROOF_DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+        run: node scripts/ci/conformanceReuse.js verify
+        timeout-minutes: 1
+
   conformance:
+    needs: verification
+    if: ${{ !cancelled() && needs.verification.outputs.reuse != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -25,13 +79,13 @@ jobs:
           persist-credentials: false
 
       - name: Set up the assessed Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.21.0"
           package-manager-cache: false
 
       - name: Set up the assessed Python runtime
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14.7"
 
@@ -63,3 +117,55 @@ jobs:
       - name: Report conformance and acquisition diagnostics
         if: ${{ !cancelled() }}
         run: node scripts/ci/verificationEvidence.js report --verification-kind evaluation-conformance --output-root "$env:RUNNER_TEMP/evaluation-verification-evidence" --temporary-root "$env:RUNNER_TEMP/evaluation-conformance" --acquisition-root .agent-tools/evaluation/acquisition-failures
+
+  required:
+    name: Conformance required
+    if: ${{ always() }}
+    needs: [verification, conformance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      REQUIRED_JOB_RESULTS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Check out the aggregate evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up the assessed Node runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - name: Require successful fresh or authenticated reused conformance
+        run: node scripts/ci/conformanceReuse.js require
+      - name: Record successful full PR conformance
+        id: receipt
+        if: github.event_name == 'pull_request'
+        # Failure to publish optimization evidence forces fresh tests after merge.
+        continue-on-error: true
+        run: node scripts/ci/conformanceReuse.js record
+      - name: Attest the exact receipt and producing PR workflow
+        if: steps.receipt.outputs.recorded == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/conformance-reuse/receipt.json
+          create-storage-record: false
+          show-summary: false
+      - name: Retain the small immutable PR receipt
+        if: steps.receipt.outputs.recorded == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conformance-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/conformance-reuse/receipt.json
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false

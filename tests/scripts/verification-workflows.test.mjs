@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { parse } from "yaml";
 
-// Observed contract at 0b5193609dbfbd45bb39db1f3ca4904dbf9a7498; portable to shallow checkouts.
+// Native contract from 0b5193609dbfbd45bb39db1f3ca4904dbf9a7498, with approved action release pins.
 const originalWorkflows = {
   "committing-to-git-linux": {
     name: "Committing-to-git Linux verification",
@@ -47,7 +47,7 @@ const originalWorkflows = {
           },
           {
             name: "Set up Node.js",
-            uses: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+            uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
             with: {
               "node-version": "24",
               "package-manager-cache": false,
@@ -118,7 +118,7 @@ const originalWorkflows = {
           },
           {
             name: "Set up the assessed Node runtime",
-            uses: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+            uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
             with: {
               "node-version": "24.21.0",
               "package-manager-cache": false,
@@ -126,7 +126,7 @@ const originalWorkflows = {
           },
           {
             name: "Set up the assessed Python runtime",
-            uses: "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            uses: "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
             with: {
               "python-version": "3.14.7",
             },
@@ -234,11 +234,22 @@ test("defining-concepts Linux route provisions the supported tools before the sc
 });
 
 for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
-  test(`${name} preserves triggers, runtimes, action identities and job policy`, () => {
+  test(`${name} preserves existing runtimes, action identities and job policy`, () => {
     const { original, current } = workflows(name);
-    assert.deepEqual(current.on, original.on);
+    // CI reuse adds main push plus strategy/aggregate jobs; the native matrix is preserved.
+    assert.deepEqual(
+      current.on,
+      name === "evaluation-conformance"
+        ? { ...original.on, push: { branches: ["main"] } }
+        : original.on,
+    );
     assert.deepEqual(current.permissions, original.permissions);
-    assert.deepEqual(Object.keys(current.jobs), Object.keys(original.jobs));
+    assert.deepEqual(
+      Object.keys(current.jobs),
+      name === "evaluation-conformance"
+        ? ["verification", "conformance", "required"]
+        : Object.keys(original.jobs),
+    );
     for (const jobId of Object.keys(original.jobs)) {
       const before = original.jobs[jobId];
       const after = current.jobs[jobId];
@@ -290,6 +301,112 @@ test("Linux commands keep their native arguments and protect all diagnostic outp
   assert.match(scripts, /--stage environment -- bash -e -o pipefail -c/u);
   assert.match(scripts, /git rev-parse HEAD/u);
   assert.doesNotMatch(scripts, /\btee\b|cat .*GITHUB_STEP_SUMMARY/u);
+});
+
+test("conformance reuse has bounded reads, scoped attestation writes and cannot mask failures", () => {
+  const { current } = workflows("evaluation-conformance");
+  const strategy = current.jobs.verification;
+  assert.deepEqual(strategy.permissions, {
+    contents: "read",
+    actions: "read",
+    attestations: "read",
+    "pull-requests": "read",
+  });
+  assert.equal(strategy["timeout-minutes"], 4);
+  assert.equal(strategy.outputs.reuse, "${{ steps.verify.outputs.reuse }}");
+  assert.equal(strategy.outputs.proof, "${{ steps.verify.outputs.proof }}");
+  const select = strategy.steps.find((step) => step.id === "select");
+  const verify = strategy.steps.find((step) => step.id === "verify");
+  const download = strategy.steps.find((step) => step.id === "download");
+  assert.equal(select.run, "node scripts/ci/conformanceReuse.js select");
+  assert.equal(verify.run, "node scripts/ci/conformanceReuse.js verify");
+  assert.equal(
+    verify.env.PROOF_DOWNLOAD_OUTCOME,
+    "${{ steps.download.outcome }}",
+  );
+  assert.equal(download.if, "steps.select.outputs.available == 'true'");
+  assert.equal(download["continue-on-error"], true);
+  assert.equal(
+    download.with["artifact-ids"],
+    "${{ steps.select.outputs.artifact_id }}",
+  );
+  assert.equal(download.with["run-id"], "${{ steps.select.outputs.run_id }}");
+  assert.equal(download.with["digest-mismatch"], "error");
+  assert.equal(download.with.repository, "${{ github.repository }}");
+  assert.equal(
+    download.with.path,
+    "${{ runner.temp }}/conformance-reuse/download",
+  );
+  assert.equal(current.jobs.conformance.needs, "verification");
+  assert.equal(
+    current.jobs.conformance.if,
+    "${{ !cancelled() && needs.verification.outputs.reuse != 'true' }}",
+  );
+  const aggregate = current.jobs.required;
+  assert.equal(aggregate.if, "${{ always() }}");
+  assert.deepEqual(aggregate.needs, ["verification", "conformance"]);
+  assert.equal(aggregate.env.REQUIRED_JOB_RESULTS_JSON, "${{ toJSON(needs) }}");
+  const requireStep = aggregate.steps.find((step) =>
+    step.run?.endsWith("conformanceReuse.js require"),
+  );
+  assert.ok(requireStep);
+  assert.equal(requireStep.if, undefined);
+  assert.equal(requireStep["continue-on-error"], undefined);
+  const record = aggregate.steps.find((step) => step.id === "receipt");
+  assert.equal(record.if, "github.event_name == 'pull_request'");
+  assert.equal(record.run, "node scripts/ci/conformanceReuse.js record");
+  const upload = aggregate.steps.at(-1);
+  assert.equal(upload.if, "steps.receipt.outputs.recorded == 'true'");
+  assert.equal(upload["continue-on-error"], true);
+  assert.equal(
+    upload.with.path,
+    "${{ runner.temp }}/conformance-reuse/receipt.json",
+  );
+  assert.equal(
+    upload.with.name,
+    "conformance-proof-${{ github.run_id }}-${{ github.run_attempt }}",
+  );
+  assert.equal(upload.with["retention-days"], 7);
+  assert.equal(upload.with.overwrite, false);
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(upload.with["include-hidden-files"], false);
+  for (const job of [strategy, aggregate]) {
+    assert.equal(job["runs-on"], "ubuntu-24.04");
+    assert.doesNotMatch(JSON.stringify(job.env ?? {}), /runner\.temp/u);
+    for (const step of job.steps.filter((entry) => entry.uses)) {
+      assert.match(step.uses, /^actions\/[a-z-]+@[a-f0-9]{40}$/u);
+    }
+    const checkout = job.steps.find((step) =>
+      step.uses?.startsWith("actions/checkout@"),
+    );
+    assert.equal(checkout.with["persist-credentials"], false);
+    assert.equal(checkout.with.ref, undefined);
+    assert.equal(
+      job.steps.some((step) => /npm ci|eval:run/u.test(step.run ?? "")),
+      false,
+    );
+  }
+  assert.deepEqual(aggregate.permissions, {
+    contents: "read",
+    "id-token": "write",
+    attestations: "write",
+  });
+  const attest = aggregate.steps.find((step) =>
+    step.uses?.startsWith("actions/attest@"),
+  );
+  assert.equal(
+    attest.uses,
+    "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+  );
+  assert.equal(attest.if, "steps.receipt.outputs.recorded == 'true'");
+  assert.equal(attest["continue-on-error"], true);
+  assert.equal(attest["timeout-minutes"], 1);
+  assert.deepEqual(attest.with, {
+    "subject-path": "${{ runner.temp }}/conformance-reuse/receipt.json",
+    "create-storage-record": false,
+    "show-summary": false,
+  });
+  assert.equal(current.jobs.conformance.permissions, undefined);
 });
 
 test("evaluation retains the native sequence, telemetry and isolated fixture temp root", () => {
