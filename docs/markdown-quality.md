@@ -1,9 +1,10 @@
 # Markdown quality
 
-Run `npm run setup:markdown` once after installing the root development dependencies.
+Run `npm run install:markdown` once after installing the root development dependencies.
 This installs the separate locked development-tool graph with lifecycle scripts disabled.
 `npm run check:markdown` checks maintained Markdown without writes or acquisition; `npm run format:markdown` applies approved formatting.
 `npm run inspect:markdown` explains complete tracked inventory decisions.
+`npm run qualify:markdown -- profile --root .` reads the trusted execution profile; the `candidate` operation requires explicit immutable trusted/candidate identities and native runtime paths as defined by the shared producer.
 `npm run verify` includes the shared check and independent installed-consumer integration tests.
 
 The root `.markdown-quality.json` is the sole Markdown scope and rule authority.

@@ -6,7 +6,8 @@
   "scripts": {
     "check": "cd ../.. && markdown-quality check --inventory git --diagnostic-level warning",
     "format": "cd ../.. && markdown-quality format --inventory git",
-    "inspect": "cd ../.. && markdown-quality inspect --inventory git --json"
+    "inspect": "cd ../.. && markdown-quality inspect --inventory git --json",
+    "qualify": "cd ../.. && markdown-quality-qualify"
   },
   "devDependencies": {
     "@hadden-industries/markdown-quality": "file:archives/hadden-industries-markdown-quality-1.0.3.tgz"

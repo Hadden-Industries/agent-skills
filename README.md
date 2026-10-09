@@ -146,7 +146,7 @@ It holds the same package at the archive root plus the minimal desktop `plugin.j
 ## How It Works
 
 Maintained Markdown uses the [shared Markdown quality controls](./docs/markdown-quality.md).
-Install their isolated locked toolchain with `npm run setup:markdown`; use `npm run check:markdown` for a read-only check and `npm run format:markdown` to apply policy.
+Install their isolated locked toolchain with `npm run install:markdown`; use `npm run check:markdown` for a read-only check and `npm run format:markdown` to apply policy.
 The complete verification gate includes these controls.
 
 These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices).

@@ -472,14 +472,15 @@ test("evidence and Markdown entry points retain the root dependency graph and ex
     "",
   );
   assert.equal(
-    current.scripts["setup:markdown"],
+    current.scripts["install:markdown"],
     "npm ci --prefix tooling/markdown --ignore-scripts",
   );
   for (const name of [
-    "setup:markdown",
+    "install:markdown",
     "check:markdown",
     "format:markdown",
     "inspect:markdown",
+    "qualify:markdown",
     "test:markdown",
   ]) {
     delete current.scripts[name];

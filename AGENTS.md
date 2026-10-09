@@ -30,7 +30,7 @@
 ### Completion Verification
 
 - Markdown scope and rules live in `.markdown-quality.json`; see `docs/markdown-quality.md`.
-  Install the locked toolchain with `npm run setup:markdown`, edit canonical source, apply `npm run format:markdown` when needed, then rebuild generated skill/plugin outputs.
+  Install the locked toolchain with `npm run install:markdown`, edit canonical source, apply `npm run format:markdown` when needed, then rebuild generated skill/plugin outputs.
   Never format historical evidence or portable evaluation fixtures.
 
 - During implementation, run focused tests for the changed behavior and affected checks at integration.
