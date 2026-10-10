@@ -21,10 +21,11 @@ jobs:
   markdown:
     permissions:
       contents: read
-    uses: Hadden-Industries/markdown-quality/.github/workflows/markdown-quality.yml@aec44f56b528af592ad6ba7e1e114e333246c19c
+    uses: Hadden-Industries/markdown-quality/.github/workflows/markdown-quality.yml@2e619b8cd1024e3bd37a1452af55a2cdb9cd7867
     with:
       trusted-repository: Hadden-Industries/agent-skills
       trusted-sha: ${{ inputs.trusted_sha || github.event.pull_request.base.sha || github.sha }}
       candidate-repository: Hadden-Industries/agent-skills
       candidate-sha: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
       profile: .markdown-quality-execution.json
+      qualification-evidence: ${{ github.event_name == 'workflow_dispatch' }}

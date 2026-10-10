@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { parse } from "yaml";
 
 const root = resolve(import.meta.dirname, "../..");
 const tooling = join(root, "tooling/markdown");
@@ -76,6 +77,11 @@ test("Markdown acquisition binds installed latest-source and native archives to 
   );
   assert.ok(workflow.includes(`markdown-quality.yml@${source.workflow}`));
   assert.equal(source.workflow, source.source);
+  const caller = parse(workflow);
+  assert.equal(
+    caller.jobs.markdown.with["qualification-evidence"],
+    "${{ github.event_name == 'workflow_dispatch' }}",
+  );
   const profile = readExecutionProfile({ root });
   assert.equal(profile.samples, 6);
   assert.equal(profile.runtimes.node, "24.21.0");

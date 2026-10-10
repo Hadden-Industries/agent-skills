@@ -29,3 +29,9 @@ Pushes to reviewed main promote that commit's policy/toolchain to the trusted ba
 Ordinary checks retain the producer's supported Node range; the exact runtime declarations apply to qualification.
 Candidate scripts, configuration and hooks cannot authorize execution or relax trusted policy.
 A clean local check, a hosted positive result and a hosted adversarial failure are separate evidence claims.
+
+Hosted artifacts contain compact receipts, results, bounded logs and complete staged-content manifests instead of repeated staged source copies.
+The manifests include hidden paths and empty directories; reconstruction requires the exact candidate/trusted Git objects and locked archives, with every path/type/size/hash and the original staged digest verified.
+Incomplete or truncated failure diagnostics never establish a passing qualification; early structural failures can leave only the job log or a partial upload.
+Routine successful artifacts retain7 days and failed runs14 days; explicit manual qualification selects30 days through the producer's `qualification-evidence` input.
+Retention changes do not alter fresh staging, six samples, policy or execution bounds, and existing historical artifacts keep their original expiry.
