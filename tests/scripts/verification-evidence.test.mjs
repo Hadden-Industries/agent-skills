@@ -74,6 +74,53 @@ function nativeRecord(f, rootName, file, text) {
   return path;
 }
 
+test(
+  "Windows npm capture resolves a standard local bin without executing its cmd shim",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const f = fixture(t);
+    const bin = join(f.root, "node_modules", ".bin");
+    const npmBin = join(f.root, "node_modules", "npm", "bin");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(npmBin, { recursive: true });
+    writeFileSync(
+      join(bin, "npm.cmd"),
+      "@echo CMD-SHIM-MUST-NOT-EXECUTE\r\nexit /b 99\r\n",
+    );
+    writeFileSync(
+      join(npmBin, "npm-cli.js"),
+      "process.stdout.write('LOCAL-NPM:' + JSON.stringify(process.argv.slice(2)));\n",
+    );
+    const previousPath = process.env.PATH;
+    t.after(() => {
+      process.env.PATH = previousPath;
+    });
+    process.env.PATH = bin + ";" + previousPath;
+    const result = await captureCommand({
+      ...f,
+      verificationKind: "committing-to-git",
+      stage: "environment",
+      command: "npm",
+      arguments_: ["--version"],
+    });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.failures, []);
+    assert.match(f.text(), /LOCAL-NPM:\["--version"\]/u);
+    assert.doesNotMatch(f.text(), /CMD-SHIM-MUST-NOT-EXECUTE/u);
+    rmSync(join(npmBin, "npm-cli.js"));
+    const missing = await captureCommand({
+      ...f,
+      verificationKind: "committing-to-git",
+      stage: "install",
+      command: "npm",
+      arguments_: ["--version"],
+    });
+    assert.equal(missing.exitCode, null);
+    assert.match(missing.failures.join(), /Native npm entry point missing/u);
+    assert.doesNotMatch(f.text(), /CMD-SHIM-MUST-NOT-EXECUTE/u);
+  },
+);
+
 test("defining-concepts reports setup and scoped verification on success and failure", async (t) => {
   for (const failedStage of [null, "acquisition", "tests"]) {
     const f = fixture(t);

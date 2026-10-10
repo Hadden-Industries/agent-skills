@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import {
+  basename,
   dirname,
   isAbsolute,
   join,
@@ -294,7 +295,12 @@ function commandInvocation(command, arguments_) {
     if (!npmDirectory) {
       throw new Error("Installed npm.cmd not found on PATH");
     }
-    const npmEntryPoint = join(npmDirectory, "node_modules/npm/bin/npm-cli.js");
+    const npmEntryPoint = join(
+      npmDirectory,
+      basename(npmDirectory).toLowerCase() === ".bin"
+        ? "../npm/bin/npm-cli.js"
+        : "node_modules/npm/bin/npm-cli.js",
+    );
     if (!existsSync(npmEntryPoint)) {
       throw new Error(`Native npm entry point missing: ${npmEntryPoint}`);
     }
