@@ -87,13 +87,33 @@ The smallest authorized configuration bundle is:
 - `evaluation-toolchain.json`: update only `packages.skills` to the exact newly qualified locked version `1.7.2`; any other changed listed package must follow its actual selected lock identity.
   Keep native skill-up 0.12.0 archives, executable/license hashes, platform qualification markers, schema/contract/projector versions, and exact installed-version rejection unchanged.
 - `.github/workflows/evaluation-conformance.yml`: add an explicit exact npm 12.2.0 bootstrap/version check after setup-node in the `conformance` job, before npm environment recording and frozen install.
-  Preserve the Windows/Linux matrix, Node/Python pins, `package-manager-cache: false`, script-disabled acquisition, permissions, timeouts, required gate, and exact reuse proof.
+  Preserve the Windows/Linux matrix, Node pin, `package-manager-cache: false`, script-disabled acquisition, permissions, timeouts, required gate, and exact reuse proof; the Python revision below supersedes its original pin.
 - `.github/workflows/committing-to-git-linux.yml` and `.github/workflows/defining-concepts-linux.yml`: add the same exact npm bootstrap/version check after setup-node, before npm probes/install.
   Preserve the manual triggers, existing script behavior, runtime selections, and evidence capture.
 
 These are all tracked npm manifests; `tooling/markdown/package.json` uses retained `file:` archives with a separate exact lock and explicit future registry target.
 Preserve that entire qualified archive/source/workflow identity and optional-platform graph byte for byte.
-Also preserve installed/imported skills, `skills-lock.json`, Python dependencies, workflow action pins, Markdown policy/profile, package release metadata, and historical evidence.
+Also preserve installed/imported skills, `skills-lock.json`, workflow action pins, Markdown policy/profile, package release metadata, and historical evidence.
+
+## Accepted Python scope revision, 10 October 2026
+
+After the app restart, the owner explicitly requested: "Update the repo and every dev dependency to Python >= 3.15.0".
+This supersedes the original Python exclusion and runtime selections for development tooling, while retaining the R1 route and all existing evaluation trust boundaries.
+Python 3.15.0 is the current stable release, verified against the [official release](https://www.python.org/downloads/release/python-3150/).
+The installed base interpreter is already 3.15.0; the old local `.venv` references a removed 3.14.7 interpreter.
+
+SLICE-004 extends REQ-001/AC-001 and QA-001 to current Python development tooling:
+
+- Require Python >=3.15.0 in repository setup entry points, reused virtual environments, and the Windows evaluation process host. Use the existing shared setup module for the common prerequisite; reject older interpreters before acquisition or workload launch. Portable skill scripts and historical observations retain their own compatibility contracts.
+- Set `python-version: "3.15.0"` in `.github/workflows/evaluation-conformance.yml` and `.github/workflows/defining-concepts-linux.yml`. Retain pinned Actions, triggers, platform matrices, permissions and exact receipt validation.
+- In `scripts/set_up_evaluation_tools.py`, select current Python development tools through native pip floors: `pip>=26.2.1`, `PyYAML>=6.0.3`, and published `skills-ref>=0.1.1`. Replace the older Git-main source (reporting 0.1.0) with the latest published skills-ref release; do not modify third-party package metadata to impose this repository's interpreter policy.
+- Refresh every transitive Python development dependency through pip's supported resolver. Current registry selections are click 8.5.0, strictyaml 1.7.3, python-dateutil 2.9.0.post0, and six 1.17.0; these already match the prior installed versions. Retain installed distribution metadata, source/archive identities, actual terms and `pip check` evidence. Existing current-tracking update semantics remain; no new Python lock format is introduced.
+- Preserve the broken `.venv` in a declared external recovery group before creating the replacement with Python 3.15.0. Refresh only Python tooling, without invoking unrelated host/MCP/skill installers. Preserve the old environment until the owner releases its recovery consumer.
+- Update current README/toolchain guidance and narrow workflow/setup tests. Prove rejection below the new floor and admission at/above it, safe handling of an outdated virtual environment, actual installed validator execution, and current Windows host contracts. Upstream dependencies remain independently licensed; retain MIT, BSD, dual-license and Apache notices as distributed.
+
+Commit this plan revision before implementation. Consolidate SLICE-004 into one implementation candidate after focused proof, then run fresh final HISEW `full` (`npm run verify`) evidence and required native handoff; prior candidate receipts do not qualify changed inputs.
+Use a narrowly scoped follow-up review of this Python revision, preserving the completed broad review and npm repair review. Publish authorized signed commits only after the new final gate passes, then observe automatic Windows/Linux conformance and Markdown CI at the published tip.
+Abort publication on unsupported Python 3.15 package installation, validator/host regressions, missing hosted runtime support, or unresolved review findings; retain failures and forward-fix within this scope rather than lowering the interpreter floor or weakening checks.
 
 Predicted source seams are `scripts/ci/conformanceReuse.js` and its tests (require the new npm step to have succeeded), focused native npm/workflow tests, and README/toolchain guidance.
 The receipt already binds exact workflow and policy Git blobs, so changed bootstrap inputs cannot reuse an older receipt.
