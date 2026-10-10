@@ -102,10 +102,16 @@ This supersedes the original Python exclusion and runtime selections for develop
 Python 3.15.0 is the current stable release, verified against the [official release](https://www.python.org/downloads/release/python-3150/).
 The installed base interpreter is already 3.15.0; the old local `.venv` references a removed 3.14.7 interpreter.
 
+The owner subsequently revised the runtime decision to "local 3.15, CI >= 3.14.8".
+Keep the local base interpreter and authoring environment on 3.15.0, retain `actions/setup-python`, and select exact 3.14.8 in both Python CI workflows.
+The shared supported minimum is therefore Python >=3.14.8, including patch-level enforcement in setup, reused environments, and retained Windows host controls.
+This explicitly supersedes the earlier universal 3.15 minimum; there is no CI-only eligibility bypass.
+Local Windows/3.15 and hosted Windows/Linux/3.14.8 evidence establish their respective compatibility claims.
+
 SLICE-004 extends REQ-001/AC-001 and QA-001 to current Python development tooling:
 
-- Require Python >=3.15.0 in repository setup entry points, reused virtual environments, and the Windows evaluation process host. Use the existing shared setup module for the common prerequisite; reject older interpreters before acquisition or workload launch. Portable skill scripts and historical observations retain their own compatibility contracts.
-- Set `python-version: "3.15.0"` in `.github/workflows/evaluation-conformance.yml` and `.github/workflows/defining-concepts-linux.yml`. Retain pinned Actions, triggers, platform matrices, permissions and exact receipt validation.
+- Require Python >=3.14.8 in repository setup entry points, reused virtual environments, and the Windows evaluation process host. Use the existing shared setup module for the common prerequisite; reject older interpreters before acquisition or workload launch. Portable skill scripts and historical observations retain their own compatibility contracts.
+- Set `python-version: "3.14.8"` in `.github/workflows/evaluation-conformance.yml` and `.github/workflows/defining-concepts-linux.yml`. Retain pinned Actions, triggers, platform matrices, permissions and exact receipt validation.
 - In `scripts/set_up_evaluation_tools.py`, select current Python development tools through native pip floors: `pip>=26.2.1` and `PyYAML>=6.0.3`. Retain official `agentskills/agentskills` main for skills-ref: its current commit is `69ef37e9424c0a7ea9dd2293b559e43ec8176379`, reporting 0.1.0. The attempted PyPI 0.1.1 candidate changes publisher/source identity and exposes `agentskills` instead of the required upstream `skills-ref` command; its real installation failed the consumer prerequisite. A higher number on that distinct publication is not authority to replace the selected upstream. Do not modify third-party package metadata to impose this repository's interpreter policy.
 - Refresh every transitive Python development dependency through pip's supported resolver. Current registry selections are click 8.5.0, strictyaml 1.7.3, python-dateutil 2.9.0.post0, and six 1.17.0; these already match the prior installed versions. Retain installed distribution metadata, source/archive identities, actual terms and `pip check` evidence. Existing current-tracking update semantics remain; no new Python lock format is introduced.
 - Preserve the broken `.venv` in a declared external recovery group before creating the replacement with Python 3.15.0. Refresh only Python tooling, without invoking unrelated host/MCP/skill installers. Preserve the old environment until the owner releases its recovery consumer.
@@ -113,7 +119,7 @@ SLICE-004 extends REQ-001/AC-001 and QA-001 to current Python development toolin
 
 Commit this plan revision before implementation. Consolidate SLICE-004 into one implementation candidate after focused proof, then run fresh final HISEW `full` (`npm run verify`) evidence and required native handoff; prior candidate receipts do not qualify changed inputs.
 Use a narrowly scoped follow-up review of this Python revision, preserving the completed broad review and npm repair review. Publish authorized signed commits only after the new final gate passes, then observe automatic Windows/Linux conformance and Markdown CI at the published tip.
-Abort publication on unsupported Python 3.15 package installation, validator/host regressions, missing hosted runtime support, or unresolved review findings; retain failures and forward-fix within this scope rather than lowering the interpreter floor or weakening checks.
+Abort publication on unsupported local Python 3.15 or hosted Python 3.14.8 package installation, validator/host regressions, missing hosted runtime support, or unresolved review findings; retain failures and forward-fix within the revised scope without weakening checks.
 
 Predicted source seams are `scripts/ci/conformanceReuse.js` and its tests (require the new npm step to have succeeded), focused native npm/workflow tests, and README/toolchain guidance.
 The receipt already binds exact workflow and policy Git blobs, so changed bootstrap inputs cannot reuse an older receipt.
