@@ -46,7 +46,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _commands import SetupError, require_command, run
+from _commands import SetupError, require_command, require_python_version, run
 from _repository import derive_repo_from_script, normalize_remote
 
 OPENAI_PLUGINS_URL = "https://github.com/openai/plugins.git"
@@ -58,14 +58,6 @@ SKILLS_REF_VCS = (
 )
 
 WRAPPER_NAMES = ("skills-ref", "tessl", "plugin-eval")
-
-
-def ensure_python_version() -> None:
-    if sys.version_info < (3, 11):
-        raise SetupError(
-            "Python 3.11 or newer is required because skills-ref currently "
-            f"requires Python >=3.11. Running: {sys.version.split()[0]}"
-        )
 
 
 def venv_python(venv: Path) -> Path:
@@ -95,7 +87,11 @@ def probe_python(python: Path, repo: Path) -> tuple[bool, str]:
     """Return whether a Python launcher starts, plus its diagnostic output."""
     try:
         result = run(
-            (python, "-c", "import sys"),
+            (
+                python,
+                "-c",
+                "import sys; sys.exit('Python 3.15.0+ required' if sys.version_info < (3, 15) else 0)",
+            ),
             cwd=repo,
             capture=True,
             check=False,
@@ -167,7 +163,7 @@ def ensure_python_tooling(repo: Path) -> tuple[Path, Path]:
     skills-ref is deliberately force-reinstalled from main on every run so
     upstream changes are picked up even if its package version has not changed.
     """
-    ensure_python_version()
+    require_python_version()
 
     venv, python = ensure_virtual_environment(repo)
 
@@ -181,8 +177,8 @@ def ensure_python_tooling(repo: Path) -> tuple[Path, Path]:
             "install",
             "--upgrade",
             "--disable-pip-version-check",
-            "pip",
-            "PyYAML",
+            "pip>=26.2.1",
+            "PyYAML>=6.0.3",
         ),
         cwd=repo,
     )
@@ -586,6 +582,7 @@ def main() -> int:
     parse_args()
 
     try:
+        require_python_version()
         require_command("git")
         require_command("npm")
         require_command("node")

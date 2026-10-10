@@ -19,12 +19,22 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Iterable
 
 
 class SetupError(RuntimeError):
     """Raised for a safe, user-actionable setup failure."""
+
+
+def require_python_version() -> None:
+    """Enforce the repository's development interpreter floor before setup."""
+    if sys.version_info < (3, 15):
+        raise SetupError(
+            "Python 3.15.0 or newer is required. "
+            f"Running: {sys.version.split()[0]}"
+        )
 
 
 def run(

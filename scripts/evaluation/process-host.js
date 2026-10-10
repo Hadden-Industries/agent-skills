@@ -21,7 +21,7 @@ export function prepareProcessHost(root = repositoryRoot) {
       "-I",
       "-B",
       "-c",
-      "import sys,json; assert sys.version_info >= (3,11), 'Python 3.11+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
+      "import sys,json; assert sys.version_info >= (3,15), 'Python 3.15.0+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
     ],
     { encoding: "utf8", timeout: 10000, windowsHide: true },
   );

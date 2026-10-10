@@ -55,7 +55,7 @@ import zipfile
 from pathlib import Path
 from typing import Iterable
 
-from _commands import SetupError
+from _commands import SetupError, require_python_version
 from _repository import derive_repo_from_script
 
 GITHUB_MCP_RELEASES_API = (
@@ -349,7 +349,7 @@ def merge_codex_mcp_config(
     if not merged.endswith("\n"):
         merged = f"{merged}\n"
 
-    # `tomllib` is standard from Python 3.11, which this script already requires.
+    # `tomllib` is standard in the supported Python development runtime.
     # Importing it here rather than at module scope keeps the failure on an older
     # interpreter an actionable message instead of an ImportError raised before
     # `main` runs.
@@ -357,7 +357,7 @@ def merge_codex_mcp_config(
         import tomllib
     except ModuleNotFoundError as exc:  # pragma: no cover - guarded by the check
         raise SetupError(
-            "Writing the Codex MCP configuration requires Python 3.11 or newer for "
+            "Writing the Codex MCP configuration requires Python 3.15.0 or newer for "
             f"`tomllib`. Running: {sys.version.split()[0]}"
         ) from exc
 
@@ -715,6 +715,7 @@ def main() -> int:
     parse_args()
 
     try:
+        require_python_version()
         repo = derive_repo_from_script(__file__)
         print(f"Repository root: {repo}")
 

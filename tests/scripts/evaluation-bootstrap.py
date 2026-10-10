@@ -19,6 +19,15 @@ from set_up_evaluation_execution_tools import archive_files
 
 
 class ArchiveBoundaryTests(unittest.TestCase):
+    def test_old_python_is_rejected_before_acquisition(self):
+        with patch.object(sys, "version_info", (3, 14, 7)), \
+             patch.object(bootstrap.urllib.request, "urlopen") as download, \
+             patch.object(bootstrap.subprocess, "run") as execute:
+            with self.assertRaisesRegex(SetupError, "Python 3.15.0 or newer"):
+                bootstrap.main({})
+            download.assert_not_called()
+            execute.assert_not_called()
+
     def test_failed_download_records_observed_identity_before_execution(self):
         with tempfile.TemporaryDirectory(prefix="bootstrap-negative-") as directory:
             root = Path(directory)

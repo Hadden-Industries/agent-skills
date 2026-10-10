@@ -22,7 +22,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from _commands import SetupError
+from _commands import SetupError, require_python_version
 
 
 def assert_plain_path(path: Path) -> None:
@@ -59,8 +59,7 @@ def archive_files(data: bytes, name: str) -> dict[str, bytes]:
 
 
 def main(context: dict) -> None:
-    if sys.version_info < (3, 12):
-        raise SetupError("Python 3.12 or newer is required for junction checks")
+    require_python_version()
     root = Path(__file__).resolve().parent.parent
     manifest_bytes = (root / "evaluation-toolchain.json").read_bytes()
     context["toolchainSha256"] = hashlib.sha256(manifest_bytes).hexdigest()

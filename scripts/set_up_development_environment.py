@@ -60,7 +60,7 @@ from pathlib import Path
 import set_up_agent_skills
 import set_up_evaluation_tools
 import set_up_mcp_servers
-from _commands import SetupError
+from _commands import SetupError, require_python_version
 from _repository import derive_repo_from_script, verify_repo_identity
 
 EXPECTED_REPO = "github.com/hadden-industries/agent-skills"
@@ -152,6 +152,7 @@ def main() -> int:
     args = parse_args()
 
     try:
+        require_python_version()
         repo = derive_repo_from_script(__file__)
         print(f"Repository root: {repo}")
 

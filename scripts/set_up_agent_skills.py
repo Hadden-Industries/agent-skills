@@ -58,7 +58,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
-from _commands import SetupError, require_command, run
+from _commands import SetupError, require_command, require_python_version, run
 from _repository import derive_repo_from_script, is_ignored, tracked_paths_under
 
 LOCK_FILENAME = "skills-lock.json"
@@ -115,14 +115,6 @@ def lf_git_environment() -> dict[str, str]:
     env["GIT_CONFIG_COUNT"] = str(count + 1)
 
     return env
-
-
-def require_python_version() -> None:
-    if sys.version_info < (3, 10):
-        raise SetupError(
-            "Python 3.10 or newer is required. "
-            f"Running: {sys.version.split()[0]}"
-        )
 
 
 def load_lock(repo: Path) -> tuple[Path, dict[str, Any], bytes]:

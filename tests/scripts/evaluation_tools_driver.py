@@ -12,6 +12,7 @@ import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TARGET = REPO_ROOT / "scripts" / "set_up_evaluation_tools.py"
@@ -42,7 +43,7 @@ def exercise_virtual_environment(module: Any, state: str) -> dict[str, Any]:
         calls: list[list[str]] = []
         created = False
 
-        if state in {"healthy", "broken", "probe-error"}:
+        if state in {"healthy", "broken", "probe-error", "outdated"}:
             python.parent.mkdir(parents=True)
             python.touch()
             stale_marker.write_text("old environment", encoding="ascii")
@@ -75,6 +76,14 @@ def exercise_virtual_environment(module: Any, state: str) -> dict[str, Any]:
                 if state == "probe-error" and not created:
                     raise PermissionError("launcher access denied")
 
+                if state == "outdated" and not created:
+                    with patch.object(sys, "version_info", (3, 14, 7)):
+                        try:
+                            exec(command[2])
+                        except SystemExit as exc:
+                            return subprocess.CompletedProcess(command, 1, "", str(exc))
+                    raise AssertionError("Old interpreter passed the real version probe")
+
                 broken = state == "broken" and not created
 
                 return subprocess.CompletedProcess(
@@ -91,7 +100,10 @@ def exercise_virtual_environment(module: Any, state: str) -> dict[str, Any]:
             actual_venv, actual_python = module.ensure_virtual_environment(repo)
 
         return {
-            "calls": [command[1:3] for command in calls],
+            "calls": [
+                command[1:2] if command[1:2] == ["-c"] else command[1:3]
+                for command in calls
+            ],
             "python_exists": actual_python.exists(),
             "stale_marker_exists": stale_marker.exists(),
             "venv": str(actual_venv),
@@ -148,6 +160,12 @@ def main() -> int:
 
     try:
         module = load_target()
+        if request["state"].startswith("python-"):
+            version = tuple(int(part) for part in request["state"][7:].split("."))
+            with patch.object(sys, "version_info", version):
+                module.require_python_version()
+            print(json.dumps({"ok": True, "value": {"accepted": True}}))
+            return 0
         value = (
             exercise_tessl_update(module)
             if request["state"] == "tessl-update"
