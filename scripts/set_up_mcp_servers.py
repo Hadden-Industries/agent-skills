@@ -357,7 +357,7 @@ def merge_codex_mcp_config(
         import tomllib
     except ModuleNotFoundError as exc:  # pragma: no cover - guarded by the check
         raise SetupError(
-            "Writing the Codex MCP configuration requires Python 3.15.0 or newer for "
+            "Writing the Codex MCP configuration requires Python 3.14.8 or newer for "
             f"`tomllib`. Running: {sys.version.split()[0]}"
         ) from exc
 

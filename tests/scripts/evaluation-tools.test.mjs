@@ -85,7 +85,9 @@ test("an older usable virtual environment is replaced before installing tools", 
 test("Python setup rejects older runtimes and accepts the floor and newer versions", () => {
   const rejected = invoke("python-3.14.7");
   assert.equal(rejected.ok, false);
-  assert.match(rejected.error, /Python 3\.15\.0 or newer/u);
+  assert.match(rejected.error, /Python 3\.14\.8 or newer/u);
+  assert.equal(exercise("python-3.14.8").accepted, true);
+  assert.equal(exercise("python-3.14.9").accepted, true);
   assert.equal(exercise("python-3.15.0").accepted, true);
   assert.equal(exercise("python-3.16.0").accepted, true);
 });

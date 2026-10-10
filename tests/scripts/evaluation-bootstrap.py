@@ -23,7 +23,7 @@ class ArchiveBoundaryTests(unittest.TestCase):
         with patch.object(sys, "version_info", (3, 14, 7)), \
              patch.object(bootstrap.urllib.request, "urlopen") as download, \
              patch.object(bootstrap.subprocess, "run") as execute:
-            with self.assertRaisesRegex(SetupError, "Python 3.15.0 or newer"):
+            with self.assertRaisesRegex(SetupError, "Python 3.14.8 or newer"):
                 bootstrap.main({})
             download.assert_not_called()
             execute.assert_not_called()

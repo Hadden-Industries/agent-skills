@@ -30,9 +30,9 @@ class SetupError(RuntimeError):
 
 def require_python_version() -> None:
     """Enforce the repository's development interpreter floor before setup."""
-    if sys.version_info < (3, 15):
+    if sys.version_info < (3, 14, 8):
         raise SetupError(
-            "Python 3.15.0 or newer is required. "
+            "Python 3.14.8 or newer is required. "
             f"Running: {sys.version.split()[0]}"
         )
 

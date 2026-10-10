@@ -90,7 +90,7 @@ def probe_python(python: Path, repo: Path) -> tuple[bool, str]:
             (
                 python,
                 "-c",
-                "import sys; sys.exit('Python 3.15.0+ required' if sys.version_info < (3, 15) else 0)",
+                "import sys; sys.exit('Python 3.14.8+ required' if sys.version_info < (3, 14, 8) else 0)",
             ),
             cwd=repo,
             capture=True,

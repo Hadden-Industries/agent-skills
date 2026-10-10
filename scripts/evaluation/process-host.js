@@ -21,7 +21,7 @@ export function prepareProcessHost(root = repositoryRoot) {
       "-I",
       "-B",
       "-c",
-      "import sys,json; assert sys.version_info >= (3,15), 'Python 3.15.0+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
+      "import sys,json; assert sys.version_info >= (3,14,8), 'Python 3.14.8+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
     ],
     { encoding: "utf8", timeout: 10000, windowsHide: true },
   );
@@ -50,11 +50,13 @@ export function assertProcessHost(identity, root = repositoryRoot) {
     if (identity !== null) throw new Error("Unexpected process host binding");
     return;
   }
-  const version = /^(\d+)\.(\d+)\.\d+(?:\s|$)/u.exec(identity?.version ?? "");
+  const version = /^(\d+)\.(\d+)\.(\d+)(?:\s|$)/u.exec(identity?.version ?? "");
   const supportedPython =
     version &&
     (Number(version[1]) > 3 ||
-      (Number(version[1]) === 3 && Number(version[2]) >= 15));
+      (Number(version[1]) === 3 &&
+        (Number(version[2]) > 14 ||
+          (Number(version[2]) === 14 && Number(version[3]) >= 8))));
   if (
     !identity ||
     !supportedPython ||

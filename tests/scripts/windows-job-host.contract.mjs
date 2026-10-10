@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
 import {
+  assertProcessHost,
   assertProcessHostMembership,
   assertProcessClosure,
   prepareProcessHost,
@@ -264,6 +265,8 @@ test(
     const input = request(root, "normal");
     for (const version of [
       "3.14.7 (previous runtime)",
+      "3.13.99 (older minor)",
+      "3.14.8rc1",
       "3.15.0rc1",
       "unknown",
     ]) {
@@ -271,6 +274,16 @@ test(
       await assert.rejects(runProcessHost(input), /identity drift/u);
     }
     assert.equal(existsSync(join(root, "consumer.json")), false);
+    for (const version of [
+      "3.14.8 (CI runtime)",
+      "3.14.9",
+      "3.15.0",
+      "4.0.0",
+    ]) {
+      assert.doesNotThrow(() =>
+        assertProcessHost({ ...input.identity, version }),
+      );
+    }
   },
 );
 

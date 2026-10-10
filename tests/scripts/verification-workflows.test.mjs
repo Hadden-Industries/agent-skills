@@ -128,7 +128,7 @@ const originalWorkflows = {
             name: "Set up the assessed Python runtime",
             uses: "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
             with: {
-              "python-version": "3.15.0",
+              "python-version": "3.14.8",
             },
           },
           {
@@ -199,7 +199,7 @@ test("defining-concepts Linux route provisions the supported tools before the sc
   assert.equal(
     job.steps.find((step) => step.uses?.startsWith("actions/setup-python@"))
       .with["python-version"],
-    "3.15.0",
+    "3.14.8",
   );
   for (const step of job.steps.filter((step) => step.uses)) {
     assert.match(

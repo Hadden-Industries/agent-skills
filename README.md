@@ -444,7 +444,7 @@ They should not rely on a developer-specific `.git/info/exclude`.
 The bootstrap expects:
 
 - **Git**
-- **Python 3.15.0 or newer**
+- **Python 3.14.8 or newer** (local authoring uses 3.15.0; CI selects 3.14.8)
 - **Node.js 24 or newer**
 - **npm / npx 12.2.0 or newer**
 
@@ -1329,7 +1329,7 @@ and installs the current `skills-ref` reference implementation from the Agent Sk
 
 The bootstrap deliberately force-reinstalls `skills-ref` so changes on the upstream branch are picked up even when package-version metadata has not changed.
 Its Python development floors are pip 26.2.1 and PyYAML 6.0.3; pip also refreshes transitive dependencies.
-It requires Python >=3.15.0 and recreates a repository-local virtual environment whose interpreter is older or unusable.
+It requires Python >=3.14.8 and recreates a repository-local virtual environment whose interpreter is older or unusable.
 
 `PyYAML` is also available to authoring tooling that requires it.
 
@@ -1519,7 +1519,7 @@ It reports shared repository Markdown quality as an omitted global check; run `n
 It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
 A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
-The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python 3.15.0.
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python 3.14.8.
 Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
 
 ```sh
@@ -1618,7 +1618,7 @@ Project-wide generated artifacts belong in `.gitignore`, not in a developer-spec
 Python virtual environments retain the base-interpreter location used when they were created.
 If that Python installation moves, is removed, or becomes inaccessible to a sandbox, `.venv\Scripts\python.exe` may fail even though the current `python` or `py` command works normally.
 
-Rerun the evaluation-tool setup with an accessible Python 3.15.0 or newer:
+Rerun the evaluation-tool setup with an accessible Python 3.14.8 or newer:
 
 ```powershell
 py scripts\set_up_evaluation_tools.py
