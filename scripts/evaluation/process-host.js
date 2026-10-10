@@ -50,8 +50,14 @@ export function assertProcessHost(identity, root = repositoryRoot) {
     if (identity !== null) throw new Error("Unexpected process host binding");
     return;
   }
+  const version = /^(\d+)\.(\d+)\.\d+(?:\s|$)/u.exec(identity?.version ?? "");
+  const supportedPython =
+    version &&
+    (Number(version[1]) > 3 ||
+      (Number(version[1]) === 3 && Number(version[2]) >= 15));
   if (
     !identity ||
+    !supportedPython ||
     Object.keys(identity).sort().join(",") !==
       "interpreter,interpreterSha256,jobName,kind,recorder,recorderSha256,script,scriptSha256,version" ||
     identity.kind !== "windows-job-v2" ||

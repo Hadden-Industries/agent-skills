@@ -257,6 +257,24 @@ test(
 );
 
 test(
+  "Windows host rejects retained controls below the Python floor before launch",
+  { skip: !windows },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "windows-job-old-python-"));
+    const input = request(root, "normal");
+    for (const version of [
+      "3.14.7 (previous runtime)",
+      "3.15.0rc1",
+      "unknown",
+    ]) {
+      input.identity.version = version;
+      await assert.rejects(runProcessHost(input), /identity drift/u);
+    }
+    assert.equal(existsSync(join(root, "consumer.json")), false);
+  },
+);
+
+test(
   "Windows jobs support a nested per-invocation host",
   { skip: !windows, timeout: 15000 },
   async () => {
