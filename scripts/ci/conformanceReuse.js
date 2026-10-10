@@ -21,6 +21,7 @@ const LANES = ["conformance (windows-2025)", "conformance (ubuntu-24.04)"];
 const NATIVE_STEPS = [
   "Check out the candidate",
   "Set up the assessed Node runtime",
+  "Select the assessed npm toolchain",
   "Set up the assessed Python runtime",
   "Acquire locked dependencies and pinned native consumer",
   "Verify generated distribution and deterministic consumer contracts",

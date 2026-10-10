@@ -127,6 +127,7 @@ function proofFixture() {
     steps: [
       "Check out the candidate",
       "Set up the assessed Node runtime",
+      "Select the assessed npm toolchain",
       "Set up the assessed Python runtime",
       "Acquire locked dependencies and pinned native consumer",
       "Verify generated distribution and deterministic consumer contracts",
@@ -472,10 +473,29 @@ const verificationFailures = {
     f.jobs[0].run_id = 99;
   },
   "skipped native tests": (f) => {
-    f.jobs[0].steps[4].conclusion = "skipped";
+    f.jobs[0].steps.find((step) =>
+      step.name.startsWith("Verify generated"),
+    ).conclusion = "skipped";
   },
   "missing acquisition step": (f) => {
-    f.jobs[0].steps.splice(3, 1);
+    f.jobs[0].steps = f.jobs[0].steps.filter(
+      (step) => !step.name.startsWith("Acquire locked"),
+    );
+  },
+  "missing npm bootstrap": (f) => {
+    f.jobs[0].steps = f.jobs[0].steps.filter(
+      (step) => step.name !== "Select the assessed npm toolchain",
+    );
+  },
+  "failed npm bootstrap": (f) => {
+    f.jobs[0].steps.find(
+      (step) => step.name === "Select the assessed npm toolchain",
+    ).conclusion = "failure";
+  },
+  "skipped npm bootstrap": (f) => {
+    f.jobs[0].steps.find(
+      (step) => step.name === "Select the assessed npm toolchain",
+    ).conclusion = "skipped";
   },
   "missing platform": (f) => {
     f.jobs.pop();

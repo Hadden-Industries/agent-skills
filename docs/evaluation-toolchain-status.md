@@ -3,12 +3,14 @@
 Observed locally on Windows x64, Node 24.21.0 and Python 3.14.7.
 Exact acquisition pins live in `evaluation-toolchain.json` and `package-lock.json`.
 This record separates integration from platform and behavioral acceptance.
+The skills 1.7.2 installation row was rechecked on 10 October 2026 with Node 24.21.0 and npm 12.2.0; other observations retain their original qualification context.
+Root registry development declarations use floating `>=` floors, while the lockfile and `evaluation-toolchain.json` bind the exact qualified versions.
 
 | Surface                               | Observed result                                                                                                                                                                 | Boundary                                                                                                                                  |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | skill-up 0.12.0 native custom engine  | Literal fake-provider smoke and generated five-case EPUB projection pass native validation/execution                                                                            | No semantic or real-provider judgment; no assurance from native report scores                                                             |
 | agent-skills-eval 0.1.1               | Public loader and static target/judge consume generated portable cases in both modes                                                                                            | Baseline omits fixtures, binary EPUB bytes are skipped, assertion judging omits expected output                                           |
-| skills 1.7.0                          | All four distributions install byte-exactly through explicit, default and full-depth discovery in a disposable checkout                                                         | Local Codex installation layout; no client activation experiment                                                                          |
+| skills 1.7.2                          | All four distributions install byte-exactly through explicit, default and full-depth discovery in a disposable checkout                                                         | Local Codex installation layout; no client activation experiment                                                                          |
 | skill-up to Hadden bridge             | One normal native invocation executes two fake Antigravity turns and derives an artifact-checked outcome reference                                                              | Disposable test-only qualification override; does not qualify production containment                                                      |
 | Windows assured bridge                | Owner-approved `assured-qualified` for the bound `windows-job-v2` host/recorder path after synthetic closure and recovery qualification                                         | Original native-consumer failure retained; exact model authority, unknown-closure refusal and explicit recovery decisions still apply     |
 | Linux assured bridge                  | Disabled; Ubuntu 24.04 CI run `37125253782` retained surviving descendants after cancellation, abrupt consumer/engine death and inherited pipes                                 | Requires a separately approved Linux lifecycle design                                                                                     |
@@ -117,7 +119,7 @@ Acquisition verifies the native release license alongside archive and executable
 | ----------------------- | ------------------ | ------------------------------------------------------------------ |
 | skill-up 0.12.0         | Apache-2.0         | `c417f515c774c00d0c6c8e6f84d3993c3e87c78e316fac6d03ea5606e20b683d` |
 | agent-skills-eval 0.1.1 | MIT, Rishabh Mehan | `725b6ad1dda1cbc479d11053df393f3bf27c479c7aea1d5651538163aa0259ef` |
-| skills 1.7.0            | MIT, Vercel        | `661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca` |
+| skills 1.7.2            | MIT, Vercel        | `661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca` |
 | yaml 2.9.1              | ISC                | `5bba27375d93e9119f76c1015f7672cf9ad5f70952296e0842fb2243d6376869` |
 | ajv 8.20.0              | MIT                | `a05350a88e318e4f5f2c2a1ff1e2e88daa4dd38e6e78b71cccae422bdc762cc3` |
 

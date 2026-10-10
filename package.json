@@ -6,6 +6,13 @@
   "engines": {
     "node": ">=24"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=12.2.0",
+      "onFail": "error"
+    }
+  },
   "scripts": {
     "format": "prettier --write \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"lib/**/*.js\" \"src/**/*.{js,json}\" \"tests/**/*.mjs\"",
     "format:check": "prettier --check \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"lib/**/*.js\" \"src/**/*.{js,json}\" \"tests/**/*.mjs\"",
@@ -32,16 +39,16 @@
     "verify": "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "agent-skills-eval": "0.1.1",
-    "ajv": "8.20.0",
-    "cross-spawn": "^7.0.6",
-    "esbuild": "^0.28.2",
-    "eslint": "^10.8.0",
-    "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.8.0",
-    "prettier": "^3.9.6",
-    "skills": "1.7.0",
-    "yaml": "2.9.1"
+    "@eslint/js": ">=10.0.1",
+    "agent-skills-eval": ">=0.1.1",
+    "ajv": ">=8.20.0",
+    "cross-spawn": ">=7.0.6",
+    "esbuild": ">=0.28.2",
+    "eslint": ">=10.12.0",
+    "eslint-config-prettier": ">=10.1.8",
+    "globals": ">=17.13.0",
+    "prettier": ">=3.9.9",
+    "skills": ">=1.7.2",
+    "yaml": ">=2.9.1"
   }
 }

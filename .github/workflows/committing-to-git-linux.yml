@@ -36,6 +36,11 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      - name: Select the assessed npm toolchain
+        run: |
+          npm install --global npm@12.2.0
+          test "$(npm --version)" = "12.2.0"
+
       - name: Record the tested revision and environment
         run: |
           VERIFICATION_OUTPUT="$RUNNER_TEMP/committing-to-git-linux"

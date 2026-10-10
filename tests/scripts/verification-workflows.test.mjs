@@ -162,8 +162,10 @@ const originalWorkflows = {
     },
   },
 };
-const originalPackageDigest =
-  "41fb07ea52c337a02507c5adf2e08336296a983a48072936c63c8f53b2673592";
+// Accepted 2026-10-10 development floors and native npm policy, with the
+// separately tested evidence/Markdown script additions removed below.
+const approvedPackageDigest =
+  "17e16141195c1ea2136a0e8c414862b1a3f4963a8eebbf7ad346d7893f5207be";
 function workflows(name) {
   return {
     original: originalWorkflows[name],
@@ -444,7 +446,7 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
         /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/gu,
       ) ?? []
     ).length,
-    6,
+    7,
   );
   assert.match(
     scripts,
@@ -487,7 +489,7 @@ test("evidence and Markdown entry points retain the root dependency graph and ex
   }
   assert.equal(
     createHash("sha256").update(JSON.stringify(current)).digest("hex"),
-    originalPackageDigest,
+    approvedPackageDigest,
   );
 });
 
