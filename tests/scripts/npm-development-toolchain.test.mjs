@@ -121,6 +121,16 @@ for (const [workflow, jobId, shell] of [
     assert.notEqual(bootstrap["continue-on-error"], true);
     assert.equal(bootstrap.if, undefined);
     if (shell === "pwsh") {
+      const bootstrapCommands = bootstrap.run.replace(/^\s*#.*$/gmu, "");
+      assert.match(
+        bootstrapCommands,
+        /if \(\$IsWindows\) \{\s*npm install --global npm@12\.2\.0 --prefix \(Split-Path \(node -p 'process\.execPath'\)\)/u,
+        "Install beside the selected Node executable consumed by the Windows evidence launcher",
+      );
+      assert.match(
+        bootstrap.run,
+        /\} else \{\s*npm install --global npm@12\.2\.0\s*\}/u,
+      );
       assert.match(bootstrap.run, /if \(\$LASTEXITCODE -ne 0\)/u);
       assert.match(bootstrap.run, /if \(\(npm --version\) -ne '12\.2\.0'\)/u);
     } else {

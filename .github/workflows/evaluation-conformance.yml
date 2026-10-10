@@ -86,7 +86,12 @@ jobs:
 
       - name: Select the assessed npm toolchain
         run: |
-          npm install --global npm@12.2.0
+          if ($IsWindows) {
+            # The evidence launcher executes npm's entry point beside Node.
+            npm install --global npm@12.2.0 --prefix (Split-Path (node -p 'process.execPath'))
+          } else {
+            npm install --global npm@12.2.0
+          }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((npm --version) -ne '12.2.0') { throw 'Unexpected npm version' }
 
