@@ -180,3 +180,13 @@ Abort dependent publication on unresolved findings, failed blocking gates, unexp
 Replan for a new major/engine incompatibility, unanticipated runtime dependency change, material security boundary change, incompatible evaluator contract, or required broader policy/configuration edits.
 Record the smallest discriminating failure and continue independent authorized work.
 Recover using a coherent reviewed forward change; never force-push, delete historical receipts, or call pending/skipped evidence a pass.
+
+
+## Accepted single-source Python revision, 11 October 2026
+
+The owner's cross-repository instruction now supersedes the earlier local/CI split: all active Python development targets use the stable floor selected once in `.markdown-quality-runtimes.json#python`.
+Reuse that existing Markdown runtime inventory in the shared setup guard, virtual-environment probe, Windows base process host and both Python CI workflows.
+Use the previously qualified pinned setup-uv provider and uv version; provision a base interpreter for Windows host binding, then let repository setup own `.venv`.
+Preserve all prior source identities, dependency selections, evaluation trust boundaries, matrices, publication gates and historical observations.
+Run focused floor/prerelease and host controls before review, then the repository's full `npm run verify` gate through HISEW on the signed final candidate.
+This task authorizes local detailed signed commits; it does not authorize publication or new model evaluations.

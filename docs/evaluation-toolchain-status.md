@@ -5,7 +5,8 @@ Exact acquisition pins live in `evaluation-toolchain.json` and `package-lock.jso
 This record separates integration from platform and behavioral acceptance.
 The skills 1.7.2 installation row was rechecked on 10 October 2026 with Node 24.21.0 and npm 12.2.0; other observations retain their original qualification context.
 Root registry development declarations use floating `>=` floors, while the lockfile and `evaluation-toolchain.json` bind the exact qualified versions.
-Development setup requires Python >=3.14.8; CI selects 3.14.8 exactly, while local authoring uses 3.15.0.
+Development setup requires stable Python at or above `.markdown-quality-runtimes.json#python`; CI and Markdown tooling read the same canonical target.
+The 11 October 2026 upgrade supersedes the earlier local/CI split without relabelling the historical observations below.
 The local authoring environment was refreshed on 10 October 2026 with Python 3.15.0, pip 26.2.1, PyYAML 6.0.3, official upstream skills-ref 0.1.0 at commit `69ef37e9424c0a7ea9dd2293b559e43ec8176379`, click 8.5.0, strictyaml 1.7.3, python-dateutil 2.9.0.post0 and six 1.17.0.
 These are new development-tool selections; earlier behavioral and platform observations retain their dated runtime context.
 

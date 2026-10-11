@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { parse } from "yaml";
 import {
   selectProof,
   verifyProof,
@@ -128,7 +129,9 @@ function proofFixture() {
       "Check out the candidate",
       "Set up the assessed Node runtime",
       "Select the assessed npm toolchain",
-      "Set up the assessed Python runtime",
+      "Read the canonical Python target",
+      "Set up the Python provisioner",
+      "Select the canonical base Python interpreter",
       "Acquire locked dependencies and pinned native consumer",
       "Verify generated distribution and deterministic consumer contracts",
       "Report conformance and acquisition diagnostics",
@@ -185,6 +188,47 @@ function proofFixture() {
     attestations,
     authenticate,
   };
+}
+
+test("proof job fixtures match the actual conformance workflow step inventory", () => {
+  const workflow = parse(
+    readFileSync(
+      new URL(
+        "../../.github/workflows/evaluation-conformance.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  for (const job of proofFixture().jobs) {
+    assert.deepEqual(
+      job.steps.map((step) => step.name),
+      workflow.jobs.conformance.steps.map((step) => step.name),
+    );
+  }
+});
+
+for (const stepName of [
+  "Read the canonical Python target",
+  "Set up the Python provisioner",
+  "Select the canonical base Python interpreter",
+]) {
+  for (const conclusion of ["missing", "failure", "skipped"]) {
+    test(`downloaded proof rejects ${conclusion} Python step: ${stepName}`, async () => {
+      const fixture = proofFixture();
+      if (conclusion === "missing") {
+        fixture.jobs[0].steps = fixture.jobs[0].steps.filter(
+          (step) => step.name !== stepName,
+        );
+      } else {
+        fixture.jobs[0].steps.find(
+          (step) => step.name === stepName,
+        ).conclusion = conclusion;
+      }
+      const selection = await selectProof({ ...fixture, now });
+      await assert.rejects(verifyProof({ ...fixture, selection, now }));
+    });
+  }
 }
 
 test("provenance verification delegates cryptography and enforces exact source flags with bounded execution", () => {

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import namedtuple
 import importlib.util
 import io
 import json
@@ -77,7 +78,7 @@ def exercise_virtual_environment(module: Any, state: str) -> dict[str, Any]:
                     raise PermissionError("launcher access denied")
 
                 if state == "outdated" and not created:
-                    with patch.object(sys, "version_info", (3, 14, 7)):
+                    with patch.object(sys, "version_info", (0, 0, 0)), patch.object(sys, "argv", command[2:]):
                         try:
                             exec(command[2])
                         except SystemExit as exc:
@@ -161,7 +162,9 @@ def main() -> int:
     try:
         module = load_target()
         if request["state"].startswith("python-"):
-            version = tuple(int(part) for part in request["state"][7:].split("."))
+            raw, _, level = request["state"][7:].partition("@")
+            values = tuple(int(part) for part in raw.split("."))
+            version = namedtuple("Version", "major minor micro releaselevel serial")(*values, level or "final", 0)
             with patch.object(sys, "version_info", version):
                 module.require_python_version()
             print(json.dumps({"ok": True, "value": {"accepted": True}}))

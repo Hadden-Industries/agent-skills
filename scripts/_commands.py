@@ -17,6 +17,7 @@ modules that are not part of a public interface.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -28,11 +29,17 @@ class SetupError(RuntimeError):
     """Raised for a safe, user-actionable setup failure."""
 
 
+PYTHON_TARGET = json.loads(
+    (Path(__file__).resolve().parents[1] / ".markdown-quality-runtimes.json").read_text(encoding="utf-8")
+)["python"]
+PYTHON_MINIMUM = tuple(map(int, PYTHON_TARGET.split(".")))
+
+
 def require_python_version() -> None:
     """Enforce the repository's development interpreter floor before setup."""
-    if sys.version_info < (3, 14, 8):
+    if sys.version_info < PYTHON_MINIMUM or sys.version_info.releaselevel != "final":
         raise SetupError(
-            "Python 3.14.8 or newer is required. "
+            f"Stable Python {PYTHON_TARGET} or newer is required. "
             f"Running: {sys.version.split()[0]}"
         )
 

@@ -55,7 +55,7 @@ import zipfile
 from pathlib import Path
 from typing import Iterable
 
-from _commands import SetupError, require_python_version
+from _commands import PYTHON_TARGET, SetupError, require_python_version
 from _repository import derive_repo_from_script
 
 GITHUB_MCP_RELEASES_API = (
@@ -357,7 +357,7 @@ def merge_codex_mcp_config(
         import tomllib
     except ModuleNotFoundError as exc:  # pragma: no cover - guarded by the check
         raise SetupError(
-            "Writing the Codex MCP configuration requires Python 3.14.8 or newer for "
+            f"Writing the Codex MCP configuration requires stable Python {PYTHON_TARGET} or newer for "
             f"`tomllib`. Running: {sys.version.split()[0]}"
         ) from exc
 

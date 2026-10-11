@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from _commands import SetupError
+from _commands import PYTHON_TARGET, SetupError
 import set_up_evaluation_execution_tools as bootstrap
 from set_up_evaluation_execution_tools import archive_files
 
@@ -23,7 +23,7 @@ class ArchiveBoundaryTests(unittest.TestCase):
         with patch.object(sys, "version_info", (3, 14, 7)), \
              patch.object(bootstrap.urllib.request, "urlopen") as download, \
              patch.object(bootstrap.subprocess, "run") as execute:
-            with self.assertRaisesRegex(SetupError, "Python 3.14.8 or newer"):
+            with self.assertRaisesRegex(SetupError, f"Stable Python {PYTHON_TARGET} or newer"):
                 bootstrap.main({})
             download.assert_not_called()
             execute.assert_not_called()

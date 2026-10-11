@@ -46,7 +46,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _commands import SetupError, require_command, require_python_version, run
+from _commands import PYTHON_TARGET, SetupError, require_command, require_python_version, run
 from _repository import derive_repo_from_script, normalize_remote
 
 OPENAI_PLUGINS_URL = "https://github.com/openai/plugins.git"
@@ -90,7 +90,10 @@ def probe_python(python: Path, repo: Path) -> tuple[bool, str]:
             (
                 python,
                 "-c",
-                "import sys; sys.exit('Python 3.14.8+ required' if sys.version_info < (3, 14, 8) else 0)",
+                "import sys; minimum = tuple(map(int, sys.argv[1].split('.'))); "
+                "sys.exit('Stable Python ' + sys.argv[1] + '+ required' "
+                "if sys.version_info < minimum or sys.version_info.releaselevel != 'final' else 0)",
+                PYTHON_TARGET,
             ),
             cwd=repo,
             capture=True,

@@ -193,18 +193,12 @@ test("defining-concepts Linux route provisions the supported tools before the sc
   assert.equal(checkout.with.ref, "${{ inputs.revision }}");
   assert.equal(checkout.with["persist-credentials"], false);
   assert.equal(checkout.with["fetch-depth"], 0);
-  assert.ok(
-    job.steps.some((step) => step.uses?.startsWith("actions/setup-python@")),
-  );
-  assert.equal(
-    job.steps.find((step) => step.uses?.startsWith("actions/setup-python@"))
-      .with["python-version"],
-    "3.14.8",
-  );
+  assertCanonicalPython(job);
+
   for (const step of job.steps.filter((step) => step.uses)) {
     assert.match(
       step.uses,
-      /^actions\/(?:checkout|setup-node|setup-python)@[0-9a-f]{40}$/u,
+      /^(?:actions\/(?:checkout|setup-node)|astral-sh\/setup-uv)@[0-9a-f]{40}$/u,
     );
   }
   const scripts = job.steps.map((step) => step.run ?? "").join("\n");
@@ -241,7 +235,7 @@ test("defining-concepts Linux route provisions the supported tools before the sc
 });
 
 for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
-  test(`${name} preserves existing runtimes, action identities and job policy`, () => {
+  test(`${name} preserves unrelated runtimes, action identities and job policy`, () => {
     const { original, current } = workflows(name);
     // CI reuse adds main push plus strategy/aggregate jobs; the native matrix is preserved.
     assert.deepEqual(
@@ -271,9 +265,13 @@ for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
       const retainedActionSteps = (workflowJob) =>
         workflowJob.steps.filter(
           (step) =>
-            step.uses && !step.uses.startsWith("actions/upload-artifact@"),
+            step.uses &&
+            !/^(?:actions\/(?:upload-artifact|setup-python)|astral-sh\/setup-uv)@/u.test(
+              step.uses,
+            ),
         );
       assert.deepEqual(retainedActionSteps(after), retainedActionSteps(before));
+      if (name === "evaluation-conformance") assertCanonicalPython(after);
       assert.equal(
         after.steps.some((step) =>
           /(?:upload|download)-artifact/u.test(step.uses ?? ""),
@@ -451,7 +449,7 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
         /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/gu,
       ) ?? []
     ).length,
-    7,
+    9,
   );
   assert.match(
     scripts,
@@ -526,3 +524,33 @@ test("the Linux probe shell fails on an early command or pipeline failure", (t) 
     assert.doesNotMatch(result.stdout, /masked-failure/u);
   }
 });
+
+function assertCanonicalPython(job) {
+  const target = job.steps.find((step) => step.id === "python-target");
+  assert.match(
+    target.run,
+    /readFileSync\("\.markdown-quality-runtimes\.json"/u,
+  );
+  assert.match(target.run, /GITHUB_OUTPUT/u);
+  const provision = job.steps.find((step) =>
+    step.uses?.startsWith("astral-sh/setup-uv@"),
+  );
+  assert.equal(
+    provision.uses,
+    "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
+  );
+  assert.deepEqual(provision.with, {
+    version: "0.13.0",
+    "python-version": "${{ steps.python-target.outputs.version }}",
+    "enable-cache": false,
+  });
+  const base = job.steps.find(
+    (step) => step.name === "Select the canonical base Python interpreter",
+  );
+  assert.match(base.run, /uv python install/u);
+  assert.match(base.run, /uv python find --system/u);
+  assert.match(base.run, /GITHUB_PATH/u);
+  assert.doesNotMatch(base.run, /venv/u);
+  assert.ok(job.steps.indexOf(target) < job.steps.indexOf(provision));
+  assert.ok(job.steps.indexOf(provision) < job.steps.indexOf(base));
+}

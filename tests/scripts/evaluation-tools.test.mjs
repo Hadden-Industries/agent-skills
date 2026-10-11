@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,13 +84,29 @@ test("an older usable virtual environment is replaced before installing tools", 
 });
 
 test("Python setup rejects older runtimes and accepts the floor and newer versions", () => {
-  const rejected = invoke("python-3.14.7");
-  assert.equal(rejected.ok, false);
-  assert.match(rejected.error, /Python 3\.14\.8 or newer/u);
-  assert.equal(exercise("python-3.14.8").accepted, true);
-  assert.equal(exercise("python-3.14.9").accepted, true);
-  assert.equal(exercise("python-3.15.0").accepted, true);
-  assert.equal(exercise("python-3.16.0").accepted, true);
+  const target = JSON.parse(
+    readFileSync(
+      new URL("../../.markdown-quality-runtimes.json", import.meta.url),
+      "utf8",
+    ),
+  ).python;
+  const [major, minor, patch] = target.split(".").map(Number);
+  for (const version of [
+    `${major}.${minor - 1}.99`,
+    `${target}@candidate`,
+    `${major}.${minor + 1}.0@alpha`,
+  ]) {
+    const rejected = invoke(`python-${version}`);
+    assert.equal(rejected.ok, false);
+    assert.ok(rejected.error.includes(`Stable Python ${target} or newer`));
+  }
+  for (const version of [
+    target,
+    `${major}.${minor}.${patch + 1}`,
+    `${major}.${minor + 1}.0`,
+    `${major + 1}.0.0`,
+  ])
+    assert.equal(exercise(`python-${version}`).accepted, true);
 });
 
 test("refreshing Tessl updates the runtime after installing the latest launcher", () => {

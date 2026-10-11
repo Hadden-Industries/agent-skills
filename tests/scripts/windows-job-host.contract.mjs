@@ -15,6 +15,12 @@ import {
 } from "../../scripts/evaluation/process-host.js";
 
 const windows = process.platform === "win32";
+const pythonTarget = JSON.parse(
+  readFileSync(
+    new URL("../../.markdown-quality-runtimes.json", import.meta.url),
+    "utf8",
+  ),
+).python;
 test(
   "Windows parent loss during startup cannot leave a workload",
   { skip: !windows, timeout: 10000 },
@@ -264,10 +270,9 @@ test(
     const root = mkdtempSync(join(tmpdir(), "windows-job-old-python-"));
     const input = request(root, "normal");
     for (const version of [
-      "3.14.7 (previous runtime)",
-      "3.13.99 (older minor)",
-      "3.14.8rc1",
-      "3.15.0rc1",
+      "3.14.99 (previous minor)",
+      `${pythonTarget}rc1`,
+      `${pythonTarget.split(".")[0]}.${Number(pythonTarget.split(".")[1]) + 1}.0rc1`,
       "unknown",
     ]) {
       input.identity.version = version;
@@ -275,9 +280,9 @@ test(
     }
     assert.equal(existsSync(join(root, "consumer.json")), false);
     for (const version of [
-      "3.14.8 (CI runtime)",
-      "3.14.9",
-      "3.15.0",
+      `${pythonTarget} (CI runtime)`,
+      `${pythonTarget.split(".")[0]}.${pythonTarget.split(".")[1]}.${Number(pythonTarget.split(".")[2]) + 1}`,
+      `${pythonTarget.split(".")[0]}.${Number(pythonTarget.split(".")[1]) + 1}.0`,
       "4.0.0",
     ]) {
       assert.doesNotThrow(() =>

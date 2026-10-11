@@ -7,6 +7,11 @@ import { canonicalJsonBytes, sha256Hex } from "./runtime.js";
 import { readContract } from "./json-contract.js";
 import { setTimeout as delay } from "node:timers/promises";
 
+const pythonTarget = JSON.parse(
+  readFileSync(join(repositoryRoot, ".markdown-quality-runtimes.json"), "utf8"),
+).python;
+const pythonMinimum = pythonTarget.split(".").map(Number);
+
 const digest = (path) => {
   assertRegularPath(path);
   return sha256Hex(readFileSync(path));
@@ -21,7 +26,8 @@ export function prepareProcessHost(root = repositoryRoot) {
       "-I",
       "-B",
       "-c",
-      "import sys,json; assert sys.version_info >= (3,14,8), 'Python 3.14.8+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
+      "import sys,json; minimum=tuple(map(int,sys.argv[1].split('.'))); assert sys.version_info >= minimum and sys.version_info.releaselevel == 'final', 'Stable Python '+sys.argv[1]+'+ required'; assert sys.prefix == sys.base_prefix and sys.executable == sys._base_executable, 'Base Python required'; print(json.dumps([sys.executable,sys.version]))",
+      pythonTarget,
     ],
     { encoding: "utf8", timeout: 10000, windowsHide: true },
   );
@@ -51,12 +57,15 @@ export function assertProcessHost(identity, root = repositoryRoot) {
     return;
   }
   const version = /^(\d+)\.(\d+)\.(\d+)(?:\s|$)/u.exec(identity?.version ?? "");
-  const supportedPython =
-    version &&
-    (Number(version[1]) > 3 ||
-      (Number(version[1]) === 3 &&
-        (Number(version[2]) > 14 ||
-          (Number(version[2]) === 14 && Number(version[3]) >= 8))));
+  let supportedPython = false;
+  if (version) {
+    const actual = version.slice(1).map(Number);
+    const difference = actual.findIndex(
+      (part, index) => part !== pythonMinimum[index],
+    );
+    supportedPython =
+      difference === -1 || actual[difference] > pythonMinimum[difference];
+  }
   if (
     !identity ||
     !supportedPython ||
