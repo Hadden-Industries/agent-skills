@@ -56,6 +56,7 @@ test(
       "node_modules",
       "package.json",
       "package-lock.json",
+      ".markdown-quality-runtimes.json",
       "evaluation-toolchain.json",
     ])
       cpSync(join(repository, item), join(checkout, item), { recursive: true });
