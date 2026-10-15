@@ -7,13 +7,13 @@ import {
   appendFileSync,
   lstatSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
+import { readStableFile } from "../../lib/filesystem/stableFile.js";
 
 const WORKFLOW = ".github/workflows/evaluation-conformance.yml";
 const POLICY = "scripts/ci/conformanceReuse.js";
@@ -462,15 +462,9 @@ export function createGithubReader(
 }
 
 function readJson(path, limit = 256 * 1024) {
-  const stat = lstatSync(path);
-  fact(
-    stat.isFile() &&
-      !stat.isSymbolicLink() &&
-      stat.nlink === 1 &&
-      stat.size <= limit,
-    "Invalid evidence file type or size",
-  );
-  return JSON.parse(readFileSync(path, "utf8"));
+  const { bytes, stat } = readStableFile(path, limit);
+  fact(stat.nlink === 1n, "Invalid evidence file link count");
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 /** Accept only the official action's one-artifact layouts and an inert JSON file. */

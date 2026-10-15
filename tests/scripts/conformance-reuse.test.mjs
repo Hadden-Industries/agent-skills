@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import {
   mkdtempSync,
   mkdirSync,
@@ -8,6 +9,7 @@ import {
   writeFileSync,
   symlinkSync,
 } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -734,6 +736,62 @@ test("receipt transport rejects symlinked evidence where supported", (t) => {
     readReceipt(join(root, "linked"), "conformance-proof-100-2"),
   );
 });
+
+test("receipt transport preserves exact byte limits and rejects hardlinked JSON", (t) => {
+  const root = workspace(t);
+  const path = join(root, "receipt.json");
+  const name = "conformance-proof-100-2";
+  const receipt = proofFixture().receipt;
+  const json = JSON.stringify(receipt);
+  writeFileSync(path, json.padEnd(16384));
+  assert.deepEqual(readReceipt(root, name), receipt);
+  fs.linkSync(path, join(workspace(t), "linked.json"));
+  assert.throws(() => readReceipt(root, name));
+});
+
+for (const attack of ["replacement", "hardlink substitution", "growth"]) {
+  test(`receipt transport rejects ${attack} after metadata validation`, (t) => {
+    const root = workspace(t);
+    const path = join(root, "receipt.json");
+    const original = '{"accepted":true}';
+    const substituted = '{"accepted":null}';
+    writeFileSync(path, original);
+    const target = join(workspace(t), "target.json");
+    writeFileSync(target, substituted);
+    const originalLstat = fs.lstatSync;
+    const originalRead = fs.readSync;
+    let changed = false;
+    let requestedBytes = 0;
+    t.mock.method(fs, "lstatSync", (...args) => {
+      const stat = originalLstat(...args);
+      if (args[0] === path && !changed) {
+        changed = true;
+        if (attack === "growth") {
+          fs.appendFileSync(path, " ".repeat(16384));
+        } else {
+          fs.renameSync(path, join(root, "retained.json"));
+          if (attack === "replacement") writeFileSync(path, substituted);
+          else fs.linkSync(target, path);
+        }
+      }
+      return stat;
+    });
+    t.mock.method(fs, "readSync", (...args) => {
+      requestedBytes += args[3];
+      return originalRead(...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => readReceipt(root, "conformance-proof-100-2"));
+      assert.equal(changed, true);
+      assert.ok(requestedBytes <= Buffer.byteLength(original) + 1);
+      assert.equal(readFileSync(target, "utf8"), substituted);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  });
+}
 
 test("GitHub reader uses a fixed origin, read-only bounded requests and rejects redirects and overflow", async () => {
   const observed = [];
