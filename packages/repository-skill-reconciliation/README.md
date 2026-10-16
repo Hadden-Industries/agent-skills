@@ -34,7 +34,7 @@ remote lock bytes and does not synthesize native hashes for local skills.
   "schemaVersion": 1,
   "agents": ["codex", "antigravity", "claude-code"],
   "invocationPolicies": {
-    "brooks-review": {"codex": "explicit-only"}
+    "brooks-review": { "codex": "explicit-only" }
   }
 }
 ```
@@ -83,9 +83,12 @@ python -B packages/repository-skill-reconciliation/build_archive.py --check
 python -B -m unittest discover -s packages/repository-skill-reconciliation/tests -v
 ```
 
-Tests import bundled dependencies from the deployed archive while exercising the
-maintained source. `npm test` includes that source suite and archive/source drift
-check through the existing test glob. Builds have deterministic ZIP metadata,
+Producer tests import bundled dependencies while exercising maintained source,
+then independently execute the deployed archive for conformance. Consumers run
+the archive's offline `check`; they do not import a Python test interface.
+Repository-specific runtime tests stay with each consumer's runtime tooling.
+`npm test` includes that source suite and archive/source drift check through the
+existing test glob. Builds have deterministic ZIP metadata,
 embedded source/dependency identities and original licenses/notices. Deploy the
 same reviewed archive independently; there is no automatic cross-repo upgrade.
 
