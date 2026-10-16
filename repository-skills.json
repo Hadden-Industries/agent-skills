@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "agents": [
+    "codex",
+    "antigravity",
+    "claude-code"
+  ],
+  "invocationPolicies": {
+    "brooks-review": {
+      "codex": "explicit-only"
+    }
+  }
+}

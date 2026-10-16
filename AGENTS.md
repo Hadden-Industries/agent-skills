@@ -48,13 +48,18 @@
 
 ### Local Workspace Commits & Pushing
 
-- For any request to draft a commit message or commit current workspace changes, you MUST load and follow the `committing-to-git` skill.
-  Unless specified otherwise, use the template for a per-file detailed commit message when drafting a commit message.
+- For commit-message drafts and commits outside the exception below, follow the `committing-to-git` skill; default to its per-file detailed template.
 
 - **Explicit User Authorization**:
-  - Creating a commit requires explicit user authorization.
-  - Pushing requires separate explicit user authorization.
-  - A request to push existing commits MUST NOT implicitly authorize staging or committing uncommitted workspace changes.
+  - Development commits and incorporating disposable commits into development history require explicit user authorization.
+  - **Disposable test and review repositories:** Repositories created and owned by this task solely for authorized testing or review, including actual candidate snapshots, qualify when working files and Git metadata/object storage are independent of development repositories, all writes stay within the disposable repository, and commits remain test artifacts or retained review evidence.
+  - Verify eligibility.
+    Linked worktrees and shared Git storage are excluded; temporary paths or detached HEAD alone prove nothing.
+    An `origin` remote is allowed.
+  - For qualifying repositories, staging task inputs, choosing concise messages and creating local commits have standing authorization.
+    Use the test/review procedure or ordinary Git without further staging, message or commit confirmation.
+  - Independently required signing, hooks, verification, evidence retention, configuration approval and higher-priority controls still apply.
+  - Pushing requires separate explicit authorization; a push request does not authorize staging or committing uncommitted changes.
 
 ### Working Tree Safety
 

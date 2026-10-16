@@ -11,11 +11,10 @@ EXPECTED LOCATION
 file; its name is never inspected. The repository root is derived from this
 script's own location, so the current working directory is irrelevant.
 
-This is a runner. It verifies the repository's identity once, then sequences the
-three setup scripts that do the work, each of which is also runnable on its own
-and each of which lives beside this file:
+This runner verifies the repository identity and checks the shared skill CLI's
+desired-state/lock contract, then runs the two standalone tooling setup scripts:
 
-    set_up_agent_skills.py       Agent Skills declared in skills-lock.json
+    tools/repository-skills.pyz  Check repository-skills.json and native lock
     set_up_evaluation_tools.py   skills-ref, Tessl CLI, OpenAI Plugin Eval
     set_up_mcp_servers.py        MCP servers and each host's configuration
 
@@ -23,10 +22,8 @@ Run one of those directly when only that part needs refreshing. Run this script
 to converge everything. Rerunning IS the update mechanism; dependencies
 deliberately follow current upstream releases rather than being version-pinned.
 
-The identity check lives here rather than in the three parts, which keeps them
-repository-agnostic and reusable elsewhere. It exists because every part deletes
-and rewrites generated directories, and doing that in the wrong clone would
-destroy someone's unrelated work.
+The identity check lives here rather than in the reusable tooling setup scripts.
+It guards their generated-directory changes against running in the wrong clone.
 
 Target Agent Skill hosts
 ------------------------
@@ -57,10 +54,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import set_up_agent_skills
 import set_up_evaluation_tools
 import set_up_mcp_servers
-from _commands import SetupError, require_python_version
+from _commands import SetupError, require_python_version, run
 from _repository import derive_repo_from_script, verify_repo_identity
 
 EXPECTED_REPO = "github.com/hadden-industries/agent-skills"
@@ -69,8 +65,8 @@ EXPECTED_REPO = "github.com/hadden-industries/agent-skills"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Bootstrap or refresh the complete repository-local development "
-            "environment by running every setup script in order."
+            "Check repository skill declarations, then set up evaluation tooling "
+            "and MCP servers in order. Skill publication uses a reviewed CLI plan."
         )
     )
     parser.add_argument(
@@ -81,17 +77,6 @@ def parse_args() -> argparse.Namespace:
             "Hadden-Industries/agent-skills."
         ),
     )
-    parser.add_argument(
-        "--agent",
-        action="append",
-        choices=sorted(set_up_agent_skills.AGENT_SKILL_ROOTS),
-        dest="agents",
-        help=(
-            "Target agent for Agent Skills. Repeat for multiple agents. "
-            "Default: codex, antigravity, claude-code."
-        ),
-    )
-
     return parser.parse_args()
 
 
@@ -100,6 +85,7 @@ def report(repo: Path, tools: dict[str, Path], server: Path, configs: list[Path]
     print(f"Repository: {repo}")
 
     print("\nAgent Skills:")
+    print("  Declarations checked; skill refresh requires a reviewed plan and apply.")
     print(f"  Codex/Antigravity: {repo / '.agents' / 'skills'}")
     print(f"  Claude Code:       {repo / '.claude' / 'skills'}")
 
@@ -133,8 +119,8 @@ def report(repo: Path, tools: dict[str, Path], server: Path, configs: list[Path]
 
     print(
         "\nRerun this same script whenever you want to refresh everything, or "
-        "run one of\nthe three setup scripts directly to refresh only that part. "
-        "No separate update\nscript is required."
+        "run an individual tooling setup script to refresh that part. "
+        "Refresh skills\nwith tools/repository-skills.pyz plan, review, then apply PLAN_ID."
     )
     print(
         "Generated tooling is excluded by the repository's committed .gitignore, "
@@ -162,11 +148,7 @@ def main() -> int:
             verify_repo_identity(repo, EXPECTED_REPO)
             print("Repository identity: Hadden-Industries/agent-skills")
 
-        agents = tuple(
-            dict.fromkeys(args.agents or set_up_agent_skills.DEFAULT_AGENTS)
-        )
-
-        set_up_agent_skills.ensure_agent_skills(repo, agents)
+        run([sys.executable, "-I", "-B", repo / "tools" / "repository-skills.pyz", "check"], cwd=repo)
         tools = set_up_evaluation_tools.ensure_evaluation_tools(repo)
 
         server, configs = set_up_mcp_servers.ensure_github_mcp_server(repo)

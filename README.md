@@ -314,8 +314,7 @@ agent-skills/
 │   ├── validateSkillRepository.js        # Deployable skill and evaluation validation
 │   ├── validateSkills.js                 # All canonical skills through skills-ref
 │   ├── lintSkills.js                     # Repository plugin package through Tessl
-│   ├── set_up_development_environment.py # Runner: sequences the three below
-│   ├── set_up_agent_skills.py            # Skills declared in skills-lock.json
+│   ├── set_up_development_environment.py # Check skills, then set up tooling
 │   ├── set_up_evaluation_tools.py        # skills-ref, Tessl, Plugin Eval
 │   ├── set_up_mcp_servers.py             # MCP servers + each host's config
 │   ├── _commands.py                      # Running external commands
@@ -1243,9 +1242,8 @@ py scripts\set_up_development_environment.py
 The runner converges the local development environment on current upstream tooling.
 To refresh only one part, run that part's script directly instead.
 
-In particular, it refreshes:
+It checks the skill declarations and refreshes:
 
-- the project-local authoring skills;
 - `skills-ref`;
 - Tessl CLI;
 - the OpenAI Plugin Eval checkout;
@@ -1266,14 +1264,14 @@ It refreshes the tools used to work on them.
 
 ### Structure
 
-`scripts/set_up_development_environment.py` is a runner.
-It verifies the repository's identity once, then sequences three setup scripts that each do one job and each run standalone:
+`scripts/set_up_development_environment.py` verifies the repository identity, checks skill declarations, then sets up evaluation tools and MCP servers.
+Skill refresh is a separate reviewable operation:
 
-| Script                       | Owns                                                          |
-| ---------------------------- | ------------------------------------------------------------- |
-| `set_up_agent_skills.py`     | The authoring skills declared in `skills-lock.json`           |
-| `set_up_evaluation_tools.py` | `skills-ref`, Tessl CLI, OpenAI Plugin Eval, and the wrappers |
-| `set_up_mcp_servers.py`      | MCP servers and each host's configuration                     |
+| Script                        | Owns                                                          |
+| ----------------------------- | ------------------------------------------------------------- |
+| `tools/repository-skills.pyz` | Desired skills, saved plans, safe application and recovery    |
+| `set_up_evaluation_tools.py`  | `skills-ref`, Tessl CLI, OpenAI Plugin Eval, and the wrappers |
+| `set_up_mcp_servers.py`       | MCP servers and each host's configuration                     |
 
 Run one directly when only that part needs refreshing:
 
@@ -1288,34 +1286,42 @@ Two internal modules, marked non-public by their leading underscore, hold what a
 Each script derives the repository root from its own location — the directory one level above it — and requires Git to agree that this is the working tree's top level.
 The name of the directory holding the scripts is never checked, so the same files work in a repository that calls it `util/` instead.
 
-The runner additionally verifies the Git repository identity before anything generated is changed, because every part deletes and rewrites directories and doing that in the wrong clone would destroy unrelated work.
-That check lives in the runner alone, which keeps the three parts reusable in other repositories.
+The runner verifies Git repository identity before tooling setup changes generated directories.
+The shared skill CLI independently verifies its selected physical worktree and manages only its declared output paths.
 
 `--allow-unverified-repo` exists for intentional forks or worktrees.
 
 ### Generated Agent Skill views
 
-`set_up_agent_skills.py` reads `skills-lock.json` — the standard lock the `skills` CLI already writes — and re-adds each declared skill from its recorded source.
-The declared set therefore lives in exactly one place, rather than being duplicated between a lock file and a hardcoded list of install commands.
-Skills sharing a source are re-added in a single invocation, because `skills add` clones the whole source repository once per call.
+The shared CLI derives remote skill selections, sources and optional refs from native `skills-lock.json` entries.
+`repository-skills.json` contains only additional agent targets, invocation policies and optional local skill paths.
+Remote declarations are not duplicated between the files.
+Refresh with the repository-selected Python:
 
-It rebuilds:
+```powershell
+python tools/repository-skills.pyz check
+python tools/repository-skills.pyz plan
+python tools/repository-skills.pyz apply PLAN_ID
+```
+
+Review the plan's exact diff before applying its ID.
+The tool resolves `skills@latest` once per plan, supports optional per-skill refs and native invocation policy, and never reacquires during apply.
+The native lock is not an exact replay lock for floating refs. Installed outputs are:
 
 ```text
 .agents/skills/
 .claude/skills/
 ```
 
-rather than allowing stale development skills to accumulate indefinitely.
+Only declared skill paths are replaced; unrelated installed skills survive.
+Local-only plans preserve all native remote lock bytes.
+Removing a declaration does not prune an installation.
+Tracked or linked managed destinations are rejected.
+Shared resources are normalized from the same resolved source revision, with unrelated metadata preserved.
+`plan --local-only` needs no npm/network acquisition and leaves remote lock entries untouched. `recover PLAN_ID` safely restores an interrupted publication and preserves conflicting user edits. Generated candidates/journals live under ignored `.agent-tools/skill-reconciliation/`; normal tool caches may live outside the checkout.
 
-Before removing either root it checks two things and refuses on either: that Git tracks nothing underneath it, and that the root is actually covered by an ignore rule.
-The second check is what stops a missing `.gitignore` entry from turning generated state into an untracked mess after every run.
-
-Afterwards it verifies that each root holds **exactly** the declared skills — an unexpected leftover skill fails the run just as a missing one does — and reports whether `npx skills` modified `skills-lock.json` while refreshing.
-
-For upstream suites whose skills reference a sibling `../_shared/` directory, it vendors that directory into the installed skill as `references/_shared/` and rewrites the references, so a selected module from a bundle repository is self-contained.
-It reads upstream through a shallow, blobless, cone-mode sparse checkout limited to the `_shared` directories actually needed, so a large suite repository is never materialized in full.
-None of this repository's canonical skills currently use `../_shared`, so the step normally reports that it found nothing.
+The archive, config and native lock are the three maintained consumer files.
+The shared implementation and build instructions live in [`packages/repository-skill-reconciliation`](packages/repository-skill-reconciliation/README.md).
 
 ### Python tooling
 
