@@ -4,20 +4,24 @@ import base64
 import csv
 import hashlib
 import importlib.util
-from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("repository_skills_archive_builder", PACKAGE / "build_archive.py")
+SPEC = importlib.util.spec_from_file_location(
+    "repository_skills_archive_builder", PACKAGE / "build_archive.py"
+)
 builder = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(builder)
 
 
 class ArchiveDependencyTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="repository-skills-archive-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="repository-skills-archive-"
+        )
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.vendor = self.root / "vendor"
@@ -32,17 +36,24 @@ class ArchiveDependencyTests(unittest.TestCase):
             metadata = f"{name.replace('.', '_')}-{version}.dist-info"
             members = {
                 module: b"# Independent package payload fixture.\n",
-                metadata + "/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n".encode(),
+                metadata
+                + "/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n".encode(),
                 metadata + "/LICENSE": b"Original fixture license bytes.\n",
             }
             for relative, data in members.items():
                 path = self.vendor / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)
-            with (self.vendor / metadata / "RECORD").open("w", encoding="utf-8", newline="") as stream:
+            with (self.vendor / metadata / "RECORD").open(
+                "w", encoding="utf-8", newline=""
+            ) as stream:
                 writer = csv.writer(stream)
                 for relative, data in members.items():
-                    checksum = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).decode().rstrip("=")
+                    checksum = (
+                        base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+                        .decode()
+                        .rstrip("=")
+                    )
                     writer.writerow([relative, "sha256=" + checksum, len(data)])
                 writer.writerow([metadata + "/RECORD", "", ""])
         self.archive = self.root / "repository-skills.pyz"
@@ -54,7 +65,10 @@ class ArchiveDependencyTests(unittest.TestCase):
     def altered_archive(self, *, remove=None, alter=None, extra=None):
         self.build()
         target = self.root / "altered.pyz"
-        with zipfile.ZipFile(self.archive) as original, zipfile.ZipFile(target, "w") as changed:
+        with (
+            zipfile.ZipFile(self.archive) as original,
+            zipfile.ZipFile(target, "w") as changed,
+        ):
             for member in original.infolist():
                 if member.filename == remove:
                     continue

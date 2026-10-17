@@ -2,11 +2,11 @@
 
 import ctypes
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from test_cli import SOURCE
@@ -27,23 +27,35 @@ class ProcessOwnershipTests(unittest.TestCase):
     def assert_child_stopped(self, pid):
         if os.name == "nt":
             from ctypes import wintypes
+
             native = ctypes.WinDLL("kernel32", use_last_error=True)
-            native.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            native.OpenProcess.argtypes = [
+                wintypes.DWORD,
+                wintypes.BOOL,
+                wintypes.DWORD,
+            ]
             native.OpenProcess.restype = wintypes.HANDLE
-            native.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            native.GetExitCodeProcess.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.DWORD),
+            ]
             native.CloseHandle.argtypes = [wintypes.HANDLE]
             handle = native.OpenProcess(0x1000, False, pid)
             if handle:
                 try:
                     code = wintypes.DWORD()
-                    self.assertTrue(native.GetExitCodeProcess(handle, ctypes.byref(code)))
+                    self.assertTrue(
+                        native.GetExitCodeProcess(handle, ctypes.byref(code))
+                    )
                     self.assertNotEqual(259, code.value, "descendant still active")
                 finally:
                     native.CloseHandle(handle)
         else:
             state = Path(f"/proc/{pid}/stat")
             if state.exists():
-                self.assertEqual("Z", state.read_text().split()[2], "descendant still active")
+                self.assertEqual(
+                    "Z", state.read_text().split()[2], "descendant still active"
+                )
         self.assertFalse((self.root / "late-write").exists())
 
     def parent_command(self):
@@ -65,7 +77,9 @@ class ProcessOwnershipTests(unittest.TestCase):
             pid = int(process.stdout.readline().strip())
             raise KeyboardInterrupt()
 
-        with patch.object(subprocess.Popen, "communicate", interrupt_after_child_started):
+        with patch.object(
+            subprocess.Popen, "communicate", interrupt_after_child_started
+        ):
             with self.assertRaises(KeyboardInterrupt):
                 run_command(self.parent_command(), self.root)
         self.assertIsNotNone(pid)

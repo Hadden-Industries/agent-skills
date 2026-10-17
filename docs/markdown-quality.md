@@ -8,7 +8,8 @@ This installs the separate locked development-tool graph with lifecycle scripts 
 `npm run verify` includes the shared check and independent installed-consumer integration tests.
 
 The root `.markdown-quality.json` is the sole Markdown scope and rule authority.
-It selects root documents, maintained documentation, canonical skill instructions and references.
+It selects all `.md` files unless explicitly excluded, including package documentation, canonical skill instructions and references.
+Git inventory reconciles tracked paths; discovery also includes untracked Markdown files.
 Historical plans, reviews, design/assurance records, evaluation inputs, evidence, generated skills/plugins and imported installations retain their original bytes.
 Markdown selection does not read ignore files.
 Edit source under `src/`, then use the repository build to regenerate distributions.

@@ -1,18 +1,19 @@
 """Shared-resource behavior, with independently specified paths and bytes."""
 
-from pathlib import Path
 import os
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from test_cli import SOURCE, VENDOR
 
 sys.path[:0] = [str(SOURCE), str(VENDOR)]
 
-from repository_skill_reconciliation.errors import ReconciliationError
-from repository_skill_reconciliation.shared_resources import normalize_shared_resources
+# Source and bundled dependencies must be bootstrapped before these imports.
+from repository_skill_reconciliation.errors import ReconciliationError  # noqa: E402
+from repository_skill_reconciliation.shared_resources import normalize_shared_resources  # noqa: E402
 
 
 class SharedResourcesTests(unittest.TestCase):
@@ -35,24 +36,47 @@ class SharedResourcesTests(unittest.TestCase):
         shutil.copytree(self.skill, self.output)
 
     def test_nested_paths_binary_resources_and_nonreferences(self):
-        self.write(self.skill / "SKILL.md", "[Guide](../_shared/guide.md#rules)\nLiteral prose ../_shared stays.\n")
-        self.write(self.skill / "docs" / "detail.md", "Read `../../_shared/guide.md`.\n")
-        self.write(self.shared / "guide.md", "![Image](images/chart.bin)\n[Back](../example/docs/detail.md)\n")
+        self.write(
+            self.skill / "SKILL.md",
+            "[Guide](../_shared/guide.md#rules)\nLiteral prose ../_shared stays.\n",
+        )
+        self.write(
+            self.skill / "docs" / "detail.md", "Read `../../_shared/guide.md`.\n"
+        )
+        self.write(
+            self.shared / "guide.md",
+            "![Image](images/chart.bin)\n[Back](../example/docs/detail.md)\n",
+        )
         binary = bytes(range(256))
         self.write(self.shared / "images" / "chart.bin", binary)
         self.materialize()
 
         changes = normalize_shared_resources(self.output, self.skill, self.source)
 
-        self.assertEqual(self.output.joinpath("SKILL.md").read_text(), "[Guide](references/_shared/guide.md#rules)\nLiteral prose ../_shared stays.\n")
-        self.assertEqual(self.output.joinpath("docs/detail.md").read_text(), "Read `../references/_shared/guide.md`.\n")
-        self.assertEqual(self.output.joinpath("references/_shared/guide.md").read_text(), "![Image](images/chart.bin)\n[Back](../../docs/detail.md)\n")
-        self.assertEqual(self.output.joinpath("references/_shared/images/chart.bin").read_bytes(), binary)
+        self.assertEqual(
+            self.output.joinpath("SKILL.md").read_text(),
+            "[Guide](references/_shared/guide.md#rules)\nLiteral prose ../_shared stays.\n",
+        )
+        self.assertEqual(
+            self.output.joinpath("docs/detail.md").read_text(),
+            "Read `../references/_shared/guide.md`.\n",
+        )
+        self.assertEqual(
+            self.output.joinpath("references/_shared/guide.md").read_text(),
+            "![Image](images/chart.bin)\n[Back](../../docs/detail.md)\n",
+        )
+        self.assertEqual(
+            self.output.joinpath("references/_shared/images/chart.bin").read_bytes(),
+            binary,
+        )
         self.assertIn("../_shared", self.skill.joinpath("SKILL.md").read_text())
         self.assertTrue(changes)
 
     def test_markdown_reference_definition_html_and_encoded_path(self):
-        self.write(self.skill / "SKILL.md", '[doc]: <../_shared/a%20b.md> "Title"\n<img src="../_shared/image.bin">\nhttps://example.test/../_shared/guide\n')
+        self.write(
+            self.skill / "SKILL.md",
+            '[doc]: <../_shared/a%20b.md> "Title"\n<img src="../_shared/image.bin">\nhttps://example.test/../_shared/guide\n',
+        )
         self.write(self.shared / "a b.md", "# Resource\n")
         self.write(self.shared / "image.bin", b"\x00\xff")
         self.materialize()
@@ -86,7 +110,9 @@ class SharedResourcesTests(unittest.TestCase):
         self.materialize()
         with self.assertRaises(ReconciliationError):
             normalize_shared_resources(self.output, self.skill, self.source)
-        self.assertEqual(self.output.joinpath("references/_shared/owned.md").read_text(), "preserve")
+        self.assertEqual(
+            self.output.joinpath("references/_shared/owned.md").read_text(), "preserve"
+        )
 
     def test_broken_transitive_reference_fails_before_writes(self):
         self.write(self.skill / "SKILL.md", "[Guide](../_shared/guide.md)\n")
@@ -100,16 +126,27 @@ class SharedResourcesTests(unittest.TestCase):
         original = b"# Example\r\nMention ../_shared in ordinary prose.\r\n"
         self.write(self.skill / "SKILL.md", original)
         self.materialize()
-        self.assertEqual(normalize_shared_resources(self.output, self.skill, self.source), [])
+        self.assertEqual(
+            normalize_shared_resources(self.output, self.skill, self.source), []
+        )
         self.assertEqual(self.output.joinpath("SKILL.md").read_bytes(), original)
 
     def test_distinct_shared_roots_do_not_overwrite_each_other(self):
-        self.write(self.skill / "SKILL.md", "[One](../_shared/one.md)\n[Two](../../_shared/two.md)\n")
+        self.write(
+            self.skill / "SKILL.md",
+            "[One](../_shared/one.md)\n[Two](../../_shared/two.md)\n",
+        )
         self.write(self.shared / "one.md", "one")
         self.write(self.source / "_shared" / "two.md", "two")
         self.materialize()
         normalize_shared_resources(self.output, self.skill, self.source)
-        self.assertEqual(sorted(path.read_text() for path in self.output.joinpath("references").rglob("*.md")), ["one", "two"])
+        self.assertEqual(
+            sorted(
+                path.read_text()
+                for path in self.output.joinpath("references").rglob("*.md")
+            ),
+            ["one", "two"],
+        )
 
     def test_hardlinked_shared_resource_is_rejected_without_mutation(self):
         self.write(self.skill / "SKILL.md", "[Guide](../_shared/guide.md)\n")

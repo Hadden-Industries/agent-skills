@@ -2,17 +2,16 @@
 
 import json
 import os
-from pathlib import Path
 import sys
 from unittest.mock import patch
 
-from test_cli import RepositoryFixture, SOURCE, VENDOR
+from test_cli import SOURCE, VENDOR, RepositoryFixture
 
 sys.path[:0] = [str(SOURCE), str(VENDOR)]
 
-import portalocker
-from repository_skill_reconciliation import operations
-from repository_skill_reconciliation.errors import ReconciliationError
+import portalocker  # noqa: E402
+from repository_skill_reconciliation import operations  # noqa: E402
+from repository_skill_reconciliation.errors import ReconciliationError  # noqa: E402
 
 
 class PublicationTests(RepositoryFixture):
@@ -32,7 +31,9 @@ class PublicationTests(RepositoryFixture):
         replace = os.replace
 
         def fail_second_tree(source, destination):
-            if str(source).endswith("publication\\1") or str(source).endswith("publication/1"):
+            if str(source).endswith("publication\\1") or str(source).endswith(
+                "publication/1"
+            ):
                 raise OSError("independent injected rename failure")
             return replace(source, destination)
 
@@ -42,24 +43,37 @@ class PublicationTests(RepositoryFixture):
         for prefix in (".agents/skills", ".claude/skills"):
             destination = self.root / prefix / "team-conventions"
             self.assertEqual(["old.bin"], [p.name for p in destination.iterdir()])
-            self.assertEqual(b"prior installation", (destination / "old.bin").read_bytes())
-        self.assertEqual("recovered", operations.recover_plan(self.root, plan_id)["status"])
+            self.assertEqual(
+                b"prior installation", (destination / "old.bin").read_bytes()
+            )
+        self.assertEqual(
+            "recovered", operations.recover_plan(self.root, plan_id)["status"]
+        )
 
     def test_failed_restore_preserves_user_edit_and_blocks_another_apply(self):
         _, plan_id = self.plan_with_previous_installations()
         replace = os.replace
 
         def concurrent_edit_before_second_publish(source, destination):
-            if str(source).endswith("publication\\1") or str(source).endswith("publication/1"):
-                (self.root / ".agents/skills/team-conventions/asset.bin").write_bytes(b"concurrent user edit")
+            if str(source).endswith("publication\\1") or str(source).endswith(
+                "publication/1"
+            ):
+                (self.root / ".agents/skills/team-conventions/asset.bin").write_bytes(
+                    b"concurrent user edit"
+                )
                 raise OSError("second write failed after user edit")
             return replace(source, destination)
 
-        with patch.object(operations.os, "replace", side_effect=concurrent_edit_before_second_publish):
+        with patch.object(
+            operations.os, "replace", side_effect=concurrent_edit_before_second_publish
+        ):
             with self.assertRaises(ReconciliationError) as caught:
                 operations.apply_plan(self.root, plan_id)
         self.assertEqual(4, caught.exception.exit_status)
-        self.assertEqual(b"concurrent user edit", (self.root / ".agents/skills/team-conventions/asset.bin").read_bytes())
+        self.assertEqual(
+            b"concurrent user edit",
+            (self.root / ".agents/skills/team-conventions/asset.bin").read_bytes(),
+        )
         with self.assertRaises(ReconciliationError) as caught:
             operations.recover_plan(self.root, plan_id)
         self.assertEqual(4, caught.exception.exit_status)
@@ -84,11 +98,18 @@ class PublicationTests(RepositoryFixture):
         for field in ("inputs", "cliDigest", "outputBaselines"):
             record.pop(field)
         record_path.write_text(json.dumps(record), encoding="utf-8")
-        (self.root / "repository-skills.json").write_text("invalid config", encoding="utf-8")
+        (self.root / "repository-skills.json").write_text(
+            json.dumps({"schemaVersion": 1, "agents": ["codex"]}), encoding="utf-8"
+        )
         result = operations.recover_plan(self.root, plan_id)
         self.assertEqual("recovered", result["status"])
-        self.assertEqual(b"prior installation", (self.root / first["destination"] / "old.bin").read_bytes())
-        self.assertEqual("recovered", operations.recover_plan(self.root, plan_id)["status"])
+        self.assertEqual(
+            b"prior installation",
+            (self.root / first["destination"] / "old.bin").read_bytes(),
+        )
+        self.assertEqual(
+            "recovered", operations.recover_plan(self.root, plan_id)["status"]
+        )
 
     def test_writer_exclusion_precedes_state_validation(self):
         _, plan_id = self.plan_with_previous_installations()

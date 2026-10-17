@@ -3,9 +3,9 @@
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import shutil
 import stat
+from pathlib import Path, PurePosixPath
 
 from .errors import ReconciliationError
 
@@ -14,27 +14,44 @@ def _reject_alias(path: Path):
     """Reject symlinks, Windows reparse points, multiply-linked files and special nodes."""
     facts = path.lstat()
     if stat.S_ISLNK(facts.st_mode) or getattr(facts, "st_file_attributes", 0) & 0x400:
-        raise ReconciliationError(f"Linked/reparse path is not managed: {path}", "unsafe-path", 2)
+        raise ReconciliationError(
+            f"Linked/reparse path is not managed: {path}", "unsafe-path", 2
+        )
     if not (stat.S_ISREG(facts.st_mode) or stat.S_ISDIR(facts.st_mode)):
-        raise ReconciliationError(f"Special file is not managed: {path}", "unsafe-path", 2)
+        raise ReconciliationError(
+            f"Special file is not managed: {path}", "unsafe-path", 2
+        )
     if stat.S_ISREG(facts.st_mode) and facts.st_nlink != 1:
-        raise ReconciliationError(f"Multiply-linked file is not managed: {path}", "unsafe-path", 2)
+        raise ReconciliationError(
+            f"Multiply-linked file is not managed: {path}", "unsafe-path", 2
+        )
 
 
 def contained_path(root: Path, relative: str, *, allow_missing: bool = True) -> Path:
     """Return an alias-free lexical descendant; reject traversal and existing aliases."""
     item = PurePosixPath(relative)
-    if not relative or "\\" in relative or item.is_absolute() or any(p in ("..", ".git") or ":" in p for p in item.parts):
-        raise ReconciliationError(f"Unsafe repository path: {relative!r}", "unsafe-path", 2)
+    if (
+        not relative
+        or "\\" in relative
+        or item.is_absolute()
+        or any(p in ("..", ".git") or ":" in p for p in item.parts)
+    ):
+        raise ReconciliationError(
+            f"Unsafe repository path: {relative!r}", "unsafe-path", 2
+        )
     path = root
     for part in item.parts:
         path = path / part
         if os.path.lexists(path):
             _reject_alias(path)
         elif not allow_missing:
-            raise ReconciliationError(f"Missing repository path: {relative}", "invalid-input", 2)
+            raise ReconciliationError(
+                f"Missing repository path: {relative}", "invalid-input", 2
+            )
     if path == root:
-        raise ReconciliationError("Repository root is not a managed output.", "unsafe-path", 2)
+        raise ReconciliationError(
+            "Repository root is not a managed output.", "unsafe-path", 2
+        )
     return path
 
 
@@ -50,7 +67,9 @@ def copy_tree(source: Path, destination: Path) -> None:
     """Copy a validated tree into a new destination, preserving bytes and file modes."""
     validate_tree(source)
     if destination.exists() or destination.is_symlink():
-        raise ReconciliationError(f"Copy destination already exists: {destination}", "conflict", 3)
+        raise ReconciliationError(
+            f"Copy destination already exists: {destination}", "conflict", 3
+        )
     shutil.copytree(source, destination, symlinks=False)
     validate_tree(destination)
 
@@ -68,7 +87,12 @@ def fingerprint(path: Path) -> str | None:
     def visit(current, relative):
         facts = current.stat()
         kind = "directory" if current.is_dir() else "file"
-        digest.update(json.dumps([relative, kind, bool(facts.st_mode & stat.S_IXUSR)], separators=(",", ":")).encode())
+        digest.update(
+            json.dumps(
+                [relative, kind, bool(facts.st_mode & stat.S_IXUSR)],
+                separators=(",", ":"),
+            ).encode()
+        )
         digest.update(b"\0")
         if current.is_file():
             with current.open("rb") as stream:
@@ -87,7 +111,14 @@ def atomic_json(path: Path, value: dict) -> None:
     """Durably replace one owned JSON record; temporary files never choose destinations."""
     import tempfile
 
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent, prefix=".record-", delete=False) as stream:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+        dir=path.parent,
+        prefix=".record-",
+        delete=False,
+    ) as stream:
         temporary = Path(stream.name)
         json.dump(value, stream, indent=2, ensure_ascii=False, allow_nan=False)
         stream.write("\n")

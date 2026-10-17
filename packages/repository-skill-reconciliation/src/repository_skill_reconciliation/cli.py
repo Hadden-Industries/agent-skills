@@ -2,11 +2,17 @@
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from . import __version__
-from .configuration import derive_skill_declarations, load_configuration, load_lock, repository_root
+from .configuration import (
+    SCHEMA,
+    derive_skill_declarations,
+    load_configuration,
+    load_lock,
+    repository_root,
+)
 from .errors import ReconciliationError
 
 
@@ -19,27 +25,55 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 def _parser():
     parser = _ArgumentParser(
-        prog="repository-skills", allow_abbrev=False,
+        prog="repository-skills",
+        allow_abbrev=False,
         description="Manage declared repository-local skills using saved, reviewable plans.",
         epilog="Examples: repository-skills check; repository-skills plan --local-only; repository-skills apply PLAN_ID",
     )
-    parser.add_argument("-C", "--directory", metavar="DIR", help="working directory (default: current directory)")
-    parser.add_argument("--json", action="store_true", help="one structured result on stdout")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "-C",
+        "--directory",
+        metavar="DIR",
+        help="working directory (default: current directory)",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="one structured result on stdout"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     commands = parser.add_subparsers(dest="command", parser_class=_ArgumentParser)
     for name, description in [
-        ("check", "Check declarations and native lock offline without installed outputs."),
+        (
+            "print-config-schema",
+            "Print the embedded JSON Schema for repository-skills.json to stdout.",
+        ),
+        (
+            "check",
+            "Check declarations and native lock offline without installed outputs.",
+        ),
         ("plan", "Stage actual candidate bytes and show the exact proposed changes."),
         ("apply", "Publish a saved plan without reacquisition."),
-        ("recover", "Restore a selected interrupted publication without overwriting edits."),
+        (
+            "recover",
+            "Restore a selected interrupted publication without overwriting edits.",
+        ),
     ]:
-        command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
+        command = commands.add_parser(
+            name, help=description, description=description, allow_abbrev=False
+        )
         if name in ("check", "plan"):
-            command.add_argument("--config", default="repository-skills.json", metavar="FILE")
-        else:
+            command.add_argument(
+                "--config", default="repository-skills.json", metavar="FILE"
+            )
+        elif name in ("apply", "recover"):
             command.add_argument("plan_id", metavar="PLAN_ID")
         if name == "plan":
-            command.add_argument("--local-only", action="store_true", help="stage only configured repository-local sources")
+            command.add_argument(
+                "--local-only",
+                action="store_true",
+                help="stage only configured repository-local sources",
+            )
     return parser
 
 
@@ -54,23 +88,40 @@ def _arguments(arguments):
         raise ReconciliationError("Conflicting directory options.", "invalid-input", 2)
     parser = _parser()
     parsed = parser.parse_args(remaining)
-    parsed.directory = invocation.directory[-1] if invocation.directory else str(Path.cwd())
+    parsed.directory = (
+        invocation.directory[-1] if invocation.directory else str(Path.cwd())
+    )
     parsed.json = invocation.json
     if parsed.command is None:
         if parsed.json:
-            raise ReconciliationError("Specify check, plan, apply or recover.", "invalid-input", 2)
+            raise ReconciliationError(
+                "Specify print-config-schema, check, plan, apply or recover.",
+                "invalid-input",
+                2,
+            )
         parser.print_help()
     return parsed
 
 
 def _dispatch(arguments):
+    if arguments.command == "print-config-schema":
+        return SCHEMA
     root = repository_root(arguments.directory)
     if arguments.command == "check":
-        _, config = load_configuration(root, arguments.config)
+        config_path, config = load_configuration(root, arguments.config)
         lock = load_lock(root)
-        declarations = derive_skill_declarations(config, lock)
-        return {"status": "checked", "repository": str(root), "skills": len(declarations)}
+        declarations = derive_skill_declarations(
+            config,
+            lock,
+            configuration_filename=config_path.relative_to(root).as_posix(),
+        )
+        return {
+            "status": "checked",
+            "repository": str(root),
+            "skills": len(declarations),
+        }
     from .operations import apply_plan, create_plan, recover_plan
+
     if arguments.command == "plan":
         return create_plan(root, arguments.config, local_only=arguments.local_only)
     if arguments.command == "apply":
@@ -86,6 +137,13 @@ def main(arguments=None):
         parsed = _arguments(arguments)
         if parsed.command is None:
             return 0
+        if parsed.command == "print-config-schema":
+            print(
+                json.dumps(
+                    _dispatch(parsed), ensure_ascii=False, allow_nan=False, indent=2
+                )
+            )
+            return 0
         result = {"schemaVersion": 1, **_dispatch(parsed)}
         if parsed.json:
             print(json.dumps(result, ensure_ascii=False, allow_nan=False))
@@ -98,16 +156,43 @@ def main(arguments=None):
         return 0
     except ReconciliationError as error:
         if as_json:
-            print(json.dumps({"schemaVersion": 1, "status": "failed", "error": {"code": error.code, "message": str(error)}}))
+            print(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "status": "failed",
+                        "error": {"code": error.code, "message": str(error)},
+                    }
+                )
+            )
         print(f"{error.code}: {error}", file=sys.stderr)
         return error.exit_status
     except KeyboardInterrupt:
         if as_json:
-            print(json.dumps({"schemaVersion": 1, "status": "failed", "error": {"code": "interrupted", "message": "Interrupted before publication, or publication was safely restored."}}))
+            print(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "status": "failed",
+                        "error": {
+                            "code": "interrupted",
+                            "message": "Interrupted before publication, or publication was safely restored.",
+                        },
+                    }
+                )
+            )
         print("Interrupted.", file=sys.stderr)
         return 130
     except (OSError, ValueError) as error:
         if as_json:
-            print(json.dumps({"schemaVersion": 1, "status": "failed", "error": {"code": "operation-failed", "message": str(error)}}))
+            print(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "status": "failed",
+                        "error": {"code": "operation-failed", "message": str(error)},
+                    }
+                )
+            )
         print(f"operation-failed: {error}", file=sys.stderr)
         return 1

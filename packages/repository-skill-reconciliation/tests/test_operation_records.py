@@ -14,10 +14,17 @@ class OperationRecordTests(RepositoryFixture):
 
     def test_failed_planning_retains_a_valid_unpublishable_journal(self):
         source = self.local_skill()
-        (source / "SKILL.md").write_text("---\nname: another-skill\ndescription: Wrong identity\n---\n", encoding="utf-8")
+        (source / "agents").mkdir()
+        (source / "agents/openai.yaml").write_text(
+            "policy: {}\npolicy: {}\n", encoding="utf-8"
+        )
         failed = self.invoke("plan", "--local-only")
         self.assertEqual(2, failed.returncode, failed.stdout + failed.stderr)
-        journals = list((self.root / ".agent-tools/skill-reconciliation/runs").glob("*/operation.json"))
+        journals = list(
+            (self.root / ".agent-tools/skill-reconciliation/runs").glob(
+                "*/operation.json"
+            )
+        )
         self.assertEqual(1, len(journals))
         before = journals[0].read_bytes()
         record = json.loads(before)
@@ -43,6 +50,23 @@ class OperationRecordTests(RepositoryFixture):
         self.assertFalse((self.root / ".agents/skills/team-conventions").exists())
         self.assertEqual(b"user edit after review", (claude / "asset.bin").read_bytes())
 
+    def test_changed_cli_identity_rejects_prepared_plan_before_publication(self):
+        self.local_skill()
+        plan = self.plan()
+        path = (
+            self.root
+            / ".agent-tools/skill-reconciliation/runs"
+            / plan["planId"]
+            / "operation.json"
+        )
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["cliDigest"] = "0" * 64
+        path.write_text(json.dumps(record), encoding="utf-8")
+        result = self.invoke("apply", plan["planId"])
+        self.assertEqual(3, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("conflict", json.loads(result.stdout)["error"]["code"])
+        self.assertFalse((self.root / ".agents/skills/team-conventions").exists())
+
     def test_completed_zero_change_plan_checks_unchanged_result_state(self):
         self.local_skill()
         first = self.plan()
@@ -61,20 +85,29 @@ class OperationRecordTests(RepositoryFixture):
         self.local_skill()
         mutations = {
             "non-object-change": lambda value: value.update(changes=[42]),
-            "non-string-destination": lambda value: value["changes"][0].update(destination=[]),
+            "non-string-destination": lambda value: value["changes"][0].update(
+                destination=[]
+            ),
             "missing-before": lambda value: value["changes"][0].pop("before"),
             "invalid-after": lambda value: value["changes"][0].update(after={}),
             "missing-phase": lambda value: value.pop("phase"),
             "missing-cliDigest": lambda value: value.pop("cliDigest"),
             "missing-inputs": lambda value: value.pop("inputs"),
             "inputs-array": lambda value: value.update(inputs=[]),
-            "invalid-input-hash": lambda value: value["inputs"].update({"skills-lock.json": []}),
+            "invalid-input-hash": lambda value: value["inputs"].update(
+                {"skills-lock.json": []}
+            ),
             "invalid-output-baselines": lambda value: value.update(outputBaselines=[]),
         }
         for name, mutate in mutations.items():
             with self.subTest(case=name):
                 plan = self.plan()
-                path = self.root / ".agent-tools/skill-reconciliation/runs" / plan["planId"] / "operation.json"
+                path = (
+                    self.root
+                    / ".agent-tools/skill-reconciliation/runs"
+                    / plan["planId"]
+                    / "operation.json"
+                )
                 value = json.loads(path.read_text(encoding="utf-8"))
                 mutate(value)
                 path.write_text(json.dumps(value), encoding="utf-8")
@@ -85,7 +118,9 @@ class OperationRecordTests(RepositoryFixture):
                 self.assertEqual("failed", response["status"])
                 self.assertEqual("invalid-input", response["error"]["code"])
                 self.assertNotIn("Traceback", result.stderr)
-                self.assertFalse((self.root / ".agents/skills/team-conventions").exists())
+                self.assertFalse(
+                    (self.root / ".agents/skills/team-conventions").exists()
+                )
                 # This invalid operation is no longer needed by the fixture;
                 # leave its valid phase so a subsequent case tests its own ID.
                 if "phase" not in value:

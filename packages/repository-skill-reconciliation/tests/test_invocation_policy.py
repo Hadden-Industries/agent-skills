@@ -1,17 +1,19 @@
 """Native metadata projections preserve unrelated meaning and distinguish agent capabilities."""
 
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from test_cli import SOURCE, VENDOR
 
 sys.path[:0] = [str(SOURCE), str(VENDOR)]
 
-from ruamel.yaml import YAML
-from repository_skill_reconciliation.errors import ReconciliationError
-from repository_skill_reconciliation.invocation_policy import project_invocation_policy
+from repository_skill_reconciliation.errors import ReconciliationError  # noqa: E402
+from repository_skill_reconciliation.invocation_policy import (  # noqa: E402
+    project_invocation_policy,
+)
+from ruamel.yaml import YAML  # noqa: E402
 
 
 class InvocationPolicyTests(unittest.TestCase):
@@ -22,11 +24,17 @@ class InvocationPolicyTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         (self.root / "agents").mkdir()
-        (self.root / "SKILL.md").write_text("---\nname: example\ndescription: Example\nuser-invocable: true\n---\nBody with punctuation: —\n", encoding="utf-8")
+        (self.root / "SKILL.md").write_text(
+            "---\nname: example\ndescription: Example\nuser-invocable: true\n---\nBody with punctuation: —\n",
+            encoding="utf-8",
+        )
 
     def test_codex_changes_one_field_and_preserves_other_metadata(self):
         path = self.root / "agents/openai.yaml"
-        path.write_text("# retained comment\ninterface:\n  display_name: Example\npolicy:\n  allow_implicit_invocation: true\n  retained: yes\ndependencies:\n  tools: []\n", encoding="utf-8")
+        path.write_text(
+            "# retained comment\ninterface:\n  display_name: Example\npolicy:\n  allow_implicit_invocation: true\n  retained: yes\ndependencies:\n  tools: []\n",
+            encoding="utf-8",
+        )
         before = (self.root / "SKILL.md").read_bytes()
         project_invocation_policy(self.root, {"codex": "explicit-only"})
         text = path.read_text(encoding="utf-8")
@@ -38,7 +46,9 @@ class InvocationPolicyTests(unittest.TestCase):
         self.assertIn("# retained comment", text)
         self.assertEqual(before, (self.root / "SKILL.md").read_bytes())
 
-    def test_claude_projection_preserves_body_and_rejects_disabled_manual_invocation(self):
+    def test_claude_projection_preserves_body_and_rejects_disabled_manual_invocation(
+        self,
+    ):
         path = self.root / "SKILL.md"
         body = path.read_text(encoding="utf-8").split("---\n", 2)[2]
         project_invocation_policy(self.root, {"claude-code": "explicit-only"})
@@ -55,9 +65,20 @@ class InvocationPolicyTests(unittest.TestCase):
     def test_omission_preserves_explicit_source_policy_and_metadata_bytes(self):
         path = self.root / "agents/openai.yaml"
         path.write_bytes(b"policy:\n  allow_implicit_invocation: false\n")
-        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        before = {
+            p.relative_to(self.root): p.read_bytes()
+            for p in self.root.rglob("*")
+            if p.is_file()
+        }
         project_invocation_policy(self.root, {})
-        self.assertEqual(before, {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+        self.assertEqual(
+            before,
+            {
+                p.relative_to(self.root): p.read_bytes()
+                for p in self.root.rglob("*")
+                if p.is_file()
+            },
+        )
 
     def test_duplicate_native_metadata_keys_fail_instead_of_being_discarded(self):
         path = self.root / "agents/openai.yaml"
@@ -65,10 +86,25 @@ class InvocationPolicyTests(unittest.TestCase):
         with self.assertRaises(ReconciliationError):
             project_invocation_policy(self.root, {"codex": "implicit-allowed"})
 
+    def test_implicit_eligibility_preserves_disabled_manual_invocation(self):
+        path = self.root / "SKILL.md"
+        path.write_text(
+            "---\nname: example\ndescription: Example\nuser-invocable: false\ndisable-model-invocation: true\n---\nBody\n",
+            encoding="utf-8",
+        )
+        project_invocation_policy(self.root, {"claude-code": "implicit-allowed"})
+        metadata = YAML(typ="safe", pure=True).load(
+            path.read_text("utf-8").split("---\n")[1]
+        )
+        self.assertFalse(metadata["user-invocable"])
+        self.assertFalse(metadata["disable-model-invocation"])
+
     def test_claude_preserves_crlf_body_bytes(self):
         path = self.root / "SKILL.md"
         body = b"First line.\r\nSecond line.\r\n\r\nFinal line.\r\n"
-        path.write_bytes(b"---\r\nname: example\r\ndescription: Example\r\n---\r\n" + body)
+        path.write_bytes(
+            b"---\r\nname: example\r\ndescription: Example\r\n---\r\n" + body
+        )
         self.assertTrue(path.read_bytes().endswith(body))
         project_invocation_policy(self.root, {"claude-code": "explicit-only"})
         result = path.read_bytes()

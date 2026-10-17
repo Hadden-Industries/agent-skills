@@ -63,6 +63,16 @@ class DeployedArchiveTests(unittest.TestCase):
             ):
                 self.assertIn(member, archive.namelist())
 
+    def test_print_config_schema_is_available_without_consumer_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = self.invoke(Path(temporary), "print-config-schema")
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            schema = json.loads(result.stdout)
+            self.assertEqual(["schemaVersion", "targetAgents"], schema["required"])
+            self.assertEqual(1, schema["properties"]["schemaVersion"]["const"])
+            self.assertNotIn("agents", schema["properties"])
+            self.assertEqual([], list(Path(temporary).iterdir()))
+
     def test_independent_archive_local_roundtrip_preserves_unmanaged_bytes(self):
         with tempfile.TemporaryDirectory(
             prefix="repository-skill-consumer-"
@@ -79,8 +89,8 @@ class DeployedArchiveTests(unittest.TestCase):
             (source / "binary.bin").write_bytes(b"\x00\xffconsumer")
             config = {
                 "schemaVersion": 1,
-                "agents": ["codex", "claude-code"],
-                "localSkills": {"example": "./skills/example"},
+                "targetAgents": ["codex", "claude-code"],
+                "localSkillSources": {"example": "./skills/example"},
             }
             (root / "repository-skills.json").write_text(
                 json.dumps(config), encoding="utf-8"

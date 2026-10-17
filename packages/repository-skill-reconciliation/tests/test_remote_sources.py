@@ -17,8 +17,9 @@ from test_cli import SOURCE, VENDOR
 
 sys.path[:0] = [str(SOURCE), str(VENDOR)]
 
-from repository_skill_reconciliation.errors import ReconciliationError
-from repository_skill_reconciliation.remote_sources import (
+# Source and bundled dependencies must be bootstrapped before these imports.
+from repository_skill_reconciliation.errors import ReconciliationError  # noqa: E402
+from repository_skill_reconciliation.remote_sources import (  # noqa: E402
     _environment,
     _npm_arguments,
     acquire_remote_skills,

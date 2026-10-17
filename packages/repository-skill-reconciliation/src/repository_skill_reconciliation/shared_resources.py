@@ -6,24 +6,39 @@ the containing source file. All reads/rewrites are checked before the first
 write; native source trees and binary resources are never modified.
 """
 
-from dataclasses import dataclass
 import hashlib
 import os
-from pathlib import Path
 import re
 import stat
+from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from .errors import ReconciliationError
 from .filesystem import copy_tree, validate_tree
 
-
 _DOCUMENT_SUFFIXES = {".md", ".markdown", ".mdx"}
 _DESTINATIONS = (
-    (re.compile(r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angle>[^<>\r\n]+)>|(?P<path>[^\s()]+))"), True),
-    (re.compile(r"^\s{0,3}\[[^\]\r\n]+\]:\s*(?:<(?P<angle>[^<>\r\n]+)>|(?P<path>\S+))", re.MULTILINE), True),
+    (
+        re.compile(
+            r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angle>[^<>\r\n]+)>|(?P<path>[^\s()]+))"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"^\s{0,3}\[[^\]\r\n]+\]:\s*(?:<(?P<angle>[^<>\r\n]+)>|(?P<path>\S+))",
+            re.MULTILINE,
+        ),
+        True,
+    ),
     (re.compile(r"(?<!`)`(?P<path>\.{1,2}/[^`\r\n]+)`(?!`)"), False),
-    (re.compile(r"\b(?:href|src)\s*=\s*([\"'])(?P<path>[^\"'\r\n]+)\1", re.IGNORECASE), True),
+    (
+        re.compile(
+            r"\b(?:href|src)\s*=\s*([\"'])(?P<path>[^\"'\r\n]+)\1", re.IGNORECASE
+        ),
+        True,
+    ),
 )
 
 
@@ -93,8 +108,12 @@ def _references(text: str, source_file: Path, source_skill: Path, root: Path):
                 continue
             target = _source_path(source_file.parent, path_text, root)
             if not _within(target, source_skill) and _shared_root(target, root) is None:
-                raise _failure(f"Shared resource depends on an unsupported external tree: {original}")
-            yield _Reference(*span, original, target, is_url, parsed.query, parsed.fragment)
+                raise _failure(
+                    f"Shared resource depends on an unsupported external tree: {original}"
+                )
+            yield _Reference(
+                *span, original, target, is_url, parsed.query, parsed.fragment
+            )
 
 
 def normalize_shared_resources(
@@ -110,7 +129,9 @@ def normalize_shared_resources(
     root = source_root.absolute()
     source_skill = source_skill_directory.absolute()
     if not _within(source_skill, root) or _within(output, root):
-        raise _failure("Source skill must be in its snapshot; candidate must be separate")
+        raise _failure(
+            "Source skill must be in its snapshot; candidate must be separate"
+        )
     validate_tree(source_skill)
     validate_tree(output)
     shared_roots: set[Path] = set()
@@ -119,7 +140,10 @@ def normalize_shared_resources(
     while pending:
         directory = pending.pop()
         for source_file in sorted(directory.rglob("*")):
-            if not source_file.is_file() or source_file.suffix.lower() not in _DOCUMENT_SUFFIXES:
+            if (
+                not source_file.is_file()
+                or source_file.suffix.lower() not in _DOCUMENT_SUFFIXES
+            ):
                 continue
             if source_file in documents:
                 continue
@@ -127,7 +151,9 @@ def normalize_shared_resources(
             try:
                 text = raw.decode("utf-8")
             except UnicodeDecodeError as error:
-                raise _failure(f"Referenced Markdown must be UTF-8: {source_file}") from error
+                raise _failure(
+                    f"Referenced Markdown must be UTF-8: {source_file}"
+                ) from error
             references = list(_references(text, source_file, source_skill, root))
             documents[source_file] = (raw, text, references)
             for reference in references:
@@ -142,10 +168,20 @@ def normalize_shared_resources(
     if not shared_roots:
         return []
     preferred = source_skill.parent / "_shared"
-    ordered = sorted(shared_roots, key=lambda path: (path != preferred, path.relative_to(root).as_posix()))
+    ordered = sorted(
+        shared_roots,
+        key=lambda path: (path != preferred, path.relative_to(root).as_posix()),
+    )
     destinations = {}
     for index, shared in enumerate(ordered):
-        suffix = "" if index == 0 else "-" + hashlib.sha256(shared.relative_to(root).as_posix().encode()).hexdigest()[:12]
+        suffix = (
+            ""
+            if index == 0
+            else "-"
+            + hashlib.sha256(shared.relative_to(root).as_posix().encode()).hexdigest()[
+                :12
+            ]
+        )
         destination = output / "references" / ("_shared" + suffix)
         if destination.exists() or destination.is_symlink():
             raise _failure(f"Shared-resource destination already exists: {destination}")
@@ -165,26 +201,47 @@ def normalize_shared_resources(
         destination_file = mapped(source_file)
         replacement = text
         for reference in sorted(references, key=lambda item: item.start, reverse=True):
-            relative = os.path.relpath(mapped(reference.target), destination_file.parent).replace("\\", "/")
+            relative = os.path.relpath(
+                mapped(reference.target), destination_file.parent
+            ).replace("\\", "/")
             if reference.original.split("?", 1)[0].split("#", 1)[0].endswith("/"):
                 relative += "/"
             if reference.is_url:
                 relative = quote(relative, safe="/-._~")
             value = urlunsplit(("", "", relative, reference.query, reference.fragment))
             if value != reference.original:
-                replacement = replacement[:reference.start] + value + replacement[reference.end:]
-                evidence.append({"kind": "rewrite-reference", "file": destination_file.relative_to(output).as_posix(), "from": reference.original, "to": value})
+                replacement = (
+                    replacement[: reference.start]
+                    + value
+                    + replacement[reference.end :]
+                )
+                evidence.append(
+                    {
+                        "kind": "rewrite-reference",
+                        "file": destination_file.relative_to(output).as_posix(),
+                        "from": reference.original,
+                        "to": value,
+                    }
+                )
         if replacement != text:
             updates.append((destination_file, replacement.encode("utf-8")))
         # Source candidate bytes must still be those validated by acquisition.
         if _within(source_file, source_skill) and destination_file.read_bytes() != raw:
-            raise _failure(f"Candidate changed before shared-resource normalization: {destination_file}")
+            raise _failure(
+                f"Candidate changed before shared-resource normalization: {destination_file}"
+            )
 
     for shared in ordered:
         destination = destinations[shared]
         destination.parent.mkdir(parents=True, exist_ok=True)
         copy_tree(shared, destination)
-        evidence.append({"kind": "copy-shared-resource", "source": shared.relative_to(root).as_posix(), "destination": destination.relative_to(output).as_posix()})
+        evidence.append(
+            {
+                "kind": "copy-shared-resource",
+                "source": shared.relative_to(root).as_posix(),
+                "destination": destination.relative_to(output).as_posix(),
+            }
+        )
     for destination, contents in updates:
         destination.write_bytes(contents)
     validate_tree(output)
