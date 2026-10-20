@@ -6,54 +6,47 @@
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/acquire-codebase-knowledge/SKILL.md",
-      "computedHash": "06b7a3d0bb44b70b470247aacc2ffffe37c8ce64cc3f9178be6f392c81cb6d22"
+      "computedHash": "6fe4300eb947d9d8bcde0b36ac375c8b739c30b95bc18ba5cbea2ded19fa2af3"
     },
     "brooks-audit": {
       "source": "hyhmrright/brooks-lint",
       "sourceType": "github",
       "skillPath": "skills/brooks-audit/SKILL.md",
-      "computedHash": "1c89a774116ba2c7a6eef90763b184541f81e0d79fc8f942067f7f991fcec3d8"
+      "computedHash": "f6b50f64eb586649c3862d349d371ac76f0f8d9d69b6ed8d72d70818ef789312"
     },
     "brooks-review": {
       "source": "hyhmrright/brooks-lint",
       "sourceType": "github",
       "skillPath": "skills/brooks-review/SKILL.md",
-      "computedHash": "041b8a9f34550748cd0785f406e51478d41863fc082e57091f9fa29d53c3eb70"
+      "computedHash": "1bbcb1e0e9ac64276727439ce200e0d098c759047e7a336858f15221714e706a"
     },
     "codebase-design": {
       "source": "mattpocock/skills",
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/engineering/codebase-design/SKILL.md",
-      "computedHash": "5a17552cc1482f1a40124bf4e6c9dbd90ac0dbb47e71c07d47369f9e5f2ae3b5"
+      "computedHash": "b2888e4f4e8c0af3bfd557575a64b905c44e6248c3101d72077816882b3a92b9"
     },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/engineering/diagnosing-bugs/SKILL.md",
-      "computedHash": "37b5e9c624513551da790b52864dc8c84bff996a6d03a380cc6facdcc0a88354"
+      "computedHash": "ede7254edbd22fcab97a0941511f7d440d8f9a249348fea97c50987ad5501674"
     },
     "grilling": {
       "source": "mattpocock/skills",
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/productivity/grilling/SKILL.md",
-      "computedHash": "4dd886b0196bf43729d954ae326016f2bd9f5f79d892500b407c33a753362f14"
-    },
-    "handoff": {
-      "source": "mattpocock/skills",
-      "ref": "main",
-      "sourceType": "github",
-      "skillPath": "skills/productivity/handoff/SKILL.md",
-      "computedHash": "20e5f4afdef502637510bc5c64d27645d3c85c88df9cb006824bbb0980166319"
+      "computedHash": "ef1641a2047b71b60f1942cd35efb47d3afc9d584dff5a0b01f8c7db923aaa08"
     },
     "improve-codebase-architecture": {
       "source": "mattpocock/skills",
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
-      "computedHash": "2449db6ab1ded9581f69fcc56c1f64818112d05e271fd4c5da23c6523f9d3d9d"
+      "computedHash": "ac2c94885f34ff8492dc12aa4543182f661f32ea1722b8d6b6c2c7045af33ae3"
     },
     "logic-diff": {
       "source": "hyhmrright/logic-lens",
@@ -84,7 +77,7 @@
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/skill-check/SKILL.md",
-      "computedHash": "1409f27d5a30a4a4b3ffcf13fa29aa166ac970ad70bd26311e07a2783f0ce7ca"
+      "computedHash": "3e2100622bd76548e88246b983ca60e533b03237766a1bf67b370c63768aecf3"
     },
     "skill-creator": {
       "source": "anthropics/skills",
@@ -104,7 +97,7 @@
       "source": "obra/superpowers",
       "sourceType": "github",
       "skillPath": "skills/writing-skills/SKILL.md",
-      "computedHash": "e5dfc1a942f56dc757421b0d87ae1f38ab693ebc71138e65268fd408bb5c93d3"
+      "computedHash": "f06bbb471439736c838e89a57a2a371bcc687931ba878901d97373194e212ea9"
     }
   }
 }

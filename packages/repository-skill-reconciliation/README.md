@@ -78,6 +78,12 @@ Dangling skill references, unsupported or unselected targets, unknown/duplicate 
 `targetAgents` names logical agent applications, not exclusive filesystem consumers.
 Codex and Antigravity share `.agents/skills`; Claude uses `.claude/skills`.
 Selecting a target does not isolate outputs from other applications reading that tree.
+An existing `.claude/skills/<name>` directory junction or symbolic link to the matching `.agents/skills/<name>` keeps one physical skill installation.
+The helper combines selected agents' metadata projections in that canonical tree and publishes it once, preserving the link itself.
+This shared layout requires Codex or Antigravity to be selected alongside Claude.
+A fresh Claude-only installation uses a physical `.claude/skills/<name>` directory without creating a canonical `.agents/skills/<name>` installation or link.
+An existing shared Claude link conflicts with Claude-only selection; the helper stops before preparing or publishing changes and requires an explicitly approved conversion to a physical Claude directory.
+It creates no links and does not convert existing independent directories.
 
 The unreleased configuration contract retains `schemaVersion: 1` for this explicit pre-release revision.
 The prior `agents`, `localSkills` and `invocationPolicies` fields are rejected without aliases.
@@ -96,8 +102,12 @@ Removing a native or local declaration stops management without pruning installe
 Local-only plans preserve all remote lock bytes.
 Generated skills preserve source metadata except requested policy and same-revision resource normalization.
 
-Managed outputs must be ignored/untracked and free of links/reparse points and hardlinked files.
-Existing native junctions are refused rather than silently replaced.
+Managed outputs must be ignored/untracked.
+Only the matching Claude-to-canonical directory links described above are accepted; parent links, chains, external or unexpected targets, nested links, other reparse points and hardlinked files remain rejected.
+Planning freezes link targets and filesystem identities separately from canonical content.
+Apply and recovery revalidate those identities and operate on canonical paths without writing through links.
+A link may briefly be dangling while its canonical directory is replaced; interrupted publication restores the canonical tree using the retained journal.
+Changed links and conflicting user edits stop the operation for inspection rather than being overwritten.
 Generated candidate bytes, baselines and recovery records live in ignored `.agent-tools/skill-reconciliation/`.
 Retain failed recovery state.
 Normal external npm caches/temp are expected; this is ordinary developer-tool trust, not an OS sandbox against malicious dependencies.

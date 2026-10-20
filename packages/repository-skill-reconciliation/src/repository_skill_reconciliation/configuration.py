@@ -359,6 +359,12 @@ def validate_managed_destination(root: Path, relative: str) -> Path:
             "unsafe-path",
             2,
         )
+    validate_ignored_output(root, relative)
+    return destination
+
+
+def validate_ignored_output(root: Path, relative: str) -> None:
+    """Require an installation name to be ignored/untracked, without following it."""
     tracked = run_command(["git", "ls-files", "-z", "--", relative], root)
     if tracked:
         raise ReconciliationError(
@@ -371,4 +377,3 @@ def validate_managed_destination(root: Path, relative: str) -> Path:
             raise ReconciliationError(
                 f"Managed output must be Git-ignored: {relative}", "unsafe-path", 2
             ) from error
-    return destination

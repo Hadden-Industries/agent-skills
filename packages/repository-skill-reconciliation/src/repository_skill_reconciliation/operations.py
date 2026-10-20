@@ -35,6 +35,7 @@ from .filesystem import (
     fingerprint,
     validate_tree,
 )
+from .installation_layout import assert_installation_links, installation_layout
 from .invocation_policy import project_invocation_policy, validate_skill_identity
 from .processes import run_command
 
@@ -165,6 +166,7 @@ def _read_record(root, plan_id, *, for_apply=False):
             "Plan does not belong to this repository/format.", "conflict", 3
         )
     _record_phase(record)
+    assert_installation_links(root, record.get("installationLinks", {}))
     changes = record.get("changes")
     if not isinstance(changes, list):
         raise ReconciliationError("Invalid plan changes.", "invalid-input", 2)
@@ -325,13 +327,11 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
                 contained_path(root, relative, allow_missing=False)
             )
     roots = {AGENT_ROOTS[agent] for agent in config["targetAgents"]}
-    baselines = {}
-    for prefix in sorted(roots):
-        for name in sorted(selected):
-            relative = prefix + "/" + name
-            baselines[relative] = fingerprint(
-                validate_managed_destination(root, relative)
-            )
+    destinations, links = installation_layout(root, roots, selected)
+    baselines = {
+        relative: fingerprint(validate_managed_destination(root, relative))
+        for relative in sorted(set(destinations.values()))
+    }
     _state_directory(root)
     plan_id = uuid.uuid4().hex
     run = contained_path(root, f"{STATE}/runs/{plan_id}")
@@ -350,6 +350,7 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
         "inputs": inputs,
         "changes": [],
         "acquisition": {},
+        "installationLinks": links,
     }
     atomic_json(run / "operation.json", record)
     remote = {name: entry for name, entry in selected.items() if not is_local(entry)}
@@ -376,15 +377,15 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
             else acquired[name]
         )
         validate_skill_identity(source, name)
-        for prefix in sorted(roots):
-            relative = prefix + "/" + name
+        physical = {destinations[prefix + "/" + name] for prefix in roots}
+        for relative in sorted(physical):
             destination = prepared / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             copy_tree(source, destination)
             policies = {
                 agent: policy
                 for agent, policy in declaration.get("invocationPolicy", {}).items()
-                if AGENT_ROOTS[agent] == prefix
+                if destinations[AGENT_ROOTS[agent] + "/" + name] == relative
             }
             project_invocation_policy(destination, policies)
     candidates = dict(baselines)
@@ -418,6 +419,7 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
             expected,
             "An installation changed during planning; plan again.",
         )
+    assert_installation_links(root, links)
     record["diff"] = "".join(
         _describe_change(root, change["destination"], run / change["candidate"])
         for change in record["changes"]
@@ -439,6 +441,7 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
 def _restore(root, run, record):
     """Compare-before-restore; a conflicting user edit is preserved as recovery-required."""
     for index in reversed(range(len(record["changes"]))):
+        assert_installation_links(root, record.get("installationLinks", {}))
         change = record["changes"][index]
         destination = contained_path(root, change["destination"])
         backup = contained_path(run, change["backup"])
@@ -551,6 +554,7 @@ def apply_plan(root, plan_id):
         atomic_json(run / "operation.json", record)
         try:
             for index, change in enumerate(record["changes"]):
+                assert_installation_links(root, record.get("installationLinks", {}))
                 destination = contained_path(root, change["destination"])
                 candidate = contained_path(
                     run, change["candidate"], allow_missing=False
@@ -590,6 +594,7 @@ def apply_plan(root, plan_id):
                 os.replace(publication, destination)
                 change["phase"] = "published"
                 atomic_json(run / "operation.json", record)
+            assert_installation_links(root, record.get("installationLinks", {}))
             for relative, expected in _expected_outputs(record).items():
                 _assert_fingerprint(
                     contained_path(root, relative),

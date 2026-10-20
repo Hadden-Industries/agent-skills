@@ -545,6 +545,47 @@ class RemoteSourceTests(unittest.TestCase):
         with self.assertRaises(ReconciliationError):
             self.acquire()
 
+    def test_unselected_shared_installation_link_does_not_block_real_shared_resources(
+        self,
+    ):
+        blob = (
+            subprocess.run(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=self.remote,
+                env=self.environment,
+                input=b"../../skills/_shared",
+                check=True,
+                stdout=subprocess.PIPE,
+            )
+            .stdout.decode()
+            .strip()
+        )
+        self.git(
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"120000,{blob},.agents/skills/_shared",
+        )
+        self.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "unselected installation alias",
+        )
+        self.A = self.git("rev-parse", "HEAD").strip()
+        directories, _, _ = self.acquire()
+        self.assertEqual(
+            "B\n", (directories["example"] / "references/_shared/guide.md").read_text()
+        )
+        snapshot = self.root / "work/source-0000/snapshot"
+        self.assertFalse((snapshot / ".agents").exists())
+
     def test_wrong_native_commit_is_rejected_before_normalization(self):
         self.wrong_commit = True
         with self.assertRaises(ReconciliationError):

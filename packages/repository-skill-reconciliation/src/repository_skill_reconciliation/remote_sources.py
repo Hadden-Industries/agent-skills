@@ -450,8 +450,11 @@ def _fetch_snapshot(group, remote, commit, environment):
 
 def _checkout_snapshot(snapshot, tree, paths, commit, environment):
     directories = {path.parent for path in paths}
-    for path in tree:
-        if "_shared" in path.parts:
+    for path, mode in tree.items():
+        # Only real shared files establish resource trees. An unselected
+        # installation alias named '_shared' is not a source resource tree;
+        # referenced aliases still fail normalization's native path checks.
+        if "_shared" in path.parts and mode in ("100644", "100755"):
             directories.add(
                 PurePosixPath(*path.parts[: path.parts.index("_shared") + 1])
             )
