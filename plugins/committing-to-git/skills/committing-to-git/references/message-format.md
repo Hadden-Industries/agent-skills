@@ -216,13 +216,13 @@ For 64 staged units with specific surviving task-lineage evidence, write an evid
 Preserve any existing mixed-policy groups and selectors instead of replacing them with this uniform example.
 Prepare without forcing detailed presentation:
 
-```text
+```console
 node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode actual --scope staged --evidence-plan <evidence.json>
 ```
 
 If the response is concise/evidence-ready, request the semantic inventory:
 
-```text
+```console
 node <skill>/scripts/commitWorkflow.mjs workflow extend --transaction <new-handle> --reason semantic-structure-required
 ```
 
@@ -232,7 +232,7 @@ Copy a template only when it is supplied; a null template requires preserving an
 Set `authoringState` to `complete`, fill the subject, preserve `evidenceGroups` and `mode`, and express the requested sections through `sharedRationales`, `userExperienceChanges` and bulk `domains` with exhaustive semantic selections.
 The helper derives the counts, ordering and membership.
 
-```text
+```console
 node <skill>/scripts/commitWorkflow.mjs message finalize --transaction <new-handle>
 ```
 
@@ -240,7 +240,7 @@ Present the exact `displayText` for approval only after `message-ready`.
 If the initial command accidentally included `--message-format detailed`, `DETAILED_MESSAGE_LIMIT_EXCEEDED` is an invalid-input result (exit 2), with no commit or index installation.
 The stopped handle remains terminal:
 
-```text
+```console
 node <skill>/scripts/commitWorkflow.mjs workflow recover --transaction <stopped-handle>
 node <skill>/scripts/commitWorkflow.mjs workflow report-detail --transaction <stopped-handle> --section diagnostics
 ```

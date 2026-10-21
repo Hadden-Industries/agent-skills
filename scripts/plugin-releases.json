@@ -17,6 +17,18 @@
       {
         "version": "0.1.1-dev.4",
         "contentSha256": "5cdf2d3771e0a99a0fb673c3691eba4c8bf20884aba26391980e4ec8e4fdb20b"
+      },
+      {
+        "version": "0.1.1-dev.5",
+        "contentSha256": "1748c06fdcdf446811f01fffaebdbf2341aafdc1097158d3cf6c302514ea107a"
+      },
+      {
+        "version": "0.1.1-dev.6",
+        "contentSha256": "33bfeeec92486c5f8f17b37d9c6b8fd8217ae673c01683f608df19446687d017"
+      },
+      {
+        "version": "0.1.1-dev.7",
+        "contentSha256": "7e1bf9841df2397a5a8dcdd33b4a0b1d0ac8178bb56a26dbd642faed60435dad"
       }
     ]
   }

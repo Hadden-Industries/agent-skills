@@ -78,7 +78,7 @@ const ACTIVE_IDS = [
   ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
     (id) => !RETIRED_IDS.has(id),
   ),
-  ...Array.from({ length: 43 }, (_, index) => index + 35),
+  ...Array.from({ length: 46 }, (_, index) => index + 35),
 ];
 const NEW_CASE_KEYS = new Map([
   [35, "known-context-skill-inventory-hint"],
@@ -124,6 +124,9 @@ const NEW_CASE_KEYS = new Map([
   [75, "detailed-message-single-approval"],
   [76, "trivial-lock-hash-direct"],
   [77, "zero-packet-structured-message-first-pass"],
+  [78, "detailed-limit-recovery"],
+  [79, "extended-bulk-alternative"],
+  [80, "body-only-concise-near-miss"],
 ]);
 const REMOVED_COMMAND =
   /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;

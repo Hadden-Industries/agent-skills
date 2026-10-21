@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.4"
+  version: "0.1.1-dev.7"
 ---
 
 # Committing to Git
@@ -19,19 +19,16 @@ Use policy, task evidence and Git facts to correct type and scope, sharpen the o
 
 ## Already-reviewed changes
 
-Reuse established scope, evidence, format, authority and destination while applicable.
-Identify the missing fact before each extra read/check.
-Reuse successful task checks unless inputs, applicability or explicit policy require rerunning; never invent helper receipts.
+Reuse applicable scope, evidence, format, authority and destination.
+Read only missing facts; reuse applicable successful checks without inventing helper receipts.
 
 | Requested message           | Preparation and completion                                                                                                                                     |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
 | Eligible per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
 
-`--message-format detailed` requires fewer than 50 change units and a projected inventory of at most 32,768 UTF-8 bytes.
-A meaningful body does not require that presentation mode.
-For larger inventories, omit the flag; extend concise/evidence-ready preparation with `semantic-structure-required`, or finish extended review and choose the returned `structuredAuthoring` alternative.
-Follow the [complete bulk and rejected-preparation examples](references/message-format.md#large-inventory-and-rejected-preparation) without dropping requested sections.
+`--message-format detailed` requires fewer than 50 units and at most 32 KiB projected UTF-8 bytes; bodies alone need no flag.
+For larger inventories, omit it and follow the [bulk/recovery example](references/message-format.md#large-inventory-and-rejected-preparation) through concise extension or extended `structuredAuthoring`, preserving sections.
 
 Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.
 Preserve requested sections; finish required evidence first.
@@ -145,13 +142,12 @@ Obey `nextAction`: `author-message` uses `messagePath` (`message-input.txt`) and
 `author-content` uses `contentPath` (`content.json`), versioned `contentContract`, and `message finalize`.
 Preserve `schemaVersion`, `evidenceGroups`, and `mode`.
 Supported sections are `Rationale:`, `User Experience Changes:`, and `File Changes:`; resolve others before approval and fix aggregate diagnostics by exact JSON pointer together.
-Detailed applies below 50 units and within 32 KiB; otherwise use bulk.
 New uncertainty uses fixed `evidence-plan-input.json`.
-If structured authoring was not selected during preparation, use `workflow extend --reason semantic-structure-required` only from `route: concise`, `phase: evidence-ready`; otherwise follow `nextAction`.
+`workflow extend --reason semantic-structure-required` requires `route: concise`, `phase: evidence-ready`; otherwise follow `nextAction`.
 
 For `evidence-required`, traverse bounded delta, then finalize.
 `authoring-pending` means evidence is complete but approval bytes are unavailable; an older revision cannot commit.
-Optional checks must answer a material unresolved question, not bless a validated scalar.
+Optional checks must answer a material unresolved question.
 
 ## Promote a draft
 

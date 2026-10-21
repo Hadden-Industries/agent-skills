@@ -47,6 +47,27 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
     performance.map(({ path }) => path),
     ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
   );
+  const recovery = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/issue-20-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    recovery.baselineRevision,
+    "7c928c974798ae0548f3353ce9c0589256b8b7fe",
+  );
+  assert.deepEqual(recovery.files.map(({ path }) => path).sort(), [
+    "skills/committing-to-git/SKILL.md",
+    "skills/committing-to-git/references/diagnostics.md",
+    "skills/committing-to-git/references/inspection-recovery.md",
+    "skills/committing-to-git/references/message-format.md",
+    "skills/committing-to-git/references/transaction-recovery.md",
+    "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  ]);
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -155,15 +176,38 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
         file.path,
       );
     }
+    const recoveryChange = recovery.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (recoveryChange) {
+      assert.equal(
+        recoveryChange.previousSha256,
+        (markdownChange ?? laterChange ?? change ?? formatting ?? file).sha256,
+        file.path,
+      );
+    }
     assert.equal(
       comparisonBytes.length,
-      (markdownChange ?? laterChange ?? change ?? formatting ?? file)
-        .byteLength,
+      (
+        recoveryChange ??
+        markdownChange ??
+        laterChange ??
+        change ??
+        formatting ??
+        file
+      ).byteLength,
       file.path,
     );
     assert.equal(
       sha256Hex(comparisonBytes),
-      (markdownChange ?? laterChange ?? change ?? formatting ?? file).sha256,
+      (
+        recoveryChange ??
+        markdownChange ??
+        laterChange ??
+        change ??
+        formatting ??
+        file
+      ).sha256,
       file.path,
     );
   }

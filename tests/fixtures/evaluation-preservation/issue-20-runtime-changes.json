@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "7c928c974798ae0548f3353ce9c0589256b8b7fe",
+  "reason": "Accepted issue-20 preparation recovery and final guidance maintenance; preserve the historical 57-file baseline and existing version/source-label normalization.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/SKILL.md",
+      "previousSha256": "47d42381178c4d9d9b53252d2bc811892505614386ccfe569249c658b216fc10",
+      "byteLength": 13175,
+      "sha256": "85a4b9571030c4f65c2f5f69a128de31187455405a7421a312ed40342ef7ff45"
+    },
+    {
+      "path": "skills/committing-to-git/references/diagnostics.md",
+      "previousSha256": "16282cac16a89506a3f06360db12f78b4f005c557d5c4cbae4df38456fadcc83",
+      "byteLength": 15066,
+      "sha256": "c20114fc950fa6d7bc0e54972b0e97fd1b9e7bf9bd7ded1d2b073b58f8cf812f"
+    },
+    {
+      "path": "skills/committing-to-git/references/inspection-recovery.md",
+      "previousSha256": "d2fbe33ec6eaa8af657f564242ea70f3fa2f7643347edd9c17dbf1ab1a15dfa3",
+      "byteLength": 5427,
+      "sha256": "14f8bbff180c64e467fec4100d237df0d4579aa1ebef7982e5e0b6793654e054"
+    },
+    {
+      "path": "skills/committing-to-git/references/message-format.md",
+      "previousSha256": "d8f48ad5ab1ee6a8a5928b7c1c4a6dbff1dd919f042d6719ad8896128e3fb440",
+      "byteLength": 16971,
+      "sha256": "512c4db0aba456f7b85ce2be7de8095aaf54ce291d4613f657e3937b10fbb962"
+    },
+    {
+      "path": "skills/committing-to-git/references/transaction-recovery.md",
+      "previousSha256": "071e00eca23068afe34a271657b18f352f0a3f2e780b4b0d691ba0e96660672a",
+      "byteLength": 3606,
+      "sha256": "5327d61dfa44676732bfa13ff751bc2541fa090df3b2e479a597b4623490a5ec"
+    },
+    {
+      "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "previousSha256": "ac22ee6cceefb35d0c07f49dcb80aa8dbbcc036ae5a1ca445d01c54af47ae739",
+      "byteLength": 864813,
+      "sha256": "5c34dcb794fd2875397cd7d0f6feaa8415d8d551890da6a4668dec23b977455b"
+    }
+  ]
+}
