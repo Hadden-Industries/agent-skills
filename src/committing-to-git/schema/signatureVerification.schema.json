@@ -56,27 +56,31 @@
             "status": { "const": "verified" },
             "backend": { "const": "ssh" },
             "identity": { "$ref": "#/$defs/sshIdentity" }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
             "status": { "const": "verified" },
             "backend": { "const": "openpgp" },
             "identity": { "$ref": "#/$defs/openPgpIdentity" }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
             "status": { "enum": ["failed", "unavailable"] },
             "identity": { "const": null }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
             "status": { "const": "skipped" },
             "backend": { "const": null },
             "identity": { "const": null }
-          }
+          },
+          "type": "object"
         }
       ]
     },

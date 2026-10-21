@@ -13,6 +13,10 @@
       {
         "version": "0.1.1-dev.3",
         "contentSha256": "1ddb7afc6f2aad7355fdfb62e8d2d310de904d50f4e7979ec89ca08f1c885cb2"
+      },
+      {
+        "version": "0.1.1-dev.4",
+        "contentSha256": "5cdf2d3771e0a99a0fb673c3691eba4c8bf20884aba26391980e4ec8e4fdb20b"
       }
     ]
   }

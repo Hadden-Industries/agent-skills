@@ -5,6 +5,7 @@ import { Buffer } from "node:buffer";
 
 import {
   MAXIMUM_CANONICAL_MESSAGE_BYTES,
+  BULK_CHANGE_UNIT_THRESHOLD,
   sortChangeUnitsByRawPath,
   formatChangeUnitPath,
   resolveSemanticCoverage,
@@ -275,11 +276,14 @@ function expectedDetailedInventory(manifest) {
 }
 
 function parseDetailedInventory(lines, manifest) {
-  if (manifest.changeUnitCount >= 50) {
+  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
     fail(
       "STRUCTURED_BULK_FINALIZATION_REQUIRED",
       "A counted bulk inventory must be derived by the structured extended finalizer.",
-      { remedy: "Extend for semantic structure or omit File Changes." },
+      {
+        remedy:
+          "Use the authoring continuation supplied by the workflow; preserve requested sections.",
+      },
     );
   }
 

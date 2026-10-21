@@ -1,4 +1,8 @@
 import { SELECTOR_FIELDS } from "../selection/selectionVocabulary.js";
+import {
+  BULK_CHANGE_UNIT_THRESHOLD,
+  MAXIMUM_CANONICAL_MESSAGE_BYTES,
+} from "./changeSelection.js";
 
 const SUPPORTED_SECTIONS = Object.freeze([
   "Rationale",
@@ -10,6 +14,7 @@ function selectionExample(field, value) {
   return { [field]: [value] };
 }
 
+/** Describe semantic input and fixed presentation limits without granting phase eligibility. */
 export function semanticContentContract(mode) {
   if (!new Set(["detailed", "bulk"]).has(mode)) {
     throw new Error("Semantic content contract mode must be detailed or bulk.");
@@ -59,6 +64,13 @@ export function semanticContentContract(mode) {
       },
     },
     supportedSections: [...SUPPORTED_SECTIONS],
+    presentation: {
+      bulkChangeUnitThreshold: BULK_CHANGE_UNIT_THRESHOLD,
+      maximumCanonicalBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+      detailedProjection:
+        "Minimal subject and inventory titles in UTF-8, excluding authored narrative and notes; final rendered bytes are checked separately.",
+      modeIsHelperOwned: true,
+    },
   };
 
   if (mode === "detailed") {

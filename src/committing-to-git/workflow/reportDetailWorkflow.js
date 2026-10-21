@@ -38,7 +38,7 @@ import {
   releaseTransactionStateLock,
 } from "../transaction/transactionRecovery.js";
 import { readTransaction } from "../transaction/transactionWorkspace.js";
-import { readProcessDiagnostics } from "./processDiagnostics.js";
+import { readWorkflowDiagnostics } from "./preparationDiagnostics.js";
 
 const ACTIVE_NAME = "report-detail.active.json";
 const COMPLETED_NAME = "report-detail.completed.json";
@@ -843,7 +843,8 @@ export async function readWorkspaceDetailPage({
 }
 
 export async function reportDetailWorkflow(options) {
-  if (options.section === "diagnostics") return readProcessDiagnostics(options);
+  if (options.section === "diagnostics")
+    return readWorkflowDiagnostics(options);
   if (options.section === "report") return readRetainedReport(options);
   return readWorkspaceDetailPage(options);
 }

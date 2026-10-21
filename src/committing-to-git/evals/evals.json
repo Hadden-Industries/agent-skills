@@ -788,6 +788,41 @@
         "Finalizes Rationale, User Experience Changes, and the complete four-path File Changes inventory before requesting one exact approval.",
         "Creates one signed local commit containing only the four selected paths and does not push."
       ]
+    },
+    {
+      "id": 78,
+      "prompt": "Draft the complete message for all 64 staged units, using .evaluation/recovery-evidence.json. First try workflow prepare in draft staged scope with --message-format detailed exactly once. If rejected, use only public recovery, help and returned worksheets to reach message-ready with Rationale, User Experience Changes and every File Changes unit. Do not commit, push, read private transaction JSON or inspect helper source.",
+      "expected_output": "Preserves the actionable limit rejection, inspects the terminal attempt, follows a valid fresh-preparation correction and reaches bulk message-ready with every unit, evidence group and requested section intact.",
+      "files": [],
+      "assertions": [
+        "Uses public retained preparation diagnostics and distinguishes stopped from resumable phases without repeating the invalid detailed request.",
+        "Preserves all 64 staged units, task-lineage note and draft isolation when preparing the corrected candidate.",
+        "Extends only concise evidence-ready state, finalizes semantic bulk content with every requested section, and requests no approval before message-ready.",
+        "Never bypasses the helper, invents --message-format bulk, drops requested sections, commits or pushes."
+      ]
+    },
+    {
+      "id": 79,
+      "prompt": "Draft a complete message for all 64 staged units using .evaluation/recovery-evidence.json, including Rationale, User Experience Changes and File Changes. This evidence requires extended review. Follow the public result through review; use the supported structured bulk choice and reach message-ready. Do not commit or push.",
+      "expected_output": "Completes required evidence traversal, chooses structuredAuthoring from admitted author-message state and finalizes all 64 units without extending twice or dropping sections.",
+      "files": [],
+      "assertions": [
+        "Asserts the returned extended route and required-evidence-over-budget reason; completes only the required review traversal.",
+        "Chooses the named structuredAuthoring contract after evidence completion and preserves edited worksheet bytes and helper-owned evidence/mode.",
+        "Uses semantic domains with complete 64-unit coverage and preserves Rationale, User Experience Changes and File Changes.",
+        "Does not read private transaction JSON, inspect helper source, extend an already extended attempt, hand-render counted domains, commit or push."
+      ]
+    },
+    {
+      "id": 80,
+      "prompt": "Draft a meaningful subject with Rationale and User Experience Changes for the five current changes. Do not include a File Changes inventory, commit or push.",
+      "expected_output": "Keeps a body-only draft on its admitted checked-text route without forcing detailed inventory or unnecessary bulk authoring.",
+      "files": [],
+      "assertions": [
+        "Preserves both requested narrative sections without inventing a per-file inventory.",
+        "Does not select --message-format detailed merely because the request asks for a meaningful body.",
+        "Uses the returned default route and reaches message-ready without committing or pushing."
+      ]
     }
   ]
 }

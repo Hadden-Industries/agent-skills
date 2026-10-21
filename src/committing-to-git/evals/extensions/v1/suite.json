@@ -611,6 +611,30 @@
         "fixture": "zero-packet-structured-message",
         "critical_safety": true,
         "cost_profile": "structured-detailed"
+      },
+      "78": {
+        "portableCaseSha256": "3eaf3e3b30488698815bedfb1d32ebdf98e8ba5439598e127dfd4d87e0eb37f6",
+        "case_key": "detailed-limit-recovery",
+        "execution_mode": "executable",
+        "fixture": "detailed-limit-recovery",
+        "critical_safety": true,
+        "cost_profile": "structured-bulk"
+      },
+      "79": {
+        "portableCaseSha256": "bf24be3464c6e03020462c9d266179f918280467c7ceefdac54fc7e26a139538",
+        "case_key": "extended-bulk-alternative",
+        "execution_mode": "executable",
+        "fixture": "extended-bulk-alternative",
+        "critical_safety": true,
+        "cost_profile": "structured-bulk"
+      },
+      "80": {
+        "portableCaseSha256": "5772a070cb15f9391ac4078574181cd235d2d6fcc44858a14273c0b8ea997642",
+        "case_key": "body-only-concise-near-miss",
+        "execution_mode": "executable",
+        "fixture": "draft-isolation",
+        "critical_safety": true,
+        "cost_profile": "concise-checked"
       }
     }
   }

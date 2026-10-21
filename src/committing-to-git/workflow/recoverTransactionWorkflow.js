@@ -23,6 +23,10 @@ import {
 import { recoverDraftPromotion } from "./promoteDraftWorkflow.js";
 import { recoverPublicationOutcome } from "./publishWorkflow.js";
 import { recoverCheckAttempt } from "./runCheckWorkflow.js";
+import {
+  preparationDiagnostics,
+  preparationCorrectionRecovery,
+} from "./preparationDiagnostics.js";
 
 const RESOLUTIONS = new Set([null, "confirmed-no-live-child"]);
 
@@ -144,21 +148,39 @@ export async function recoverTransactionWorkflow({
       transaction.phase,
     )
   ) {
+    const preparation =
+      transaction.phase === "stopped"
+        ? preparationDiagnostics(transaction)
+        : null;
     return createWorkflowResult({
       disposition: "succeeded",
       status: transaction.status,
       ...transactionDiagnosticState(transaction, transactionPath),
+      ...(preparation
+        ? { recovery: preparationCorrectionRecovery(preparation) }
+        : {}),
       data: {
         commitOid: transaction.commit?.commitOid ?? null,
         terminalDisposition: transaction.terminalDisposition,
+        ...(preparation ? { preparationDiagnostics: preparation } : {}),
       },
     });
   }
 
-  invalid(
+  throw new WorkflowDiagnosticError(
     "RECOVERY_NOT_REQUIRED",
     `Transaction phase ${transaction.phase} has no irreversible journal to recover.`,
-    1,
+    {
+      state: transactionDiagnosticState(transaction, transactionPath),
+      details: {
+        preparationIncomplete: transaction.phase === "allocated",
+        resumeAllowed: false,
+        originalDiagnostic: null,
+        requiredInputs: [
+          "A valid native snapshot and complete resume prerequisites are required.",
+        ],
+      },
+    },
   );
 }
 

@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.3"
+  version: "0.1.1-dev.4"
 ---
 
 # Committing to Git
@@ -23,10 +23,15 @@ Reuse established scope, evidence, format, authority and destination while appli
 Identify the missing fact before each extra read/check.
 Reuse successful task checks unless inputs, applicability or explicit policy require rerunning; never invent helper receipts.
 
-| Requested message                   | Preparation and completion                                                                                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transport-safe subject              | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
-| Detailed body or per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
+| Requested message           | Preparation and completion                                                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
+| Eligible per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
+
+`--message-format detailed` requires fewer than 50 change units and a projected inventory of at most 32,768 UTF-8 bytes.
+A meaningful body does not require that presentation mode.
+For larger inventories, omit the flag; extend concise/evidence-ready preparation with `semantic-structure-required`, or finish extended review and choose the returned `structuredAuthoring` alternative.
+Follow the [complete bulk and rejected-preparation examples](references/message-format.md#large-inventory-and-rejected-preparation) without dropping requested sections.
 
 Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.
 Preserve requested sections; finish required evidence first.

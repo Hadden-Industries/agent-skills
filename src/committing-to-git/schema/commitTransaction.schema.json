@@ -112,6 +112,9 @@
     "publicationAttempts": {
       "type": "array",
       "items": { "$ref": "#/$defs/publicationAttempt" }
+    },
+    "preparationFailure": {
+      "$ref": "#/$defs/preparationFailure"
     }
   },
   "oneOf": [
@@ -1182,7 +1185,8 @@
         "status": { "const": null },
         "terminalDisposition": { "const": null },
         "message": { "const": null }
-      }
+      },
+      "type": "object"
     },
     "snapshotCreatedState": {
       "properties": {
@@ -1190,7 +1194,8 @@
         "status": { "const": null },
         "terminalDisposition": { "const": null },
         "message": { "const": null }
-      }
+      },
+      "type": "object"
     },
     "evidencePreparedState": {
       "properties": {
@@ -1201,7 +1206,8 @@
         "inlineEvidence": { "type": "object" },
         "review": { "const": null },
         "message": { "const": null }
-      }
+      },
+      "type": "object"
     },
     "evidencePromotedState": {
       "properties": {
@@ -1223,7 +1229,8 @@
             }
           }
         }
-      }
+      },
+      "type": "object"
     },
     "reviewPendingState": {
       "properties": {
@@ -1236,7 +1243,8 @@
           "type": "object",
           "properties": { "receipt": { "const": null } }
         }
-      }
+      },
+      "type": "object"
     },
     "evidenceRequiredState": {
       "properties": {
@@ -1249,7 +1257,8 @@
           "type": "object",
           "properties": { "receipt": { "const": null } }
         }
-      }
+      },
+      "type": "object"
     },
     "authoringPendingState": {
       "properties": {
@@ -1270,7 +1279,8 @@
           }
         },
         "message": { "type": ["object", "null"] }
-      }
+      },
+      "type": "object"
     },
     "authoringPromotedState": {
       "properties": {
@@ -1302,7 +1312,8 @@
             }
           }
         }
-      }
+      },
+      "type": "object"
     },
     "messageReadyState": {
       "properties": {
@@ -1310,7 +1321,8 @@
         "status": { "const": "message-ready" },
         "terminalDisposition": { "const": null },
         "message": { "type": "object" }
-      }
+      },
+      "type": "object"
     },
     "messagePromotedState": {
       "properties": {
@@ -1329,7 +1341,8 @@
             }
           }
         }
-      }
+      },
+      "type": "object"
     },
     "commitPendingState": {
       "properties": {
@@ -1337,7 +1350,8 @@
         "status": { "const": "outcome-unknown" },
         "terminalDisposition": { "const": null },
         "commit": { "type": "object" }
-      }
+      },
+      "type": "object"
     },
     "reportedState": {
       "properties": {
@@ -1347,7 +1361,8 @@
         "commit": { "type": "object" },
         "verification": { "type": "object" },
         "report": { "type": "object" }
-      }
+      },
+      "type": "object"
     },
     "commitBlockedState": {
       "properties": {
@@ -1357,7 +1372,8 @@
         "commit": { "type": "object" },
         "verification": { "type": "object" },
         "report": { "type": "object" }
-      }
+      },
+      "type": "object"
     },
     "reportedRecoveredState": {
       "properties": {
@@ -1367,87 +1383,359 @@
         "commit": { "type": "object" },
         "verification": { "type": "object" },
         "report": { "type": "object" }
-      }
+      },
+      "type": "object"
     },
     "publicationPendingState": {
       "properties": {
         "phase": { "const": "publication-pending" },
         "status": { "const": "outcome-unknown" },
         "terminalDisposition": { "const": null },
-        "publicationAttempts": { "minItems": 1 }
-      }
+        "publicationAttempts": { "minItems": 1, "type": "array" }
+      },
+      "type": "object"
     },
     "publishedState": {
       "properties": {
         "phase": { "const": "published" },
         "status": { "const": "published" },
         "terminalDisposition": { "const": "published" },
-        "publicationAttempts": { "minItems": 1 }
-      }
+        "publicationAttempts": { "minItems": 1, "type": "array" }
+      },
+      "type": "object"
     },
     "publishedRecoveredState": {
       "properties": {
         "phase": { "const": "published" },
         "status": { "const": "recovered" },
         "terminalDisposition": { "const": "published" },
-        "publicationAttempts": { "minItems": 1 }
-      }
+        "publicationAttempts": { "minItems": 1, "type": "array" }
+      },
+      "type": "object"
     },
     "stoppedState": {
       "properties": {
         "phase": { "const": "stopped" },
         "status": { "const": "stopped" },
         "terminalDisposition": { "const": "no-commit-stopped" }
-      }
+      },
+      "type": "object"
     },
     "invalidState": {
       "properties": {
         "phase": { "const": "stopped" },
         "status": { "const": "invalid" },
         "terminalDisposition": { "const": "no-commit-stopped" }
-      }
+      },
+      "type": "object"
     },
     "stoppedCleanedState": {
       "properties": {
         "phase": { "const": "stopped" },
         "status": { "const": "cleaned" },
         "terminalDisposition": { "const": "no-commit-stopped" }
-      }
+      },
+      "type": "object"
     },
     "stoppedRecoveredState": {
       "properties": {
         "phase": { "const": "stopped" },
         "status": { "const": "recovered" },
         "terminalDisposition": { "const": "no-commit-stopped" }
-      }
+      },
+      "type": "object"
     },
     "abandonedState": {
       "properties": {
         "phase": { "const": "abandoned" },
         "status": { "const": "stopped" },
         "terminalDisposition": { "const": "abandoned" }
-      }
+      },
+      "type": "object"
     },
     "abandonedCleanedState": {
       "properties": {
         "phase": { "const": "abandoned" },
         "status": { "const": "cleaned" },
         "terminalDisposition": { "const": "abandoned" }
-      }
+      },
+      "type": "object"
     },
     "supersededState": {
       "properties": {
         "phase": { "const": "superseded" },
         "status": { "const": "stopped" },
         "terminalDisposition": { "const": "superseded" }
-      }
+      },
+      "type": "object"
     },
     "supersededCleanedState": {
       "properties": {
         "phase": { "const": "superseded" },
         "status": { "const": "cleaned" },
         "terminalDisposition": { "const": "superseded" }
+      },
+      "type": "object"
+    },
+    "preparationFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "diagnostic",
+        "snapshotObservation",
+        "correctionInputs"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "diagnostic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "disposition",
+            "details",
+            "recovery",
+            "documentation"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "disposition": {
+              "enum": [
+                "invalid-input",
+                "rejected",
+                "unmet-prerequisite",
+                "internal-failure"
+              ]
+            },
+            "details": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {}
+            },
+            "recovery": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "automatic", "requiredInputs", "commands"],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "none",
+                    "correct-input",
+                    "satisfy-prerequisite",
+                    "human-decision",
+                    "inspect-state",
+                    "continue",
+                    "stop"
+                  ]
+                },
+                "automatic": {
+                  "const": false
+                },
+                "requiredInputs": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "commands": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["arguments"],
+                    "properties": {
+                      "arguments": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "items": {
+                          "type": "string",
+                          "maxLength": 4096
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "documentation": {
+              "enum": [
+                "references/diagnostics.md",
+                "references/native-execution.md"
+              ]
+            }
+          }
+        },
+        "snapshotObservation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "headOid",
+                "headAnchor",
+                "indexTreeOid",
+                "changeUnitCount",
+                "sourceIndexSha256"
+              ],
+              "properties": {
+                "headAnchor": {
+                  "allOf": [
+                    { "$ref": "#/$defs/nullableHeadAnchor" },
+                    { "type": "object" }
+                  ]
+                },
+                "headOid": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                    }
+                  ]
+                },
+                "indexTreeOid": {
+                  "type": "string",
+                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "changeUnitCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sourceIndexSha256": {
+                  "type": ["string", "null"],
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "correctionInputs": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scope", "evidence"],
+              "properties": {
+                "scope": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "sha256",
+                        "byteCount",
+                        "device",
+                        "inode"
+                      ],
+                      "properties": {
+                        "name": { "const": "correction-scope.json" },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "byteCount": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8388608
+                        },
+                        "device": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "inode": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "evidence": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "sha256",
+                    "byteCount",
+                    "device",
+                    "inode"
+                  ],
+                  "properties": {
+                    "name": { "const": "correction-evidence.json" },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "byteCount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8388608
+                    },
+                    "device": {
+                      "type": "string",
+                      "pattern": "^\\d+$"
+                    },
+                    "inode": {
+                      "type": "string",
+                      "pattern": "^\\d+$"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "preparationFailure": {}
+        },
+        "required": ["preparationFailure"],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "phase": {
+            "enum": ["stopped", "abandoned", "superseded"]
+          },
+          "commit": { "type": "null" },
+          "snapshot": { "type": "null" },
+          "headAnchor": { "type": "null" },
+          "route": { "type": "null" }
+        },
+        "type": "object"
+      }
+    }
+  ]
 }

@@ -289,6 +289,10 @@ function copyStableIndex(realIndexPath, preparedIndexPath, originalIdentity) {
   }
 }
 
+/** Seal selected content using an isolated index; actual installation may be deferred.
+ * Git objects and attempt files may be written, but measurement never edits the
+ * real staged index. Callers own eligibility checks before deferred installation.
+ */
 export function createSnapshot({
   root,
   mode,
@@ -318,19 +322,13 @@ export function createSnapshot({
   const headOid = resolveHead(root);
   const headAnchor = captureHeadAnchor(root);
   const realIndexPath = resolveGitPath(root, "index");
-  let originalIndexIdentity;
   let env;
   let sourceIndex = "real";
-  let actualPreparedIndexPath = null;
+  let actualPreparedIndexPath;
   let draftStorage = null;
   let indexTreeOid = null;
 
-  if (mode === "actual" && scope === "staged") {
-    indexTreeOid = writeIndexTree(root);
-    originalIndexIdentity = readIndexIdentity(realIndexPath);
-  } else {
-    originalIndexIdentity = readIndexIdentity(realIndexPath);
-  }
+  const originalIndexIdentity = readIndexIdentity(realIndexPath);
 
   if (mode === "actual" && scope === "paths") {
     const stagedPaths = stagedChangePaths(root);
@@ -363,7 +361,10 @@ export function createSnapshot({
         env,
       });
     }
-  } else if (scope !== "staged") {
+  } else {
+    // write-tree updates the index's cache-tree extension. Even staged-only
+    // measurement must use a stable copy so rejected preparation changes no
+    // real-index bytes before the presentation/retention checks complete.
     actualPreparedIndexPath =
       preparedIndexPath ?? join(dirname(outputPath), "preparation-index");
 
@@ -486,7 +487,10 @@ export function createSnapshot({
   if (
     mode === "actual" &&
     scope === "staged" &&
-    (!indexIdentitiesMatch(preparedIndexIdentity, originalIndexIdentity) ||
+    (!indexIdentitiesMatch(
+      readIndexIdentity(realIndexPath),
+      originalIndexIdentity,
+    ) ||
       JSON.stringify(captureHeadAnchor(root)) !== JSON.stringify(headAnchor))
   ) {
     throw new Error(

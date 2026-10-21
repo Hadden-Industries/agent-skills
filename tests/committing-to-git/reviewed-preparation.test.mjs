@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { schemaErrors } from "../helpers/json-schema.mjs";
+import { schemaErrors } from "./schema-validation.mjs";
 import {
   parsePrepareArguments,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
 import { resumePreparationWorkflow } from "../../src/committing-to-git/workflow/resumePreparationWorkflow.js";
+import {
+  WorkflowDiagnosticError,
+  workflowFailureResult,
+} from "../../src/committing-to-git/diagnostics/workflowDiagnosticError.js";
+import { preparationDiagnostics } from "../../src/committing-to-git/workflow/preparationDiagnostics.js";
+import { validateTransaction } from "../../src/committing-to-git/transaction/transactionWorkspace.js";
 import {
   commitAll,
   configureSshSigning,
@@ -18,6 +24,284 @@ import {
 } from "./harness.mjs";
 
 const paths = ["docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md", "docs/e.md"];
+
+for (const mode of ["actual", "draft"])
+  for (const scope of ["staged", "full", "paths"]) {
+    test(`${mode} ${scope} detailed rejection preserves HEAD, index bytes and workspace`, async (t) => {
+      const fixture = createRepositoryFixture(t, "preparation-effects-");
+      writeRepositoryFile(fixture.repo, "seed", "Seed\n");
+      commitAll(fixture.repo);
+      for (let i = 0; i < 50; i++)
+        writeRepositoryFile(fixture.repo, `p/f${i}`, "Selected\n");
+      if (scope === "staged") git(["add", "--", "p"], fixture.repo);
+      if (scope !== "full")
+        writeRepositoryFile(
+          fixture.repo,
+          "excluded.txt",
+          "Preserved user file\n",
+        );
+      const beforeIndex = readFileSync(join(fixture.repo, ".git", "index"));
+      const beforeHead = git(["rev-parse", "HEAD"], fixture.repo).stdout;
+      let failure;
+      try {
+        await prepareWorkflow({
+          options: parsePrepareArguments([
+            "--mode",
+            mode,
+            "--scope",
+            scope,
+            ...(scope === "paths" ? ["--path-prefix", "p/"] : []),
+            "--evidence",
+            "reuse",
+            "--basis",
+            "authored-current-task",
+            "--verification",
+            "skipped",
+            "--message-format",
+            "detailed",
+          ]),
+          cwd: fixture.repo,
+          temporaryRoot: fixture.scratch,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.equal(failure.code, "DETAILED_MESSAGE_LIMIT_EXCEEDED");
+      assert.equal(failure.details.changeUnitCount, 50);
+      assert.deepEqual(
+        readFileSync(join(fixture.repo, ".git", "index")),
+        beforeIndex,
+      );
+      assert.equal(git(["rev-parse", "HEAD"], fixture.repo).stdout, beforeHead);
+      if (scope !== "full")
+        assert.equal(
+          readFileSync(join(fixture.repo, "excluded.txt"), "utf8"),
+          "Preserved user file\n",
+        );
+      for (let i = 0; i < 50; i++)
+        assert.equal(
+          readFileSync(join(fixture.repo, `p/f${i}`), "utf8"),
+          "Selected\n",
+        );
+    });
+  }
+
+test("retained correction input and request drift withdraws advice without recreation", async (t) => {
+  const fixture = createRepositoryFixture(t, "correction-bindings-");
+  for (let i = 0; i < 50; i++)
+    writeRepositoryFile(fixture.repo, `p/f${i}`, "Selected\n");
+  let failure;
+  try {
+    await prepareWorkflow({
+      options: parsePrepareArguments([
+        "--mode",
+        "draft",
+        "--scope",
+        "paths",
+        "--path-prefix",
+        "p/",
+        "--evidence",
+        "reuse",
+        "--basis",
+        "authored-current-task",
+        "--message-format",
+        "detailed",
+      ]),
+      cwd: fixture.repo,
+      temporaryRoot: fixture.scratch,
+    });
+  } catch (error) {
+    failure = error;
+  }
+  const transaction = JSON.parse(
+    readFileSync(failure.state.transaction, "utf8"),
+  );
+  validateTransaction(transaction);
+  const initial = preparationDiagnostics(transaction);
+  assert.ok(initial.correction.inputs.paths.scope);
+  assert.ok(initial.correction.inputs.paths.evidence);
+  for (const mutate of [
+    (record) => {
+      record.scope.selectors.includePathPrefixes = ["other/"];
+    },
+    (record) => {
+      record.scope.selectorDigest = "0".repeat(64);
+    },
+    (record) => {
+      record.initialEvidencePlan.groups[0].basis.kind = "unknown-preexisting";
+    },
+    (record) => {
+      record.initialEvidencePlan.sha256 = "0".repeat(64);
+    },
+  ]) {
+    const altered = structuredClone(transaction);
+    mutate(altered);
+    const observed = preparationDiagnostics(altered);
+    assert.equal(observed.correction.status, "inputs-unavailable");
+    assert.deepEqual(observed.correction.commands, []);
+  }
+  const input = initial.correction.inputs.paths.scope;
+  writeFileSync(input, "{}\n");
+  const observed = preparationDiagnostics(transaction);
+  assert.equal(observed.correction.status, "inputs-unavailable");
+  assert.equal(readFileSync(input, "utf8"), "{}\n");
+});
+
+for (const stage of [
+  "failure-record-validation",
+  "before-stop-write",
+  "after-stop-replacement",
+  "correction-input-creation",
+]) {
+  test(`preparation failure readback distinguishes ${stage} from confirmed durability`, async (t) => {
+    const fixture = createRepositoryFixture(t, "failure-checkpoint-");
+    for (let i = 0; i < 50; i++)
+      writeRepositoryFile(fixture.repo, `f${i}`, "New\n");
+    let failure;
+    try {
+      await prepareWorkflow({
+        options: parsePrepareArguments([
+          "--mode",
+          "draft",
+          "--scope",
+          "full",
+          "--evidence",
+          "reuse",
+          "--basis",
+          "authored-current-task",
+          "--message-format",
+          "detailed",
+        ]),
+        cwd: fixture.repo,
+        temporaryRoot: fixture.scratch,
+        preparationFailureInjector(at, record) {
+          if (at !== stage) return;
+          if (record) record.schemaVersion = 0;
+          else throw new Error("Private checkpoint exception");
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const result = workflowFailureResult(failure);
+    assert.equal(result.code, "DETAILED_MESSAGE_LIMIT_EXCEEDED");
+    assert.equal(result.details[0].resumeAllowed, false);
+    assert.equal(
+      result.phase,
+      stage === "before-stop-write" ? "allocated" : "stopped",
+    );
+    assert.equal(
+      result.details[0].checkpointConfirmed,
+      ["failure-record-validation", "correction-input-creation"].includes(
+        stage,
+      ),
+    );
+    const retained = JSON.parse(readFileSync(result.transaction, "utf8"));
+    assert.deepEqual(
+      schemaErrors(
+        retained,
+        JSON.parse(
+          readFileSync(
+            new URL(
+              "../../src/committing-to-git/schema/commitTransaction.schema.json",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ),
+      ),
+      [],
+    );
+    assert.equal(
+      retained.preparationFailure !== undefined,
+      ["after-stop-replacement", "correction-input-creation"].includes(stage),
+    );
+    assert.doesNotMatch(JSON.stringify(result), /Private checkpoint exception/);
+  });
+}
+
+test("unbranded preparation failures cannot publish forged diagnostics or getters", async (t) => {
+  const fixture = createRepositoryFixture(t, "unbranded-failure-");
+  writeRepositoryFile(fixture.repo, "a", "A\n");
+  let failure;
+  try {
+    await prepareWorkflow({
+      options: parsePrepareArguments([
+        "--mode",
+        "draft",
+        "--scope",
+        "full",
+        "--evidence",
+        "reuse",
+        "--basis",
+        "authored-current-task",
+      ]),
+      cwd: fixture.repo,
+      temporaryRoot: fixture.scratch,
+      preparationFailureInjector(stage) {
+        if (stage === "after-snapshot-validation")
+          throw {
+            code: "FORGED_SECRET",
+            get message() {
+              throw new Error("getter executed");
+            },
+          };
+      },
+    });
+  } catch (error) {
+    failure = error;
+  }
+  const result = workflowFailureResult(failure);
+  assert.equal(result.code, "PREPARATION_STOPPED");
+  assert.equal(result.phase, "stopped");
+  assert.doesNotMatch(JSON.stringify(result), /FORGED_SECRET|getter executed/);
+});
+
+test("branded failure details are projected without evaluating accessors", async (t) => {
+  const fixture = createRepositoryFixture(t, "branded-failure-");
+  writeRepositoryFile(fixture.repo, "a", "A\n");
+  let accessed = false;
+  let failure;
+  try {
+    await prepareWorkflow({
+      options: parsePrepareArguments([
+        "--mode",
+        "draft",
+        "--scope",
+        "full",
+        "--evidence",
+        "reuse",
+        "--basis",
+        "authored-current-task",
+      ]),
+      cwd: fixture.repo,
+      temporaryRoot: fixture.scratch,
+      preparationFailureInjector(stage) {
+        if (stage === "after-snapshot-validation")
+          throw new WorkflowDiagnosticError(
+            "TEST_PREPARATION_REJECTED",
+            "Expected rejection",
+            {
+              details: {
+                get unsafe() {
+                  accessed = true;
+                  throw new Error("getter executed");
+                },
+                safe: "Retain this fact",
+              },
+            },
+          );
+      },
+    });
+  } catch (error) {
+    failure = error;
+  }
+  assert.equal(accessed, false);
+  const result = workflowFailureResult(failure);
+  assert.equal(result.code, "TEST_PREPARATION_REJECTED");
+  assert.equal(result.phase, "stopped");
+  assert.equal(result.details[0].safe, "Retain this fact");
+});
 
 function reviewedFixture(t) {
   const fixture = createRepositoryFixture(t, "reviewed-preparation-");
@@ -357,8 +641,10 @@ test("detailed format limits fail before an actual index is installed", async (t
       temporaryRoot: fixture.scratch,
     }),
     (error) =>
-      error.code === "PREPARATION_STOPPED" &&
-      error.cause?.code === "DETAILED_MESSAGE_LIMIT_EXCEEDED",
+      error.code === "DETAILED_MESSAGE_LIMIT_EXCEEDED" &&
+      error.details.changeUnitCount === 50 &&
+      error.details.requiredMode === "bulk" &&
+      error.state.phase === "stopped",
   );
   assert.equal(
     git(["diff", "--cached", "--name-only"], fixture.repo).stdout,

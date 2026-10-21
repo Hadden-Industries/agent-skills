@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { schemaErrors } from "../helpers/json-schema.mjs";
+import { schemaErrors } from "./schema-validation.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SCHEMA_DIR = join(REPO_ROOT, "src", "committing-to-git", "schema");

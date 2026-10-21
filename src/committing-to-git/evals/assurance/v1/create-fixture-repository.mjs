@@ -934,6 +934,56 @@ function createDetailedMessageSingleApproval(repository) {
   };
 }
 
+/** Isolated 64-unit recovery input; evidence differs intentionally to drive both routes. */
+function createPreparationRecoveryFixture(repository, review = false) {
+  const fixture = createAddedFiles(repository, {
+    count: 64,
+    directory: "f",
+    prefix: "u",
+    staged: true,
+    contents: (index) =>
+      review
+        ? `Review file ${index + 1}: preserve each rule.\n`.repeat(100)
+        : `Reviewed unit ${index + 1}\n`,
+  });
+  const evidencePath = ".evaluation/recovery-evidence.json";
+  writeRepositoryFile(
+    repository,
+    evidencePath,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        groups: [
+          {
+            selection: { all: true },
+            policy: review ? "review" : "reuse",
+            basis: {
+              kind: review ? "unknown-preexisting" : "task-lineage",
+              note: review
+                ? null
+                : "All 64 staged paths were authored for this evaluation fixture; keep their original staged membership and requested sections.",
+            },
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return {
+    ...fixture,
+    evidencePath,
+    expectedRoute: review ? "extended" : "concise",
+    expectedExtendedReason: review ? "required-evidence-over-budget" : null,
+    requestedSections: [
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:",
+    ],
+    commitAllowed: false,
+  };
+}
+
 function createZeroPacketStructuredMessage(repository) {
   const selectedPaths = [
     "docs/implementation-plan.md",
@@ -2380,6 +2430,20 @@ const SCENARIOS = new Map([
     createScenarioDefinition(
       createZeroPacketStructuredMessage,
       "structured-detailed",
+    ),
+  ],
+  [
+    "detailed-limit-recovery",
+    createScenarioDefinition(
+      (repository) => createPreparationRecoveryFixture(repository),
+      "structured-bulk",
+    ),
+  ],
+  [
+    "extended-bulk-alternative",
+    createScenarioDefinition(
+      (repository) => createPreparationRecoveryFixture(repository, true),
+      "structured-bulk",
     ),
   ],
   [

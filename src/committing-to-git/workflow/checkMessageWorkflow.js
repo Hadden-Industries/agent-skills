@@ -1,6 +1,7 @@
 import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { presentationDiagnostics } from "../message/approvedMessage.js";
+import { messageAuthoringRecovery } from "./authoringProgress.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import {
@@ -230,13 +231,30 @@ export function checkMessageWorkflow({
   const { transaction, manifest } = readExactRecordedSnapshot(transactionPath);
 
   assertCheckTransaction(transaction, transactionPath);
-  const validation = validateApprovedMessage({
-    manifest,
-    route: transaction.route,
-    bytes: opened.bytes,
-    repositoryTypePolicy: transaction.repositoryTypePolicy,
-    messageSource: "checked-file",
-  });
+  let validation;
+  try {
+    validation = validateApprovedMessage({
+      manifest,
+      route: transaction.route,
+      bytes: opened.bytes,
+      repositoryTypePolicy: transaction.repositoryTypePolicy,
+      messageSource: "checked-file",
+    });
+  } catch (error) {
+    if (
+      error instanceof WorkflowDiagnosticError &&
+      error.code === "STRUCTURED_BULK_FINALIZATION_REQUIRED"
+    ) {
+      const continuation = messageAuthoringRecovery(
+        transaction,
+        transactionPath,
+        { structuredInventory: true },
+      );
+      error.details = { ...error.details, ...continuation.details };
+      error.recovery = continuation.recovery;
+    }
+    throw error;
+  }
   const nextRevision = (transaction.message?.revision ?? 0) + 1;
 
   // Preflight the largest cleanup-warning form before changing durable state.

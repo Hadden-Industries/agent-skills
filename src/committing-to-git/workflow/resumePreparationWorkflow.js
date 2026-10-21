@@ -32,6 +32,10 @@ import {
   routePreparedEvidence,
 } from "./prepareWorkflow.js";
 import { authoringProgress } from "./authoringProgress.js";
+import {
+  preparationDiagnostics,
+  preparationCorrectionRecovery,
+} from "./preparationDiagnostics.js";
 
 function fail(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -300,7 +304,20 @@ export async function resumePreparationWorkflow({ transactionPath }) {
       `Preparation cannot resume from phase ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve(transactionPath) },
+        ...(transaction.phase === "stopped"
+          ? {
+              recovery: preparationCorrectionRecovery(
+                preparationDiagnostics(transaction),
+              ),
+            }
+          : {}),
+        details: {
+          transaction: resolve(transactionPath),
+          resumeAllowed: false,
+          ...(transaction.phase === "stopped"
+            ? { preparationDiagnostics: preparationDiagnostics(transaction) }
+            : {}),
+        },
       },
     );
   }

@@ -26,13 +26,19 @@ function worksheetMatchesTemplate(transaction, template) {
 }
 
 /** Recover message authoring only when the durable phase permits that operation. */
-export function messageAuthoringRecovery(transaction, transactionPath) {
+export function messageAuthoringRecovery(
+  transaction,
+  transactionPath,
+  { structuredInventory = false } = {},
+) {
   const handle = resolve(transactionPath);
   const concise =
     transaction.route === "concise" && transaction.phase === "evidence-ready";
   const extended =
     transaction.route === "extended" &&
-    ["review-pending", "authoring-pending"].includes(transaction.phase);
+    ["review-pending", "authoring-pending", "message-ready"].includes(
+      transaction.phase,
+    );
   if (!concise && !extended) {
     return {
       details: { nextAction: "inspect-state" },
@@ -51,8 +57,32 @@ export function messageAuthoringRecovery(transaction, transactionPath) {
         contentPath: null,
       }
     : authoringProgress(transaction);
-  const command =
-    progress.nextAction === "review-next"
+  if (structuredInventory && concise) {
+    return {
+      details: { ...progress, nextAction: "extend-semantic-structure" },
+      recovery: {
+        kind: "correct-input",
+        automatic: false,
+        requiredInputs: [handle],
+        commands: [
+          {
+            arguments: [
+              "workflow",
+              "extend",
+              "--transaction",
+              handle,
+              "--reason",
+              "semantic-structure-required",
+            ],
+          },
+        ],
+      },
+    };
+  }
+  const alternative = structuredInventory ? progress.structuredAuthoring : null;
+  const command = alternative
+    ? ["message", "finalize"]
+    : progress.nextAction === "review-next"
       ? ["workflow", "review-next"]
       : progress.nextAction === "author-content"
         ? ["message", "finalize"]
@@ -72,7 +102,8 @@ export function messageAuthoringRecovery(transaction, transactionPath) {
           : "correct-input",
       automatic: false,
       requiredInputs: [
-        progress.contentPath ??
+        alternative?.contentPath ??
+          progress.contentPath ??
           progress.messagePath ??
           "review the delivered evidence",
       ],
@@ -81,6 +112,7 @@ export function messageAuthoringRecovery(transaction, transactionPath) {
   };
 }
 
+/** Describe the default route and, after complete evidence, the admitted semantic choice. */
 export function authoringProgress(transaction) {
   if (
     transaction?.review === null ||
@@ -106,7 +138,7 @@ export function authoringProgress(transaction) {
     transaction.initialEvidencePlan.sha256 ===
     transaction.review.evidencePlanSha256;
   const template =
-    templateRequested && originalEvidenceCurrent
+    complete && originalEvidenceCurrent
       ? scaffoldMessageContent(
           transaction.review.structuredMessageMode,
           transaction.initialEvidencePlan,
@@ -135,6 +167,29 @@ export function authoringProgress(transaction) {
               : "Evidence was revised; continue with the authored contentPath instead of the original preparation template.",
         }),
     reviewRequired: !complete,
+    ...(complete &&
+    ["authoring-pending", "message-ready"].includes(transaction.phase)
+      ? {
+          structuredAuthoring: {
+            nextAction: "author-content",
+            contentPath: resolve(transaction.attemptDirectory, "content.json"),
+            mode: transaction.review.structuredMessageMode,
+            contentContract: semanticContentContract(
+              transaction.review.structuredMessageMode,
+            ),
+            contentTemplate: templateAvailable ? template : null,
+            contentTemplateOmittedReason: templateAvailable
+              ? null
+              : "Read and preserve the existing worksheet; a complete unedited inline template is unavailable.",
+            arguments: [
+              "message",
+              "finalize",
+              "--transaction",
+              resolve(transaction.attemptDirectory, "transaction.json"),
+            ],
+          },
+        }
+      : {}),
     reviewProgress: {
       deliveredPacketCount,
       requiredPacketCount,

@@ -76,30 +76,42 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "const": "observed" } } },
+          "if": {
+            "properties": { "status": { "const": "observed" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "observedOid": { "$ref": "#/$defs/oid" },
               "reason": { "type": "null" }
-            }
+            },
+            "type": "object"
           }
         },
         {
-          "if": { "properties": { "status": { "const": "absent" } } },
+          "if": {
+            "properties": { "status": { "const": "absent" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "observedOid": { "type": "null" },
               "reason": { "type": "null" }
-            }
+            },
+            "type": "object"
           }
         },
         {
-          "if": { "properties": { "status": { "const": "unavailable" } } },
+          "if": {
+            "properties": { "status": { "const": "unavailable" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "observedOid": { "type": "null" },
               "reason": { "type": "string", "minLength": 1 }
-            }
+            },
+            "type": "object"
           }
         }
       ]
@@ -161,7 +173,10 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "const": "succeeded" } } },
+          "if": {
+            "properties": { "status": { "const": "succeeded" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "exitCode": { "const": 0 },
@@ -170,12 +185,14 @@
               "resolution": { "type": "null" },
               "retryPermitted": { "const": false },
               "reason": { "type": "null" }
-            }
+            },
+            "type": "object"
           }
         },
         {
           "if": {
-            "properties": { "status": { "const": "observed-matching" } }
+            "properties": { "status": { "const": "observed-matching" } },
+            "type": "object"
           },
           "then": {
             "properties": {
@@ -185,36 +202,49 @@
               },
               "retryPermitted": { "const": false },
               "reason": { "type": "null" }
-            }
+            },
+            "type": "object"
           }
         },
         {
-          "if": { "properties": { "status": { "const": "rejected" } } },
+          "if": {
+            "properties": { "status": { "const": "rejected" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "observation": { "type": "null" },
               "resolution": { "type": "null" },
               "retryPermitted": { "const": false },
               "reason": { "type": "string", "minLength": 1 }
-            }
+            },
+            "type": "object"
           }
         },
         {
-          "if": { "properties": { "status": { "const": "unknown" } } },
+          "if": {
+            "properties": { "status": { "const": "unknown" } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "reason": { "type": "string", "minLength": 1 }
-            }
+            },
+            "type": "object"
           }
         },
         {
-          "if": { "properties": { "retryPermitted": { "const": true } } },
+          "if": {
+            "properties": { "retryPermitted": { "const": true } },
+            "type": "object"
+          },
           "then": {
             "properties": {
               "status": { "const": "unknown" },
               "observation": { "type": "object" },
               "resolution": { "type": "object" }
-            }
+            },
+            "type": "object"
           }
         }
       ]

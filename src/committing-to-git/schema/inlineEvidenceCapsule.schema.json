@@ -73,13 +73,15 @@
           "properties": {
             "policy": { "const": "reuse" },
             "patchText": { "const": null }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
             "policy": { "const": "message" },
             "patchText": { "type": "string" }
-          }
+          },
+          "type": "object"
         }
       ]
     }

@@ -7,7 +7,7 @@ const profiles = freezeContract({
     version: 1,
     assurance: true,
     retiredIds: [20, 22, 25, 26, 27],
-    nextUnusedId: 78,
+    nextUnusedId: 81,
   },
   "defining-concepts": { id: "defining-v1", version: 1, assurance: true },
   "naming-objects-in-software-engineering": {

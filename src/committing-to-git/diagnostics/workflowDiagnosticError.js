@@ -19,6 +19,11 @@ const STATE_FIELDS = [
   "recoveryRequired",
 ];
 
+/** Only diagnostics created by this module may supply public failure facts. */
+export function isWorkflowDiagnosticError(value) {
+  return expectedDiagnostics.has(value);
+}
+
 /** An expected workflow diagnostic with domain-owned effect and recovery facts. */
 export class WorkflowDiagnosticError extends Error {
   constructor(

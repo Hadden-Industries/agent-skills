@@ -1,15 +1,24 @@
+import {
+  normalizeScopePayload,
+  normalizeEvidencePlan,
+  compareBuffers,
+  selectorMatches,
+} from "./preparationInputs.js";
 import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 import { executeCommand } from "../cli/commandExecution.js";
 import { snapshotExecution } from "../snapshot/recordedSnapshot.js";
-import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import {
+  WorkflowDiagnosticError,
+  isWorkflowDiagnosticError,
+  workflowFailureResult,
+} from "../diagnostics/workflowDiagnosticError.js";
+import { validatePreparationFailure } from "../transaction/preparationFailureRecord.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import {
   EVIDENCE_POLICIES,
   BASIS_KINDS,
   REUSE_BASIS_KINDS,
-  validateEvidenceBasis,
 } from "../evidence/evidenceVocabulary.js";
-import { normalizeSelection } from "../selection/changeSelection.js";
 import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -51,7 +60,7 @@ import {
 } from "../inspection/reviewCatalog.js";
 import {
   scaffoldContent,
-  messagePresentationForManifest,
+  assessMessagePresentation,
 } from "../message/commitMessageRenderer.js";
 import { ensureTransactionOwnedJson } from "../message/canonicalMessageState.js";
 import {
@@ -78,6 +87,15 @@ import {
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
 import { authoringProgress } from "./authoringProgress.js";
+import {
+  createCorrectionInputs,
+  admitCorrectionSource,
+  assertCorrectionSnapshot,
+} from "./preparationCorrection.js";
+import {
+  preparationDiagnostics,
+  preparationCorrectionRecovery,
+} from "./preparationDiagnostics.js";
 
 const STORAGE_OVERRIDE_NAMES = [
   "GIT_DIR",
@@ -97,18 +115,6 @@ const INLINE_SELECTOR_FLAGS = [
   "exclude-path",
   "exclude-path-prefix",
 ];
-const SCOPE_KEYS = [
-  "schemaVersion",
-  "includePaths",
-  "includePathPrefixes",
-  "excludePaths",
-  "excludePathPrefixes",
-  "includePathBytesBase64",
-  "excludePathBytesBase64",
-];
-const EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
-const GROUP_KEYS = ["selection", "policy", "basis"];
-const BASIS_KEYS = ["kind", "note"];
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function fail(code, message, options) {
@@ -145,331 +151,8 @@ export function preflightVerificationPolicy({
   return signaturePreflight;
 }
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function assertExactKeys(value, keys, label, code) {
-  if (!isPlainObject(value)) {
-    fail(code, `${label} must be an object.`);
-  }
-
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail(code, `${label} contains missing or unknown members.`);
-  }
-}
-
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function canonicalJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-function validateRepositoryRelativePath(path, { prefix, label }) {
-  if (typeof path !== "string" || path.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
-  }
-
-  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must be a slash-separated repository-relative path.`,
-    );
-  }
-
-  if (prefix !== path.endsWith("/")) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      prefix
-        ? `${label} must end with a slash.`
-        : `${label} must not end with a slash.`,
-    );
-  }
-
-  const components = path.split("/");
-  const meaningfulComponents = prefix ? components.slice(0, -1) : components;
-
-  if (
-    meaningfulComponents.some(
-      (component) =>
-        component.length === 0 || component === "." || component === "..",
-    )
-  ) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`,
-    );
-  }
-
-  return Buffer.from(path, "utf8");
-}
-
-function decodeCanonicalBase64Path(value, label) {
-  if (typeof value !== "string" || value.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
-  }
-
-  const bytes = Buffer.from(value, "base64");
-
-  if (
-    bytes.length === 0 ||
-    bytes.toString("base64") !== value ||
-    bytes.includes(0) ||
-    bytes.includes(92) ||
-    bytes[0] === 47 ||
-    bytes[bytes.length - 1] === 47
-  ) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must encode one canonical repository-relative exact path.`,
-    );
-  }
-
-  const components = [];
-  let start = 0;
-
-  for (let index = 0; index <= bytes.length; index += 1) {
-    if (index === bytes.length || bytes[index] === 47) {
-      components.push(bytes.subarray(start, index));
-      start = index + 1;
-    }
-  }
-
-  if (
-    components.some(
-      (component) =>
-        component.length === 0 ||
-        component.equals(Buffer.from(".")) ||
-        component.equals(Buffer.from("..")),
-    )
-  ) {
-    fail(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`,
-    );
-  }
-
-  return bytes;
-}
-
-function compareBuffers(left, right) {
-  return Buffer.compare(left, right);
-}
-
-function pathStartsWith(path, prefix) {
-  return (
-    path.length >= prefix.length &&
-    path.subarray(0, prefix.length).equals(prefix)
-  );
-}
-
-function selectorContains(include, exclude) {
-  if (include.kind === "exact") {
-    return exclude.kind === "exact" && include.bytes.equals(exclude.bytes);
-  }
-
-  return pathStartsWith(exclude.bytes, include.bytes);
-}
-
-function selectorMatches(selector, path) {
-  return selector.kind === "exact"
-    ? selector.bytes.equals(path)
-    : pathStartsWith(path, selector.bytes);
-}
-
-function normalizeScopePayload(payload) {
-  assertExactKeys(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
-
-  if (payload.schemaVersion !== 2) {
-    fail("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
-  }
-
-  for (const key of SCOPE_KEYS.slice(1)) {
-    if (!Array.isArray(payload[key])) {
-      fail("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
-    }
-
-    if (payload[key].length > 4096) {
-      fail("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
-    }
-  }
-
-  const descriptors = [];
-
-  function addUtf8(values, direction, kind, label) {
-    for (const value of values) {
-      descriptors.push({
-        direction,
-        kind,
-        bytes: validateRepositoryRelativePath(value, {
-          prefix: kind === "prefix",
-          label,
-        }),
-      });
-    }
-  }
-
-  addUtf8(payload.includePaths, "include", "exact", "includePaths entry");
-  addUtf8(
-    payload.includePathPrefixes,
-    "include",
-    "prefix",
-    "includePathPrefixes entry",
-  );
-  addUtf8(payload.excludePaths, "exclude", "exact", "excludePaths entry");
-  addUtf8(
-    payload.excludePathPrefixes,
-    "exclude",
-    "prefix",
-    "excludePathPrefixes entry",
-  );
-
-  for (const value of payload.includePathBytesBase64) {
-    descriptors.push({
-      direction: "include",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "includePathBytesBase64 entry"),
-    });
-  }
-
-  for (const value of payload.excludePathBytesBase64) {
-    descriptors.push({
-      direction: "exclude",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "excludePathBytesBase64 entry"),
-    });
-  }
-
-  const includes = descriptors.filter(
-    ({ direction }) => direction === "include",
-  );
-  const excludes = descriptors.filter(
-    ({ direction }) => direction === "exclude",
-  );
-
-  if (includes.length === 0) {
-    fail("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
-  }
-
-  const seen = new Set();
-
-  for (const selector of descriptors) {
-    const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
-
-    if (seen.has(key)) {
-      fail("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
-    }
-
-    seen.add(key);
-  }
-
-  for (const exclusion of excludes) {
-    if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
-      fail(
-        "UNCONTAINED_SCOPE_EXCLUSION",
-        "Every exclusion must be contained by at least one inclusion.",
-      );
-    }
-  }
-
-  const canonicalPayload = {
-    schemaVersion: 2,
-    includePaths: [...payload.includePaths],
-    includePathPrefixes: [...payload.includePathPrefixes],
-    excludePaths: [...payload.excludePaths],
-    excludePathPrefixes: [...payload.excludePathPrefixes],
-    includePathBytesBase64: [...payload.includePathBytesBase64],
-    excludePathBytesBase64: [...payload.excludePathBytesBase64],
-  };
-
-  return {
-    canonicalPayload,
-    canonicalBytes: canonicalJsonBytes(canonicalPayload),
-    includes,
-    excludes,
-    descriptors,
-  };
-}
-
-function normalizeEvidenceSelection(selection) {
-  normalizeSelection(selection);
-
-  if ("all" in selection && selection.all !== true) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
-  }
-
-  if ("remaining" in selection && selection.remaining !== true) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
-  }
-
-  for (const [key, value] of Object.entries(selection)) {
-    if (new Set(["all", "remaining"]).has(key)) {
-      continue;
-    }
-
-    if (value.length === 0) {
-      fail(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection ${key} must be a non-empty string array.`,
-      );
-    }
-  }
-
-  return structuredClone(selection);
-}
-
-function normalizeEvidencePlan(payload) {
-  assertExactKeys(
-    payload,
-    EVIDENCE_PLAN_KEYS,
-    "Evidence plan",
-    "INVALID_EVIDENCE_PLAN",
-  );
-
-  if (payload.schemaVersion !== 1) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
-  }
-
-  if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
-  }
-
-  if (payload.groups.length > 4096) {
-    fail("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
-  }
-
-  const groups = payload.groups.map((group, index) => {
-    assertExactKeys(
-      group,
-      GROUP_KEYS,
-      `Evidence group ${index + 1}`,
-      "INVALID_EVIDENCE_PLAN",
-    );
-    assertExactKeys(
-      group.basis,
-      BASIS_KEYS,
-      `Evidence group ${index + 1} basis`,
-      "INVALID_EVIDENCE_PLAN",
-    );
-
-    return {
-      selection: normalizeEvidenceSelection(group.selection),
-      policy: group.policy,
-      basis: validateEvidenceBasis(group.policy, group.basis),
-    };
-  });
-
-  const canonicalPlan = { schemaVersion: 1, groups };
-
-  return {
-    plan: canonicalPlan,
-    canonicalBytes: canonicalJsonBytes(canonicalPlan),
-  };
 }
 
 function readBoundedJson(path, label) {
@@ -650,6 +333,7 @@ export function parsePrepareArguments(argv) {
 
   return {
     mode,
+    correctionFromPath: values.get("correction-from") ?? null,
     scope,
     evidencePlanPath,
     evidence,
@@ -1721,70 +1405,115 @@ function interruptionError(error, transactionPath, summary) {
   );
 }
 
-function stopAllocatedPreparation(error, transactionPath, summary) {
+/** Stop before index installation; optional diagnostics cannot prevent the stop. */
+function stopAllocatedPreparation(
+  error,
+  transactionPath,
+  summary,
+  observation,
+  failureInjector,
+) {
+  const known = isWorkflowDiagnosticError(error);
+  const original = workflowFailureResult(
+    known
+      ? error
+      : new WorkflowDiagnosticError(
+          "PREPARATION_STOPPED",
+          "Preparation stopped before index installation. Start fresh only after validating current inputs.",
+          { disposition: "rejected" },
+        ),
+  );
+  let preparationFailure;
+  try {
+    let correctionInputs = null;
+    if (known && error.code === "DETAILED_MESSAGE_LIMIT_EXCEEDED") {
+      try {
+        correctionInputs = createCorrectionInputs(
+          readTransaction(transactionPath),
+          writeOwnedInput,
+          failureInjector,
+        );
+      } catch {
+        // Optional input creation cannot prevent retention of the original
+        // diagnostic or the mandatory no-commit stop. Orphans grant no advice.
+      }
+    }
+    preparationFailure = validatePreparationFailure({
+      schemaVersion: 1,
+      diagnostic: {
+        code: original.code,
+        message: original.message,
+        disposition: original.disposition,
+        details: original.details,
+        recovery: original.recovery,
+        documentation: original.documentation,
+      },
+      snapshotObservation: observation,
+      correctionInputs,
+    });
+    failureInjector?.("failure-record-validation", preparationFailure);
+    validatePreparationFailure(preparationFailure);
+  } catch {
+    preparationFailure = undefined;
+  }
+  let stopped;
+  let checkpointConfirmed = false;
   try {
     const current = readTransaction(transactionPath);
-    const stopped = advanceTransaction(transactionPath, "allocated", {
+    failureInjector?.("before-stop-write");
+    stopped = advanceTransaction(transactionPath, "allocated", {
       ...current,
       phase: "stopped",
       status: "stopped",
       terminalDisposition: "no-commit-stopped",
+      ...(preparationFailure ? { preparationFailure } : {}),
     });
-    // Capacity is an implementation prerequisite, not malformed caller input.
-    // Keep its measured bound and recovery while recording the no-effect stop.
-    if (
-      error instanceof WorkflowDiagnosticError &&
-      error.code === "SNAPSHOT_CAPACITY_EXCEEDED"
-    ) {
-      error.state = {
-        transaction: transactionPath,
-        phase: stopped.phase,
-        commitState: "absent",
-        publicationState: "not-requested",
-      };
-      return error;
+    failureInjector?.("after-stop-replacement");
+    checkpointConfirmed = true;
+  } catch {
+    // Replacement can precede a failed directory flush. Readback is an
+    // observation, not confirmation of checkpoint durability or resume safety.
+    try {
+      stopped = readTransaction(transactionPath);
+    } catch {
+      stopped = null;
     }
-    const stoppedError = new WorkflowDiagnosticError(
-      "PREPARATION_STOPPED",
-      "Preparation stopped before index installation. Inspect the retained transaction before starting new work.",
-      {
-        disposition: "rejected",
-        cause: error,
-        state: {
-          transaction: transactionPath,
-          phase: stopped.phase,
-          commitState: "absent",
-          publicationState: "not-requested",
-        },
-        details: {
-          terminalDisposition: stopped.terminalDisposition,
-          scope: summary,
-        },
-      },
-    );
-    return stoppedError;
-  } catch (checkpointError) {
-    const interrupted = new WorkflowDiagnosticError(
-      "PREPARATION_CHECKPOINT_INTERRUPTED",
-      "Preparation checkpoint could not be completed. Inspect the retained transaction before resuming.",
-      {
-        disposition: "rejected",
-        cause: checkpointError,
-        state: {
-          transaction: transactionPath,
-          phase: "allocated",
-          commitState: "absent",
-          publicationState: "not-requested",
-          recoveryRequired: true,
-        },
-        details: {
-          resumeAllowed: true,
-          scope: summary,
-        },
-      },
-    );
-    return interrupted;
   }
+  const preparation =
+    stopped?.phase === "stopped" ? preparationDiagnostics(stopped) : null;
+  return new WorkflowDiagnosticError(original.code, original.message, {
+    disposition: original.disposition,
+    documentation: original.documentation,
+    state: {
+      transaction: transactionPath,
+      phase: stopped?.phase ?? null,
+      commitState: "absent",
+      publicationState: "not-requested",
+    },
+    details: {
+      ...original.details[0],
+      scope: summary,
+      preparationDiagnosticRetained: stopped?.preparationFailure !== undefined,
+      checkpointConfirmed,
+      checkpointDiagnostic: checkpointConfirmed
+        ? null
+        : "PREPARATION_CHECKPOINT_INTERRUPTED",
+      observedPhase: stopped?.phase ?? null,
+      resumeAllowed: false,
+      ...(preparation ? { preparationDiagnostics: preparation } : {}),
+    },
+    recovery:
+      stopped?.phase === "stopped"
+        ? preparation.correction.commands.length
+          ? preparationCorrectionRecovery(preparation)
+          : original.recovery
+        : {
+            kind: "inspect-state",
+            automatic: false,
+            requiredInputs: [transactionPath],
+            commands: [],
+          },
+  });
 }
 
 export async function prepareWorkflow({
@@ -1793,6 +1522,7 @@ export async function prepareWorkflow({
   environment = process.env,
   temporaryRoot,
   indexFailureInjector,
+  preparationFailureInjector,
 }) {
   const parsed =
     options ?? fail("INVALID_ARGUMENT", "Preparation options are required.");
@@ -1826,6 +1556,15 @@ export async function prepareWorkflow({
   assertNoGitStorageOverrides(environment);
   const root = repositoryRoot(cwd);
   assertPreallocationRepositoryState(root);
+  const correctionSource = parsed.correctionFromPath
+    ? admitCorrectionSource({
+        transactionPath: resolve(cwd, parsed.correctionFromPath),
+        root,
+        options: parsed,
+        normalizedScope,
+        normalizedEvidence,
+      })
+    : null;
   let signaturePreflight = null;
 
   if (parsed.mode === "actual") {
@@ -1937,6 +1676,7 @@ export async function prepareWorkflow({
   const snapshotPath = resolve(workspace.attemptDirectory, "snapshot.json");
   let snapshotResult;
   let prepared;
+  let snapshotObservation = null;
 
   try {
     snapshotResult = createSnapshot({
@@ -1974,14 +1714,33 @@ export async function prepareWorkflow({
       normalizedScope,
       selectedPaths,
     );
+    snapshotObservation = {
+      headOid: snapshotResult.snapshot.headOid,
+      headAnchor: snapshotResult.headAnchor,
+      indexTreeOid: snapshotResult.snapshot.indexTreeOid,
+      changeUnitCount: snapshotResult.snapshot.changeUnitCount,
+      sourceIndexSha256:
+        snapshotResult.snapshot.sourceIndexIdentity.sha256 ?? null,
+    };
+    if (correctionSource)
+      assertCorrectionSnapshot(correctionSource, snapshotObservation);
+    preparationFailureInjector?.("after-snapshot-validation");
 
+    const presentation = assessMessagePresentation(snapshotResult.snapshot);
     if (
       parsed.messageFormat === "detailed" &&
-      messagePresentationForManifest(snapshotResult.snapshot) !== "detailed"
+      presentation.mode !== "detailed"
     ) {
       fail(
         "DETAILED_MESSAGE_LIMIT_EXCEEDED",
         "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB. Use the supported bulk authoring route for this scope.",
+        {
+          details: {
+            ...presentation,
+            requestedMode: "detailed",
+            requiredMode: "bulk",
+          },
+        },
       );
     }
 
@@ -2007,7 +1766,13 @@ export async function prepareWorkflow({
       },
     });
   } catch (error) {
-    throw stopAllocatedPreparation(error, workspace.transactionPath, summary);
+    throw stopAllocatedPreparation(
+      error,
+      workspace.transactionPath,
+      summary,
+      snapshotObservation,
+      preparationFailureInjector,
+    );
   }
 
   if (snapshotResult.indexInstallationRequired) {

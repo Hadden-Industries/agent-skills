@@ -51,7 +51,8 @@
           "properties": {
             "route": { "const": "extended" },
             "messageSource": { "const": "structured-finalizer" }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
@@ -59,7 +60,8 @@
             "messageSource": {
               "enum": ["approved-subject", "checked-file"]
             }
-          }
+          },
+          "type": "object"
         }
       ]
     },
@@ -144,16 +146,18 @@
         {
           "properties": {
             "count": { "const": 0 },
-            "samples": { "maxItems": 0 },
+            "samples": { "maxItems": 0, "type": "array" },
             "sha256": { "const": null }
-          }
+          },
+          "type": "object"
         },
         {
           "properties": {
             "count": { "type": "integer", "minimum": 1 },
-            "samples": { "minItems": 1 },
+            "samples": { "minItems": 1, "type": "array" },
             "sha256": { "$ref": "#/$defs/sha256" }
-          }
+          },
+          "type": "object"
         }
       ]
     },

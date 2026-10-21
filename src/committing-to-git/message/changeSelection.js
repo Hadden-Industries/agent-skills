@@ -12,6 +12,7 @@ import {
 import { Buffer } from "node:buffer";
 
 export const MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
+export const BULK_CHANGE_UNIT_THRESHOLD = 50;
 
 const PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
 
@@ -333,7 +334,8 @@ export function selectMessagePresentation({
     throw new Error("Message presentation inputs must be bounded integers.");
   }
 
-  return changeUnitCount >= 50 || projectedDetailedBytes > maximumBytes
+  return changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD ||
+    projectedDetailedBytes > maximumBytes
     ? "bulk"
     : "detailed";
 }

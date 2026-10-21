@@ -1,5 +1,10 @@
+import {
+  assertExactKeys,
+  validateHeadAnchor,
+} from "./transactionRecordValidation.js";
 import { randomUUID as systemRandomUUID } from "node:crypto";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { validatePreparationFailure } from "./preparationFailureRecord.js";
 import {
   closeSync,
   constants as fsConstants,
@@ -228,79 +233,6 @@ function transactionStateKey(transaction) {
     transaction.status,
     transaction.terminalDisposition,
   ]);
-}
-
-function assertExactKeys(value, expected, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
-    throw new Error(`${label} contains missing or unknown members.`);
-  }
-}
-
-function validateHeadAnchor(headAnchor) {
-  if (headAnchor === null) {
-    return;
-  }
-
-  assertExactKeys(
-    headAnchor,
-    ["headKind", "targetRef", "expectedParentOids"],
-    "Head anchor",
-  );
-
-  if (!new Set(["unborn", "attached", "detached"]).has(headAnchor.headKind)) {
-    throw new Error(
-      `Unknown head anchor kind ${JSON.stringify(headAnchor.headKind)}.`,
-    );
-  }
-
-  if (
-    !Array.isArray(headAnchor.expectedParentOids) ||
-    headAnchor.expectedParentOids.some(
-      (oid) => typeof oid !== "string" || !FULL_OID_PATTERN.test(oid),
-    )
-  ) {
-    throw new Error("Head anchor parent IDs must be full opaque object IDs.");
-  }
-
-  if (headAnchor.headKind === "unborn") {
-    if (
-      typeof headAnchor.targetRef !== "string" ||
-      !headAnchor.targetRef.startsWith("refs/heads/") ||
-      headAnchor.expectedParentOids.length !== 0
-    ) {
-      throw new Error(
-        "An unborn head anchor requires a full branch ref and no parents.",
-      );
-    }
-
-    return;
-  }
-
-  if (headAnchor.expectedParentOids.length !== 1) {
-    throw new Error(`${headAnchor.headKind} head anchor requires one parent.`);
-  }
-
-  if (headAnchor.headKind === "attached") {
-    if (
-      typeof headAnchor.targetRef !== "string" ||
-      !headAnchor.targetRef.startsWith("refs/heads/")
-    ) {
-      throw new Error("An attached head anchor requires a full branch ref.");
-    }
-
-    return;
-  }
-
-  if (headAnchor.targetRef !== null) {
-    throw new Error("A detached head anchor requires a null target ref.");
-  }
 }
 
 function validateIndexIdentity(identity, label) {
@@ -1276,9 +1208,28 @@ export function validateTransaction(transaction) {
     [
       ...REQUIRED_TRANSACTION_KEYS,
       ...(Object.hasOwn(transaction, "messageFormat") ? ["messageFormat"] : []),
+      ...(Object.hasOwn(transaction, "preparationFailure")
+        ? ["preparationFailure"]
+        : []),
     ],
     "Transaction",
   );
+  if (Object.hasOwn(transaction, "preparationFailure")) {
+    if (!["stopped", "abandoned", "superseded"].includes(transaction.phase))
+      throw new Error(
+        "Preparation failure requires a terminal no-commit attempt.",
+      );
+    if (
+      transaction.commit !== null ||
+      transaction.snapshot !== null ||
+      transaction.headAnchor !== null ||
+      transaction.route !== null
+    )
+      throw new Error(
+        "Preparation failure must not attach resumable or committed state.",
+      );
+    validatePreparationFailure(transaction.preparationFailure);
+  }
   if (
     Object.hasOwn(transaction, "messageFormat") &&
     transaction.messageFormat !== "detailed"

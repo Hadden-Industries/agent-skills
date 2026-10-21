@@ -12,11 +12,10 @@ import {
   formatChangeUnitPath,
   resolveSemanticCoverage,
   selectMessagePresentation,
+  BULK_CHANGE_UNIT_THRESHOLD,
 } from "./changeSelection.js";
 
 // Canonical structured-content formatting.
-
-export const BULK_FILE_THRESHOLD = 50;
 
 function isCanonicalNarrative(value) {
   return (
@@ -237,7 +236,7 @@ function notesByUnit(coverage, sharedReasonSet) {
 }
 
 function renderDetailedV2(manifest, coverage, sharedReasonSet) {
-  if (manifest.changeUnitCount >= BULK_FILE_THRESHOLD) {
+  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
     throw new WorkflowDiagnosticError(
       "STRUCTURED_BULK_FINALIZATION_REQUIRED",
       "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains.",
@@ -356,7 +355,7 @@ export function renderCommitMessage({
           maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
           remedy:
             content.mode === "detailed"
-              ? "Select structured bulk mode without changing scope."
+              ? "Shorten prose while preserving every selected unit, requested section and required meaning, then finalize again in the fixed detailed mode. If the meaning cannot fit, report the unmet requirement and replan."
               : "Shorten prose or combine truthful domains without changing scope.",
         },
       },
@@ -384,6 +383,7 @@ export function renderCommitMessage({
   };
 }
 
+/** Lower-bound UTF-8 size: minimal subject and exact titles, without authored prose. */
 function projectedDetailedInventoryBytes(manifest) {
   const units = sortChangeUnitsByRawPath(manifest.changeUnits);
   const lines = ["a: A", "", "File Changes:"];
@@ -396,12 +396,30 @@ function projectedDetailedInventoryBytes(manifest) {
   return Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
 }
 
-/** Select presentation from exact inventory size before installing an actual index. */
-export function messagePresentationForManifest(manifest) {
-  return selectMessagePresentation({
+/** Assess count and minimal-title byte limits before installing an actual index. */
+export function assessMessagePresentation(manifest) {
+  const projectedDetailedBytes = projectedDetailedInventoryBytes(manifest);
+  const mode = selectMessagePresentation({
     changeUnitCount: manifest.changeUnitCount,
-    projectedDetailedBytes: projectedDetailedInventoryBytes(manifest),
+    projectedDetailedBytes,
   });
+  return {
+    mode,
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes,
+    projectionMeaning:
+      "UTF-8 lower bound: minimal a: A subject and inventory titles only; authored prose is excluded.",
+    bulkChangeUnitThreshold: BULK_CHANGE_UNIT_THRESHOLD,
+    maximumDetailedBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    reasons: [
+      ...(manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD
+        ? ["change-unit-threshold"]
+        : []),
+      ...(projectedDetailedBytes > MAXIMUM_CANONICAL_MESSAGE_BYTES
+        ? ["projected-byte-limit"]
+        : []),
+    ],
+  };
 }
 
 function scaffoldEvidenceGroups(evidencePlan) {
@@ -425,7 +443,7 @@ export function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
   }
 
   return scaffoldMessageContent(
-    messagePresentationForManifest(manifest),
+    assessMessagePresentation(manifest).mode,
     evidencePlan,
   );
 }

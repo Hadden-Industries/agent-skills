@@ -6,10 +6,34 @@ import {
   ordinalLayout,
   renderCommitMessage,
   scaffoldContent,
+  assessMessagePresentation,
 } from "../../src/committing-to-git/message/commitMessageRenderer.js";
 
 const CATALOG_SHA256 = "c".repeat(64);
 const PLAN_SHA256 = "d".repeat(64);
+
+test("presentation assessment measures UTF-8 minimal titles and distinguishes both bulk reasons", () => {
+  // One item contributes 28 ASCII bytes around its path, independently counted
+  // from a: A, blank line, File Changes:, title indentation, ticks and LFs.
+  for (const projectedBytes of [32767, 32768, 32769]) {
+    const pathBytes = projectedBytes - 28;
+    const path =
+      "é".repeat(Math.floor(pathBytes / 2)) + (pathBytes % 2 ? "a" : "");
+    const manifest = structuredManifest(1, {
+      changeUnits: [changeUnit("F000001", path)],
+    });
+    const assessment = assessMessagePresentation(manifest);
+    assert.equal(assessment.projectedDetailedBytes, projectedBytes);
+    assert.equal(assessment.mode, projectedBytes > 32768 ? "bulk" : "detailed");
+    assert.deepEqual(
+      assessment.reasons,
+      projectedBytes > 32768 ? ["projected-byte-limit"] : [],
+    );
+  }
+  const assessment = assessMessagePresentation(structuredManifest(64));
+  assert.equal(assessment.mode, "bulk");
+  assert.deepEqual(assessment.reasons, ["change-unit-threshold"]);
+});
 
 function changeUnit(id, path) {
   return {
@@ -119,6 +143,34 @@ function renderStructured(manifest, content) {
     repositoryTypePolicy: { allowedTypes: [] },
   });
 }
+
+test("projection-fit detailed content has a reachable final-byte correction", () => {
+  const manifest = structuredManifest(49);
+  assert.equal(assessMessagePresentation(manifest).mode, "detailed");
+  const content = detailedContent({
+    sharedRationales: [
+      {
+        selection: { all: true },
+        reasons: [
+          "Preserve every selected unit and required meaning. "
+            .repeat(1000)
+            .trim(),
+        ],
+      },
+    ],
+  });
+  assert.throws(
+    () => renderStructured(manifest, content),
+    (error) =>
+      error.code === "MESSAGE_DISPLAY_BUDGET_EXCEEDED" &&
+      /fixed detailed mode/u.test(error.details.remedy) &&
+      !/Select structured bulk/u.test(error.details.remedy),
+  );
+  content.sharedRationales[0].reasons = [
+    "Preserve every selected unit and required meaning",
+  ];
+  assert.equal(renderStructured(manifest, content).validation.valid, true);
+});
 
 test("one ordinal formula aligns titles, bullets, and continuations through four digits", () => {
   for (const [itemCount, index, expected] of [

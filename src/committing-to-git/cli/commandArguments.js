@@ -53,10 +53,15 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow prepare": {
+    "correction-from": {
+      ...stringOption,
+      description:
+        "<stopped-handle>  Fresh preparation bound to retained request, input identities, HEAD, selected tree and source index; rejects drift before index installation.",
+    },
     "message-format": {
       ...stringOption,
       description:
-        "<detailed>  Prepare structured detailed authoring immediately; evidence requirements remain independent.",
+        "<detailed>  Structured inventory below 50 units and at most 32,768 projected UTF-8 bytes; evidence remains independent. For larger scopes omit this flag, then extend concise evidence or choose extended structuredAuthoring after review.",
     },
     mode: {
       ...stringOption,
@@ -120,7 +125,7 @@ export const COMMAND_ARGUMENTS = {
     reason: {
       ...stringOption,
       description:
-        "<evidence-uncertainty|semantic-structure-required>  Required.\n    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic\n    structure retains evidence and supplies content.json for message finalize.",
+        "<evidence-uncertainty|semantic-structure-required>  Required.\n    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic\n    structure retains evidence and supplies content.json for message finalize.\n    Extend concise evidence-ready state only; after extended review use the\n    returned structuredAuthoring alternative when a bulk inventory is requested.",
     },
   },
   "workflow review-next": {

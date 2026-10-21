@@ -56,17 +56,20 @@
     {
       "properties": {
         "includePaths": { "type": "array", "minItems": 1 }
-      }
+      },
+      "type": "object"
     },
     {
       "properties": {
         "includePathPrefixes": { "type": "array", "minItems": 1 }
-      }
+      },
+      "type": "object"
     },
     {
       "properties": {
         "includePathBytesBase64": { "type": "array", "minItems": 1 }
-      }
+      },
+      "type": "object"
     }
   ],
   "$defs": {
