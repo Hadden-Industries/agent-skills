@@ -65,7 +65,8 @@ Do not choose a finalizer from the route label alone.
 
 ## Detailed inventory
 
-When a detailed body or `File Changes:` inventory is known before preparation, use `workflow prepare --message-format detailed` with the ordinary scope and evidence arguments.
+When a per-file `File Changes:` inventory is known before preparation, use `workflow prepare --message-format detailed` only below 50 change units and within the 32,768-byte projected inventory limit.
+A meaningful multi-section body alone does not require this flag.
 Preparation preserves that intent through interruption/resumption, returns required evidence or `nextAction: author-content`, and supplies a fresh `contentTemplate` plus `contentContract`.
 Copy the returned template to `contentPath`, fill its semantic fields and set `authoringState` to `complete`; preserve `schemaVersion`, `evidenceGroups` and `mode`.
 A template larger than 16 KiB is explicitly omitted: read the fixed `contentPath` once instead.
@@ -73,13 +74,20 @@ Evidence routing is independent of format; finish all returned review packets fi
 The detailed size limit is checked before installing an actual index; a larger inventory requires the existing bulk route, not silently changed formatting.
 
 For a body or inventory first requested after concise preparation, extend `route: concise`, `phase: evidence-ready` with `semantic-structure-required`.
-For an already-extended transaction, follow its authoring action without calling `workflow extend`: `author-message` permits full multi-section text at `messagePath` followed by `message check`; a null `contentPath` is expected.
+For an already-extended transaction, follow its authoring action without calling `workflow extend`: `author-message` permits full multi-section text at `messagePath` followed by `message check`; a null default `contentPath` is expected.
+After evidence completion, the named `structuredAuthoring` alternative supplies its own fixed `contentPath`, `contentContract`, helper-selected `mode`, template availability and literal finalizer arguments.
+Choose that supported alternative when the requested inventory needs bulk rendering; `nextAction` still identifies the default or required route.
 `author-content` requires `message finalize`.
 The fixed `content.json` is schema-version-3 semantic input only: the helper selects `mode` and supplies evidence groups, while review receipt and recommendation state remain in the transaction.
 A returned template is a fresh draft, not recovery of edits already written to the worksheet.
 The helper suppresses it unless the worksheet still has its original scaffold bytes; read and edit the existing worksheet in place when the template is null.
 
 Detailed inventory is allowed only below 50 change units and only when complete exact path coverage fits within the 32 KiB projected presentation budget.
+The projection is a UTF-8 lower bound using only the minimal `a: A` subject and numbered inventory titles, excluding authored prose and notes.
+The completed message independently must fit 32,768 bytes.
+If its final detailed rendering overflows, shorten prose while preserving every unit, requested section and required meaning, then finalize again in the fixed mode.
+Editing `content.mode` or repeating automatic preparation cannot switch a projection-fit inventory to bulk.
+If the required meaning cannot fit, report the unmet requirement and replan the native capability.
 `File Changes:` has no count.
 Sort reversible path identities by raw Git bytes.
 Render an ordinary path as `` `src/parser.js` ``, a rename as `` `old.js` -> `new.js` ``, and an unsafe identity as `` `path-bytes-base64:<base64>` ``.
@@ -186,8 +194,67 @@ Shared rationales may support several domains, but domain membership cannot over
 The finalizer derives each title as `<domain> (<count> file|files)`, applies the same dynamic ordinal layout, and verifies exhaustive membership.
 Do not type counts by hand, question a previously selected scope, or use structured bulk as a substitute for missing evidence.
 
-An existing `author-message` transaction cannot check a counted bulk inventory or extend into `author-content`.
-If a requested inventory exceeds the detailed limits in that state, report this unsupported authoring transition; retain the requested section rather than dropping it or repeatedly calling `workflow extend`.
+An existing `author-message` transaction cannot check a hand-rendered counted bulk inventory or extend again.
+After complete evidence, use its explicit `structuredAuthoring` alternative and native finalizer instead.
+Before evidence completion or in a terminal phase, satisfy the actual returned prerequisite.
+
+## Large inventory and rejected preparation
+
+For 64 staged units with specific surviving task-lineage evidence, write an evidence plan using the public schema and a truthful note:
+
+```json
+{
+  "schemaVersion": 1,
+  "groups": [{
+    "selection": { "all": true },
+    "policy": "reuse",
+    "basis": { "kind": "task-lineage", "note": "All 64 staged units belong to this reviewed task; the exact scope and review evidence remain applicable." }
+  }]
+}
+```
+
+Preserve any existing mixed-policy groups and selectors instead of replacing them with this uniform example.
+Prepare without forcing detailed presentation:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode actual --scope staged --evidence-plan <evidence.json>
+```
+
+If the response is concise/evidence-ready, request the semantic inventory:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow extend --transaction <new-handle> --reason semantic-structure-required
+```
+
+If preparation is already extended, finish `workflow review-next` using its exact returned cursor until `reviewRequired` is false; never extend twice.
+For `author-content`, edit its `contentPath`; for `author-message` with a requested inventory, choose `structuredAuthoring` and edit that alternative's fixed worksheet.
+Copy a template only when it is supplied; a null template requires preserving and editing the existing worksheet.
+Set `authoringState` to `complete`, fill the subject, preserve `evidenceGroups` and `mode`, and express the requested sections through `sharedRationales`, `userExperienceChanges` and bulk `domains` with exhaustive semantic selections.
+The helper derives the counts, ordering and membership.
+
+```text
+node <skill>/scripts/commitWorkflow.mjs message finalize --transaction <new-handle>
+```
+
+Present the exact `displayText` for approval only after `message-ready`.
+If the initial command accidentally included `--message-format detailed`, `DETAILED_MESSAGE_LIMIT_EXCEEDED` is an invalid-input result (exit 2), with no commit or index installation.
+The stopped handle remains terminal:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow recover --transaction <stopped-handle>
+node <skill>/scripts/commitWorkflow.mjs workflow report-detail --transaction <stopped-handle> --section diagnostics
+```
+
+Read `preparationDiagnostics.originalDiagnostic` separately from the current phase and effects.
+Use a fresh preparation only with validated current scope, retained input identities, evidence provenance and authority; follow the exact advertised correction arguments only when all prerequisites are satisfied.
+The returned command includes `--correction-from <stopped-handle>` and the fixed dedicated evidence/scope files; it omits the rejected detailed flag and preserves mode, selectors, allowed types and verification policy.
+That guard revalidates the historical request and compares HEAD, selected tree, unit count and source index before real-index installation.
+Changed content or anchors reject the correction; ordinary fresh work then requires reassessing current evidence and authority.
+Neither approvals nor check receipts transfer to the fresh attempt.
+Missing or changed inputs withdraw executable advice; inspection never regenerates them.
+Continue the new handle through the branches above, carrying the caller's requested `Rationale:`, `User Experience Changes:` and `File Changes:` into its worksheet.
+Preparation never received section intent, so recovery cannot restore that intent from transaction data.
+Do not resume the stopped attempt, purge it as a prerequisite, invent `--message-format bulk`, inspect private transaction JSON, or bypass the helper.
 
 The finalizer may request a bounded evidence delta when a new claim lacks coverage.
 Traverse only that delta through `workflow review-next`, preserve unchanged coverage, update the same fixed content input, and invoke `message finalize` again.

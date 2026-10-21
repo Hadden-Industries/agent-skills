@@ -14,6 +14,13 @@ Wait or ask the user; never delete it, relabel it as a sandbox denial, or treat 
 After the collision is resolved, use only the helper-recommended resume or fresh-preparation route.
 
 A failure before an irreversible journal may be a known no-mutation stop.
+For a terminal preparation stop, `recover` and `report-detail --section diagnostics` expose the retained original diagnostic separately from current effects and correction prerequisites.
+Only a fresh preparation can correct `DETAILED_MESSAGE_LIMIT_EXCEEDED`; `resume` cannot advance the stopped handle.
+Dedicated correction inputs survive ordinary compaction and are verified without regeneration.
+Missing, replaced, corrupt or unbound inputs withdraw runnable advice; use current validated inputs instead.
+An allocated attempt without a valid snapshot is incomplete: recovery reports `RECOVERY_NOT_REQUIRED`, resume reports `INVALID_TRANSACTION_ARTIFACT`, and ordinary cleanup reports `CLEANUP_NOT_ALLOWED`.
+Separately authorized purge retains its existing abandonment rules and is never necessary for fresh work.
+See [bulk preparation and correction](message-format.md#large-inventory-and-rejected-preparation).
 A missing deterministic derived artifact can be regenerated from the unchanged durable anchor.
 A changed tree, scope, head anchor, or source identity requires fresh preparation and fresh exact approval.
 

@@ -58,6 +58,10 @@ If the helper reports replacement, byte-count, digest, catalog, or encoding fail
 Do not manually acknowledge a raw artifact, edit the catalog or transaction, or reconstruct evidence from a partial response.
 Returned fallback artifact paths are transaction-directory-relative and include `review/`, but direct reads are diagnostic only and can never create a receipt.
 `workflow resume` may regenerate only a deterministically missing derived phase from persisted inputs; it must not silently replace a changed artifact.
+An explicit detailed-limit rejection is a terminal stop, not such a missing phase.
+Inspect it through `workflow recover` or diagnostics detail and follow the guarded fresh-preparation command with its retained scope/evidence inputs.
+`--correction-from` validates request and repository freshness before installation; missing, replaced or changed inputs withdraw that command without regeneration.
+Preserve caller-requested sections through the new attempt's semantic worksheet; see [the complete example](message-format.md#large-inventory-and-rejected-preparation).
 
 ## Uncertain content
 

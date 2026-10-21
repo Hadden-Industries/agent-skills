@@ -3,6 +3,13 @@
 Contract version 2 is the shared result contract for the complete command migration.
 All shipped commands and controlled consumers use this version directly; there are no legacy result formats or compatibility adapters.
 Persisted transaction and authoring formats have their own unchanged versions.
+Schema-4 transactions may now retain an optional versioned `preparationFailure`.
+Current readers admit older records with no invented historical diagnostic; strict superseded readers may reject new records and must not be reactivated against them.
+`DETAILED_MESSAGE_LIMIT_EXCEEDED` now preserves its invalid-input disposition and exit 2 instead of generic rejected `PREPARATION_STOPPED`/exit 1.
+It reports unit count, UTF-8 lower-bound projection, thresholds, requested/required modes and bulk reasons.
+After restart, inspect `preparationDiagnostics.originalDiagnostic` with `workflow recover` or diagnostics detail, without reading private transaction files.
+A successful inspection does not mean preparation succeeded.
+Failed stop persistence reports observed phase separately from confirmed durability and never promises resume without native prerequisites.
 
 ## Streams and identity
 
