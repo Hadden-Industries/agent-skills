@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.8"
+  version: "0.1.1-dev.10"
 ---
 
 # Committing to Git
@@ -15,7 +15,7 @@ Keep `transaction` opaque; follow `disposition`, `status`, `phase`, `recovery`; 
 Follow [diagnostics](references/diagnostics.md); never execute diagnostic prose.
 
 Treat the user's hint as a hypothesis.
-Use policy, task evidence and Git facts to correct type and scope, sharpen the outcome, and add rationale or user-experience consequences.
+Use policy, evidence and Git facts to correct type/scope, sharpen outcomes, and explain rationale or user-experience consequences.
 
 ## Already-reviewed changes
 
@@ -35,8 +35,8 @@ Use [message format](references/message-format.md) and returned `contentContract
 Preserve requested sections; finish required evidence first.
 Reuse exact-message/effect authorization; drafts authorize neither staging nor committing, and pushing needs separate authority.
 
-Use `--result-detail summary` to retain exact display, comparison, signature, check and publication facts with less output.
-Follow `reportDetail.arguments` or recovery/signature/check references only for a concrete question or returned condition.
+Use `--result-detail summary` for exact display, comparison, signature, check and publication facts.
+Follow `reportDetail.arguments` or recovery/signature/check references for concrete questions or returned conditions.
 
 ## Publication intent before drafting
 
@@ -77,10 +77,10 @@ Manifest inclusion is not review.
 | `review`  | Content or consequential Git facts remain unknown and require packets                       |
 
 Age is not uncertainty.
-When a targeted exact-path diff explains a small dependency, integrity hash, lock entry or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
+When an exact-path diff explains a dependency, integrity hash, lock entry or metadata scalar change, use `message` with `read-current-task`, regardless of age.
 
-Use exact non-overlapping selections covering the scope for mixed provenance; rationales may overlap, bulk domains cannot.
-Scope verification proves selection, message evidence supports claims, and full review inspects content.
+Mixed provenance needs exact non-overlapping scope coverage; rationales may overlap, bulk domains cannot.
+Scope verification proves selection; evidence supports claims; full review inspects content.
 Inline evidence must be complete; otherwise use packets.
 
 `task-lineage` requires a specific `--evidence-plan` note; see [recovery](references/inspection-recovery.md#reusable-evidence-plans).
@@ -152,7 +152,7 @@ Optional checks must answer a material unresolved question.
 
 ## Promote a draft
 
-Only an unchanged draft may become actual, and only through promotion.
+Promote only unchanged drafts to actual.
 `workflow promote` rechecks the attached, detached, or zero-parent unborn head anchor, tree/scope, and staged state; it never authorizes a commit.
 
 ## Commit
@@ -181,7 +181,7 @@ Old attempts return `UNSUPPORTED_ATTEMPT_VERSION` without migration.
 Resume a recoverably interrupted preparation only with `workflow resume --transaction <opaque-transaction>`; persisted inputs cannot broaden.
 Use [transaction recovery](references/transaction-recovery.md) for permission, lock, partial-phase, or pending/unknown failures. Bounded diagnostics point to a complete hashed failure log. Query count/byte-limited report paths through `workflow report-detail`; replay the same cursor or cursorless completed page, and use `--refresh` only for a new observation.
 
-Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding the resulting OID to its tree/message and destination, and discovery under [publication routing](references/publication-routing.md).
+Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding OID, tree/message and destination, and [publication discovery](references/publication-routing.md).
 Publishing the PR source does not complete integration:
 
 ```text
