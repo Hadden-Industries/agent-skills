@@ -15,6 +15,7 @@ import {
   createPolicyEvaluationCampaignPlan,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
+  inspectPreparedEvaluationCandidate,
   listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
@@ -469,6 +470,10 @@ async function runPreparePolicy(options) {
 }
 
 async function runExecute(options) {
+  // Apply the same non-consuming candidate gate before either dispatch mode.
+  inspectPreparedEvaluationCandidate({
+    preparedSession: resolve(required(options, "prepared-session")),
+  });
   const authorizationPath = resolve(required(options, "authorization"));
   const authorization = readJson(authorizationPath, "authorization");
   const record = await dispatchPreparedSession({
@@ -657,6 +662,14 @@ async function main() {
       "working-dir",
     ]);
     await runPreparePolicy(options);
+  } else if (command === "inspect-candidate") {
+    assertAllowedOptions(options, ["prepared-session"]);
+    writeOutput({
+      command,
+      ...inspectPreparedEvaluationCandidate({
+        preparedSession: resolve(required(options, "prepared-session")),
+      }),
+    });
   } else if (command === "run") {
     assertAllowedOptions(options, [
       "prepared-session",
@@ -682,7 +695,7 @@ async function main() {
     await runBlind(options);
   } else {
     fail(
-      "Usage: run-evaluation-session.mjs <plan|policy-plan|catalog|prepare|prepare-policy|preflight|run|blind> [options]",
+      "Usage: run-evaluation-session.mjs <plan|policy-plan|catalog|prepare|prepare-policy|inspect-candidate|preflight|run|blind> [options]",
     );
   }
 }

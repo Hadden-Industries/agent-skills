@@ -9,6 +9,7 @@ import {
   realpathSync,
   readdirSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,6 +37,7 @@ import {
   createPolicyEvaluationCampaignPlan,
   discoverRuntimeIsolationCatalog,
   executePreparedEvaluationSession,
+  inspectPreparedEvaluationCandidate,
   listPolicyEvaluationCaseIds,
   preflightPreparedEvaluationSession,
   prepareEvaluationSession,
@@ -301,7 +303,7 @@ async function preparedFixture(t, options = {}) {
     predeterminedScopeId: options.predeterminedScopeId,
     provider: "openai",
     repetition: 1,
-    repositoryRoot: REPOSITORY_ROOT,
+    repositoryRoot: options.repositoryRoot ?? REPOSITORY_ROOT,
     runtimeIsolationCatalog: {
       appIds: [],
       mcpServerIds: [],
@@ -776,6 +778,7 @@ test("evaluation runner exports only the migrated orchestration surface", async 
     "createPolicyEvaluationCampaignPlan",
     "discoverRuntimeIsolationCatalog",
     "executePreparedEvaluationSession",
+    "inspectPreparedEvaluationCandidate",
     "listPolicyEvaluationCaseIds",
     "preflightPreparedEvaluationSession",
     "prepareEvaluationSession",
@@ -1652,6 +1655,127 @@ test("digest rejection occurs before home acquisition or App Server launch", asy
   assert.deepEqual(observedLaunchOrder(prepared, homes, result), [
     "evidence-acquired",
   ]);
+});
+
+test("candidate drift is rejected before terminal evidence or authorization retention", async (t) => {
+  const { repository } = createPushedCandidateRepository(t, {
+    includeBaseline: false,
+  });
+  const { homes, prepared } = await preparedFixture(t, {
+    initializeHomes: false,
+    repositoryRoot: repository,
+  });
+  const before = readdirSync(prepared.preparedSession).sort();
+  const packetBytes = readFileSync(
+    join(prepared.preparedSession, "packet.json"),
+  );
+  const inspection = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "inspect-candidate",
+      "--prepared-session",
+      prepared.preparedSession,
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(inspection.status, 0, inspection.stderr);
+  assert.equal(JSON.parse(inspection.stdout).status, "candidate-current");
+  assert.equal(JSON.parse(inspection.stdout).modelCalls, 0);
+  runGit(repository, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    "test: Advance candidate",
+  ]);
+  await assert.rejects(
+    executePreparedEvaluationSession({
+      preparedSession: prepared,
+      authorization: authorization(prepared.packet),
+      allowExternalModelCall: true,
+      timeoutMs: 5_000,
+    }),
+    (error) =>
+      error.code === "EVALUATION_CANDIDATE_CHANGED" &&
+      /HEAD changed.+fresh packet.+authorization/isu.test(error.message),
+  );
+  const authorizationPath = join(
+    dirname(prepared.preparedSession),
+    "authority.json",
+  );
+  const authorizationBytes = JSON.stringify(authorization(prepared.packet));
+  writeFileSync(authorizationPath, authorizationBytes);
+  const stale = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "run",
+      "--prepared-session",
+      prepared.preparedSession,
+      "--authorization",
+      authorizationPath,
+      "--allow-external-model-call",
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(stale.status, 1, stale.stderr);
+  assert.match(stale.stderr, /HEAD changed.+fresh packet.+authorization/isu);
+  assert.equal(readFileSync(authorizationPath, "utf8"), authorizationBytes);
+  assert.deepEqual(readdirSync(prepared.preparedSession).sort(), before);
+  assert.deepEqual(
+    readFileSync(join(prepared.preparedSession, "packet.json")),
+    packetBytes,
+  );
+  assert.equal(existsSync(homes), false);
+  const fresh = await preparedFixture(t, {
+    initializeHomes: false,
+    repositoryRoot: repository,
+  });
+  const current = inspectPreparedEvaluationCandidate({
+    preparedSession: fresh.prepared,
+  });
+  assert.equal(
+    current.candidateCommit,
+    runGit(repository, ["rev-parse", "HEAD"]),
+  );
+  assert.notEqual(
+    current.transmissionSha256,
+    prepared.packet.transmissionSha256,
+  );
+  assert.equal(existsSync(fresh.homes), false);
+});
+
+test("candidate inspection rejects changed or missing runtime modules without changing evidence", async (t) => {
+  const { repository } = createPushedCandidateRepository(t, {
+    includeBaseline: false,
+  });
+  const { homes, prepared } = await preparedFixture(t, {
+    initializeHomes: false,
+    repositoryRoot: repository,
+  });
+  const before = readdirSync(prepared.preparedSession).sort();
+  const modulePath = join(repository, "scripts/evaluation/codex-app-server.js");
+  writeFileSync(modulePath, readFileSync(modulePath, "utf8") + "\n// drift\n");
+  assert.throws(
+    () => inspectPreparedEvaluationCandidate({ preparedSession: prepared }),
+    (error) =>
+      error.code === "EVALUATION_CANDIDATE_CHANGED" &&
+      /runtime module bytes changed/u.test(error.message),
+  );
+  unlinkSync(modulePath);
+  await assert.rejects(
+    executePreparedEvaluationSession({
+      preparedSession: prepared,
+      authorization: authorization(prepared.packet),
+      allowExternalModelCall: true,
+      timeoutMs: 5_000,
+    }),
+    (error) =>
+      error.code === "EVALUATION_CANDIDATE_CHANGED" &&
+      /runtime module missing.+fresh packet/isu.test(error.message),
+  );
+  assert.deepEqual(readdirSync(prepared.preparedSession).sort(), before);
+  assert.equal(existsSync(homes), false);
 });
 
 test("fixture drift is rejected after authorization and before home acquisition", async (t) => {

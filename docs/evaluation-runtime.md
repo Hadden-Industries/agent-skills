@@ -119,6 +119,11 @@ The separately approved [Windows real-provider campaign](evaluation-real-provide
 
 Every provider session using this shared runtime crosses an explicit prepare/authorize/run boundary; a suite may insert a separately recorded zero-turn provider preflight before authorization:
 
+Finish source edits, generation, approved preservation/configuration updates and candidate commits before preparing packets.
+For a campaign that must coexist with development writes, run its maintained runner from an owned independent plain clone of the frozen candidate, with independent Git storage and the established dependency toolchain.
+Keep that clone fixed through the campaign; a linked worktree or a copied skill alone does not freeze the runner's Git identity.
+The committing-to-git runner binds both HEAD/tree and execution-module bytes, so even an unrelated or empty commit invalidates a packet prepared from the changing checkout.
+
 1. Inspect the selected provider toolchain and build the suite-controlled inputs.
 2. Call `createTransmissionPacket(transmission)` and `prepareEvidenceSession({ destination, packet, inputs })` in a new destination.
    Preparation is local-only and starts no model turn.
@@ -131,6 +136,21 @@ Every provider session using this shared runtime crosses an explicit prepare/aut
 The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, and `antigravityCliAdapter`.
 Suites supply a controller and provider request; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes.
 `preflightCodexAppServer(...)` is a separate zero-turn provider-protocol check and requires an explicit suite/operator guard. It may start the reviewed provider process and inspect authenticated metadata, but it never calls `turn/start`. Antigravity exposes no reviewed zero-turn authentication/status command, so its cached authentication is tested only by a separately authorized model launch.
+
+Committing-to-git also provides a local candidate inspection, requiring no authorization or provider process:
+
+```text
+node src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs inspect-candidate --prepared-session ABSOLUTE_PREPARED_SESSION
+```
+
+`candidate-current` reports only matching HEAD, tree and execution-module identities at that moment, with zero model calls.
+It does not establish provider/tool availability, unconsumed authority or overall execution readiness.
+The maintained `run` command checks this binding before either direct or consumer dispatch, and direct API execution checks it before terminal evidence acquisition.
+Candidate drift raises `EVALUATION_CANDIDATE_CHANGED` in the API and a specific CLI explanation without creating authorization retention, a run record, a launch consumption record or a credential home.
+Stop the remaining campaign when any candidate check fails; settle writes, prepare fresh packets and authorize their new digests.
+Never rewrite an old packet or transfer its authorization to the new candidate.
+The common broker still rechecks all current-state inputs after validating authority and before launch; a change after the local inspection can therefore leave a retained failed attempt.
+Neither inspection nor the early rejection locks out concurrent writers or automatically retries a session.
 
 `evals.json` and `trigger-evals.json` remain portable manifest surfaces.
 `npm run build:check` verifies matching skill/suite names, behavioral and trigger shapes, unique normalized cases, contained fixture paths, and the deployable/evaluation boundary.

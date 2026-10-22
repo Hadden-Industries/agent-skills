@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.10"
+  version: "0.1.1-dev.11"
 ---
 
 # Committing to Git
@@ -15,28 +15,28 @@ Keep `transaction` opaque; follow `disposition`, `status`, `phase`, `recovery`; 
 Follow [diagnostics](references/diagnostics.md); never execute diagnostic prose.
 
 Treat the user's hint as a hypothesis.
-Use policy, evidence and Git facts to correct type/scope, sharpen outcomes, and explain rationale or user-experience consequences.
+Use policy, task evidence and Git facts to correct type and scope, sharpen the outcome, and add rationale or user-experience consequences.
 
 ## Already-reviewed changes
 
 Reuse applicable scope, evidence, format, authority and destination.
-Read only missing facts; reuse applicable successful checks without inventing helper receipts.
+Read missing facts; reuse successful checks without inventing helper receipts.
 
 | Requested message           | Preparation and completion                                                                                                                                     |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
 | Eligible per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
 
-For a body without `File Changes:`, keep concise preparation, write the exact requested sections to `checkedAuthoring.messagePath`, then run its `arguments` and show the checked `displayText` unchanged.
-`--message-format detailed` selects an exhaustive file inventory and requires fewer than 50 units and at most 32 KiB projected UTF-8 bytes.
-For larger inventories, omit it and follow the [bulk/recovery example](references/message-format.md#large-inventory-and-rejected-preparation) through concise extension or extended `structuredAuthoring`, preserving sections.
+For bodies without `File Changes:`, prepare concise, write requested sections to `checkedAuthoring.messagePath`, run its `arguments`, and show checked `displayText` unchanged.
+`--message-format detailed` requires exhaustive inventory, fewer than 50 units, and at most 32 KiB projected UTF-8 bytes.
+For larger inventories, omit that flag; use [bulk/recovery](references/message-format.md#large-inventory-and-rejected-preparation) via concise extension or extended `structuredAuthoring`, preserving sections.
 
 Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.
 Preserve requested sections; finish required evidence first.
 Reuse exact-message/effect authorization; drafts authorize neither staging nor committing, and pushing needs separate authority.
 
-Use `--result-detail summary` for exact display, comparison, signature, check and publication facts.
-Follow `reportDetail.arguments` or recovery/signature/check references for concrete questions or returned conditions.
+Use `--result-detail summary` for display, comparison, signature, check and publication facts.
+Use `reportDetail.arguments` or focused recovery/signature/check references for concrete gaps or returned conditions.
 
 ## Publication intent before drafting
 
@@ -57,7 +57,7 @@ Never autocorrect selectors.
 ## Prepare
 
 Git 2.45+ lets the helper preflight `--no-lazy-fetch` and enforce `GIT_NO_LAZY_FETCH=1`.
-For a declared read-only `.git`, request narrow metadata capability before actual preparation or commit.
+Request narrow metadata capability before actual preparation/commit in read-only `.git`.
 Never delete a live index lock.
 
 | Intent                                  | Mode     | Scope                        |
@@ -65,7 +65,7 @@ Never delete a live index lock.
 | Propose without changing the real index | `draft`  | `staged`, `full`, or `paths` |
 | Stage for an authorized workflow        | `actual` | `staged`, `full`, or `paths` |
 
-Use `staged` for an intentional index or partial hunks, `full` for every change, and `paths` for exact whole paths.
+`staged` preserves intentional/partial hunks; `full` selects every change; `paths` selects exact whole paths.
 Actual `paths` requires an empty index; draft `paths` allows only disjoint staged work until cleared.
 Include rename sides.
 Manifest inclusion is not review.
@@ -77,10 +77,10 @@ Manifest inclusion is not review.
 | `review`  | Content or consequential Git facts remain unknown and require packets                       |
 
 Age is not uncertainty.
-When an exact-path diff explains a dependency, integrity hash, lock entry or metadata scalar change, use `message` with `read-current-task`, regardless of age.
+When a targeted exact-path diff explains a small dependency, integrity hash, lock entry or metadata scalar change, use `message` with `read-current-task`; do not choose `review` because it predates this turn.
 
-Mixed provenance needs exact non-overlapping scope coverage; rationales may overlap, bulk domains cannot.
-Scope verification proves selection; evidence supports claims; full review inspects content.
+Use exact non-overlapping selections covering the scope for mixed provenance; rationales may overlap, bulk domains cannot.
+Scope verification proves selection, message evidence supports claims, and full review inspects content.
 Inline evidence must be complete; otherwise use packets.
 
 `task-lineage` requires a specific `--evidence-plan` note; see [recovery](references/inspection-recovery.md#reusable-evidence-plans).
@@ -115,7 +115,7 @@ Before presenting any subject for approval, while authoring the first proposal, 
 Examples: valid: `fix: Tolerate unreachable imports`; valid: `fix(owl2vowl): Tolerate unreachable imports`; invalid: `fix: tolerate unreachable imports`; invalid: `fix(owl2vowl): tolerate unreachable imports`.
 On `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message to the user, avoiding a capitalization-only second approval.
 
-Canonical bytes are strict UTF-8 with one LF.
+Canonical bytes: strict UTF-8, one LF.
 Direct `--message` is `subject + LF` only after `canUseDirectSubjectTransport()` succeeds.
 Checked text uses `message check` with the transaction's fixed input.
 
@@ -152,7 +152,7 @@ Optional checks must answer a material unresolved question.
 
 ## Promote a draft
 
-Promote only unchanged drafts to actual.
+Only an unchanged draft may become actual, and only through promotion.
 `workflow promote` rechecks the attached, detached, or zero-parent unborn head anchor, tree/scope, and staged state; it never authorizes a commit.
 
 ## Commit

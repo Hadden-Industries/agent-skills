@@ -1629,18 +1629,67 @@ function assertPolicyWorkingDirectory(path) {
   }
 }
 
-function assertPreparedCurrent(transmission, context) {
-  const currentFingerprint = runtimeFingerprint(
-    context.repositoryRoot,
-    transmission.provider,
+function candidateChangedError(reason, cause) {
+  const error = new Error(
+    `Evaluation runtime changed after preparation: ${reason}. Finish repository writes, prepare a fresh packet and obtain its exact authorization; existing packets and evidence are not rewritten.`,
+    { cause },
   );
+  error.code = "EVALUATION_CANDIDATE_CHANGED";
+  return error;
+}
+
+function assertPreparedRuntimeCurrent(transmission, context) {
+  let currentFingerprint;
+  try {
+    currentFingerprint = runtimeFingerprint(
+      context.repositoryRoot,
+      transmission.provider,
+    );
+  } catch (error) {
+    if (
+      error.code === "ENOENT" &&
+      EXECUTION_MODULES[transmission.provider]?.some(
+        (path) => join(context.repositoryRoot, path) === error.path,
+      )
+    ) {
+      throw candidateChangedError("runtime module missing", error);
+    }
+    throw error;
+  }
   if (
     !canonicalJsonBytes(currentFingerprint).equals(
       canonicalJsonBytes(transmission.runtimeFingerprint),
     )
   ) {
-    throw new Error("Evaluation runtime changed after preparation");
+    const reason =
+      currentFingerprint.gitCommit !== transmission.runtimeFingerprint.gitCommit
+        ? "HEAD changed"
+        : currentFingerprint.gitTree !== transmission.runtimeFingerprint.gitTree
+          ? "candidate tree changed"
+          : "runtime module bytes changed";
+    throw candidateChangedError(reason);
   }
+}
+
+// Point-in-time local inspection only. No model, credential home, authorization
+// retention or terminal evidence is created; the broker rechecks before launch.
+export function inspectPreparedEvaluationCandidate({ preparedSession }) {
+  const { packet } = preparedPacket(preparedSession);
+  assertPreparedRuntimeCurrent(
+    packet.transmission,
+    suiteContext(packet.transmission),
+  );
+  return Object.freeze({
+    status: "candidate-current",
+    transmissionSha256: packet.transmissionSha256,
+    candidateCommit: packet.transmission.runtimeFingerprint.gitCommit,
+    candidateTree: packet.transmission.runtimeFingerprint.gitTree,
+    modelCalls: 0,
+  });
+}
+
+function assertPreparedCurrent(transmission, context) {
+  assertPreparedRuntimeCurrent(transmission, context);
   assertTreatmentCurrent(context);
   if (transmission.provider === "openai") {
     if (context.case.id !== transmission.session.caseId)
@@ -2186,6 +2235,9 @@ export async function executePreparedEvaluationSession({
     throw new Error(`Unsupported prepared provider ${transmission.provider}`);
   }
   const context = suiteContext(transmission);
+  // Reject stale orchestration before acquiring single-use terminal evidence.
+  // The common broker still repeats all current-state checks after authority.
+  assertPreparedRuntimeCurrent(transmission, context);
   const controller =
     transmission.provider === "google"
       ? policyControllerFor(transmission)
