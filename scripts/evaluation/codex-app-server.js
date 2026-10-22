@@ -1176,8 +1176,7 @@ function inspectCapabilities(models, providerCapabilities, policy) {
     typeof providerCapabilities !== "object" ||
     Array.isArray(providerCapabilities) ||
     typeof providerCapabilities.webSearch !== "boolean" ||
-    typeof providerCapabilities.imageGeneration !== "boolean" ||
-    typeof providerCapabilities.namespaceTools !== "boolean"
+    typeof providerCapabilities.imageGeneration !== "boolean"
   ) {
     throw sessionError(
       "protocol-failed",
@@ -1193,7 +1192,7 @@ function inspectCapabilities(models, providerCapabilities, policy) {
   if (
     (policy.capabilities.webSearch && !providerCapabilities.webSearch) ||
     (requestsImageGeneration && !providerCapabilities.imageGeneration) ||
-    (requestsNamespaceTools && !providerCapabilities.namespaceTools)
+    requestsNamespaceTools
   ) {
     throw sessionError(
       "capability-rejected",
@@ -1206,7 +1205,6 @@ function inspectCapabilities(models, providerCapabilities, policy) {
     effort: policy.effort,
     provider: policy.provider,
     imageGeneration: providerCapabilities.imageGeneration,
-    namespaceTools: providerCapabilities.namespaceTools,
     webSearch: providerCapabilities.webSearch,
   };
 }

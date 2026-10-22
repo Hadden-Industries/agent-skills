@@ -1104,7 +1104,6 @@ test("Codex preflight accepts available but disabled provider facilities without
     effort: "low",
     imageGeneration: true,
     model: "gpt-5.6-luna",
-    namespaceTools: true,
     provider: "openai",
     webSearch: true,
   });

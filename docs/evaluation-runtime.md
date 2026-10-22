@@ -306,6 +306,8 @@ OpenAI sessions use the Codex App Server adapter.
 It re-inspects the exact executable/schema, launches App Server with a process-local file-credential-store override, verifies the positive-name environment and stable `CODEX_HOME`, checks authentication, the model catalog, provider capability availability, disabled hook state, and a minimal ephemeral preflight thread, normalizes approval requests through the suite controller, retains JSONL bytes, enforces capability events, and owns thread interruption/deletion and child closure.
 
 Codex provider and host inventories describe facilities that are available to the application, not facilities activated in a particular evaluation thread.
+The native `modelProvider/capabilities/read` response supplies boolean `imageGeneration` and `webSearch` bounds; it does not attest namespace tools.
+The adapter validates those native fields and rejects requested namespace tools before thread creation, even if an extra response field claims support.
 Preflight therefore does not call or retain `skills/list` or `app/installed`; enumerating the operator's unrelated skills or apps would neither attest thread isolation nor satisfy evidence minimization.
 It does inspect hooks because an enabled hook can execute independently of model tool selection: disabled hooks are acceptable, enabled hooks fail closed, and malformed hook metadata is a protocol failure.
 The preflight thread is deliberately more restrictive than an execution turn: `thread/start` uses no runtime workspace roots, no instruction sources, no dynamic tools or environments, read-only sandboxing, and no process network.

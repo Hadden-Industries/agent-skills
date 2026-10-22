@@ -207,7 +207,9 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
           id: message.id,
           result: {
             imageGeneration: scenario === "provider-capabilities-available",
-            namespaceTools: scenario === "provider-capabilities-available",
+            ...(scenario === "provider-capabilities-namespace-claim"
+              ? { namespaceTools: true }
+              : {}),
             webSearch:
               scenario === "provider-capabilities-malformed"
                 ? "available"

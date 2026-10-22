@@ -341,7 +341,6 @@ function writeSuccessfulPreflight(context, calls = []) {
         modelTurns: 0,
         authentication: { status: "authenticated" },
         capabilities: {
-          namespaceTools: true,
           imageGeneration: true,
           webSearch: true,
         },

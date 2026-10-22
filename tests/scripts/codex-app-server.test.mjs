@@ -648,6 +648,78 @@ test("provider capability availability does not enable facilities in a tool-free
   );
 });
 
+test("provider capabilities without namespaceTools admit a session that does not request namespace tools", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(t, root);
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy: policyFixture(fixtureRoot),
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.failureClass, null);
+  assert.equal(result.modelTurns, 0);
+  assert.deepEqual(result.capabilities, {
+    model: "gpt-5.6-luna",
+    effort: "low",
+    provider: "openai",
+    imageGeneration: false,
+    webSearch: false,
+  });
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "turn/start"),
+    false,
+  );
+});
+
+test("unattested namespace tools are rejected even if an extra response field claims support", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(
+    t,
+    root,
+    "provider-capabilities-namespace-claim",
+  );
+  const policy = policyFixture(fixtureRoot);
+  policy.capabilities.tools = ["namespace-tools"];
+
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy,
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureClass, "capability-rejected");
+  assert.equal(result.error.code, "PROVIDER_CAPABILITY_UNAVAILABLE");
+  assert.equal(result.modelTurns, 0);
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.equal(
+    transcript.some(({ method }) => method === "thread/start"),
+    false,
+  );
+});
+
 test("provider capability unavailability rejects a requested facility before thread creation", async (t) => {
   const root = await temporaryRoot(t);
   const fixtureRoot = join(root, "fixture");
