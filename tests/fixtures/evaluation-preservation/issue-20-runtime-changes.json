@@ -6,8 +6,8 @@
     {
       "path": "skills/committing-to-git/SKILL.md",
       "previousSha256": "47d42381178c4d9d9b53252d2bc811892505614386ccfe569249c658b216fc10",
-      "byteLength": 13175,
-      "sha256": "85a4b9571030c4f65c2f5f69a128de31187455405a7421a312ed40342ef7ff45"
+      "byteLength": 13392,
+      "sha256": "d642f863f56b836bf142322ba847ddbc42bab8fef38801ec3f6a153c7535844d"
     },
     {
       "path": "skills/committing-to-git/references/diagnostics.md",
@@ -18,14 +18,14 @@
     {
       "path": "skills/committing-to-git/references/inspection-recovery.md",
       "previousSha256": "d2fbe33ec6eaa8af657f564242ea70f3fa2f7643347edd9c17dbf1ab1a15dfa3",
-      "byteLength": 5427,
-      "sha256": "14f8bbff180c64e467fec4100d237df0d4579aa1ebef7982e5e0b6793654e054"
+      "byteLength": 5459,
+      "sha256": "903a6444b1a569af493d12399af10058590de35d5ba47aaefe0d166d99c3a8f0"
     },
     {
       "path": "skills/committing-to-git/references/message-format.md",
       "previousSha256": "d8f48ad5ab1ee6a8a5928b7c1c4a6dbff1dd919f042d6719ad8896128e3fb440",
-      "byteLength": 16971,
-      "sha256": "512c4db0aba456f7b85ce2be7de8095aaf54ce291d4613f657e3937b10fbb962"
+      "byteLength": 17338,
+      "sha256": "d9726be8c23c8f57a88ce763e8557cc92f2667611f61bc7560377b4cfdb5a799"
     },
     {
       "path": "skills/committing-to-git/references/transaction-recovery.md",
@@ -36,8 +36,8 @@
     {
       "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
       "previousSha256": "ac22ee6cceefb35d0c07f49dcb80aa8dbbcc036ae5a1ca445d01c54af47ae739",
-      "byteLength": 864813,
-      "sha256": "5c34dcb794fd2875397cd7d0f6feaa8415d8d551890da6a4668dec23b977455b"
+      "byteLength": 865343,
+      "sha256": "70692d3182afe1b4ac322a8037b74129f2fdc004ecf624523a640ecd1cf72498"
     }
   ]
 }
