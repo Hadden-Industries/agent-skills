@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { appendFileSync } from "node:fs";
 
 import { runFakeCodexAppServer } from "../../scripts/fixtures/codex-app-server-fake-engine.mjs";
 
@@ -81,10 +82,11 @@ function finishTurn(turnId, text, command) {
     })}\n`,
   );
 
-  send({
-    method: "item/completed",
-    params: { item: commandItem, threadId, turnId },
-  });
+  if (command !== null)
+    send({
+      method: "item/completed",
+      params: { item: commandItem, threadId, turnId },
+    });
   send({
     method: "item/completed",
     params: { item: agentMessage, threadId, turnId },
@@ -99,7 +101,7 @@ function finishTurn(turnId, text, command) {
         durationMs: turnCount === 1 ? 80 : 40,
         error: null,
         id: turnId,
-        items: [commandItem, agentMessage],
+        items: command === null ? [agentMessage] : [commandItem, agentMessage],
         itemsView: "full",
         startedAt: 1,
         status: "completed",
@@ -220,6 +222,12 @@ function requestFixtureCommand(turnId) {
 
 function startTurn(request) {
   turnCount += 1;
+  if (scenario === "treatment-mutation" && turnCount === 1) {
+    appendFileSync(
+      join(fixtureRoot, ".git", "evaluation-skill", "SKILL.md"),
+      "\nChanged during the model turn.\n",
+    );
+  }
   const turnId = `turn-${turnCount}`;
 
   send({
@@ -238,6 +246,10 @@ function startTurn(request) {
     },
   });
 
+  if (scenario === "no-tools") {
+    finishTurn(turnId, "No local execution tools are available.", null);
+    return;
+  }
   if (scenario === "ambiguous" && turnCount === 1) {
     finishScopeQuestion(turnId);
   } else if (scenario === "ambiguous" && turnCount === 2) {
@@ -277,6 +289,7 @@ function threadStartResult(params) {
         : { networkAccess: false, type: "readOnly" },
     serviceTier: null,
     thread: {
+      environments: params.environments,
       cliVersion: "0.149.1",
       createdAt: 1,
       cwd: params.cwd,
@@ -364,6 +377,12 @@ async function handleGitScenario(message, context) {
   } else if (message.method === "turn/start") {
     startTurn(message);
   } else if (message.method === "thread/delete") {
+    if (scenario === "treatment-shutdown-mutation") {
+      appendFileSync(
+        join(fixtureRoot, ".git", "evaluation-skill", "SKILL.md"),
+        "\nChanged during native cleanup.\n",
+      );
+    }
     if (scenario === "implicit-cwd") {
       send({
         error: {
@@ -392,6 +411,8 @@ const gitScenarios = [
   "leaked-skill",
   "read-only-baseline",
   "unauthenticated",
+  "treatment-mutation",
+  "treatment-shutdown-mutation",
 ];
 const scenarioHandlers = Object.fromEntries(
   gitScenarios.map((name) => [name, handleGitScenario]),

@@ -622,6 +622,48 @@ test("public verification failure retains one signed commit and advisory recover
   assert.equal(git(["rev-parse", "HEAD"], fixture.repo).stdout.trim(), oid);
 });
 
+test("public body-only drafting exposes checked authoring without structured inventory", (context) => {
+  const fixture = publicFixture(context);
+  git(["commit", "--allow-empty", "-m", "Fixture baseline"], fixture.repo);
+  for (let index = 1; index < 5; index++)
+    writeRepositoryFile(fixture.repo, `body-${index}.txt`, "Body fixture\n");
+  const beforeIndex = readFileSync(join(fixture.repo, ".git", "index"));
+  const beforeHead = git(["rev-parse", "HEAD"], fixture.repo).stdout;
+  const prepared = fixture.invoke([
+    "workflow",
+    "prepare",
+    "--mode",
+    "draft",
+    "--scope",
+    "full",
+    "--evidence",
+    "reuse",
+    "--basis",
+    "authored-current-task",
+    "--verification",
+    "skipped",
+  ]);
+  assert.equal(prepared.changeUnitCount, 5);
+  assert.equal(prepared.route, "concise");
+  assert.equal(Object.hasOwn(prepared, "nextAction"), false);
+  assert.equal(prepared.checkedAuthoring.nextAction, "author-message");
+  assert.equal(typeof prepared.checkedAuthoring.messagePath, "string");
+  const message =
+    "test: Add body fixtures\n\nRationale:\n  - Cover body-only message authoring\n\nUser Experience Changes:\n  - No application behavior changes\n";
+  writeFileSync(prepared.checkedAuthoring.messagePath, message);
+  const checked = fixture.invoke(prepared.checkedAuthoring.arguments);
+  assert.equal(checked.status, "message-ready");
+  assert.equal(checked.route, "concise");
+  assert.equal(checked.displayText, message);
+  assert.equal(checked.displayText.includes("File Changes:"), false);
+  assert.equal(checked.commitState, "absent");
+  assert.equal(git(["rev-parse", "HEAD"], fixture.repo).stdout, beforeHead);
+  assert.deepEqual(
+    readFileSync(join(fixture.repo, ".git", "index")),
+    beforeIndex,
+  );
+});
+
 test("public multiline rejection supplies the exact checked-input path and command", (context) => {
   const fixture = publicFixture(context);
   const prepared = fixture.prepare();

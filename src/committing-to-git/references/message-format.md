@@ -29,8 +29,10 @@ Ask the user only when correcting the error requires a new semantic choice or wo
 
 Evidence depth and presentation depth are independent.
 A packet-reviewed change may still use checked subject-only text after `workflow review-next` reports complete.
-Conversely, an already understood concise change may use `workflow extend --reason semantic-structure-required` when a requested or useful body needs deterministic rendering.
-That semantic extension cannot be replaced with checked concise text.
+A body without `File Changes:` uses checked text: retain concise preparation, write the requested sections to `checkedAuthoring.messagePath`, and execute its literal `arguments` for `message check`.
+This alternative leaves the direct subject-only route available without an additional check or input file.
+Present that result's exact `displayText`; a handwritten shortened version is not the helper-validated message.
+Choose semantic extension when the requested inventory requires structured rendering.
 
 ## Returned authoring contract
 
@@ -73,7 +75,8 @@ A template larger than 16 KiB is explicitly omitted: read the fixed `contentPath
 Evidence routing is independent of format; finish all returned review packets first.
 The detailed size limit is checked before installing an actual index; a larger inventory requires the existing bulk route, not silently changed formatting.
 
-For a body or inventory first requested after concise preparation, extend `route: concise`, `phase: evidence-ready` with `semantic-structure-required`.
+For an inventory first requested after concise preparation, extend `route: concise`, `phase: evidence-ready` with `semantic-structure-required`.
+For body-only text, keep the returned checked-message route; structured finalization adds an exhaustive inventory.
 For an already-extended transaction, follow its authoring action without calling `workflow extend`: `author-message` permits full multi-section text at `messagePath` followed by `message check`; a null default `contentPath` is expected.
 After evidence completion, the named `structuredAuthoring` alternative supplies its own fixed `contentPath`, `contentContract`, helper-selected `mode`, template availability and literal finalizer arguments.
 Choose that supported alternative when the requested inventory needs bulk rendering; `nextAction` still identifies the default or required route.

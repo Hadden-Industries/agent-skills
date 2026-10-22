@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.7"
+  version: "0.1.1-dev.8"
 ---
 
 # Committing to Git
@@ -27,7 +27,8 @@ Read only missing facts; reuse applicable successful checks without inventing he
 | Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
 | Eligible per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
 
-`--message-format detailed` requires fewer than 50 units and at most 32 KiB projected UTF-8 bytes; bodies alone need no flag.
+For a body without `File Changes:`, keep concise preparation, write the exact requested sections to `checkedAuthoring.messagePath`, then run its `arguments` and show the checked `displayText` unchanged.
+`--message-format detailed` selects an exhaustive file inventory and requires fewer than 50 units and at most 32 KiB projected UTF-8 bytes.
 For larger inventories, omit it and follow the [bulk/recovery example](references/message-format.md#large-inventory-and-rejected-preparation) through concise extension or extended `structuredAuthoring`, preserving sections.
 
 Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.

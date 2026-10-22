@@ -481,9 +481,36 @@ async function runExecute(options) {
       : undefined,
   });
 
+  const eventsPath = join(
+    resolve(required(options, "prepared-session")),
+    "outputs",
+    "events.jsonl",
+  );
+  const events = existsSync(eventsPath)
+    ? readFileSync(eventsPath, "utf8")
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : [];
+  const completedModelTurns = events.filter(
+    (event) =>
+      event.method === "controller/turn-completed" ||
+      (event.provider === "google" && event.type === "turn-completed"),
+  ).length;
+  const modelTurns =
+    events.filter((event) => event.method === "controller/turn-started")
+      .length ||
+    events.filter((event) => event.method === "turn/started").length ||
+    events.filter(
+      (event) => event.provider === "google" && event.type === "user-input",
+    ).length ||
+    completedModelTurns;
   writeOutput({
     command: "run",
-    modelTurns: record.status === "completed" ? 1 : 0,
+    modelTurns,
+    completedModelTurns,
+    grading: "not-graded",
+    localToolUse: record.suiteResult?.localToolUse ?? null,
     resultPath: join(
       resolve(required(options, "prepared-session")),
       "run.json",

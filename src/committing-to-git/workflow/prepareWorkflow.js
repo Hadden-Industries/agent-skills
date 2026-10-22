@@ -86,7 +86,10 @@ import {
   readTransaction,
   updateTransaction,
 } from "../transaction/transactionWorkspace.js";
-import { authoringProgress } from "./authoringProgress.js";
+import {
+  authoringProgress,
+  checkedMessageAuthoring,
+} from "./authoringProgress.js";
 import {
   createCorrectionInputs,
   admitCorrectionSource,
@@ -1359,7 +1362,18 @@ function successEnvelope(transaction, summary) {
       ),
       evidencePlanSha256: transaction.initialEvidencePlan.sha256,
       ...(transaction.route === "concise"
-        ? { capsule: transaction.inlineEvidence.capsule }
+        ? {
+            capsule: transaction.inlineEvidence.capsule,
+            checkedAuthoring: {
+              ...checkedMessageAuthoring(transaction),
+              arguments: [
+                "message",
+                "check",
+                "--transaction",
+                resolve(transaction.attemptDirectory, "transaction.json"),
+              ],
+            },
+          }
         : {
             extendedReason: transaction.review.extendedReason,
             reviewQueue: transaction.review.queue,

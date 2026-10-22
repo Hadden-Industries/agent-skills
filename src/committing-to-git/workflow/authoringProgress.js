@@ -25,6 +25,15 @@ function worksheetMatchesTemplate(transaction, template) {
   }
 }
 
+/** Fixed checked-text input for a prepared concise transaction. */
+export function checkedMessageAuthoring(transaction) {
+  return {
+    nextAction: "author-message",
+    messagePath: resolve(transaction.attemptDirectory, "message-input.txt"),
+    contentPath: null,
+  };
+}
+
 /** Recover message authoring only when the durable phase permits that operation. */
 export function messageAuthoringRecovery(
   transaction,
@@ -51,11 +60,7 @@ export function messageAuthoringRecovery(
     };
   }
   const progress = concise
-    ? {
-        nextAction: "author-message",
-        messagePath: resolve(transaction.attemptDirectory, "message-input.txt"),
-        contentPath: null,
-      }
+    ? checkedMessageAuthoring(transaction)
     : authoringProgress(transaction);
   if (structuredInventory && concise) {
     return {

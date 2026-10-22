@@ -1,6 +1,8 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
+import { casePermitsCommitAuthorization } from "./case-policy.mjs";
+
 export const EXACT_COMMIT_AUTHORIZATION_REPLY =
   "I approve the exact message and authorize creating the proposed local commit for the exact scope shown. Do not push.";
 
@@ -171,7 +173,12 @@ function requestedFileSystemEntries(fileSystem) {
   return entries;
 }
 
-function permissionsAllowed(permissions, fixtureRoot, readableRoots) {
+function permissionsAllowed(
+  permissions,
+  fixtureRoot,
+  readableRoots,
+  readOnlyRoots,
+) {
   if (permissions === null || permissions === undefined) return true;
   if (permissions.network?.enabled === true) return false;
   for (const entry of requestedFileSystemEntries(permissions.fileSystem)) {
@@ -188,6 +195,15 @@ function permissionsAllowed(permissions, fixtureRoot, readableRoots) {
         ? [fixtureRoot]
         : [fixtureRoot, ...readableRoots];
     if (!roots.some((root) => isWithinResolved(root, entry.path.path)))
+      return false;
+    if (
+      entry.access === "write" &&
+      readOnlyRoots.some(
+        (root) =>
+          isWithinResolved(root, entry.path.path) ||
+          isWithinResolved(entry.path.path, root),
+      )
+    )
       return false;
   }
   return true;
@@ -207,6 +223,10 @@ function complete(finalAnswer, state) {
       ...(state.commitAuthorization === null
         ? {}
         : { commitAuthorization: state.commitAuthorization }),
+      localToolUse: Object.freeze({
+        status: state.observedToolTypes.size ? "observed" : "not-observed",
+        observedToolTypes: Object.freeze([...state.observedToolTypes].sort()),
+      }),
       finalAnswer,
     }),
   });
@@ -234,11 +254,16 @@ export function createCommittingToGitController({ session, observeGitState }) {
   }
   const clarification = session.scopeClarification ?? null;
   const initialState = observeGitState(session.fixtureRoot);
-  const maxTurns = clarification === null ? 2 : 3;
+  const authorizationEligible =
+    session.authorizationEligible === true &&
+    casePermitsCommitAuthorization(session.caseId);
+  const maxTurns =
+    1 + (clarification === null ? 0 : 1) + (authorizationEligible ? 1 : 0);
   const state = {
     commitAuthorization: null,
     clarification: null,
     phase: clarification === null ? "proposal" : "clarification",
+    observedToolTypes: new Set(),
   };
 
   return Object.freeze({
@@ -257,6 +282,7 @@ export function createCommittingToGitController({ session, observeGitState }) {
           event?.permissions,
           session.fixtureRoot,
           readableRoots,
+          session.approvalPolicy?.readOnlyRoots ?? [],
         );
       return allowed
         ? Object.freeze({
@@ -271,6 +297,10 @@ export function createCommittingToGitController({ session, observeGitState }) {
           });
     },
     async onTurnCompleted(event) {
+      for (const type of event?.observedToolTypes ?? []) {
+        if (["commandExecution", "fileChange"].includes(type))
+          state.observedToolTypes.add(type);
+      }
       if (
         event?.status !== "completed" ||
         typeof event.finalAnswer !== "string"
@@ -315,7 +345,7 @@ export function createCommittingToGitController({ session, observeGitState }) {
         });
       }
       if (state.phase === "proposal") {
-        if (!session.authorizationEligible) {
+        if (!authorizationEligible) {
           state.commitAuthorization = Object.freeze({
             reason: "session is not authorization-eligible",
             status: "withheld",
@@ -337,6 +367,13 @@ export function createCommittingToGitController({ session, observeGitState }) {
         if (!parsed.valid) {
           state.commitAuthorization = Object.freeze({
             reason: parsed.reason,
+            status: "withheld",
+          });
+          return complete(event.finalAnswer, state);
+        }
+        if (state.observedToolTypes.size === 0) {
+          state.commitAuthorization = Object.freeze({
+            reason: "executable case did not exercise required local tools",
             status: "withheld",
           });
           return complete(event.finalAnswer, state);

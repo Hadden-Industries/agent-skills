@@ -46,6 +46,7 @@ import {
   EXACT_COMMIT_AUTHORIZATION_REPLY,
   createCommittingToGitController,
 } from "./session-controller.mjs";
+import { assertCaseCommitAuthorization } from "./case-policy.mjs";
 
 const MATRIX_CASE_IDS = Object.freeze([
   4, 7, 18, 28, 35, 36, 37, 39, 40, 41, 42, 47, 49, 50, 53, 54, 55, 67, 68, 69,
@@ -102,6 +103,7 @@ const CAMPAIGN_RUNNER_FILES = Object.freeze([
   "src/committing-to-git/evals/evals.json",
   "src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs",
   "src/committing-to-git/evals/assurance/v1/session-controller.mjs",
+  "src/committing-to-git/evals/assurance/v1/case-policy.mjs",
   "scripts/evaluation/antigravity-cli.js",
   "scripts/evaluation/codex-app-server.js",
   "scripts/evaluation/evaluation-homes.js",
@@ -1356,6 +1358,7 @@ const EXECUTION_MODULES = Object.freeze({
     "scripts/evaluation/toolchain.js",
     "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
     "src/committing-to-git/evals/assurance/v1/session-controller.mjs",
+    "src/committing-to-git/evals/assurance/v1/case-policy.mjs",
     "scripts/evaluation/runtime.js",
     "scripts/evaluation/evaluation-homes.js",
     "scripts/evaluation/evaluation-path-metadata.js",
@@ -1513,16 +1516,27 @@ function controllerFor(transmission, context) {
     ({ role }) => role === "user",
   )?.content;
   const session = immutableValue({
+    caseId: context.case.id,
     initialInput: [{ type: "text", text: prompt }],
     fixtureRoot: transmission.isolation.workingDirectory,
     expectedScope: context.expectedScope,
     scopeClarification: context.scopeClarification,
     authorizationEligible: context.authorizationEligible,
-    approvalPolicy: { readableRoots: [] },
+    approvalPolicy: {
+      readableRoots: [],
+      readOnlyRoots: context.treatment === null ? [] : [context.treatment.root],
+    },
   });
-  return createCommittingToGitController({
+  const controller = createCommittingToGitController({
     session,
     observeGitState: captureGitState,
+  });
+  return Object.freeze({
+    ...controller,
+    async onTurnCompleted(event) {
+      assertTreatmentCurrent(context);
+      return controller.onTurnCompleted(event);
+    },
   });
 }
 
@@ -1628,6 +1642,14 @@ function assertPreparedCurrent(transmission, context) {
     throw new Error("Evaluation runtime changed after preparation");
   }
   assertTreatmentCurrent(context);
+  if (transmission.provider === "openai") {
+    if (context.case.id !== transmission.session.caseId)
+      throw new Error("Prepared case identity mismatch");
+    assertCaseCommitAuthorization(
+      context.case.id,
+      context.authorizationEligible,
+    );
+  }
   if (context.profile === "policy-only") {
     if (
       transmission.provider !== "google" ||
@@ -1704,6 +1726,7 @@ export async function prepareEvaluationSession({
   if (!ARMS.includes(arm)) throw new Error(`Unknown evaluation arm ${arm}`);
   assertCampaignId(campaignId);
   assertTreatmentCommit(arm, sourceCommit);
+  assertCaseCommitAuthorization(caseId, authorizationEligible);
   if (!isAbsolute(destination) || existsSync(destination)) {
     throw new Error(
       "Evaluation session destination must be an absolute nonexistent path",
@@ -1734,17 +1757,29 @@ export async function prepareEvaluationSession({
         ? null
         : extractPinnedSkill({
             arm,
-            destination: join(staging, "treatment"),
+            destination: join(stagedFixture, ".git", "evaluation-skill"),
             repositoryRoot,
             sourceCommit,
           });
     const treatmentText = treatment
       ? readFileSync(treatment.skillPath, "utf8")
       : null;
+    const finalTreatmentRoot = join(finalFixture, ".git", "evaluation-skill");
+    const localTemporaryRoot = join(finalFixture, ".git", "evaluation-tmp");
+    mkdirSync(join(stagedFixture, ".git", "evaluation-tmp"));
+    const scopedEnvironment = {
+      ...environment,
+      TEMP: localTemporaryRoot,
+      TMP: localTemporaryRoot,
+      TMPDIR: localTemporaryRoot,
+    };
+    const executionInstructions = authorizationEligible
+      ? EVALUATION_DEVELOPER_INSTRUCTIONS
+      : "Follow the user request with the available local tools. Do not use the network, apps, plugins, MCP servers, subagents, or undisclosed skills. Do not commit or push. Complete the requested draft and stop; do not emit an evaluation commit proposal.";
     const developerInstructions =
       treatmentText === null
-        ? EVALUATION_DEVELOPER_INSTRUCTIONS
-        : `${EVALUATION_DEVELOPER_INSTRUCTIONS}\n\n# Task-specific skill\n\n${treatmentText}`;
+        ? executionInstructions
+        : `${executionInstructions}\n\nThe task-specific skill and its references are at ${finalTreatmentRoot}. Invoke its bundled helper with node ${JSON.stringify(join(finalTreatmentRoot, "scripts", "commitWorkflow.mjs"))} from the fixture working directory. Treat this directory as read-only skill input; do not inspect helper implementation source. Helper temporary artifacts belong to the fixture's .git/evaluation-tmp directory.\n\n# Task-specific skill\n\n${treatmentText}`;
     const context = {
       schemaVersion: 1,
       authorizationEligible,
@@ -1757,7 +1792,7 @@ export async function prepareEvaluationSession({
         expectedOutput: evaluation.expected_output,
         id: evaluation.id,
       },
-      evaluationHomesRoot,
+      evaluationHomesRoot: resolve(evaluationHomesRoot),
       expectedScope: scope.expectedScope,
       fixtureInitialState: fixture.initialState,
       fixtureMetadata: fixture.metadata,
@@ -1770,7 +1805,7 @@ export async function prepareEvaluationSession({
       treatment: treatment
         ? {
             files: treatment.files,
-            root: join(destination, "treatment"),
+            root: finalTreatmentRoot,
             sourceCommit: treatment.sourceCommit,
           }
         : null,
@@ -1809,18 +1844,20 @@ export async function prepareEvaluationSession({
         input: [{ type: "text", text }],
       });
     }
-    inputs.push(
-      packetInput(
-        "commit-authorization",
-        "continuation",
-        "text/plain",
-        EXACT_COMMIT_AUTHORIZATION_REPLY,
-      ),
-    );
-    templates.push({
-      transitionId: "exact-commit-authorization",
-      input: [{ type: "text", text: EXACT_COMMIT_AUTHORIZATION_REPLY }],
-    });
+    if (authorizationEligible) {
+      inputs.push(
+        packetInput(
+          "commit-authorization",
+          "continuation",
+          "text/plain",
+          EXACT_COMMIT_AUTHORIZATION_REPLY,
+        ),
+      );
+      templates.push({
+        transitionId: "exact-commit-authorization",
+        input: [{ type: "text", text: EXACT_COMMIT_AUTHORIZATION_REPLY }],
+      });
+    }
     const transmission = {
       suite: "committing-to-git",
       session: {
@@ -1861,7 +1898,7 @@ export async function prepareEvaluationSession({
         runtimeWorkspaceRoots: [finalFixture],
         instructionSources: [],
         persistence: false,
-        environment: { values: environment, secretSources: [] },
+        environment: { values: scopedEnvironment, secretSources: [] },
       },
       harnessControlledInputs: inputs,
       continuationPolicy: {
@@ -1878,7 +1915,10 @@ export async function prepareEvaluationSession({
             ),
           ),
         ),
-        maxTurns: scope.scopeClarification ? 3 : 2,
+        maxTurns:
+          1 +
+          (scope.scopeClarification ? 1 : 0) +
+          (authorizationEligible ? 1 : 0),
         allowedTransitions: templates.map(({ transitionId }) => transitionId),
         templates,
       },
@@ -1894,13 +1934,11 @@ export async function prepareEvaluationSession({
       })),
     });
     renameSync(stagedFixture, finalFixture);
-    if (treatment)
-      renameSync(join(staging, "treatment"), join(destination, "treatment"));
     return Object.freeze({
       ...prepared,
       fixtureRoot: finalFixture,
       packet,
-      skillPath: treatment ? join(destination, "treatment", "SKILL.md") : null,
+      skillPath: treatment ? join(finalTreatmentRoot, "SKILL.md") : null,
     });
   } finally {
     rmSync(staging, { recursive: true, force: true });
@@ -2185,7 +2223,29 @@ export async function executePreparedEvaluationSession({
     authorization,
     allowExternalModelCall,
     assertCurrent: async (current) => assertPreparedCurrent(current, context),
-    adapter,
+    adapter: Object.freeze({
+      provider: adapter.provider,
+      async execute(execution) {
+        const outcome = await adapter.execute(execution);
+        // Check again after native shutdown, before the broker admits a result.
+        try {
+          assertTreatmentCurrent(context);
+        } catch (error) {
+          return {
+            ...outcome,
+            status: "failed",
+            failureClass: "controller-failed",
+            suiteResult: null,
+            error: {
+              code: "TREATMENT_CHANGED",
+              name: "EvaluationIntegrityError",
+              message: error.message,
+            },
+          };
+        }
+        return outcome;
+      },
+    }),
     request,
     signal,
   });

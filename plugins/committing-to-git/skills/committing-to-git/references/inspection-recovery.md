@@ -80,7 +80,7 @@ A gitlink records the superproject entry and old/new commit identities; it does 
 State that boundary.
 A rename is a Git similarity classification, not proof of the command, provenance, or copy relationship.
 
-After `reviewProgress.complete`, choose concise checked text unless a requested or useful body requires structured finalization.
+After `reviewProgress.complete`, use checked text for a body without `File Changes:`; choose structured finalization for a requested inventory that requires it.
 Review receipt and presentation recommendation are helper-owned transaction state, not editable `content.json` members.
 If finalization returns `evidence-required`, traverse that bounded delta through `workflow review-next` and invoke the same finalizer again.
 Never restart full review merely because evidence was extended.

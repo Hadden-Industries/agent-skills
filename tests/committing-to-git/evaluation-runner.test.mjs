@@ -50,6 +50,7 @@ import {
   withEvaluationHome,
 } from "../../scripts/evaluation/evaluation-homes.js";
 import { EXTERNAL_MODEL_AUTHORIZATION_STATEMENT } from "../../scripts/evaluation/runtime.js";
+import { casePermitsCommitAuthorization } from "../../src/committing-to-git/evals/assurance/v1/case-policy.mjs";
 
 const REPOSITORY_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -212,6 +213,54 @@ function testEnvironment(scenario = "authorized") {
 
 let cachedToolchain;
 
+test("draft-only case policy rejects a caller's commit authorization before preparation", async (t) => {
+  for (const caseId of [1, 5, 14, 39, 61, 78, 79, 80]) {
+    await assert.rejects(
+      preparedFixture(t, { caseId, authorizationEligible: true }),
+      /case.*does not permit commit authorization/iu,
+    );
+  }
+});
+
+test("draft-only preparation binds no commit continuation and gives the model its pinned helper", async (t) => {
+  const { prepared } = await preparedFixture(t, {
+    caseId: 78,
+    arm: "new-skill",
+    authorizationEligible: false,
+  });
+  const transmission = prepared.packet.transmission;
+  assert.deepEqual(transmission.continuationPolicy.allowedTransitions, []);
+  assert.equal(transmission.continuationPolicy.maxTurns, 1);
+  assert.equal(
+    transmission.harnessControlledInputs.some(
+      (input) => input.id === "commit-authorization",
+    ),
+    false,
+  );
+  const context = JSON.parse(
+    transmission.harnessControlledInputs.find(
+      (input) => input.id === "suite-context",
+    ).content,
+  );
+  const developer = transmission.harnessControlledInputs.find(
+    (input) => input.role === "developer",
+  ).content;
+  assert.equal(context.authorizationEligible, false);
+  assert.match(developer, /Do not commit or push/u);
+  assert.ok(
+    context.treatment.root.startsWith(join(prepared.fixtureRoot, ".git")),
+  );
+  assert.ok(developer.includes(context.treatment.root));
+  assert.equal(
+    existsSync(join(context.treatment.root, "scripts", "commitWorkflow.mjs")),
+    true,
+  );
+  assert.equal(
+    transmission.isolation.environment.values.TMP,
+    join(prepared.fixtureRoot, ".git", "evaluation-tmp"),
+  );
+});
+
 async function toolchain(root) {
   const environment = { PATH: process.env.PATH ?? "" };
   if (typeof process.env.PATHEXT === "string") {
@@ -237,12 +286,16 @@ async function preparedFixture(t, options = {}) {
   const arm = options.arm ?? "no-skill";
   const prepared = await prepareEvaluationSession({
     arm,
-    authorizationEligible: options.authorizationEligible ?? true,
+    authorizationEligible:
+      options.authorizationEligible ??
+      casePermitsCommitAuthorization(options.caseId ?? 35),
     campaignId: TEST_CAMPAIGN_ID,
     caseId: options.caseId ?? 35,
     destination: join(root, "prepared"),
     effort: "low",
-    evaluationHomesRoot: homes,
+    evaluationHomesRoot: options.portableHomeSeparators
+      ? homes.replaceAll("\\", "/")
+      : homes,
     environment,
     model: "gpt-5.6-luna",
     predeterminedScopeId: options.predeterminedScopeId,
@@ -353,6 +406,7 @@ test("controller sends exact authorization once after a valid proposal", async (
   const state = Object.freeze({ sha256: "a".repeat(64) });
   const controller = createCommittingToGitController({
     session: Object.freeze({
+      caseId: 35,
       initialInput: Object.freeze([
         Object.freeze({ type: "text", text: "packet-bound Git task" }),
       ]),
@@ -374,6 +428,7 @@ test("controller sends exact authorization once after a valid proposal", async (
       '<EVALUATION_COMMIT_PROPOSAL>\n{"message":"chore(skills): Update inventory\\n","push":false,"scope":{"kind":"paths","paths":["skills-lock.json"]}}\n</EVALUATION_COMMIT_PROPOSAL>',
     nativeUsage: null,
     nativeEventRange: { first: 4, last: 9 },
+    observedToolTypes: ["commandExecution"],
   });
   assert.equal(controller.maxTurns, 2);
   assert.deepEqual(decision, {
@@ -399,6 +454,7 @@ test("controller withholds invalid proposals and changed-scope replies", async (
   let observations = 0;
   const controller = createCommittingToGitController({
     session: Object.freeze({
+      caseId: 42,
       initialInput: Object.freeze([
         Object.freeze({ type: "text", text: "packet-bound Git task" }),
       ]),
@@ -445,6 +501,7 @@ test("controller sends only the exact predetermined scope reply", async (t) => {
     skill: Object.freeze(["skills/committing-to-git/SKILL.md"]),
   });
   const session = Object.freeze({
+    caseId: 42,
     initialInput: Object.freeze([
       Object.freeze({ type: "text", text: "task" }),
     ]),
@@ -499,6 +556,7 @@ test("controller sends only the exact predetermined scope reply", async (t) => {
 test("controller withholds authorization for invalid output or changed Git state", async (t) => {
   const fixtureRoot = temporaryRoot(t);
   const session = Object.freeze({
+    caseId: 35,
     initialInput: Object.freeze([
       Object.freeze({ type: "text", text: "task" }),
     ]),
@@ -597,6 +655,107 @@ test("controller grants only fixture-scoped one-turn permissions", async (t) => 
       reason: "network, external, or out-of-fixture access denied",
     },
   );
+});
+
+test("controller denies writes intersecting pinned treatment while permitting helper scratch", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const treatment = join(fixtureRoot, ".git", "evaluation-skill");
+  mkdirSync(treatment, { recursive: true });
+  const controller = createCommittingToGitController({
+    session: Object.freeze({
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "task" }),
+      ]),
+      fixtureRoot,
+      expectedScope: { kind: "paths", paths: ["a.txt"] },
+      authorizationEligible: false,
+      approvalPolicy: { readableRoots: [], readOnlyRoots: [treatment] },
+    }),
+    observeGitState: () => ({ sha256: "a".repeat(64) }),
+  });
+  for (const path of [
+    treatment,
+    join(treatment, "SKILL.md"),
+    join(fixtureRoot, ".git"),
+    fixtureRoot,
+  ]) {
+    const decision = await controller.onApprovalRequest({
+      kind: "filesystem",
+      cwd: fixtureRoot,
+      permissions: {
+        fileSystem: {
+          entries: [{ access: "write", path: { type: "path", path } }],
+        },
+      },
+    });
+    assert.equal(decision.decision, "deny", path);
+  }
+  const scratch = join(fixtureRoot, ".git", "evaluation-tmp", "content.json");
+  const decision = await controller.onApprovalRequest({
+    kind: "filesystem",
+    cwd: fixtureRoot,
+    permissions: {
+      fileSystem: {
+        entries: [{ access: "write", path: { type: "path", path: scratch } }],
+      },
+    },
+  });
+  assert.equal(decision.decision, "allow");
+});
+
+test("controller case policy withholds draft and unknown-case authorization despite a true flag", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  for (const caseId of [78, 79, 80, 999]) {
+    const controller = createCommittingToGitController({
+      session: Object.freeze({
+        caseId,
+        initialInput: Object.freeze([
+          Object.freeze({ type: "text", text: "Draft only" }),
+        ]),
+        fixtureRoot,
+        expectedScope: { kind: "paths", paths: ["a.txt"] },
+        authorizationEligible: true,
+      }),
+      observeGitState: () => ({ sha256: "a".repeat(64) }),
+    });
+    const result = await controller.onTurnCompleted({
+      status: "completed",
+      finalAnswer:
+        '<EVALUATION_COMMIT_PROPOSAL>\n{"message":"docs: Example\\n","push":false,"scope":{"kind":"paths","paths":["a.txt"]}}\n</EVALUATION_COMMIT_PROPOSAL>',
+      observedToolTypes: ["commandExecution"],
+    });
+    assert.equal(controller.maxTurns, 1);
+    assert.equal(result.action, "complete");
+    assert.equal(result.suiteResult.commitAuthorization.status, "withheld");
+  }
+});
+
+test("an executable proposal without observed tools receives no commit authorization", async (t) => {
+  const fixtureRoot = temporaryRoot(t);
+  const controller = createCommittingToGitController({
+    session: Object.freeze({
+      caseId: 35,
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "Commit" }),
+      ]),
+      fixtureRoot,
+      expectedScope: { kind: "paths", paths: ["a.txt"] },
+      authorizationEligible: true,
+    }),
+    observeGitState: () => ({ sha256: "a".repeat(64) }),
+  });
+  const result = await controller.onTurnCompleted({
+    status: "completed",
+    finalAnswer:
+      '<EVALUATION_COMMIT_PROPOSAL>\n{"message":"docs: Example\\n","push":false,"scope":{"kind":"paths","paths":["a.txt"]}}\n</EVALUATION_COMMIT_PROPOSAL>',
+    observedToolTypes: [],
+  });
+  assert.equal(result.action, "complete");
+  assert.equal(
+    result.suiteResult.commitAuthorization.reason,
+    "executable case did not exercise required local tools",
+  );
+  assert.equal(result.suiteResult.localToolUse.status, "not-observed");
 });
 
 test("evaluation runner exports only the migrated orchestration surface", async () => {
@@ -1408,7 +1567,9 @@ test("preparation writes a common packet without packet-local runtime homes", as
     true,
   );
   assert.equal(
-    existsSync(join(prepared.preparedSession, "treatment", "SKILL.md")),
+    existsSync(
+      join(prepared.fixtureRoot, ".git", "evaluation-skill", "SKILL.md"),
+    ),
     true,
   );
   assert.equal(
@@ -1458,6 +1619,7 @@ test("preparation writes a common packet without packet-local runtime homes", as
       "scripts/evaluation/toolchain.js",
       "src/committing-to-git/evals/assurance/v1/evaluation-runner.mjs",
       "src/committing-to-git/evals/assurance/v1/session-controller.mjs",
+      "src/committing-to-git/evals/assurance/v1/case-policy.mjs",
       "scripts/evaluation/runtime.js",
       "scripts/evaluation/evaluation-homes.js",
       "scripts/evaluation/evaluation-path-metadata.js",
@@ -1532,6 +1694,18 @@ test("preflight uses the stable preflight role and starts no model turn", async 
   );
 });
 
+test("preparation binds the native normalized evaluation-home path", async (t) => {
+  const { homes, prepared } = await preparedFixture(t, {
+    portableHomeSeparators: true,
+  });
+  const context = JSON.parse(
+    prepared.packet.transmission.harnessControlledInputs.find(
+      (input) => input.id === "suite-context",
+    ).content,
+  );
+  assert.equal(context.evaluationHomesRoot, homes);
+});
+
 test("authorized execution uses the stable execution role and common evidence", async (t) => {
   const { homes, prepared } = await preparedFixture(t, {
     scenario: "authorized",
@@ -1544,6 +1718,10 @@ test("authorized execution uses the stable execution role and common evidence", 
   });
   assert.equal(result.status, "completed", result.error?.message);
   assert.equal(result.suiteResult.commitAuthorization.status, "sent");
+  assert.deepEqual(result.suiteResult.localToolUse, {
+    status: "observed",
+    observedToolTypes: ["commandExecution"],
+  });
   assert.equal(
     existsSync(join(prepared.preparedSession, "attempt.json")),
     true,
@@ -1567,6 +1745,119 @@ test("authorized execution uses the stable execution role and common evidence", 
     "app-server-spawned",
   ]);
 });
+
+test("a completed draft with no native tool events remains unexercised and unauthorized", async (t) => {
+  const { prepared } = await preparedFixture(t, {
+    caseId: 80,
+    authorizationEligible: false,
+    scenario: "no-tools",
+  });
+  const result = await executePreparedEvaluationSession({
+    preparedSession: prepared,
+    authorization: authorization(prepared.packet),
+    allowExternalModelCall: true,
+    timeoutMs: 5000,
+  });
+  assert.equal(result.status, "completed", result.error?.message);
+  assert.equal(result.suiteResult.commitAuthorization.status, "withheld");
+  assert.deepEqual(result.suiteResult.localToolUse, {
+    status: "not-observed",
+    observedToolTypes: [],
+  });
+});
+
+test("CLI reports actual completed turns and keeps transport completion distinct from grading", async (t) => {
+  const { prepared, root } = await preparedFixture(t);
+  const authorizationPath = join(root, "authorization.json");
+  writeFileSync(
+    authorizationPath,
+    JSON.stringify(authorization(prepared.packet)),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "run",
+      "--prepared-session",
+      prepared.preparedSession,
+      "--authorization",
+      authorizationPath,
+      "--allow-external-model-call",
+    ],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.status, "completed");
+  assert.equal(output.modelTurns, 2);
+  assert.equal(output.completedModelTurns, 2);
+  assert.equal(output.grading, "not-graded");
+  assert.equal(output.localToolUse.status, "observed");
+});
+
+test("Google CLI counts native input and completion events", async (t) => {
+  const { prepared, root } = await policyPreparedFixture(t, {
+    arm: "no-skill",
+  });
+  const authorizationPath = join(root, "authorization.json");
+  writeFileSync(
+    authorizationPath,
+    JSON.stringify(authorization(prepared.packet)),
+  );
+  const execution = spawnSync(
+    process.execPath,
+    [
+      RUNNER_CLI,
+      "run",
+      "--prepared-session",
+      prepared.preparedSession,
+      "--authorization",
+      authorizationPath,
+      "--allow-external-model-call",
+    ],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(execution.status, 0, execution.stderr);
+  const output = JSON.parse(execution.stdout);
+  assert.equal(output.modelTurns, 1);
+  assert.equal(output.completedModelTurns, 1);
+  assert.equal(output.grading, "not-graded");
+});
+
+for (const scenario of ["treatment-mutation", "treatment-shutdown-mutation"]) {
+  test(`${scenario} cannot yield a successful result attributed to pinned bytes`, async (t) => {
+    const { prepared } = await preparedFixture(t, {
+      arm: "new-skill",
+      scenario,
+    });
+    const outcome = await executePreparedEvaluationSession({
+      preparedSession: prepared,
+      authorization: authorization(prepared.packet),
+      allowExternalModelCall: true,
+      timeoutMs: 5000,
+    });
+    assert.equal(outcome.status, "failed");
+    assert.equal(outcome.failureClass, "controller-failed");
+    assert.equal(outcome.closure.status, "safe");
+    assert.equal(outcome.suiteResult, null);
+    assert.match(outcome.error.message, /treatment bytes/);
+    const record = JSON.parse(
+      readFileSync(join(prepared.preparedSession, "run.json"), "utf8"),
+    );
+    assert.equal(record.status, "failed");
+    assert.equal(record.suiteResult, null);
+    if (scenario === "treatment-mutation") {
+      const events = readFileSync(
+        join(prepared.preparedSession, "outputs", "events.jsonl"),
+        "utf8",
+      );
+      assert.equal(
+        events.includes('"method":"controller/continuation"'),
+        false,
+      );
+    }
+  });
+}
 
 test("execution-home contention stops after current-state validation", async (t) => {
   const { homes, prepared } = await preparedFixture(t);

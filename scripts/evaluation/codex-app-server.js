@@ -1254,6 +1254,41 @@ function assertHookIsolation(result, policy) {
   }
 }
 
+function executionEnvironments(policy, runtimeWorkspaceRoots) {
+  return policy.capabilities.tools.length === 0
+    ? []
+    : [
+        {
+          environmentId: "local",
+          cwd: policy.isolation.workingDirectory,
+          runtimeWorkspaceRoots,
+        },
+      ];
+}
+
+function assertExecutionEnvironment(result, policy) {
+  const environments = result?.thread?.environments;
+  const expected = executionEnvironments(policy, []);
+  const environment = environments?.[0];
+  if (
+    !Array.isArray(environments) ||
+    environments.length !== expected.length ||
+    (expected.length === 1 &&
+      (environment?.environmentId !== "local" ||
+        typeof environment.cwd !== "string" ||
+        resolve(environment.cwd) !==
+          resolve(policy.isolation.workingDirectory) ||
+        !Array.isArray(environment.runtimeWorkspaceRoots) ||
+        environment.runtimeWorkspaceRoots.length !== 0))
+  ) {
+    throw sessionError(
+      "capability-rejected",
+      "LOCAL_ENVIRONMENT_MISMATCH",
+      "Codex did not preserve the packet's bounded local execution environment",
+    );
+  }
+}
+
 function threadStartParams(policy) {
   return {
     allowProviderModelFallback: false,
@@ -1266,7 +1301,7 @@ function threadStartParams(policy) {
     cwd: policy.isolation.workingDirectory,
     developerInstructions: policy.instructions.developer,
     dynamicTools: [],
-    environments: [],
+    environments: executionEnvironments(policy, []),
     ephemeral: true,
     model: policy.model,
     modelProvider: policy.provider,
@@ -1327,7 +1362,7 @@ function assertNotificationCapabilities(event, policy) {
       itemType,
     ) ||
     (["commandExecution", "fileChange"].includes(itemType) &&
-      policy.capabilities.tools.length === 0);
+      !policy.capabilities.tools.includes(itemType));
   if (activeMcpServer || unrequestedItem) {
     throw sessionError(
       "capability-rejected",
@@ -1572,6 +1607,7 @@ async function establishIsolatedThread({
   }
   onThreadStarted(threadStart.thread.id);
   assertThreadIsolation(threadStart, policy);
+  assertExecutionEnvironment(threadStart, policy);
 
   return {
     authentication,
@@ -1587,6 +1623,9 @@ async function establishIsolatedThread({
       instructionSources: policy.isolation.instructionSources,
       persistence: policy.isolation.persistence,
       preflightThread: {
+        executionEnvironment: policy.capabilities.tools.length
+          ? "local"
+          : "none",
         instructionSources: [],
         multiAgentMode: threadStart.multiAgentMode,
         network: false,
@@ -2018,7 +2057,10 @@ function turnStartParams({ policy, threadId, input }) {
     approvalsReviewer: "user",
     cwd: policy.isolation.workingDirectory,
     effort: policy.effort,
-    environments: [],
+    environments: executionEnvironments(
+      policy,
+      policy.isolation.runtimeWorkspaceRoots,
+    ),
     input,
     model: policy.model,
     runtimeWorkspaceRoots: policy.isolation.runtimeWorkspaceRoots,
@@ -2105,20 +2147,80 @@ function normalizeTurnStatus(status) {
 function normalizeApprovalRequest(
   { method, params, nativeEventIndex },
   turnIndex,
+  { policy, pendingFileChanges, threadId, turnId } = {},
 ) {
+  if (method === "item/fileChange/requestApproval") {
+    const pending = pendingFileChanges?.get(
+      JSON.stringify([params.threadId, params.turnId, params.itemId]),
+    );
+    if (
+      params.threadId !== threadId ||
+      params.turnId !== turnId ||
+      (params.grantRoot ?? null) !== null ||
+      !pending ||
+      pending.status !== "inProgress" ||
+      !policy.capabilities.tools.includes("fileChange") ||
+      !Array.isArray(pending.changes) ||
+      pending.changes.length === 0
+    ) {
+      throw sessionError(
+        "controller-failed",
+        "UNREPRESENTABLE_APPROVAL",
+        "File-change approval requires the current native item and exact one-turn paths",
+      );
+    }
+    const paths = [];
+    for (const change of pending.changes) {
+      const movePath = change.kind?.move_path ?? null;
+      if (
+        typeof change.path !== "string" ||
+        !isAbsolute(change.path) ||
+        !["add", "delete", "update"].includes(change.kind?.type) ||
+        (movePath !== null &&
+          (typeof movePath !== "string" || !isAbsolute(movePath)))
+      ) {
+        throw sessionError(
+          "controller-failed",
+          "UNREPRESENTABLE_APPROVAL",
+          "File-change approval contains an unrepresentable path or change kind",
+        );
+      }
+      paths.push(change.path);
+      if (movePath !== null) paths.push(movePath);
+    }
+    return immutableCanonicalSnapshot({
+      turnIndex,
+      kind: "filesystem",
+      cwd: policy.isolation.workingDirectory,
+      command: null,
+      permissions: {
+        fileSystem: {
+          entries: [...new Set(paths)].map((path) => ({
+            access: "write",
+            path: { type: "path", path },
+          })),
+        },
+      },
+      nativeEventIndex,
+    });
+  }
   if (method === "item/commandExecution/requestApproval") {
+    const networkApprovalContext = params.networkApprovalContext ?? null;
+    const additionalPermissions = params.additionalPermissions ?? null;
     if (
       typeof params.cwd !== "string" ||
       !isAbsolute(params.cwd) ||
       typeof params.command !== "string" ||
       params.command.length === 0 ||
       !(
-        params.networkApprovalContext === null ||
-        typeof params.networkApprovalContext === "object"
+        networkApprovalContext === null ||
+        (typeof networkApprovalContext === "object" &&
+          !Array.isArray(networkApprovalContext))
       ) ||
       !(
-        params.additionalPermissions === null ||
-        typeof params.additionalPermissions === "object"
+        additionalPermissions === null ||
+        (typeof additionalPermissions === "object" &&
+          !Array.isArray(additionalPermissions))
       )
     ) {
       throw sessionError(
@@ -2129,10 +2231,10 @@ function normalizeApprovalRequest(
     }
     return immutableCanonicalSnapshot({
       turnIndex,
-      kind: params.networkApprovalContext === null ? "command" : "network",
+      kind: networkApprovalContext === null ? "command" : "network",
       cwd: params.cwd,
       command: params.command,
-      permissions: params.additionalPermissions,
+      permissions: additionalPermissions,
       nativeEventIndex,
     });
   }
@@ -2184,7 +2286,10 @@ function approvalProtocolResponse(method, event, decision) {
     assertExactKeys(decision, ["decision", "reason"], "approval decision");
     assertNonemptyString(decision.reason, "approval decision.reason");
     immutableCanonicalSnapshot(decision);
-    return method === "item/commandExecution/requestApproval"
+    return [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+    ].includes(method)
       ? { decision: "decline" }
       : { permissions: {}, scope: "turn", strictAutoReview: false };
   }
@@ -2206,7 +2311,10 @@ function approvalProtocolResponse(method, event, decision) {
     ) {
       fail("approval decision permissions do not match the request");
     }
-    return method === "item/commandExecution/requestApproval"
+    return [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+    ].includes(method)
       ? { decision: "accept" }
       : {
           permissions: approved.permissions,
@@ -2333,6 +2441,7 @@ async function runExecutionOperation({
   let closure = notStartedClosure();
   const protocolActions = [];
   const itemEvents = [];
+  const pendingFileChanges = new Map();
   let currentTurnIndex = 0;
   const deadline = createOperationDeadline(timeoutMs, signal);
 
@@ -2373,8 +2482,24 @@ async function runExecutionOperation({
           );
           throw notificationFailure;
         }
-        if (event.method === "item/completed") {
+        if (
+          event.method === "item/started" &&
+          event.params?.item?.type === "fileChange"
+        ) {
+          const { threadId: itemThreadId, turnId, item } = event.params;
+          pendingFileChanges.set(
+            JSON.stringify([itemThreadId, turnId, item.id]),
+            immutableCanonicalSnapshot(item),
+          );
+        } else if (event.method === "item/completed") {
           itemEvents.push(event.params);
+          pendingFileChanges.delete(
+            JSON.stringify([
+              event.params.threadId,
+              event.params.turnId,
+              event.params.item?.id,
+            ]),
+          );
         } else if (event.method === "thread/tokenUsage/updated") {
           nativeUsage = event.params?.tokenUsage?.total ?? null;
           normalizedUsage = normalizeUsage(nativeUsage);
@@ -2384,7 +2509,11 @@ async function runExecutionOperation({
         if (notificationFailure !== null) {
           throw notificationFailure;
         }
-        const event = normalizeApprovalRequest(serverRequest, currentTurnIndex);
+        const event = normalizeApprovalRequest(
+          serverRequest,
+          currentTurnIndex,
+          { policy, pendingFileChanges, threadId, turnId: activeTurnId },
+        );
         await client.appendHarnessEvent("controller/approval-request", event);
         let decision;
         try {
@@ -2444,6 +2573,11 @@ async function runExecutionOperation({
           "Codex turn/start response has no turn id",
         );
       }
+      await client.appendHarnessEvent("controller/turn-started", {
+        turnIndex,
+        threadId,
+        turnId: activeTurnId,
+      });
 
       const completed = await awaitWithAbort(
         client.waitForNotification(
@@ -2467,6 +2601,16 @@ async function runExecutionOperation({
         status,
         finalAnswer,
         nativeUsage,
+        observedToolTypes: [
+          ...new Set(
+            itemEvents
+              .filter((item) => item.turnId === turn.id)
+              .map((item) => item.item?.type)
+              .filter((type) =>
+                ["commandExecution", "fileChange"].includes(type),
+              ),
+          ),
+        ].sort(),
         nativeEventRange: {
           first: nativeEventStart,
           last: completed.nativeEventIndex,

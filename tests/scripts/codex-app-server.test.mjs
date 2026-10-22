@@ -1075,6 +1075,62 @@ for (const [domain, mutate] of [
   });
 }
 
+test("tool-bearing preflight selects a bounded native local execution environment", async (t) => {
+  const root = await temporaryRoot(t);
+  const fixtureRoot = join(root, "fixture");
+  const homePath = join(root, "preflight-home");
+  const evidenceDestination = join(root, "evidence");
+  await mkdir(fixtureRoot);
+  await mkdir(homePath);
+  const toolchain = await inspectFakeToolchain(t, root);
+  const policy = policyFixture(fixtureRoot);
+  policy.capabilities.tools = ["commandExecution", "fileChange"];
+  const result = await preflightCodexAppServer({
+    toolchain,
+    policy,
+    withHome: homeBoundary(homePath),
+    evidenceDestination,
+    timeoutMs: 5000,
+  });
+  assert.equal(result.status, "completed");
+  const transcript = await readJsonLines(
+    join(evidenceDestination, "transcript.jsonl"),
+  );
+  assert.deepEqual(
+    transcript.find((x) => x.method === "thread/start").params.environments,
+    [{ environmentId: "local", cwd: fixtureRoot, runtimeWorkspaceRoots: [] }],
+  );
+});
+
+for (const scenario of [
+  "missing-local-environment",
+  "empty-local-environment",
+  "remote-local-environment",
+  "drifted-local-environment",
+  "drifted-local-roots",
+]) {
+  test(`${scenario} rejects executable readiness before any model turn`, async (t) => {
+    const root = await temporaryRoot(t);
+    const fixtureRoot = join(root, "fixture");
+    const homePath = join(root, "home");
+    await mkdir(fixtureRoot);
+    await mkdir(homePath);
+    const policy = policyFixture(fixtureRoot);
+    policy.capabilities.tools = ["commandExecution"];
+    const toolchain = await inspectFakeToolchain(t, root, scenario);
+    const result = await preflightCodexAppServer({
+      toolchain,
+      policy,
+      withHome: homeBoundary(homePath),
+      evidenceDestination: join(root, "evidence"),
+      timeoutMs: 5000,
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.error.code, "LOCAL_ENVIRONMENT_MISMATCH");
+    assert.equal(result.modelTurns, 0);
+  });
+}
+
 for (const [scenario, failureClass, errorCode] of [
   ["model-unavailable", "preflight-rejected", "MODEL_UNAVAILABLE"],
   ["effort-unavailable", "preflight-rejected", "EFFORT_UNAVAILABLE"],
@@ -1289,6 +1345,7 @@ test("execution consumes one launch, returns the authoritative final agent item,
     "finalAnswer",
     "nativeEventRange",
     "nativeUsage",
+    "observedToolTypes",
     "status",
     "turnIndex",
   ]);
@@ -1566,6 +1623,131 @@ test("a representable approval request is normalized and answered from the contr
     true,
   );
 });
+
+test("native approvals may omit optional network and additional-permission fields", async (t) => {
+  let observed;
+  const controller = Object.freeze({
+    schemaVersion: 1,
+    maxTurns: 1,
+    initialInput: Object.freeze([
+      Object.freeze({ type: "text", text: "Packet-bound evaluation prompt" }),
+    ]),
+    async onTurnCompleted(event) {
+      return {
+        action: "complete",
+        suiteResult: { finalAnswer: event.finalAnswer },
+      };
+    },
+    async onApprovalRequest(event) {
+      observed = event;
+      return {
+        decision: "allow",
+        permissions: null,
+        scope: "turn",
+        reason: "fixture command",
+      };
+    },
+  });
+  const execution = await executeAdapterFixture(t, {
+    controller,
+    scenario: "approval-omitted-optionals",
+  });
+  assert.equal(execution.result.status, "completed");
+  assert.equal(observed.kind, "command");
+  assert.equal(observed.permissions, null);
+});
+
+for (const scenario of ["file-change-approval", "file-change-approval-move"]) {
+  test(`${scenario} binds the preceding item to every one-turn write path`, async (t) => {
+    let observed;
+    const controller = Object.freeze({
+      schemaVersion: 1,
+      maxTurns: 1,
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "Packet-bound evaluation prompt" }),
+      ]),
+      async onTurnCompleted(event) {
+        return {
+          action: "complete",
+          suiteResult: { finalAnswer: event.finalAnswer },
+        };
+      },
+      async onApprovalRequest(event) {
+        observed = event;
+        return {
+          decision: "allow",
+          permissions: event.permissions,
+          scope: "turn",
+          reason: "exact fixture file",
+        };
+      },
+    });
+    const execution = await executeAdapterFixture(t, {
+      controller,
+      scenario,
+      configurePolicy(policy) {
+        policy.capabilities.tools = ["fileChange"];
+      },
+    });
+    assert.equal(
+      execution.result.status,
+      "completed",
+      execution.result.error?.message,
+    );
+    assert.equal(observed.kind, "filesystem");
+    assert.deepEqual(observed.permissions, {
+      fileSystem: {
+        entries: [
+          "content.json",
+          ...(scenario.endsWith("-move") ? ["renamed.json"] : []),
+        ].map((name) => ({
+          access: "write",
+          path: { type: "path", path: join(execution.fixtureRoot, name) },
+        })),
+      },
+    });
+    const transcript = await readJsonLines(
+      join(execution.preparedSession, "outputs", "transcript.jsonl"),
+    );
+    assert.ok(
+      transcript.some((x) => x.id === 703 && x.result?.decision === "accept"),
+    );
+  });
+}
+
+for (const scenario of [
+  "file-change-approval-missing-item",
+  "file-change-approval-session",
+  "file-change-approval-stale",
+]) {
+  test(`${scenario} cannot manufacture bounded write authority`, async (t) => {
+    let called = false;
+    const controller = Object.freeze({
+      schemaVersion: 1,
+      maxTurns: 1,
+      initialInput: Object.freeze([
+        Object.freeze({ type: "text", text: "Packet-bound evaluation prompt" }),
+      ]),
+      async onTurnCompleted() {
+        throw new Error("unexpected completion");
+      },
+      async onApprovalRequest() {
+        called = true;
+        throw new Error("unexpected approval");
+      },
+    });
+    const execution = await executeAdapterFixture(t, {
+      controller,
+      scenario,
+      configurePolicy(policy) {
+        policy.capabilities.tools = ["fileChange"];
+      },
+    });
+    assert.equal(execution.result.status, "failed");
+    assert.equal(execution.result.error.code, "UNREPRESENTABLE_APPROVAL");
+    assert.equal(called, false);
+  });
+}
 
 test("an upstream approval shape that cannot be normalized fails before the controller or response", async (t) => {
   let approvalCalls = 0;

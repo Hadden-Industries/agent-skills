@@ -724,7 +724,7 @@ var init_commandArguments = __esm({
         },
         "message-format": {
           ...stringOption,
-          description: "<detailed>  Structured inventory below 50 units and at most 32,768 projected UTF-8 bytes; evidence remains independent. For larger scopes omit this flag, then extend concise evidence or choose extended structuredAuthoring after review."
+          description: "<detailed>  Structured inventory below 50 units and at most 32,768 projected UTF-8 bytes; evidence remains independent. For larger scopes omit this flag, then extend concise evidence or choose extended structuredAuthoring after review. Body-only text uses checkedAuthoring.messagePath and its message check arguments."
         },
         mode: {
           ...stringOption,
@@ -780,7 +780,7 @@ var init_commandArguments = __esm({
       "workflow extend": {
         reason: {
           ...stringOption,
-          description: "<evidence-uncertainty|semantic-structure-required>  Required.\n    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic\n    structure retains evidence and supplies content.json for message finalize.\n    Extend concise evidence-ready state only; after extended review use the\n    returned structuredAuthoring alternative when a bulk inventory is requested."
+          description: "<evidence-uncertainty|semantic-structure-required>  Required.\n    Evidence uncertainty reads the fixed evidence-plan-input.json; semantic\n    structure retains evidence and supplies content.json for message finalize.\n    Extend concise evidence-ready state only; after extended review use the\n    returned structuredAuthoring alternative when a bulk inventory is requested.\n    Body-only concise text uses the checkedAuthoring alternative."
         }
       },
       "workflow review-next": {
@@ -12120,6 +12120,13 @@ function worksheetMatchesTemplate(transaction, template) {
     return false;
   }
 }
+function checkedMessageAuthoring(transaction) {
+  return {
+    nextAction: "author-message",
+    messagePath: resolve11(transaction.attemptDirectory, "message-input.txt"),
+    contentPath: null
+  };
+}
 function messageAuthoringRecovery(transaction, transactionPath, { structuredInventory = false } = {}) {
   const handle = resolve11(transactionPath);
   const concise = transaction.route === "concise" && transaction.phase === "evidence-ready";
@@ -12137,11 +12144,7 @@ function messageAuthoringRecovery(transaction, transactionPath, { structuredInve
       }
     };
   }
-  const progress = concise ? {
-    nextAction: "author-message",
-    messagePath: resolve11(transaction.attemptDirectory, "message-input.txt"),
-    contentPath: null
-  } : authoringProgress(transaction);
+  const progress = concise ? checkedMessageAuthoring(transaction) : authoringProgress(transaction);
   if (structuredInventory && concise) {
     return {
       details: { ...progress, nextAction: "extend-semantic-structure" },
@@ -15298,7 +15301,18 @@ function successEnvelope(transaction, summary) {
         lstatSync8(transaction.snapshot.path).size
       ),
       evidencePlanSha256: transaction.initialEvidencePlan.sha256,
-      ...transaction.route === "concise" ? { capsule: transaction.inlineEvidence.capsule } : {
+      ...transaction.route === "concise" ? {
+        capsule: transaction.inlineEvidence.capsule,
+        checkedAuthoring: {
+          ...checkedMessageAuthoring(transaction),
+          arguments: [
+            "message",
+            "check",
+            "--transaction",
+            resolve16(transaction.attemptDirectory, "transaction.json")
+          ]
+        }
+      } : {
         extendedReason: transaction.review.extendedReason,
         reviewQueue: transaction.review.queue,
         structuredMessageMode: transaction.review.structuredMessageMode,

@@ -366,6 +366,36 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
                 : { networkAccess: false, type: "readOnly" },
             selectedCapabilityRoots: message.params.selectedCapabilityRoots,
             thread: {
+              environments:
+                scenario === "missing-local-environment"
+                  ? undefined
+                  : scenario === "empty-local-environment"
+                    ? []
+                    : scenario === "remote-local-environment"
+                      ? [
+                          {
+                            environmentId: "remote",
+                            cwd: message.params.cwd,
+                            runtimeWorkspaceRoots: [],
+                          },
+                        ]
+                      : scenario === "drifted-local-environment"
+                        ? [
+                            {
+                              environmentId: "local",
+                              cwd: join(message.params.cwd, "other"),
+                              runtimeWorkspaceRoots: [],
+                            },
+                          ]
+                        : scenario === "drifted-local-roots"
+                          ? [
+                              {
+                                environmentId: "local",
+                                cwd: message.params.cwd,
+                                runtimeWorkspaceRoots: [message.params.cwd],
+                              },
+                            ]
+                          : message.params.environments,
               cwd: message.params.cwd,
               ephemeral: message.params.ephemeral,
               id: state.threadId,
@@ -555,13 +585,78 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
           });
           return;
         }
-        if (scenario === "approval-turn") {
+        if (scenario.startsWith("file-change-approval")) {
+          const itemId = "fixture-patch";
+          if (scenario !== "file-change-approval-missing-item")
+            writeMessage({
+              method: "item/started",
+              params: {
+                threadId: state.threadId,
+                turnId,
+                item: {
+                  id: itemId,
+                  type: "fileChange",
+                  status: "inProgress",
+                  changes: [
+                    {
+                      path:
+                        scenario === "file-change-approval-outside"
+                          ? join(message.params.cwd, "..", "outside.txt")
+                          : join(message.params.cwd, "content.json"),
+                      kind: {
+                        type: "update",
+                        move_path:
+                          scenario === "file-change-approval-move"
+                            ? join(message.params.cwd, "renamed.json")
+                            : null,
+                      },
+                      diff: "",
+                    },
+                  ],
+                },
+              },
+            });
+          state.pendingServerRequests.set(703, finishTurn);
+          if (scenario === "file-change-approval-stale")
+            writeMessage({
+              method: "item/completed",
+              params: {
+                threadId: state.threadId,
+                turnId,
+                item: {
+                  id: itemId,
+                  type: "fileChange",
+                  status: "completed",
+                  changes: [],
+                },
+              },
+            });
+          writeMessage({
+            id: 703,
+            method: "item/fileChange/requestApproval",
+            params: {
+              threadId: state.threadId,
+              turnId,
+              itemId,
+              startedAtMs: 1,
+              grantRoot:
+                scenario === "file-change-approval-session"
+                  ? message.params.cwd
+                  : null,
+            },
+          });
+          return;
+        }
+        if (
+          ["approval-turn", "approval-omitted-optionals"].includes(scenario)
+        ) {
           state.pendingServerRequests.set(700, finishTurn);
           writeMessage({
             id: 700,
             method: "item/commandExecution/requestApproval",
             params: {
-              additionalPermissions: null,
+              additionalPermissions:
+                scenario === "approval-omitted-optionals" ? undefined : null,
               approvalId: null,
               availableDecisions: ["accept", "decline", "cancel"],
               command: "git status --short",
@@ -571,7 +666,8 @@ function createProtocolContext({ scenario, scenarioHandlers }) {
               cwd: message.params.cwd,
               environmentId: null,
               itemId: "fixture-command",
-              networkApprovalContext: null,
+              networkApprovalContext:
+                scenario === "approval-omitted-optionals" ? undefined : null,
               proposedExecpolicyAmendment: null,
               proposedNetworkPolicyAmendments: null,
               reason: "fixture status",

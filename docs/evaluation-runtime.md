@@ -310,10 +310,20 @@ The native `modelProvider/capabilities/read` response supplies boolean `imageGen
 The adapter validates those native fields and rejects requested namespace tools before thread creation, even if an extra response field claims support.
 Preflight therefore does not call or retain `skills/list` or `app/installed`; enumerating the operator's unrelated skills or apps would neither attest thread isolation nor satisfy evidence minimization.
 It does inspect hooks because an enabled hook can execute independently of model tool selection: disabled hooks are acceptable, enabled hooks fail closed, and malformed hook metadata is a protocol failure.
-The preflight thread is deliberately more restrictive than an execution turn: `thread/start` uses no runtime workspace roots, no instruction sources, no dynamic tools or environments, read-only sandboxing, and no process network.
+The preflight thread is deliberately more restrictive than an execution turn: `thread/start` uses no runtime workspace roots, no instruction sources or dynamic tools, read-only sandboxing, and no process network.
+Tool-bearing policies explicitly select one native `local` execution environment at the packet's working directory, with empty preflight workspace roots; text-only policies select none.
+The adapter checks the returned thread's environment identity, directory and roots before any turn, rejecting missing, remote or drifted selection.
+An explicit empty environment list removes local command and file tools in the native client; a working-directory field alone does not select them.
+Execution binds that same local environment to the packet's runtime workspace roots.
+This zero-turn selection check establishes a native execution prerequisite, not actual tool use or behavioral acceptance.
+Completed-turn evidence separately records observed command/file tool types; a completed session remains ungraded until its suite assertions and final state are assessed.
 The adapter enables App Server's experimental protocol surface only so the reviewed runtime-workspace-root fields are accepted; this does not activate model tools or provider facilities.
 It binds native web explicitly through the supported thread configuration, using `config.web_search = "live"` when authorized and `"disabled"` otherwise.
 Exact model effort, runtime workspace roots, sandbox policy, and packet input are bound at `turn/start`, while runtime event enforcement rejects any unrequested tool, search, image, MCP, delegation, command, or file-change activity.
+Native command approvals may omit their optional network-context and additional-permission fields; omission means no such overlay, while malformed present values remain rejected.
+Native file-change approval contains an item identity rather than paths.
+The adapter correlates it with the current thread/turn's preceding file-change item, converts every source and move-destination path into exact one-turn write permissions, and delegates those permissions to the suite controller.
+Missing or stale items, unsupported change kinds and session-wide root grants fail closed; file approvals never receive session-wide acceptance.
 
 Anthropic sessions use the Claude CLI adapter.
 It pins one reviewed CLI version/capability profile, uses current documented safe-mode and output flags, preserves normal OAuth/keychain authentication, retains the provider-owned default system prompt outside the harness digest, captures provider output once, and normalizes the same result and closure interface.
