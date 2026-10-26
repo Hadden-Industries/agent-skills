@@ -35,14 +35,19 @@ const gitBuildRoots = Object.freeze([
   "workflow",
 ]);
 
+/** Inventory regular bytes in stable UTF-8 path order, rechecking each ancestor. */
 export function regularFileInventory(directory, prefix = "") {
   assertUnredirectedPath(directory);
   const files = new Map();
   if (lstatSync(directory).isSymbolicLink())
     throw new Error(`Linked directory: ${directory}`);
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort(
-    (a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)),
-  )) {
+  // Keep build inventory independent of a skill's runtime modules. Like the
+  // selection byte-order contract, prepare keys once and compare native bytes;
+  // JavaScript string ordering differs for supplementary Unicode characters.
+  const entries = readdirSync(directory, { withFileTypes: true })
+    .map((entry) => ({ entry, bytes: Buffer.from(entry.name, "utf8") }))
+    .sort((left, right) => Buffer.compare(left.bytes, right.bytes));
+  for (const { entry } of entries) {
     const path = join(directory, entry.name);
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isSymbolicLink()) throw new Error(`Linked input: ${path}`);

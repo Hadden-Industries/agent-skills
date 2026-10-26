@@ -501,3 +501,114 @@ test("message paths are reversible without normalization or replacement text", (
     assert.doesNotMatch(rendered, /\ufffd/u);
   }
 });
+
+test("exact and prefix selections prepare path bytes once per unit and direction", () => {
+  let destinationReads = 0;
+  let sourceReads = 0;
+  const units = Array.from({ length: 100 }, (_, index) => {
+    const entry = renamed(index + 1, `legacy/${index}.js`, `src/${index}.js`);
+    Object.defineProperties(entry, {
+      destinationPathBytesBase64: {
+        get() {
+          destinationReads += 1;
+          return Buffer.from(`src/${index}.js`).toString("base64");
+        },
+      },
+      sourcePathBytesBase64: {
+        get() {
+          sourceReads += 1;
+          return Buffer.from(`legacy/${index}.js`).toString("base64");
+        },
+      },
+    });
+    return entry;
+  });
+  const selected = resolveSelection(manifestFixture(units), {
+    destinationPaths: units.map(({ destinationPath }) => destinationPath),
+    destinationPathPrefixes: ["src/"],
+    sourcePaths: units.map(({ sourcePath }) => sourcePath),
+    sourcePathPrefixes: ["legacy/"],
+  });
+  assert.deepEqual(selected, units);
+  assert.equal(destinationReads, units.length);
+  assert.equal(sourceReads, units.length);
+});
+
+test("exact indexes preserve duplicate byte paths, encoded precedence, and call freshness", () => {
+  const units = [
+    unit(3, {
+      destinationPath: "ignored.js",
+      destinationPathBytesBase64: "c3JjL2EuanM=",
+    }),
+    unit(1, {
+      destinationPath: "ignored-too.js",
+      destinationPathBytesBase64: "c3JjL2EuanM",
+    }),
+    unit(2, {
+      destinationPath: "src/b.js",
+      destinationPathBytesBase64: undefined,
+    }),
+  ];
+  const manifest = manifestFixture(units);
+  assert.deepEqual(
+    resolveSelection(manifest, { destinationPaths: ["src/b.js", "src/a.js"] }),
+    units,
+  );
+  units[0].destinationPathBytesBase64 =
+    Buffer.from("src/moved.js").toString("base64");
+  assert.deepEqual(
+    resolveSelection(manifest, { destinationPaths: ["src/a.js"] }),
+    [units[1]],
+  );
+  assert.deepEqual(
+    resolveSelection(manifest, { destinationPaths: ["src/moved.js"] }),
+    [units[0]],
+  );
+});
+
+test("unmatched diagnostics preserve mixed-field order, long-value index, and caps", () => {
+  const paths = Array.from({ length: 34 }, (_, index) => `missing-${index}.js`);
+  const longPath = `${"long/".repeat(60)}file.js`;
+  assert.throws(
+    () =>
+      resolveSelection(manifestFixture([unit(1)]), {
+        destinationPaths: [longPath, ...paths],
+        ids: ["Fmissing"],
+      }),
+    (error) => {
+      assert.equal(error.code, "UNMATCHED_SELECTION_VALUES");
+      assert.equal(error.details.unmatchedCount, 36);
+      assert.equal(error.details.omittedCount, 4);
+      // Selector vocabulary fixes field order independently of object insertion.
+      assert.equal(error.details.unmatchedValues.length, 32);
+      assert.deepEqual(error.details.unmatchedValues[0], {
+        field: "ids",
+        value: "Fmissing",
+      });
+      assert.deepEqual(error.details.unmatchedValues[1], {
+        field: "destinationPaths",
+        index: 0,
+        valueByteLength: Buffer.byteLength(longPath),
+      });
+      assert.deepEqual(error.details.unmatchedValues[31], {
+        field: "destinationPaths",
+        value: "missing-29.js",
+      });
+      return true;
+    },
+  );
+});
+
+test("ID and kind selectors do not inspect unused path fields", () => {
+  const entry = unit(1);
+  Object.defineProperty(entry, "destinationPathBytesBase64", {
+    get() {
+      throw new Error("unused path inspected");
+    },
+  });
+  const manifest = manifestFixture([entry]);
+  assert.deepEqual(resolveSelection(manifest, { ids: [entry.id] }), [entry]);
+  assert.deepEqual(resolveSelection(manifest, { kinds: [entry.kind] }), [
+    entry,
+  ]);
+});

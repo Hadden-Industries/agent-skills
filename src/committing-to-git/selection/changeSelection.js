@@ -184,35 +184,7 @@ export function normalizeSelection(selection) {
   return normalized;
 }
 
-function unitMatchesValue(unit, field, value) {
-  if (field === "ids") {
-    return unit.id === value;
-  }
-
-  if (field === "kinds") {
-    return unit.kind === value;
-  }
-
-  const source = field.startsWith("source");
-
-  if (source && unit.kind !== "renamed") {
-    return false;
-  }
-
-  const bytes = changeUnitPathBytes(unit, source ? "source" : "destination");
-
-  if (bytes === null) {
-    return false;
-  }
-
-  const expected = Buffer.from(value, "utf8");
-
-  return field.endsWith("Prefixes")
-    ? bytes.length >= expected.length &&
-        bytes.subarray(0, expected.length).equals(expected)
-    : bytes.equals(expected);
-}
-
+/** Resolve the union in manifest order with operation-local, lossless byte keys. */
 export function resolveSelection(
   manifest,
   selection,
@@ -245,14 +217,56 @@ export function resolveSelection(
   }
 
   const matchedIds = new Set();
+  // Share decoding between exact and prefix fields, never between calls: input
+  // objects may change, and encoded paths remain authoritative over display text.
+  const pathCandidates = new Map();
+  function candidatesFor(field) {
+    const direction = field.startsWith("source") ? "source" : "destination";
+    if (!pathCandidates.has(direction)) {
+      const candidates = [];
+      for (const unit of manifest.changeUnits) {
+        if (direction === "source" && unit.kind !== "renamed") continue;
+        const bytes = changeUnitPathBytes(unit, direction);
+        if (bytes !== null) candidates.push({ unit, bytes });
+      }
+      pathCandidates.set(direction, candidates);
+    }
+    return pathCandidates.get(direction);
+  }
   let unmatchedCount = 0;
   const unmatchedValues = [];
 
   for (const [field, values] of Object.entries(normalized)) {
-    for (const value of values) {
-      const matches = manifest.changeUnits.filter((unit) =>
-        unitMatchesValue(unit, field, value),
-      );
+    const prefix = field.endsWith("Prefixes");
+    const pathField = field !== "ids" && field !== "kinds";
+    const index = new Map();
+    const candidates = pathField ? candidatesFor(field) : null;
+    if (!prefix) {
+      const add = (key, unit) => {
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(unit);
+      };
+      if (pathField) {
+        for (const { unit, bytes } of candidates) {
+          add(bytes.toString("base64"), unit);
+        }
+      } else {
+        for (const unit of manifest.changeUnits) {
+          add(field === "ids" ? unit.id : unit.kind, unit);
+        }
+      }
+    }
+    for (const [valueIndex, value] of values.entries()) {
+      const expected = pathField ? Buffer.from(value, "utf8") : null;
+      const matches = prefix
+        ? candidates
+            .filter(
+              ({ bytes }) =>
+                bytes.length >= expected.length &&
+                bytes.subarray(0, expected.length).equals(expected),
+            )
+            .map(({ unit }) => unit)
+        : (index.get(pathField ? expected.toString("base64") : value) ?? []);
 
       if (matches.length === 0) {
         unmatchedCount += 1;
@@ -262,7 +276,7 @@ export function resolveSelection(
               ? { field, value }
               : {
                   field,
-                  index: values.indexOf(value),
+                  index: valueIndex,
                   valueByteLength: Buffer.byteLength(value),
                 },
           );

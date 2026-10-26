@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +15,48 @@ import { buildSkillArtifacts } from "../../scripts/buildSkillArtifacts.js";
 import { regularFileInventory } from "../../scripts/skillDistribution.js";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
+
+test("inventory preserves native UTF-8 ordering through nested Unicode names", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-inventory-order-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const names = ["\u{10000}.txt", "\ue000.txt", "z.txt", "a.txt"];
+  mkdirSync(join(root, "nested"));
+  for (const name of names) writeFileSync(join(root, "nested", name), name);
+  const inventory = regularFileInventory(root);
+  assert.deepEqual(
+    [...inventory.keys()],
+    [
+      "nested/a.txt",
+      "nested/z.txt",
+      "nested/\ue000.txt",
+      "nested/\u{10000}.txt",
+    ],
+  );
+  for (const [path, bytes] of inventory)
+    assert.deepEqual(bytes, readFileSync(join(root, path)));
+});
+
+test("inventory rejects directory redirects both at entry and ancestor boundaries", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-inventory-links-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "target"));
+  writeFileSync(join(root, "target", "file.txt"), "must not be followed");
+  mkdirSync(join(root, "input"));
+  symlinkSync(
+    join(root, "target"),
+    join(root, "input", "redirect"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  assert.throws(
+    () => regularFileInventory(join(root, "input")),
+    /Linked input/u,
+  );
+  assert.throws(
+    () => regularFileInventory(join(root, "input", "redirect")),
+    /Linked path/u,
+  );
+});
+
 test("fresh distribution builds are deterministic and check mode is read-only", async (t) => {
   const roots = [0, 1].map(() =>
     mkdtempSync(join(tmpdir(), "skill-distribution-")),
