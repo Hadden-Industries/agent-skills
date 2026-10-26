@@ -471,18 +471,21 @@ def _checkout_snapshot(snapshot, tree, paths, commit, environment):
             "Native skill path is absent from the resolved commit",
             "source-revision-mismatch",
         )
-    run_command(
-        [
-            "git",
-            "sparse-checkout",
-            "set",
-            "--cone",
-            "--",
-            *sorted(path.as_posix() for path in directories),
-        ],
-        snapshot,
-        environment,
-    )
+    # A fresh snapshot needs no sparse selection when the root skill owns the
+    # whole tree. Cone-mode "." selects only root files and drops descendants.
+    if PurePosixPath(".") not in directories:
+        run_command(
+            [
+                "git",
+                "sparse-checkout",
+                "set",
+                "--cone",
+                "--",
+                *sorted(path.as_posix() for path in directories),
+            ],
+            snapshot,
+            environment,
+        )
     run_command(
         ["git", "checkout", "--quiet", "--detach", commit], snapshot, environment
     )

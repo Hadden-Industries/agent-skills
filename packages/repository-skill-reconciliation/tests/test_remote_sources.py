@@ -215,6 +215,7 @@ class RemoteSourceTests(unittest.TestCase):
         self.bad_path = False
         self.bad_ref = False
         self.registry_array = False
+        self.root_skill = False
         self.environment = dict(
             os.environ,
             GIT_CONFIG_NOSYSTEM="1",
@@ -266,14 +267,20 @@ class RemoteSourceTests(unittest.TestCase):
 
     def source_files(self, commit, name):
         data = subprocess.run(
-            ["git", "archive", "--format=zip", commit, f"skills/{name}"],
+            [
+                "git",
+                "archive",
+                "--format=zip",
+                commit,
+                *([] if self.root_skill else [f"skills/{name}"]),
+            ],
             cwd=self.remote,
             env=self.environment,
             check=True,
             capture_output=True,
         ).stdout
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            prefix = f"skills/{name}/"
+            prefix = "" if self.root_skill else f"skills/{name}/"
             return {
                 entry.filename[len(prefix) :]: archive.read(entry)
                 for entry in archive.infolist()
@@ -346,6 +353,8 @@ class RemoteSourceTests(unittest.TestCase):
                     "ref": "main" if self.bad_ref else source.rsplit("#", 1)[1],
                     "skillPath": "../escape/SKILL.md"
                     if self.bad_path
+                    else "SKILL.md"
+                    if self.root_skill
                     else f"skills/{name}/SKILL.md",
                     "computedHash": digest,
                 }
@@ -454,6 +463,83 @@ class RemoteSourceTests(unittest.TestCase):
             if command[0] == "node" and "add" in command
         ]
         self.assertNotIn("codex", native_commands[0])
+
+    def root_skill_revision(self):
+        """Commit a root skill with real nested reference and executable-source bytes."""
+        self.root_skill = True
+        files = {
+            "SKILL.md": b"---\nname: example\ndescription: root fixture\n---\nRoot skill\n",
+            "references/guides/native.md": b"Nested reference\n",
+            "scripts/audit.mjs": b"export const example = true;\n",
+        }
+        for relative, content in files.items():
+            path = self.remote / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        self.git("add", "--", "SKILL.md", "references", "scripts")
+        self.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "root skill fixture",
+        )
+        self.A = self.git("rev-parse", "HEAD").strip()
+        self.assertTrue(
+            set(files).issubset(
+                self.git("ls-tree", "-r", "--name-only", self.A).splitlines()
+            )
+        )
+        return files
+
+    def test_root_skill_acquires_nested_files_at_the_resolved_commit(self):
+        files = self.root_skill_revision()
+        directories, entries, identities = self.acquire()
+        for relative, content in files.items():
+            self.assertEqual((directories["example"] / relative).read_bytes(), content)
+        self.assertEqual(entries["example"]["skillPath"], "SKILL.md")
+        self.assertEqual(identities["sources"][0]["resolvedCommit"], self.A)
+        self.assertFalse(self.repository.joinpath(".agents").exists())
+
+    def test_root_skill_with_a_nested_git_symlink_is_rejected(self):
+        self.root_skill_revision()
+        blob = (
+            subprocess.run(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=self.remote,
+                env=self.environment,
+                input=b"../../outside",
+                check=True,
+                stdout=subprocess.PIPE,
+            )
+            .stdout.decode()
+            .strip()
+        )
+        self.git(
+            "update-index", "--add", "--cacheinfo", f"120000,{blob},references/link"
+        )
+        self.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "root linked fixture",
+        )
+        self.A = self.git("rev-parse", "HEAD").strip()
+        with self.assertRaises(ReconciliationError) as caught:
+            self.acquire()
+        self.assertEqual(caught.exception.code, "unsafe-source")
+        self.assertFalse(self.repository.joinpath(".agents").exists())
 
     def test_commit_pin_remains_a_pin(self):
         _, entries, identities = self.acquire(
