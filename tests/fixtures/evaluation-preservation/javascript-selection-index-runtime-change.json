@@ -1,0 +1,11 @@
+{
+  "baselineRevision": "13e9ab1cb5a31ecfbef72c553c141035147e8dc4",
+  "files": [
+    {
+      "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "previousSha256": "70692d3182afe1b4ac322a8037b74129f2fdc004ecf624523a640ecd1cf72498",
+      "byteLength": 866199,
+      "sha256": "94da65590abc27c708c7f6b5f44c174c19073b5ef1ca30e0af987336df23e216"
+    }
+  ]
+}

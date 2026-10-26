@@ -68,6 +68,23 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
     "skills/committing-to-git/references/transaction-recovery.md",
     "skills/committing-to-git/scripts/commitWorkflow.mjs",
   ]);
+  const selectionIndexing = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/javascript-selection-index-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    selectionIndexing.baselineRevision,
+    "13e9ab1cb5a31ecfbef72c553c141035147e8dc4",
+  );
+  assert.deepEqual(
+    selectionIndexing.files.map(({ path }) => path),
+    ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
+  );
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -186,28 +203,32 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
         file.path,
       );
     }
+    const priorIdentity =
+      recoveryChange ??
+      markdownChange ??
+      laterChange ??
+      change ??
+      formatting ??
+      file;
+    const selectionIndexingChange = selectionIndexing.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (selectionIndexingChange) {
+      assert.equal(
+        selectionIndexingChange.previousSha256,
+        priorIdentity.sha256,
+        file.path,
+      );
+    }
+    const expectedIdentity = selectionIndexingChange ?? priorIdentity;
     assert.equal(
       comparisonBytes.length,
-      (
-        recoveryChange ??
-        markdownChange ??
-        laterChange ??
-        change ??
-        formatting ??
-        file
-      ).byteLength,
+      expectedIdentity.byteLength,
       file.path,
     );
     assert.equal(
       sha256Hex(comparisonBytes),
-      (
-        recoveryChange ??
-        markdownChange ??
-        laterChange ??
-        change ??
-        formatting ??
-        file
-      ).sha256,
+      expectedIdentity.sha256,
       file.path,
     );
   }
