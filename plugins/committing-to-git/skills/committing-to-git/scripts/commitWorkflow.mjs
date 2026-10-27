@@ -20838,7 +20838,7 @@ import {
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { join as join17, resolve as resolve28 } from "node:path";
+import { basename as basename3, join as join17, resolve as resolve28 } from "node:path";
 import { TextDecoder as TextDecoder11 } from "node:util";
 function fail13(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
@@ -21412,6 +21412,10 @@ function readRetainedReport({
         "rejected"
       );
     }
+    const revision = /^report-publication-(.+)\.json$/u.exec(
+      basename3(transaction.report.jsonPath)
+    )?.[1];
+    const suffix = revision && UUID_V4_PATTERN3.test(revision) ? `-publication-${revision}` : "";
     const retained = (path, digest3, name) => {
       if (resolve28(path) !== resolve28(transaction.attemptDirectory, name))
         fail13("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
@@ -21425,13 +21429,13 @@ function readRetainedReport({
       retained(
         transaction.report.jsonPath,
         transaction.report.jsonSha256,
-        "report.json"
+        `report${suffix}.json`
       )
     );
     const displayText = retained(
       transaction.report.textPath,
       transaction.report.textSha256,
-      "report.txt"
+      `report${suffix}.txt`
     );
     return createWorkflowResult({
       disposition: "succeeded",
@@ -23433,7 +23437,7 @@ __export(finalizeMessageWorkflow_exports, {
   runFinalizeMessageCommand: () => runFinalizeMessageCommand
 });
 import { lstatSync as lstatSync18, readFileSync as readFileSync9, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename3, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve32, sep as sep5 } from "node:path";
+import { basename as basename4, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve32, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
 function fail16(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -23538,7 +23542,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     transaction.review.evidencePlanPath,
     "Current evidence plan"
   );
-  const name = basename3(recordedPath);
+  const name = basename4(recordedPath);
   const opened = readTransactionOwnedFile({
     transactionPath,
     artifactName: name,

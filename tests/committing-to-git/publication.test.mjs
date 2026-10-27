@@ -1,8 +1,8 @@
 // Exact-OID, explicit-destination publication and durable result capture.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { renameSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, readFileSync, renameSync } from "node:fs";
+import { basename, join } from "node:path";
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -24,6 +24,7 @@ import {
   parsePrepareArguments,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { reportDetailWorkflow } from "../../src/committing-to-git/workflow/reportDetailWorkflow.js";
 
 async function reportedTransaction(t, fixture) {
   const keyPath = join(fixture.scratch, "publication-key");
@@ -170,6 +171,52 @@ test("high-level publication reuses the report and witnesses one exact push", as
   assert.equal(transaction.publicationAttempts.length, 1);
   assert.equal(transaction.publicationAttempts[0].launchState, "completed");
   assert.equal(transaction.publicationAttempts[0].status, "succeeded");
+  const journalBytes = readFileSync(reported.transactionPath);
+  const detail = await reportDetailWorkflow({
+    transactionPath: reported.transactionPath,
+    section: "report",
+  });
+  assert.equal(detail.status, "report-read");
+  assert.equal(detail.displayText, result.displayText);
+  assert.deepEqual(detail.report, result.report);
+  assert.deepEqual(readFileSync(reported.transactionPath), journalBytes);
+
+  const outsideReport = join(
+    fixture.scratch,
+    basename(transaction.report.jsonPath),
+  );
+  copyFileSync(transaction.report.jsonPath, outsideReport);
+  const otherText = join(
+    transaction.attemptDirectory,
+    `report-publication-${randomUUID()}.txt`,
+  );
+  copyFileSync(transaction.report.textPath, otherText);
+  for (const invalidReport of [
+    { jsonPath: outsideReport },
+    { textPath: otherText },
+    {
+      jsonPath: join(
+        transaction.attemptDirectory,
+        "report-publication-invalid.json",
+      ),
+    },
+    { jsonSha256: "0".repeat(64) },
+    { textSha256: "0".repeat(64) },
+  ]) {
+    updateTransaction(reported.transactionPath, "published", {
+      ...transaction,
+      report: { ...transaction.report, ...invalidReport },
+    });
+    await assert.rejects(
+      reportDetailWorkflow({
+        transactionPath: reported.transactionPath,
+        section: "report",
+      }),
+      { code: "DETAIL_STATE_INVALID" },
+    );
+  }
+  updateTransaction(reported.transactionPath, "published", transaction);
+  assert.deepEqual(readFileSync(reported.transactionPath), journalBytes);
   assert.equal(
     git(["rev-parse", "refs/heads/review"], remote).stdout.trim(),
     reported.commitOid,

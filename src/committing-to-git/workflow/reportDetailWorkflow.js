@@ -26,7 +26,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 
 import {
@@ -876,6 +876,13 @@ function readRetainedReport({
         "rejected",
       );
     }
+    const revision = /^report-publication-(.+)\.json$/u.exec(
+      basename(transaction.report.jsonPath),
+    )?.[1];
+    const suffix =
+      revision && UUID_V4_PATTERN.test(revision)
+        ? `-publication-${revision}`
+        : "";
     const retained = (path, digest, name) => {
       if (resolve(path) !== resolve(transaction.attemptDirectory, name))
         fail("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
@@ -889,13 +896,13 @@ function readRetainedReport({
       retained(
         transaction.report.jsonPath,
         transaction.report.jsonSha256,
-        "report.json",
+        `report${suffix}.json`,
       ),
     );
     const displayText = retained(
       transaction.report.textPath,
       transaction.report.textSha256,
-      "report.txt",
+      `report${suffix}.txt`,
     );
     return createWorkflowResult({
       disposition: "succeeded",
