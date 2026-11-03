@@ -100,6 +100,10 @@ function prepareDraft(fixture, scope, selectors = []) {
   return runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -273,6 +277,10 @@ test("configured diff, textconv, pager, color, and fsmonitor hooks cannot alter 
   const prepare = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -435,6 +443,10 @@ test("an unchanged full draft promotes without rebuilding its evidence", (t) => 
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",

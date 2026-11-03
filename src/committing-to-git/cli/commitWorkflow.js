@@ -18,108 +18,78 @@ const COMMANDS = new Map([
   [
     "workflow preflight",
     [
-      () => import("../workflow/publicationPreflightWorkflow.js"),
+      () => import("./publicationPreflightCommand.js"),
       "runPublicationPreflightCommand",
     ],
   ],
   [
     "workflow prepare",
-    [
-      () => import("../workflow/prepareWorkflow.js"),
-      "runPrepareWorkflowCommand",
-    ],
+    [() => import("./prepareCommand.js"), "runPrepareWorkflowCommand"],
   ],
   [
     "workflow extend",
-    [
-      () => import("../workflow/extendReviewWorkflow.js"),
-      "runExtendReviewCommand",
-    ],
+    [() => import("./extendReviewCommand.js"), "runExtendReviewCommand"],
   ],
   [
     "workflow review-next",
-    [() => import("../workflow/reviewNextWorkflow.js"), "runReviewNextCommand"],
+    [() => import("./reviewNextCommand.js"), "runReviewNextCommand"],
   ],
   [
     "workflow resume",
     [
-      () => import("../workflow/resumePreparationWorkflow.js"),
+      () => import("./resumePreparationCommand.js"),
       "runResumePreparationCommand",
     ],
   ],
   [
     "workflow promote",
-    [
-      () => import("../workflow/promoteDraftWorkflow.js"),
-      "runPromoteDraftCommand",
-    ],
+    [() => import("./promoteDraftCommand.js"), "runPromoteDraftCommand"],
   ],
   [
     "workflow check",
-    [
-      () => import("../workflow/runCheckWorkflow.js"),
-      "runCheckWorkflowCommand",
-    ],
+    [() => import("./runCheckCommand.js"), "runCheckWorkflowCommand"],
   ],
   [
     "workflow check-detail",
-    [
-      () => import("../workflow/checkDetailWorkflow.js"),
-      "runCheckDetailCommand",
-    ],
+    [() => import("./checkDetailCommand.js"), "runCheckDetailCommand"],
   ],
   [
     "workflow commit",
-    [
-      () => import("../workflow/createCommitWorkflow.js"),
-      "runCreateCommitCommand",
-    ],
+    [() => import("./createCommitCommand.js"), "runCreateCommitCommand"],
   ],
   [
     "workflow verify",
-    [
-      () => import("../workflow/createCommitWorkflow.js"),
-      "runRetryVerificationCommand",
-    ],
+    [() => import("./createCommitCommand.js"), "runRetryVerificationCommand"],
   ],
   [
     "workflow report-detail",
-    [
-      () => import("../workflow/reportDetailWorkflow.js"),
-      "runReportDetailCommand",
-    ],
+    [() => import("./reportDetailCommand.js"), "runReportDetailCommand"],
   ],
   [
     "workflow publish",
-    [() => import("../workflow/publishWorkflow.js"), "runPublishCommand"],
+    [() => import("./publishCommand.js"), "runPublishCommand"],
   ],
   [
     "workflow recover",
     [
-      () => import("../workflow/recoverTransactionWorkflow.js"),
+      () => import("./recoverTransactionCommand.js"),
       "runRecoverTransactionCommand",
     ],
   ],
   [
     "workflow cleanup",
     [
-      () => import("../workflow/recoverTransactionWorkflow.js"),
+      () => import("./recoverTransactionCommand.js"),
       "runCleanupTransactionCommand",
     ],
   ],
   [
     "message check",
-    [
-      () => import("../workflow/checkMessageWorkflow.js"),
-      "runCheckMessageCommand",
-    ],
+    [() => import("./checkMessageCommand.js"), "runCheckMessageCommand"],
   ],
   [
     "message finalize",
-    [
-      () => import("../workflow/finalizeMessageWorkflow.js"),
-      "runFinalizeMessageCommand",
-    ],
+    [() => import("./finalizeMessageCommand.js"), "runFinalizeMessageCommand"],
   ],
 ]);
 
@@ -133,9 +103,11 @@ Unsupported or inaccessible policy is unknown, never permission to push.
   ],
   [
     "workflow prepare",
-    `Allocates one helper-owned transaction, validates literal scope and evidence
-policy, and records the exact snapshot. Path scope accepts literal repeatable
-selectors or one --scope-file. JSON is the default output format.
+    `Validates literal scope and evidence policy. Default memory storage reads Git
+only, writes nothing, and returns a proposal for message check and commit.
+Disk storage allocates one transaction beneath --state-directory and records
+the exact snapshot. Path scope accepts literal repeatable selectors or one
+--scope-file. JSON is the default output format.
 `,
   ],
   [
@@ -176,7 +148,8 @@ unchanged bytes as the latest canonical message revision. With nextAction:
 author-message, accepts a concise subject or extended multi-section message
 when semanticStructureRequired is false. With nextAction: author-content,
 use message finalize instead. The input is consumed only after durable success.
-Arbitrary message-file paths are rejected.
+Arbitrary message-file paths are rejected. With --proposal, validates the
+message on standard input against the recomputed scope and writes nothing.
 `,
   ],
   [
@@ -211,6 +184,8 @@ requires recovery and is never replayed.
 Auto uses that same executor, receipts and guards, including above 8 MiB.
 Snapshots have a separate 64 MiB bound; message input limits are unchanged.
 See references/native-execution.md for existing-transaction continuation.
+With --proposal, recomputes the scope, rejects any drift before mutation,
+stages full scope with git add -A, and returns the comparison without files.
 `,
   ],
   [

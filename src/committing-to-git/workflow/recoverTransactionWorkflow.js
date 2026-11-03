@@ -1,20 +1,11 @@
-import { parseCommandArguments } from "../cli/commandArguments.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
-import {
-  observeTransactionFailure,
-  transactionDiagnosticState,
-} from "../transaction/transactionDiagnosticState.js";
+import { transactionDiagnosticState } from "../transaction/transactionDiagnosticState.js";
 
 import { resolve } from "node:path";
 
 import { recoverCanonicalMessageReplacement } from "../message/canonicalMessageState.js";
-import {
-  compactTerminalTransaction,
-  purgeTransaction,
-  recoverCommitOutcome,
-} from "../transaction/transactionRecovery.js";
+import { recoverCommitOutcome } from "../transaction/transactionRecovery.js";
 import { readTransaction } from "../transaction/transactionWorkspace.js";
 import {
   completeRecordedCommit,
@@ -182,47 +173,4 @@ export async function recoverTransactionWorkflow({
       },
     },
   );
-}
-
-function parseArguments(argv, command) {
-  const flags = parseCommandArguments(command, argv).values;
-  const format = flags.get("format") ?? "json";
-  if (!["json", "text"].includes(format))
-    invalid("INVALID_FORMAT", "--format must be json or text.");
-  const transactionPath = flags.get("transaction");
-  if (!transactionPath)
-    invalid("TRANSACTION_REQUIRED", "--transaction is required.");
-  return {
-    transactionPath,
-    format,
-    retainProcessLogs: command === "workflow recover" && format !== "text",
-    resolution: flags.get("resolution") ?? null,
-    purge: flags.get("purge") === true,
-  };
-}
-export async function runRecoverTransactionCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments(arguments_, "workflow recover"),
-    includeProcessDiagnostics: true,
-    execute: recoverTransactionWorkflow,
-    failureState: observeTransactionFailure,
-    stdout,
-  });
-}
-export async function runCleanupTransactionCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments(arguments_, "workflow cleanup"),
-    execute: (options) =>
-      options.purge
-        ? purgeTransaction(options)
-        : compactTerminalTransaction(options),
-    failureState: observeTransactionFailure,
-    stdout,
-  });
 }

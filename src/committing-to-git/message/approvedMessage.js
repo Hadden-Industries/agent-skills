@@ -631,7 +631,10 @@ export function validateApprovedMessage({
 }) {
   const sourceAllowed =
     (route === "concise" &&
-      new Set(["approved-subject", "checked-file"]).has(messageSource)) ||
+      // checked-input is memory-mode text read from standard input.
+      new Set(["approved-subject", "checked-file", "checked-input"]).has(
+        messageSource,
+      )) ||
     (route === "extended" &&
       new Set(["checked-file", "structured-finalizer"]).has(messageSource));
 

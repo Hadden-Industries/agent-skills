@@ -20,7 +20,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import {
   basename,
   dirname,
@@ -1718,12 +1717,12 @@ function assertOwnedPath(attemptDirectory, path) {
 }
 
 export function allocateAttemptDirectory({
-  temporaryRoot,
+  stateDirectory,
   randomUuid = systemRandomUUID,
   createDirectory = mkdirSync,
   maximumAttempts = MAXIMUM_ALLOCATION_ATTEMPTS,
 }) {
-  const absoluteTemporaryRoot = resolve(temporaryRoot);
+  const absoluteStateDirectory = resolve(stateDirectory);
 
   if (!Number.isInteger(maximumAttempts) || maximumAttempts < 1) {
     throw new Error("maximumAttempts must be a positive integer.");
@@ -1737,7 +1736,7 @@ export function allocateAttemptDirectory({
     }
 
     const attemptDirectory = join(
-      absoluteTemporaryRoot,
+      absoluteStateDirectory,
       `committing-to-git-${uuid}`,
     );
     const transactionPath = join(attemptDirectory, TRANSACTION_FILE);
@@ -1768,23 +1767,28 @@ export function allocateAttemptDirectory({
   );
 }
 
-export function createTransactionWorkspace({
-  repositoryRoot,
-  temporaryRoot = tmpdir(),
-}) {
+export function createTransactionWorkspace({ repositoryRoot, stateDirectory }) {
+  // Disk storage is an explicit choice; there is no temporary-directory default.
+  if (typeof stateDirectory !== "string" || !isAbsolute(stateDirectory)) {
+    throw new WorkflowDiagnosticError(
+      "STATE_DIRECTORY_REQUIRED",
+      "Disk workflow state requires an explicit absolute --state-directory.",
+    );
+  }
+
   const normalizedRepositoryRoot = realpathSync(resolve(repositoryRoot));
-  const normalizedTemporaryRoot = realpathSync(resolve(temporaryRoot));
+  const normalizedStateDirectory = realpathSync(stateDirectory);
 
   validateRepositoryPath(normalizedRepositoryRoot);
-  ensureDirectory(normalizedTemporaryRoot, "Temporary root");
+  ensureDirectory(normalizedStateDirectory, "State directory");
 
   const { attemptDirectory, transactionPath } = allocateAttemptDirectory({
-    temporaryRoot: normalizedTemporaryRoot,
+    stateDirectory: normalizedStateDirectory,
   });
 
   // On POSIX the requested modes are enforceable. On Windows they do not
-  // establish an ACL guarantee; the attempt instead inherits the protected
-  // user temporary directory and every later read rejects reparse changes.
+  // establish an ACL guarantee; the attempt instead inherits the configured
+  // state directory's ACL and every later read rejects reparse changes.
   ensureDirectory(attemptDirectory, "Transaction attempt directory");
   const transaction = initialTransaction(
     normalizedRepositoryRoot,

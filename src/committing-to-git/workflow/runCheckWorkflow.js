@@ -1,11 +1,5 @@
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import {
-  executeCommand,
-  diagnosticWriterFor,
-} from "../cli/commandExecution.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
@@ -36,7 +30,7 @@ const ACTIVE_CHECK_PHASES = new Set([
   "authoring-pending",
   "message-ready",
 ]);
-const MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1000;
+export const MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1000;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function fail(code, message, options) {
@@ -685,71 +679,5 @@ export async function runCheckWorkflow({
     attempt: completed,
     code: null,
     disposition: "succeeded",
-  });
-}
-
-function parseArguments(argv) {
-  const { values: flags, childArguments: commandArguments } =
-    parseCommandArguments("workflow check", argv);
-  if (!flags.has("transaction")) {
-    fail(
-      "CHECK_TRANSACTION_REQUIRED",
-      "workflow check requires --transaction <transaction.json>.",
-    );
-  }
-  if (commandArguments.length === 0 || commandArguments[0] === "") {
-    fail(
-      "CHECK_COMMAND_REQUIRED",
-      "workflow check requires -- followed by an executable and argument vector.",
-    );
-  }
-
-  const timeoutText = flags.get("timeout-ms") ?? null;
-  const timeoutMilliseconds = timeoutText === null ? null : Number(timeoutText);
-
-  if (
-    timeoutMilliseconds !== null &&
-    (!Number.isSafeInteger(timeoutMilliseconds) ||
-      timeoutMilliseconds < 1 ||
-      timeoutMilliseconds > MAXIMUM_CHECK_TIMEOUT_MILLISECONDS)
-  ) {
-    fail(
-      "CHECK_TIMEOUT_INVALID",
-      "Check timeout must be an integer from 1 through 86,400,000 milliseconds.",
-    );
-  }
-
-  const format = flags.get("format") ?? "json";
-
-  if (!new Set(["json", "text"]).has(format)) {
-    fail("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
-  }
-
-  return {
-    transactionPath: flags.get("transaction") ?? null,
-    label: flags.get("label") ?? "Repository check",
-    retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
-    workingDirectory: flags.get("working-directory") ?? ".",
-    timeoutMilliseconds,
-    format,
-    command: {
-      executable: commandArguments[0],
-      arguments: commandArguments.slice(1),
-    },
-  };
-}
-export async function runCheckWorkflowCommand(
-  argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: parseArguments,
-    execute: (options) =>
-      runCheckWorkflow({
-        ...options,
-        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
-      }),
-    stdout,
   });
 }

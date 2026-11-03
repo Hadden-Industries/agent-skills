@@ -7,7 +7,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../scripts/evaluation/runtime.js";
-test("runtime inventory matches 57 maintained payload identities and approved runtime maintenance", () => {
+test("runtime inventory matches 57 maintained payload identities, recorded additions and approved runtime maintenance", () => {
   const root = resolve(import.meta.dirname, "../..");
   const baseline = JSON.parse(
     readFileSync(
@@ -85,6 +85,45 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
     selectionIndexing.files.map(({ path }) => path),
     ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
   );
+  const reportRevision = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/publication-report-revision-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    reportRevision.revision,
+    "230d70824f8be74bc21e3addf19a4083099ffbeb",
+  );
+  assert.deepEqual(
+    reportRevision.files.map(({ path }) => path),
+    ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
+  );
+  const ephemeralState = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/ephemeral-state-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    ephemeralState.baselineRevision,
+    "a6d9ab992492650f550032ab1565056241c0acae",
+  );
+  assert.deepEqual(ephemeralState.files.map(({ path }) => path).sort(), [
+    "skills/committing-to-git/SKILL.md",
+    "skills/committing-to-git/references/diagnostics.md",
+    "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  ]);
+  assert.deepEqual(
+    ephemeralState.addedFiles.map(({ path }) => path),
+    ["skills/committing-to-git/references/state-storage.md"],
+  );
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -112,7 +151,19 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
     "skills/reading-epubs/scripts/conversion-result.schema.json",
   ]);
   assert.equal(baseline.length, 57);
-  assert.equal(actual.size, 57);
+  // Added payloads extend the immutable baseline only through an exact record.
+  assert.equal(actual.size, 57 + ephemeralState.addedFiles.length);
+  for (const added of ephemeralState.addedFiles) {
+    const bytes = actual.get(added.path.slice("skills/".length));
+    assert.ok(bytes, added.path);
+    assert.equal(
+      baseline.some(({ path }) => path === added.path),
+      false,
+      added.path,
+    );
+    assert.equal(bytes.length, added.byteLength, added.path);
+    assert.equal(sha256Hex(bytes), added.sha256, added.path);
+  }
   const releaseVersion = JSON.parse(
     readFileSync(join(root, "scripts/plugin-releases.json"), "utf8"),
   ).plugins["committing-to-git"].at(-1).version;
@@ -220,7 +271,32 @@ test("runtime inventory matches 57 maintained payload identities and approved ru
         file.path,
       );
     }
-    const expectedIdentity = selectionIndexingChange ?? priorIdentity;
+    const reportRevisionChange = reportRevision.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (reportRevisionChange) {
+      assert.equal(
+        reportRevisionChange.previousSha256,
+        (selectionIndexingChange ?? priorIdentity).sha256,
+        file.path,
+      );
+    }
+    const ephemeralStateChange = ephemeralState.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (ephemeralStateChange) {
+      assert.equal(
+        ephemeralStateChange.previousSha256,
+        (reportRevisionChange ?? selectionIndexingChange ?? priorIdentity)
+          .sha256,
+        file.path,
+      );
+    }
+    const expectedIdentity =
+      ephemeralStateChange ??
+      reportRevisionChange ??
+      selectionIndexingChange ??
+      priorIdentity;
     assert.equal(
       comparisonBytes.length,
       expectedIdentity.byteLength,

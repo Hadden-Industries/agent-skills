@@ -7,10 +7,8 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  parsePrepareArguments,
-  prepareWorkflow,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { runCheckWorkflow } from "../../src/committing-to-git/workflow/runCheckWorkflow.js";
 import { readTransaction } from "../../src/committing-to-git/transaction/transactionWorkspace.js";
 import {
@@ -46,7 +44,7 @@ async function prepareTransaction(t, prefix = "check-workflow-") {
       "skipped",
     ]),
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
 
   return { fixture, transactionPath: prepared.transaction };

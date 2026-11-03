@@ -1,6 +1,5 @@
 import { createOrVerifyFile } from "../../../lib/filesystem/stableFile.js";
 import { sortByUtf8Bytes } from "../selection/byteOrdering.js";
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TextDecoder } from "node:util";
@@ -38,13 +37,11 @@ import {
 } from "./prepareWorkflow.js";
 import {
   assertMessageResultBudget,
-  parseMessageWorkflowArguments,
   readExactRecordedSnapshot,
 } from "./checkMessageWorkflow.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { presentationDiagnostics } from "../message/approvedMessage.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import { authoringProgress } from "./authoringProgress.js";
 
 const CONTENT_NAME = "content.json";
@@ -685,17 +682,4 @@ export async function finalizeMessageWorkflow({
   return assertMessageResultBudget(
     finalizedResult({ transactionPath, rendered, canonical }),
   );
-}
-
-export async function runFinalizeMessageCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: (arguments_) =>
-      parseMessageWorkflowArguments(arguments_, "finalize"),
-    execute: finalizeMessageWorkflow,
-    stdout,
-  });
 }

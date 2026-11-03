@@ -14,9 +14,9 @@ import test from "node:test";
 
 import {
   assertNoGitStorageOverrides,
-  parsePrepareArguments,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { MAXIMUM_INITIAL_JSON_INPUT_BYTES } from "../../src/committing-to-git/transaction/transactionWorkspace.js";
 import {
   commitAll,
@@ -46,6 +46,11 @@ const MESSAGE_FORMAT_REFERENCE = join(
   dirname(CANONICAL_SKILL),
   "references",
   "message-format.md",
+);
+const STATE_STORAGE_REFERENCE = join(
+  dirname(CANONICAL_SKILL),
+  "references",
+  "state-storage.md",
 );
 const INSPECTION_RECOVERY_REFERENCE = join(
   dirname(CANONICAL_SKILL),
@@ -147,12 +152,16 @@ test("canonical skill teaches the proportional happy path and bounded decisions"
   assert.match(source, /Git 2\.45\+/u);
   assert.match(source, /GIT_NO_LAZY_FETCH=1/u);
   assert.match(source, /canUseDirectSubjectTransport\(\)/u);
-  assert.match(source, /message-input\.txt/u);
-  assert.match(source, /evidence-plan-input\.json/u);
-  assert.match(source, /content\.json/u);
+  // Disk-transaction artifact rules are disclosed from the state-storage reference.
+  const stateStorage = readFileSync(STATE_STORAGE_REFERENCE, "utf8");
+
+  assert.match(source, /state-storage\.md#disk-authoring/u);
+  assert.match(stateStorage, /message-input\.txt/u);
+  assert.match(stateStorage, /evidence-plan-input\.json/u);
+  assert.match(stateStorage, /content\.json/u);
   assert.match(source, /50.+32 KiB|32 KiB.+50/su);
   assert.match(source, /file count never determines concise eligibility/iu);
-  assert.match(source, /evidence-required.+bounded delta/isu);
+  assert.match(stateStorage, /evidence-required.+bounded delta/isu);
   assert.match(
     source,
     /feat.+fix.+perf.+refactor.+docs.+test.+build.+ci.+chore/su,
@@ -305,19 +314,25 @@ test("canonical guidance keeps small known changes and packet review proportiona
   assert.match(skill, /workflow review-next/iu);
   assert.match(skill, /Trust returned `reviewRequired` and `nextAction`/iu);
   assert.match(skill, /Zero packets means complete/iu);
-  assert.match(skill, /`author-message` uses `messagePath`/iu);
-  assert.match(skill, /`author-content` uses `contentPath`/iu);
-  assert.match(skill, /versioned `contentContract`/iu);
+  // nextAction authoring rules are disclosed from the state-storage reference.
+  const stateStorage = readFileSync(STATE_STORAGE_REFERENCE, "utf8");
+
+  assert.match(stateStorage, /`author-message` uses `messagePath`/iu);
+  assert.match(stateStorage, /`author-content` uses `contentPath`/iu);
+  assert.match(stateStorage, /versioned `contentContract`/iu);
   assert.match(
-    skill,
+    stateStorage,
     /Preserve `schemaVersion`, `evidenceGroups`, and `mode`/iu,
   );
   assert.match(
-    skill,
+    stateStorage,
     /Supported sections are `Rationale:`, `User Experience Changes:`, and `File Changes:`/iu,
   );
-  assert.match(skill, /aggregate diagnostics by exact JSON pointer/iu);
-  assert.match(skill, /`authoring-pending` means evidence is complete/iu);
+  assert.match(stateStorage, /aggregate diagnostics by exact JSON pointer/iu);
+  assert.match(
+    stateStorage,
+    /`authoring-pending` means evidence is complete/iu,
+  );
   assert.match(
     skill,
     /Never open queue paths, hash artifacts manually, or inspect helper source/iu,
@@ -415,7 +430,14 @@ test("workflow preparation owns one transaction and returns its bounded snapshot
 
   const result = runCommitWorkflow(
     "workflow prepare",
-    uniformPrepareArguments(["--allowed-type", "fix"]),
+    uniformPrepareArguments([
+      "--allowed-type",
+      "fix",
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
+    ]),
     fixture.repo,
     { env: temporaryEnvironment(fixture.scratch) },
   );
@@ -485,6 +507,10 @@ test("workflow resume is idempotent after evidence routing and rejects overrides
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -531,6 +557,10 @@ test("workflow path preparation expands literal inclusions and exclusions", (t) 
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -572,6 +602,10 @@ test("path-prefix scope honors multiple exclusions including deleted paths", (t)
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -652,6 +686,10 @@ test("workflow preparation rejects unmatched selectors and staged path state bef
   const unmatched = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -675,6 +713,10 @@ test("workflow preparation rejects unmatched selectors and staged path state bef
   const staged = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -709,6 +751,10 @@ test("a rename crossing a path-scope boundary fails before allocation", (t) => {
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -748,6 +794,10 @@ test("draft path scope coexists with disjoint staged work without changing it", 
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -781,6 +831,10 @@ test("draft path scope rejects overlap with staged work before allocation", (t) 
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -836,6 +890,10 @@ test("workflow preparation validates one-time scope and evidence inputs", (t) =>
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -875,6 +933,10 @@ test("one-file explicit review stays inline when its complete evidence fits", (t
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -920,6 +982,10 @@ test("extended review artifacts resolve from the transaction directory", (t) => 
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -977,6 +1043,10 @@ test("invalid UTF-8 message evidence routes to lossless extended packets", (t) =
   const result = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -1018,7 +1088,12 @@ test("evidence uncertainty extends the exact snapshot without staging it again",
   writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
   const prepared = runCommitWorkflow(
     "workflow prepare",
-    uniformPrepareArguments(),
+    uniformPrepareArguments([
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
+    ]),
     fixture.repo,
     { env: temporaryEnvironment(fixture.scratch) },
   );
@@ -1100,7 +1175,12 @@ test("semantic structure extension enters explicit zero-packet authoring and rep
   writeRepositoryFile(fixture.repo, "tracked.txt", "after\n");
   const prepared = runCommitWorkflow(
     "workflow prepare",
-    uniformPrepareArguments(),
+    uniformPrepareArguments([
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
+    ]),
     fixture.repo,
     { env: temporaryEnvironment(fixture.scratch) },
   );
@@ -1371,7 +1451,7 @@ test("workflow preparation normalizes selectors before repository discovery", as
           options,
           cwd: fixture.repo,
           environment: {},
-          temporaryRoot: fixture.scratch,
+          stateDirectory: fixture.scratch,
         }),
       (error) => error.code === code,
     );
@@ -1424,7 +1504,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
         options: options(),
         cwd: fixture.repo,
         environment: {},
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
       }),
     (error) => error.code === "INVALID_JSON_UTF8",
   );
@@ -1449,7 +1529,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
         options: options(),
         cwd: fixture.repo,
         environment: {},
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
       }),
     (error) => error.code === "EVIDENCE_BASIS_NOTE_TOO_LARGE",
   );
@@ -1465,7 +1545,7 @@ test("one-time JSON inputs reject invalid UTF-8, oversized bytes, and long notes
         options: options(),
         cwd: fixture.repo,
         environment: {},
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
       }),
     (error) => error.code === "JSON_INPUT_TOO_LARGE",
   );

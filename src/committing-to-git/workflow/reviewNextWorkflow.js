@@ -1,8 +1,5 @@
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
@@ -22,7 +19,7 @@ import {
 } from "../transaction/transactionWorkspace.js";
 import { authoringProgress } from "./authoringProgress.js";
 
-const FORMATS = new Set(["json", "text"]);
+export const FORMATS = new Set(["json", "text"]);
 const MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
@@ -353,40 +350,5 @@ export function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
     transactionPath,
     packet,
     content,
-  });
-}
-
-export function parseReviewNextArguments(argv) {
-  const { values } = parseCommandArguments("workflow review-next", argv);
-
-  if (!values.has("transaction")) {
-    fail(
-      "MISSING_ARGUMENT",
-      "--transaction is required for workflow review-next.",
-    );
-  }
-
-  const format = values.get("format") ?? "json";
-
-  if (!FORMATS.has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  return {
-    transactionPath: values.get("transaction"),
-    cursor: values.get("cursor") ?? null,
-    format,
-  };
-}
-
-export async function runReviewNextCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: parseReviewNextArguments,
-    execute: reviewNextWorkflow,
-    stdout,
   });
 }

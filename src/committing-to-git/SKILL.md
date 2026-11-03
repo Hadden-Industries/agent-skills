@@ -5,38 +5,42 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.13"
+  version: "0.1.1-dev.14"
 ---
 
 # Committing to Git
 
 Parse complete JSON (Codex included).
-Keep `transaction` opaque; follow `disposition`, `status`, `phase`, `recovery`; show `displayText` verbatim.
+Keep `proposal` and `transaction` opaque; follow `disposition`, `status`, `phase`, `recovery`; show `displayText` verbatim.
 Follow [diagnostics](references/diagnostics.md); never execute diagnostic prose.
 
 Treat the user's hint as a hypothesis.
 Use policy, task evidence and Git facts to correct type and scope, sharpen the outcome, and add rationale or user-experience consequences.
+
+## State storage
+
+Default memory storage writes nothing before the authorized commit; `workflow prepare` returns a `proposal`.
+After interruption or `PROPOSAL_STALE` (nothing mutated), prepare again and reapprove.
+Use `--state-storage disk --state-directory <absolute-path>` only where [state storage](references/state-storage.md) requires it, in a directory the user or repository instructions name, never OS temp; otherwise ask.
 
 ## Already-reviewed changes
 
 Reuse applicable scope, evidence, format, authority and destination.
 Read missing facts; reuse successful checks without inventing helper receipts.
 
-| Requested message           | Preparation and completion                                                                                                                                     |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls                       |
-| Eligible per-file inventory | Prepare with `--message-format detailed`, follow `nextAction`, author, then `message finalize` -> exact approval and commit authorization -> `workflow commit` |
+| Requested message           | Preparation and completion                                                                                                                         |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls           |
+| Body text                   | Pipe it to `checkedAuthoring.arguments`, show `displayText`, approve, pipe the same bytes to `commit.arguments`                                    |
+| Eligible per-file inventory | Disk: `--message-format detailed`, follow `nextAction`, author, `message finalize` -> exact approval and commit authorization -> `workflow commit` |
 
-For bodies without `File Changes:`, prepare concise, write requested sections to `checkedAuthoring.messagePath`, run its `arguments`, and show checked `displayText` unchanged.
+Disk storage writes bodies to `checkedAuthoring.messagePath`.
 `--message-format detailed` requires exhaustive inventory, fewer than 50 units, and at most 32 KiB projected UTF-8 bytes.
 For larger inventories, omit that flag; use [bulk/recovery](references/message-format.md#large-inventory-and-rejected-preparation) via concise extension or extended `structuredAuthoring`, preserving sections.
 
 Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.
 Preserve requested sections; finish required evidence first.
 Reuse exact-message/effect authorization; drafts authorize neither staging nor committing, and pushing needs separate authority.
-
-Use `--result-detail summary` for display, comparison, signature, check and publication facts.
-Use `reportDetail.arguments` or focused recovery/signature/check references for concrete gaps or returned conditions.
 
 ## Publication intent before drafting
 
@@ -66,6 +70,7 @@ Never delete a live index lock.
 | Stage for an authorized workflow        | `actual` | `staged`, `full`, or `paths` |
 
 `staged` preserves intentional/partial hunks; `full` selects every change; `paths` selects exact whole paths.
+Memory drafts never commit; memory `full` runs `git add -A` only at commit.
 Actual `paths` requires an empty index; draft `paths` allows only disjoint staged work until cleared.
 Include rename sides.
 Manifest inclusion is not review.
@@ -87,11 +92,10 @@ Inline evidence must be complete; otherwise use packets.
 `read-current-task` requires actual reading.
 Cross-host evidence requires matching identity, subject and applicability.
 
-Every mode may write objects.
-Actual `full`/`paths` may install the index; drafts cannot:
+Disk preparation may write objects; actual `full`/`paths` may install the index:
 
 ```text
-node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> --evidence <reuse|message|review> --basis <authored-current-task|read-current-task|task-lineage|user-grounded|generated-derived|unknown-preexisting> [--path <literal-path> ...] [--allowed-type <type> ...]
+node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode <actual|draft> --scope <staged|full|paths> --evidence <reuse|message|review> --basis <authored-current-task|read-current-task|task-lineage|user-grounded|generated-derived|unknown-preexisting> [--path <literal-path> ...] [--allowed-type <type> ...] [--state-storage disk --state-directory <absolute-path>]
 ```
 
 Loaded repository type policy wins.
@@ -117,11 +121,7 @@ On `SUBJECT_DESCRIPTION_NOT_CAPITALIZED`, correct it before showing the message 
 
 Canonical bytes: strict UTF-8, one LF.
 Direct `--message` is `subject + LF` only after `canUseDirectSubjectTransport()` succeeds.
-Checked text uses `message check` with the transaction's fixed input.
-
-Success consumes input; recreate revisions.
-Failure preserves valid state/rejected input.
-Validate semantics yourself.
+Checked disk text uses `message check` with the transaction's fixed input.
 
 | Revision           | Invalidation and route                                            |
 | ------------------ | ----------------------------------------------------------------- |
@@ -131,7 +131,11 @@ Validate semantics yourself.
 
 Classify revisions by judgment, not keywords, edit distance, or embeddings.
 
-## Complete an extended message
+## Disk transactions
+
+Disk success consumes fixed input; recreate revisions.
+Failure preserves valid state/rejected input.
+Validate semantics yourself.
 
 Trust returned `reviewRequired` and `nextAction`, not null queue or phase.
 While required, call `workflow review-next` cursorless, then with exact `reviewProgress.nextCursor`.
@@ -139,38 +143,28 @@ Zero packets means complete; cursorless replay is idempotent.
 Never open queue paths, hash artifacts manually, or inspect helper source.
 Use [inspection recovery](references/inspection-recovery.md) for deletion, binary/gitlink, corruption, or uncertainty.
 
-Obey `nextAction`: `author-message` uses `messagePath` (`message-input.txt`) and `message check`; null `contentPath` is expected.
-`author-content` uses `contentPath` (`content.json`), versioned `contentContract`, and `message finalize`.
-Preserve `schemaVersion`, `evidenceGroups`, and `mode`.
-Supported sections are `Rationale:`, `User Experience Changes:`, and `File Changes:`; resolve others before approval and fix aggregate diagnostics by exact JSON pointer together.
-New uncertainty uses fixed `evidence-plan-input.json`.
-`workflow extend --reason semantic-structure-required` requires `route: concise`, `phase: evidence-ready`; otherwise follow `nextAction`.
-
-For `evidence-required`, traverse bounded delta, then finalize.
-`authoring-pending` means evidence is complete but approval bytes are unavailable; an older revision cannot commit.
+Read [disk authoring](references/state-storage.md#disk-authoring) before obeying `nextAction`.
 Optional checks must answer a material unresolved question.
-
-## Promote a draft
 
 Only an unchanged draft may become actual, and only through promotion.
 `workflow promote` rechecks the attached, detached, or zero-parent unborn head anchor, tree/scope, and staged state; it never authorizes a commit.
 
 ## Commit
 
-Report checks require `workflow check` after preparation and before approval; never reconstruct receipts.
+Report checks require disk `workflow check` after preparation and before approval; never reconstruct receipts.
 For failure authorization, drift or recovery, read [check evidence](references/check-evidence.md).
 
 Confirm exact-byte authorization and named non-passing receipts.
-The helper journals a signed commit, compares raw commit-message bytes without trimming and verifies full OID.
+The helper signs with `git commit`, compares raw commit-message bytes without trimming and verifies full OID.
 For capacity, [native execution](references/native-execution.md) retains existing authority; standalone Git mutations remain unsupported:
 
 ```text
-node <skill>/scripts/commitWorkflow.mjs workflow commit --transaction <opaque-transaction> [--execution native] [--message <transport-safe-subject>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
+node <skill>/scripts/commitWorkflow.mjs workflow commit (--proposal <proposal> | --transaction <opaque-transaction>) [--execution native] [--message <transport-safe-subject> | --message-stdin --message-sha256 <digest>] [--verification <required|advisory|skipped>] [--acknowledge-failed-check <receipt-id> ...]
 ```
 
 Preserve hook-altered commits; report mismatches.
 Use [signature recovery](references/signature-recovery.md) for trust/policy/identity limits.
-Journals preserve unknown outcomes without replay.
+Disk journals preserve unknown outcomes without replay.
 
 ## Interpret, recover, and publish
 
@@ -180,7 +174,10 @@ Old attempts return `UNSUPPORTED_ATTEMPT_VERSION` without migration.
 
 Resume a recoverably interrupted preparation only with `workflow resume --transaction <opaque-transaction>`; persisted inputs cannot broaden.
 Use [transaction recovery](references/transaction-recovery.md) for permission, lock, partial-phase, or pending/unknown failures. Bounded diagnostics point to a complete hashed failure log. Query count/byte-limited report paths through `workflow report-detail`; replay the same cursor or cursorless completed page, and use `--refresh` only for a new observation.
+Use `--result-detail summary` for display, comparison, signature, check and publication facts.
+Use `reportDetail.arguments` or focused recovery/signature/check references for concrete gaps or returned conditions.
 
+Helper publication requires a disk transaction.
 Before publication, confirm explicit push authority for the OID, remote and full destination ref. Reuse approval binding OID, tree/message and destination, and [publication discovery](references/publication-routing.md).
 Publishing the PR source does not complete integration:
 

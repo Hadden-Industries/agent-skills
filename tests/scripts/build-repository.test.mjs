@@ -26,7 +26,7 @@ test("repository build preserves full-repository validation counts", async () =>
 
   assert.deepEqual(result.staleArtifacts, []);
   assert.deepEqual(result.stalePackages, []);
-  assert.equal(result.artifactsChecked, 57);
+  assert.equal(result.artifactsChecked, 58);
   assert.equal(result.packagesChecked, 1);
   assert.equal(result.deployableSkillsValidated, 4);
   assert.equal(result.evaluationSuitesValidated, 4);

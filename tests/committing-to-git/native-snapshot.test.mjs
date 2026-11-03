@@ -15,10 +15,8 @@ import { readRecordedSnapshotFile } from "../../src/committing-to-git/snapshot/r
 import { readTransactionOwnedFile } from "../../src/committing-to-git/message/canonicalMessageState.js";
 import { workflowFailureResult } from "../../src/committing-to-git/diagnostics/workflowDiagnosticError.js";
 
-import {
-  prepareWorkflow,
-  parsePrepareArguments,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { extendReviewWorkflow } from "../../src/committing-to-git/workflow/extendReviewWorkflow.js";
 import { createCommitWorkflow } from "../../src/committing-to-git/workflow/createCommitWorkflow.js";
 import { recoverTransactionWorkflow } from "../../src/committing-to-git/workflow/recoverTransactionWorkflow.js";
@@ -83,7 +81,7 @@ for (const outcome of ["uninterrupted auto", "interrupted native"]) {
         "required",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
     });
     const transactionPath = prepared.transaction;
     const transaction = readTransaction(transactionPath);
@@ -247,7 +245,7 @@ async function prepareSmall(t, prefix) {
       "skipped",
     ]),
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   return { ...fixture, transactionPath: prepared.transaction };
 }
@@ -389,7 +387,7 @@ test("preparation retains the snapshot capacity prerequisite before installing t
           "skipped",
         ]),
         cwd: fixture.repo,
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
       }),
       (error) => {
         const result = workflowFailureResult(error);

@@ -20,10 +20,8 @@ import {
   resumePreparedIndexInstallation,
 } from "../../src/committing-to-git/transaction/indexInstallation.js";
 import { createTransactionWorkspace } from "../../src/committing-to-git/transaction/transactionWorkspace.js";
-import {
-  parsePrepareArguments,
-  prepareWorkflow,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { resumePreparationWorkflow } from "../../src/committing-to-git/workflow/resumePreparationWorkflow.js";
 import {
   commitAll,
@@ -47,7 +45,7 @@ function preparedFixture(t, prefix = "index-installation-") {
 
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const indexPath = gitPath(fixture.repo, "index");
   const preparedIndexPath = join(
@@ -141,7 +139,7 @@ test("an absent unborn index is journaled distinctly and installed once", (t) =>
   const fixture = createRepositoryFixture(t, "index-installation-absent-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const indexPath = gitPath(fixture.repo, "index");
   const preparedIndexPath = join(
@@ -387,7 +385,7 @@ test("preparation resume consumes only the persisted snapshot and policy", async
       ]),
       cwd: fixture.repo,
       environment: {},
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
       indexFailureInjector(stage) {
         if (stage === "after-index-replacement") {
           throw new Error("interrupt high-level preparation");
@@ -439,7 +437,7 @@ test("actual full preparation preserves split-index linkage and entry flags", as
     ]),
     cwd: fixture.repo,
     environment: {},
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const indexBytes = readFileSync(gitPath(fixture.repo, "index"));
 
@@ -481,7 +479,7 @@ test("actual full preparation preserves a sparse index when Git supports it", as
     ]),
     cwd: fixture.repo,
     environment: {},
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
 
   assert.equal(result.status, "prepared");

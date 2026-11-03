@@ -3,10 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { schemaErrors } from "./schema-validation.mjs";
-import {
-  parsePrepareArguments,
-  prepareWorkflow,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { resumePreparationWorkflow } from "../../src/committing-to-git/workflow/resumePreparationWorkflow.js";
 import {
   WorkflowDiagnosticError,
@@ -61,7 +59,7 @@ for (const mode of ["actual", "draft"])
             "detailed",
           ]),
           cwd: fixture.repo,
-          temporaryRoot: fixture.scratch,
+          stateDirectory: fixture.scratch,
         });
       } catch (error) {
         failure = error;
@@ -108,7 +106,7 @@ test("retained correction input and request drift withdraws advice without recre
         "detailed",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
     });
   } catch (error) {
     failure = error;
@@ -173,7 +171,7 @@ for (const stage of [
           "detailed",
         ]),
         cwd: fixture.repo,
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
         preparationFailureInjector(at, record) {
           if (at !== stage) return;
           if (record) record.schemaVersion = 0;
@@ -237,7 +235,7 @@ test("unbranded preparation failures cannot publish forged diagnostics or getter
         "authored-current-task",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
       preparationFailureInjector(stage) {
         if (stage === "after-snapshot-validation")
           throw {
@@ -275,7 +273,7 @@ test("branded failure details are projected without evaluating accessors", async
         "authored-current-task",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
       preparationFailureInjector(stage) {
         if (stage === "after-snapshot-validation")
           throw new WorkflowDiagnosticError(
@@ -335,7 +333,12 @@ function argumentsFor(mode = "actual") {
 }
 
 function invoke(fixture, command, args) {
-  const child = runCommitWorkflow(command, args, fixture.repo);
+  // Path scope and detailed authoring are disk-storage transaction routes.
+  const storage =
+    command === "workflow prepare"
+      ? ["--state-storage", "disk", "--state-directory", fixture.scratch]
+      : [];
+  const child = runCommitWorkflow(command, [...args, ...storage], fixture.repo);
   assert.equal(child.status, 0, child.stdout + child.stderr);
   return JSON.parse(child.stdout);
 }
@@ -457,7 +460,7 @@ test("interrupted preparation retains detailed authoring without accepting new i
         "skipped",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
       indexFailureInjector(stage) {
         if (stage === "after-index-replacement")
           throw new Error("injected interruption");
@@ -484,7 +487,7 @@ test("detailed preparation preserves required evidence traversal", async (t) => 
   const prepared = await prepareWorkflow({
     options: parsePrepareArguments(args),
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   assert.equal(prepared.nextAction, "review-next");
   assert.equal(prepared.reviewRequired, true);
@@ -638,7 +641,7 @@ test("detailed format limits fail before an actual index is installed", async (t
         "detailed",
       ]),
       cwd: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
     }),
     (error) =>
       error.code === "DETAILED_MESSAGE_LIMIT_EXCEEDED" &&

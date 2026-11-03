@@ -60,6 +60,10 @@ test("a trivial lock hash change commits through the direct concise path", (t) =
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -143,6 +147,10 @@ test("an unchanged promoted draft accepts later direct commit authorization", (t
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -203,6 +211,10 @@ test("commit after promotion verifies the current real index", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -255,6 +267,10 @@ test("semantic content finalizes after filling only editable placeholders", (t) 
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -365,6 +381,10 @@ test("zero-packet four-file authoring finalizes once and creates the canonical s
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -490,6 +510,10 @@ test("semantic finalization aggregates independent structural diagnostics", (t) 
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -589,6 +613,10 @@ test("structural diagnostics precede presentation-mode binding", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -698,6 +726,10 @@ test("verified packet traversal enables subject-only and detailed checked messag
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -862,6 +894,10 @@ test("review packet replay is idempotent and stale cursors do not advance", (t) 
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -940,6 +976,10 @@ test("review traversal rejects a changed packet without advancing", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -1009,6 +1049,10 @@ test("semantic structure extension cannot use checked concise text", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -1060,6 +1104,10 @@ test("extended draft finalization survives unchanged promotion", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -1152,6 +1200,10 @@ test("extended finalization converges through one evidence delta", (t) => {
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -1270,6 +1322,10 @@ test("an evidence revision delivers only packets not covered by the prior receip
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",

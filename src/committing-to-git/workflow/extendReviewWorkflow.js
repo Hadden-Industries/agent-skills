@@ -2,12 +2,9 @@ import {
   readStableFile,
   createOrVerifyFile,
 } from "../../../lib/filesystem/stableFile.js";
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
@@ -383,39 +380,4 @@ export async function extendReviewWorkflow({ transactionPath, reason }) {
   } finally {
     cleanupEvidenceSpools(records);
   }
-}
-
-export function parseExtendReviewArguments(argv) {
-  const { values } = parseCommandArguments("workflow extend", argv);
-
-  if (!values.has("transaction") || !values.has("reason")) {
-    fail(
-      "MISSING_ARGUMENT",
-      "--transaction and --reason are required for workflow extend.",
-    );
-  }
-
-  const format = values.get("format") ?? "json";
-
-  if (!new Set(["json", "text"]).has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  return {
-    transactionPath: values.get("transaction"),
-    reason: values.get("reason"),
-    format,
-  };
-}
-
-export async function runExtendReviewCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: parseExtendReviewArguments,
-    execute: extendReviewWorkflow,
-    stdout,
-  });
 }

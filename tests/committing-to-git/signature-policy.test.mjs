@@ -5,10 +5,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  parsePrepareArguments,
   preflightVerificationPolicy,
   prepareWorkflow,
 } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
 import {
   createRepositoryFixture,
@@ -51,7 +51,7 @@ async function prepareDraftForPromotion(
       verificationPolicy,
     ]),
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
 }
 

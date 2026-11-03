@@ -1,18 +1,10 @@
-import {
-  executeCommand,
-  diagnosticWriterFor,
-} from "../cli/commandExecution.js";
 import { messageAuthoringRecovery } from "./authoringProgress.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import {
   createWorkflowResult,
   createWorkflowWarning,
 } from "../diagnostics/diagnosticContract.js";
-import {
-  observeTransactionFailure,
-  transactionDiagnosticState,
-} from "../transaction/transactionDiagnosticState.js";
+import { transactionDiagnosticState } from "../transaction/transactionDiagnosticState.js";
 
 import { spawn } from "node:child_process";
 import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
@@ -454,7 +446,7 @@ function verificationAttemptFor({
   );
 }
 
-function verificationDiagnostics(verification) {
+export function verificationDiagnostics(verification) {
   const effectiveVerification =
     verification.attempts[verification.effectiveAttempt];
   return verification.finalPolicy === "advisory" &&
@@ -1183,55 +1175,5 @@ export function retrySignatureVerificationWorkflow({
         `Verification for ${transaction.commit.commitOid}: ${effective.status}` +
         `${effective.reason ? ` (${effective.reason})` : ""}\n`,
     },
-  });
-}
-
-function parseArguments(argv, command) {
-  const flags = parseCommandArguments(command, argv).values;
-  const format = flags.get("format") ?? "json";
-  if (!["json", "text"].includes(format))
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  const transactionPath = flags.get("transaction");
-  if (!transactionPath)
-    fail("TRANSACTION_REQUIRED", "--transaction is required.");
-  return {
-    transactionPath,
-    format,
-    execution: flags.get("execution") ?? "auto",
-    approvedSubject: flags.get("message") ?? null,
-    acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
-    retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
-    retainProcessLogs: flags.get("retain-process-logs") === true,
-    verificationPolicyOverride: flags.get("verification") ?? null,
-  };
-}
-export async function runCreateCommitCommand(
-  argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
-) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments(arguments_, "workflow commit"),
-    includeProcessDiagnostics: true,
-    execute: (options) =>
-      createCommitWorkflow({
-        ...options,
-        retainProcessLogs:
-          options.format !== "text" || options.retainProcessLogs,
-        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
-      }),
-    failureState: observeTransactionFailure,
-    stdout,
-  });
-}
-export async function runRetryVerificationCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments(arguments_, "workflow verify"),
-    includeProcessDiagnostics: true,
-    execute: retrySignatureVerificationWorkflow,
-    failureState: observeTransactionFailure,
-    stdout,
   });
 }

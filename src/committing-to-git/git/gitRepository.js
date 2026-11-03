@@ -224,6 +224,52 @@ function buildReadOnlyDiffArguments(args) {
   ];
 }
 
+// Read-only Git cannot observe an untracked file without naming it. One
+// bounded path per child keeps every argv constant-sized; scopes never travel
+// as path lists (docs/plans/2026-08-28-committing-to-git-large-scope-transport.md).
+export const MAXIMUM_NO_INDEX_PATH_BYTES = 512;
+
+/** Observe one untracked path against the empty side without an index entry. */
+function buildReadOnlyNoIndexArguments(args) {
+  const [format, separator, path] = args;
+
+  if (
+    args.length !== 3 ||
+    !new Set(["--raw-numstat", "--raw-numstat-patch", "--patch"]).has(format) ||
+    separator !== "--" ||
+    typeof path !== "string" ||
+    path.length === 0 ||
+    Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES ||
+    isAbsolute(path) ||
+    containsControlCharacter(path) ||
+    path.split("/").some((component) => component === "..")
+  ) {
+    throw new Error(
+      "Arguments are not permitted for read-only Git operation diff-no-index.",
+    );
+  }
+
+  return [
+    "diff",
+    "--no-index",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    ...(format === "--patch"
+      ? []
+      : [
+          "-z",
+          "--raw",
+          "--numstat",
+          ...(format === "--raw-numstat-patch" ? ["--patch"] : []),
+          "--no-abbrev",
+        ]),
+    "--",
+    "/dev/null",
+    path,
+  ];
+}
+
 function buildReadOnlyCatFileArguments(args) {
   if (
     args.length === 2 &&
@@ -362,6 +408,8 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
+    case "diff-no-index":
+      return buildReadOnlyNoIndexArguments(args);
     case "diff-files-names":
       assertExactArguments(args, [], operation);
       return [
@@ -386,6 +434,16 @@ function buildReadOnlyArguments(operation, args) {
         );
       }
       return ["hash-object", ...args];
+    // Without -w, hash-object computes identities and writes no object.
+    case "hash-object-paths":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "--stdin-paths"];
+    case "hash-object-unfiltered-input":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "--no-filters", "--stdin"];
+    case "empty-tree-object-id":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "-t", "tree", "--stdin"];
     case "show-message":
       if (args.length !== 1 || !FULL_OBJECT_ID.test(args[0])) {
         throw new Error(

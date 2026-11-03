@@ -1,11 +1,6 @@
-import {
-  observeTransactionFailure,
-  transactionDiagnosticState,
-} from "../transaction/transactionDiagnosticState.js";
+import { transactionDiagnosticState } from "../transaction/transactionDiagnosticState.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -881,32 +876,4 @@ export function promoteDraftWorkflow({
   });
 
   return successEnvelope(promoted);
-}
-
-function parseArguments(argv) {
-  const { values } = parseCommandArguments("workflow promote", argv);
-
-  const format = values.get("format") ?? "json";
-
-  if (!new Set(["json", "text"]).has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  if (!values.get("transaction")) {
-    fail("TRANSACTION_REQUIRED", "--transaction is required.");
-  }
-
-  return { transactionPath: values.get("transaction"), format };
-}
-
-export async function runPromoteDraftCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: parseArguments,
-    execute: promoteDraftWorkflow,
-    stdout,
-  });
 }

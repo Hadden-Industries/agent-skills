@@ -526,6 +526,10 @@ test("public staged preparation accepts 3,150 intentional change units", (t) => 
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -600,6 +604,10 @@ test("public workflow completes and publishes one signed 3,150-unit transaction"
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",

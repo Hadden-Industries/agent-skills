@@ -483,12 +483,21 @@ function publicFixture(context) {
   assert.equal(signing.status, 0, signing.stderr);
   git(["config", "gpg.format", "ssh"], fixture.repo);
   git(["config", "user.signingkey", key], fixture.repo);
+  // Recovery, correction and report detail are disk-storage transaction routes.
+  const storage = (arguments_) =>
+    arguments_[0] === "workflow" && arguments_[1] === "prepare"
+      ? ["--state-storage", "disk", "--state-directory", fixture.scratch]
+      : [];
   function invoke(arguments_, expectedExit = 0) {
-    const child = spawnSync(process.execPath, [helper, ...arguments_], {
-      cwd: fixture.repo,
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    const child = spawnSync(
+      process.execPath,
+      [helper, ...arguments_, ...storage(arguments_)],
+      {
+        cwd: fixture.repo,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
     assert.equal(
       child.status,
       expectedExit,

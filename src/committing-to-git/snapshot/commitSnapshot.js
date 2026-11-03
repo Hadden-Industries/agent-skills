@@ -13,8 +13,8 @@ import { readIndexIdentity } from "../transaction/indexInstallation.js";
 export const MAXIMUM_SIMILARITY_CANDIDATE_PAIRS = 40_000;
 export const MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES = 64 * 1024 * 1024;
 
-const RENAME_SCORE = 50;
-const ZERO_OBJECT_ID = /^(?:0{40}|0{64})$/u;
+export const RENAME_SCORE = 50;
+export const ZERO_OBJECT_ID = /^(?:0{40}|0{64})$/u;
 
 function nulPathInput(paths) {
   return Buffer.concat(
@@ -183,7 +183,7 @@ function kindForStatus(status) {
   }
 }
 
-function parseRawDiff(buffer) {
+export function parseRawDiff(buffer) {
   const fields = splitNul(buffer);
   const records = [];
 
@@ -221,7 +221,7 @@ function parseRawDiff(buffer) {
   return records;
 }
 
-function parseNumstat(buffer) {
+export function parseNumstat(buffer) {
   const fields = splitNul(buffer);
   const statistics = new Map();
 
@@ -257,7 +257,7 @@ function parseNumstat(buffer) {
   return statistics;
 }
 
-function normalizedChangeUnit(record) {
+export function normalizedChangeUnit(record) {
   const source = pathRecord(record.sourceBytes);
   const destination = pathRecord(record.destinationBytes);
   const renamed = record.kind === "renamed";
@@ -436,7 +436,7 @@ function objectIdsForUnits(changeUnits) {
   ];
 }
 
-function inspectObjectSizes(root, env, changeUnits) {
+export function inspectObjectSizes(root, env, changeUnits) {
   const objectIds = objectIdsForUnits(changeUnits);
 
   if (objectIds.length === 0) {
@@ -503,7 +503,7 @@ function inspectObjectSizes(root, env, changeUnits) {
   return { eligibleBlobBytes, unavailableObjectIds };
 }
 
-function statisticsForUnit(unit, statistics) {
+export function statisticsForUnit(unit, statistics) {
   if (
     unit.kind === "renamed" &&
     unit.renameClassification === "exact-object" &&
@@ -536,7 +536,7 @@ function statisticsForUnit(unit, statistics) {
   };
 }
 
-function assignIdentifiers(changeUnits) {
+export function assignIdentifiers(changeUnits) {
   return sortChangeUnits(changeUnits).map((unit, index) => ({
     ...unit,
     id: `F${String(index + 1).padStart(6, "0")}`,
@@ -551,6 +551,8 @@ export function buildSnapshot({
   sourceIndex,
   headOid,
   indexTreeOid = null,
+  // Memory preparation never writes tree objects; its manifest has no tree OID.
+  writeTree = true,
   maximumSimilarityCandidatePairs = MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
   maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES,
 }) {
@@ -647,7 +649,46 @@ export function buildSnapshot({
     }));
   }
 
-  changeUnits = assignIdentifiers(changeUnits);
+  return assembleSnapshot({
+    root,
+    workflowMode,
+    scopeKind,
+    sourceIndex,
+    headOid,
+    indexTreeOid: writeTree
+      ? (indexTreeOid ?? writeIndexTree(root, env))
+      : null,
+    rename: {
+      mode: renameSelection.mode,
+      maximumCandidatePairs: maximumSimilarityCandidatePairs,
+      addedCandidates,
+      deletedCandidates,
+      candidatePairs: renameSelection.candidatePairs,
+    },
+    lineStatistics: {
+      mode: lineStatistics.mode,
+      maximumEagerBytes: maximumEagerLineStatInputBytes,
+      eligibleBlobBytes: lineStatistics.eligibleBlobBytes,
+    },
+    changeUnits,
+    warnings,
+  });
+}
+
+/** Assign identifiers and summarize normalized change units as a snapshot manifest. */
+export function assembleSnapshot({
+  root,
+  workflowMode,
+  scopeKind,
+  sourceIndex,
+  headOid,
+  indexTreeOid,
+  rename,
+  lineStatistics,
+  changeUnits: unorderedChangeUnits,
+  warnings,
+}) {
+  const changeUnits = assignIdentifiers(unorderedChangeUnits);
   const textUnits = changeUnits.filter(({ binary }) => binary === false);
   const deferredStatistics = lineStatistics.mode === "deferred";
 
@@ -658,25 +699,15 @@ export function buildSnapshot({
     sourceIndex,
     repositoryRoot: root,
     headOid,
-    indexTreeOid: indexTreeOid ?? writeIndexTree(root, env),
+    indexTreeOid,
     diffPolicy: {
       renameScore: RENAME_SCORE,
       copyDetection: false,
       renameLimit: 0,
       externalDiff: false,
       textconv: false,
-      rename: {
-        mode: renameSelection.mode,
-        maximumCandidatePairs: maximumSimilarityCandidatePairs,
-        addedCandidates,
-        deletedCandidates,
-        candidatePairs: renameSelection.candidatePairs,
-      },
-      lineStatistics: {
-        mode: lineStatistics.mode,
-        maximumEagerBytes: maximumEagerLineStatInputBytes,
-        eligibleBlobBytes: lineStatistics.eligibleBlobBytes,
-      },
+      rename,
+      lineStatistics,
     },
     changeUnitCount: changeUnits.length,
     changeUnits,

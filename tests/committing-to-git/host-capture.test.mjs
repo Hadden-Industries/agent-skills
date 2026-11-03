@@ -54,6 +54,10 @@ function captureFixture(t, { trusted = true } = {}) {
     "authored-current-task",
     "--verification",
     "required",
+    "--state-storage",
+    "disk",
+    "--state-directory",
+    fixture.scratch,
   ]);
   const commit = (exit = 0) =>
     invoke(

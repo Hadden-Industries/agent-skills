@@ -195,7 +195,7 @@ test("transaction workspace owns one UUIDv4 attempt without discovery machinery"
   const fixture = createRepositoryFixture(t, "transaction-workspace-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
 
   assert.equal(MAXIMUM_TRANSACTION_PATH_BYTES, 2 * 1024);
@@ -274,7 +274,7 @@ test("attempt allocation retries only EEXIST with a fresh UUID", (t) => {
   const calls = [];
 
   const allocation = allocateAttemptDirectory({
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
     randomUuid: () => uuids.shift(),
     createDirectory: (path, options) => {
       calls.push({ path, options });
@@ -315,7 +315,7 @@ test("attempt allocation stops on non-collision errors and bounds collisions", (
   assert.throws(
     () =>
       allocateAttemptDirectory({
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
         randomUuid: () => "00000000-0000-4000-8000-000000000003",
         createDirectory: () => {
           deniedCalls += 1;
@@ -330,7 +330,7 @@ test("attempt allocation stops on non-collision errors and bounds collisions", (
   assert.throws(
     () =>
       allocateAttemptDirectory({
-        temporaryRoot: fixture.scratch,
+        stateDirectory: fixture.scratch,
         randomUuid: () => "00000000-0000-4000-8000-000000000004",
         createDirectory: () => {
           collisionCalls += 1;
@@ -364,7 +364,7 @@ test("transaction handle budget accepts the boundary and rejects one byte over b
   let exactMkdirCalls = 0;
 
   const exact = allocateAttemptDirectory({
-    temporaryRoot: exactRoot,
+    stateDirectory: exactRoot,
     randomUuid: () => uuid,
     createDirectory: () => {
       exactMkdirCalls += 1;
@@ -381,7 +381,7 @@ test("transaction handle budget accepts the boundary and rejects one byte over b
   assert.throws(
     () =>
       allocateAttemptDirectory({
-        temporaryRoot: overRoot,
+        stateDirectory: overRoot,
         randomUuid: () => uuid,
         createDirectory: () => {
           overMkdirCalls += 1;
@@ -415,7 +415,7 @@ test("transaction transitions preserve canonical head anchors and reject skips",
   for (const headAnchor of anchors) {
     const workspace = createTransactionWorkspace({
       repositoryRoot: fixture.repo,
-      temporaryRoot: fixture.scratch,
+      stateDirectory: fixture.scratch,
     });
     const advanced = advanceTransaction(
       workspace.transactionPath,
@@ -450,7 +450,7 @@ test("authoring must become message-ready before a commit transition", (t) => {
   const fixture = createRepositoryFixture(t, "transaction-authoring-gate-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const authoring = {
     ...structuredClone(PRECOMMIT_TEMPLATE),
@@ -523,7 +523,7 @@ test("pending review cannot bypass the explicit authoring phase", (t) => {
   const fixture = createRepositoryFixture(t, "transaction-review-gate-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const pendingReview = {
     ...structuredClone(PRECOMMIT_TEMPLATE),
@@ -596,7 +596,7 @@ test("reversible preparation facts can be persisted without inventing a phase", 
   const fixture = createRepositoryFixture(t, "transaction-preparation-facts-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const current = readTransaction(workspace.transactionPath);
   const prepared = {
@@ -967,7 +967,7 @@ test("transaction reads reject replaced recorded paths", (t) => {
   const fixture = createRepositoryFixture(t, "transaction-replaced-path-");
   const attemptReplacement = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const changedAttempt = structuredClone(attemptReplacement.transaction);
   changedAttempt.attemptDirectory = join(fixture.scratch, "other-attempt");
@@ -980,7 +980,7 @@ test("transaction reads reject replaced recorded paths", (t) => {
 
   const repositoryReplacement = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const changedRepository = structuredClone(repositoryReplacement.transaction);
   changedRepository.repositoryRoot = fixture.scratch;
@@ -996,7 +996,7 @@ test("compaction is terminal-only and removes only contained helper artifacts", 
   const fixture = createRepositoryFixture(t, "transaction-compaction-");
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const reviewDirectory = join(workspace.attemptDirectory, "review");
   const processLogDirectory = join(workspace.attemptDirectory, "process-logs");

@@ -119,6 +119,16 @@ export const COMMAND_ARGUMENTS = {
       description:
         "<required|advisory|skipped>  Signature policy; default: required.",
     },
+    "state-storage": {
+      ...stringOption,
+      description:
+        "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory.",
+    },
+    "state-directory": {
+      ...stringOption,
+      description:
+        "<absolute-path>  Existing directory for disk storage; required with disk,\n    rejected with memory. There is no temporary-directory default.",
+    },
   },
   "workflow resume": {},
   "workflow extend": {
@@ -136,7 +146,13 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow promote": {},
-  "message check": {},
+  "message check": {
+    proposal: {
+      ...stringOption,
+      description:
+        "<proposal>  Memory-storage proposal instead of --transaction; reads\n    the candidate message from standard input and writes nothing.",
+    },
+  },
   "message finalize": {},
   "workflow check": {
     label: {
@@ -176,6 +192,21 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow commit": {
+    proposal: {
+      ...stringOption,
+      description:
+        "<proposal>  Memory-storage proposal instead of --transaction; requires\n    --message or --message-stdin and rejects any repository drift first.",
+    },
+    "message-stdin": {
+      ...booleanOption,
+      description:
+        "Boolean switch; read the exact checked message from standard input.\n    Proposal route only.",
+    },
+    "message-sha256": {
+      ...stringOption,
+      description:
+        "<digest>  messageSha256 from message check; rejects other stdin bytes.",
+    },
     execution: {
       ...stringOption,
       description:
@@ -270,7 +301,7 @@ export function commandOptions(command) {
           transaction: {
             ...stringOption,
             description:
-              "<transaction.json>  Required opaque helper-returned path.",
+              "<transaction.json>  Opaque helper-returned disk-storage path;\n    required unless the command accepts --proposal and it is supplied.",
           },
         }),
     format: {

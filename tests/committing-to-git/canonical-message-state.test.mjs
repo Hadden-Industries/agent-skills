@@ -72,7 +72,7 @@ function createMessageTransaction(t, { route = "concise" } = {}) {
   const fixture = createRepositoryFixture(t, `canonical-${route}-`);
   const workspace = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const allocated = updateTransaction(workspace.transactionPath, "allocated", {
     ...workspace.transaction,

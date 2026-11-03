@@ -114,6 +114,7 @@ export function runNodeScript(script, args, cwd, options = {}) {
     cwd,
     encoding: "utf8",
     env: options.env ? { ...process.env, ...options.env } : process.env,
+    input: options.input,
     windowsHide: true,
   });
 }

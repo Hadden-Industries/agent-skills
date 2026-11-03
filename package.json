@@ -43,6 +43,7 @@
     "agent-skills-eval": ">=0.1.1",
     "ajv": ">=8.20.0",
     "cross-spawn": ">=7.0.6",
+    "dependency-cruiser": ">=18.7.1",
     "esbuild": ">=0.28.2",
     "eslint": ">=10.12.0",
     "eslint-config-prettier": ">=10.1.8",

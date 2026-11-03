@@ -4,12 +4,7 @@ import {
   validateWorkflowResult,
   WORKFLOW_RESULT_FIELDS,
 } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
-import {
-  observeTransactionFailure,
-  transactionDiagnosticState,
-} from "../transaction/transactionDiagnosticState.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
+import { transactionDiagnosticState } from "../transaction/transactionDiagnosticState.js";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
@@ -913,38 +908,4 @@ function readRetainedReport({
   } finally {
     releaseTransactionStateLock(lock);
   }
-}
-
-function parseArguments(argv) {
-  const flags = parseCommandArguments("workflow report-detail", argv).values;
-  const format = flags.get("format") ?? "json";
-  if (!["json", "text"].includes(format))
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  const transactionPath = flags.get("transaction");
-  if (!transactionPath)
-    fail("TRANSACTION_REQUIRED", "--transaction is required.");
-  const section = flags.get("section") ?? "workspace";
-  if (!["workspace", "report", "diagnostics"].includes(section))
-    fail(
-      "INVALID_DETAIL_SECTION",
-      "--section must be workspace, report or diagnostics.",
-    );
-  return {
-    transactionPath,
-    section,
-    cursor: flags.get("cursor") ?? null,
-    refresh: flags.get("refresh") === true,
-    format,
-  };
-}
-export async function runReportDetailCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    parse: parseArguments,
-    execute: reportDetailWorkflow,
-    failureState: observeTransactionFailure,
-    stdout,
-  });
 }

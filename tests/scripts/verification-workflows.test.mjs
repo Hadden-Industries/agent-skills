@@ -162,10 +162,11 @@ const originalWorkflows = {
     },
   },
 };
-// Accepted 2026-10-10 development floors and native npm policy, with the
-// separately tested evidence/Markdown script additions removed below.
+// Accepted 2026-10-10 development floors and native npm policy, plus the
+// 2026-11-03 dependency-cruiser >=18.7.1 floor, with the separately tested
+// evidence/Markdown script additions removed below.
 const approvedPackageDigest =
-  "17e16141195c1ea2136a0e8c414862b1a3f4963a8eebbf7ad346d7893f5207be";
+  "076a2ce9e32130119d09a60c90d8d10790b42e6d3d72505b1f70ed5dd9959ad2";
 function workflows(name) {
   return {
     original: originalWorkflows[name],

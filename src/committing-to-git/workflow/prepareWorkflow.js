@@ -5,7 +5,6 @@ import {
   selectorMatches,
 } from "./preparationInputs.js";
 import { readStableFile } from "../../../lib/filesystem/stableFile.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import { snapshotExecution } from "../snapshot/recordedSnapshot.js";
 import {
   WorkflowDiagnosticError,
@@ -14,12 +13,6 @@ import {
 } from "../diagnostics/workflowDiagnosticError.js";
 import { validatePreparationFailure } from "../transaction/preparationFailureRecord.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import {
-  EVIDENCE_POLICIES,
-  BASIS_KINDS,
-  REUSE_BASIS_KINDS,
-} from "../evidence/evidenceVocabulary.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -110,9 +103,13 @@ const STORAGE_OVERRIDE_NAMES = [
   "GIT_QUARANTINE_PATH",
   "GIT_NAMESPACE",
 ];
-const VERIFICATION_POLICIES = new Set(["required", "advisory", "skipped"]);
-const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
-const INLINE_SELECTOR_FLAGS = [
+export const VERIFICATION_POLICIES = new Set([
+  "required",
+  "advisory",
+  "skipped",
+]);
+export const TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
+export const INLINE_SELECTOR_FLAGS = [
   "path",
   "path-prefix",
   "exclude-path",
@@ -158,7 +155,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function readBoundedJson(path, label) {
+export function readBoundedJson(path, label) {
   const absolutePath = resolve(path);
   let bytes;
   try {
@@ -201,156 +198,6 @@ function readBoundedJson(path, label) {
       });
     }
   }
-}
-
-function inlineScopePayload(values) {
-  return {
-    schemaVersion: 2,
-    includePaths: values.get("path") ?? [],
-    includePathPrefixes: values.get("path-prefix") ?? [],
-    excludePaths: values.get("exclude-path") ?? [],
-    excludePathPrefixes: values.get("exclude-path-prefix") ?? [],
-    includePathBytesBase64: [],
-    excludePathBytesBase64: [],
-  };
-}
-
-export function parsePrepareArguments(argv) {
-  const { values } = parseCommandArguments("workflow prepare", argv);
-
-  const mode = values.get("mode");
-  const scope = values.get("scope");
-  const verificationPolicy = values.get("verification") ?? "required";
-  const format = values.get("format") ?? "json";
-  const messageFormat = values.get("message-format") ?? null;
-  if (messageFormat !== null && messageFormat !== "detailed") {
-    fail(
-      "INVALID_MESSAGE_FORMAT",
-      "--message-format must be detailed when supplied.",
-    );
-  }
-
-  if (!new Set(["actual", "draft"]).has(mode)) {
-    fail("INVALID_MODE", "--mode must be actual or draft.");
-  }
-
-  if (!new Set(["staged", "full", "paths"]).has(scope)) {
-    fail("INVALID_SCOPE", "--scope must be staged, full, or paths.");
-  }
-
-  if (!VERIFICATION_POLICIES.has(verificationPolicy)) {
-    fail(
-      "INVALID_VERIFICATION_POLICY",
-      "--verification must be required, advisory, or skipped.",
-    );
-  }
-
-  if (!new Set(["json", "text"]).has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  const evidencePlanPath = values.get("evidence-plan") ?? null;
-  const evidence = values.get("evidence") ?? null;
-  const basis = values.get("basis") ?? null;
-
-  if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
-    fail(
-      "CONFLICTING_EVIDENCE_INPUT",
-      "--evidence-plan is an alternative to --evidence and --basis.",
-    );
-  }
-
-  if (evidencePlanPath === null && (evidence === null || basis === null)) {
-    fail(
-      "MISSING_EVIDENCE_INPUT",
-      "Supply --evidence and --basis together, or supply --evidence-plan.",
-    );
-  }
-
-  if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
-    fail(
-      "INVALID_EVIDENCE_POLICY",
-      "--evidence must be reuse, message, or review.",
-    );
-  }
-
-  if (basis !== null && !BASIS_KINDS.includes(basis)) {
-    fail(
-      "INVALID_EVIDENCE_BASIS",
-      "--basis is not a supported provenance kind.",
-    );
-  }
-
-  if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
-    fail(
-      "INVALID_EVIDENCE_BASIS",
-      "Reuse evidence requires authored, read, generated, or specific task-lineage basis.",
-    );
-  }
-
-  const allowedTypes = values.get("allowed-type") ?? [];
-
-  if (allowedTypes.length > 64) {
-    fail(
-      "INVALID_ALLOWED_TYPE",
-      "At most 64 allowed commit types may be supplied.",
-    );
-  }
-
-  if (
-    allowedTypes.some((type) => !TYPE_TOKEN_PATTERN.test(type)) ||
-    new Set(allowedTypes).size !== allowedTypes.length
-  ) {
-    fail(
-      "INVALID_ALLOWED_TYPE",
-      "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters.",
-    );
-  }
-
-  const hasInlineSelectors = INLINE_SELECTOR_FLAGS.some((name) =>
-    values.has(name),
-  );
-  const scopeFilePath = values.get("scope-file") ?? null;
-
-  if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
-    fail(
-      "SELECTOR_OUTSIDE_PATH_SCOPE",
-      "Path selectors and --scope-file are valid only with --scope paths.",
-    );
-  }
-
-  if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
-    fail(
-      "CONFLICTING_SCOPE_INPUT",
-      "Inline selectors and --scope-file cannot be combined.",
-    );
-  }
-
-  if (
-    scope === "paths" &&
-    scopeFilePath === null &&
-    !(values.has("path") || values.has("path-prefix"))
-  ) {
-    fail("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
-  }
-
-  return {
-    mode,
-    correctionFromPath: values.get("correction-from") ?? null,
-    scope,
-    evidencePlanPath,
-    evidence,
-    basis,
-    allowedTypes: allowedTypes.length === 0 ? null : allowedTypes,
-    scopeFilePath,
-    inlineScope:
-      scope === "paths" && scopeFilePath === null
-        ? inlineScopePayload(values)
-        : null,
-    verificationPolicy,
-    messageFormat,
-    format,
-  };
 }
 
 export function assertNoGitStorageOverrides(environment) {
@@ -732,7 +579,7 @@ function validateSelectorsAgainstCandidates(scope, candidates) {
   return selectedPaths;
 }
 
-function scopeSummary(kind, normalizedScope, selectedPaths) {
+export function scopeSummary(kind, normalizedScope, selectedPaths) {
   if (kind !== "paths") {
     return {
       kind,
@@ -795,7 +642,7 @@ function writeOwnedInput(path, bytes) {
   }
 }
 
-function assertPreallocationRepositoryState(root) {
+export function assertPreallocationRepositoryState(root) {
   const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"], {
     env: { GIT_OPTIONAL_LOCKS: "0" },
   }).stdout;
@@ -1534,7 +1381,7 @@ export async function prepareWorkflow({
   options,
   cwd = process.cwd(),
   environment = process.env,
-  temporaryRoot,
+  stateDirectory,
   indexFailureInjector,
   preparationFailureInjector,
 }) {
@@ -1651,7 +1498,7 @@ export async function prepareWorkflow({
   const summary = scopeSummary(parsed.scope, normalizedScope, selectedPaths);
   const workspace = createTransactionWorkspace({
     repositoryRoot: root,
-    ...(temporaryRoot ? { temporaryRoot } : {}),
+    stateDirectory,
   });
   const evidenceSha256 = sha256(normalizedEvidence.canonicalBytes);
 
@@ -1845,23 +1692,4 @@ export async function prepareWorkflow({
   }
 
   return successEnvelope(completed, summary);
-}
-
-export async function runPrepareWorkflowCommand(
-  argv,
-  {
-    cwd = process.cwd(),
-    environment = process.env,
-    stdout = process.stdout,
-  } = {},
-) {
-  return executeCommand(argv, {
-    parse: parsePrepareArguments,
-    execute: (options) => prepareWorkflow({ options, cwd, environment }),
-    failureState: () => ({
-      commitState: "absent",
-      publicationState: "not-requested",
-    }),
-    stdout,
-  });
 }

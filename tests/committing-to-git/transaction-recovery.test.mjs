@@ -25,10 +25,8 @@ import {
   readTransaction,
   updateTransaction,
 } from "../../src/committing-to-git/transaction/transactionWorkspace.js";
-import {
-  parsePrepareArguments,
-  prepareWorkflow,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import { promoteDraftWorkflow } from "../../src/committing-to-git/workflow/promoteDraftWorkflow.js";
 import { recoverTransactionWorkflow } from "../../src/committing-to-git/workflow/recoverTransactionWorkflow.js";
 import { runCheckWorkflow } from "../../src/committing-to-git/workflow/runCheckWorkflow.js";
@@ -80,7 +78,7 @@ async function prepareConcise(
   return prepareWorkflow({
     options,
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
 }
 
@@ -372,7 +370,7 @@ test("ambiguous promotion reports top-level recovery without overwriting the ind
   git(["add", "other.txt"], fixture.repo);
   const before = git(["write-tree"], fixture.repo).stdout;
   const { runPromoteDraftCommand } =
-    await import("../../src/committing-to-git/workflow/promoteDraftWorkflow.js");
+    await import("../../src/committing-to-git/cli/promoteDraftCommand.js");
   let output = "";
   const exit = await runPromoteDraftCommand(
     ["--transaction", prepared.transaction],
@@ -971,7 +969,7 @@ test("commit requires exact authorization for every witnessed non-passing receip
 
   assert.equal(witnessed.receipt.receiptId, "C000001");
   const { runCreateCommitCommand } =
-    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+    await import("../../src/committing-to-git/cli/createCommitCommand.js");
   let publicOutput = "";
   const commandExit = await runCreateCommitCommand(
     [
@@ -1098,6 +1096,10 @@ test("public commit and recovery commands keep stdout to one bounded JSON result
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -1584,7 +1586,7 @@ test("many failed receipts retain bounded approval diagnostics without mutation"
     });
   }
   const { runCreateCommitCommand } =
-    await import("../../src/committing-to-git/workflow/createCommitWorkflow.js");
+    await import("../../src/committing-to-git/cli/createCommitCommand.js");
   const before = git(["rev-parse", "HEAD"], fixture.repo).stdout;
   const approvedIds = [];
   for (const expectedCount of [33, 1]) {

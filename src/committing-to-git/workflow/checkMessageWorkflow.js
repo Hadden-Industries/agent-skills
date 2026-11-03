@@ -1,9 +1,6 @@
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { presentationDiagnostics } from "../message/approvedMessage.js";
 import { messageAuthoringRecovery } from "./authoringProgress.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import {
   createWorkflowResult,
   createWorkflowWarning,
@@ -29,7 +26,7 @@ export const MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const MESSAGE_INPUT_NAME = "message-input.txt";
 const SNAPSHOT_NAME = "snapshot.json";
-const FORMATS = new Set(["json", "text"]);
+export const FORMATS = new Set(["json", "text"]);
 
 function fail(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -289,35 +286,4 @@ export function checkMessageWorkflow({
   });
 
   return assertMessageResultBudget(result);
-}
-
-export function parseMessageWorkflowArguments(argv, command) {
-  const { values } = parseCommandArguments(`message ${command}`, argv);
-
-  if (!values.has("transaction")) {
-    fail(
-      "MISSING_ARGUMENT",
-      `--transaction is required for message ${command}.`,
-    );
-  }
-
-  const format = values.get("format") ?? "json";
-
-  if (!FORMATS.has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  return { transactionPath: values.get("transaction"), format };
-}
-
-export async function runCheckMessageCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "check"),
-    execute: checkMessageWorkflow,
-    stdout,
-  });
 }

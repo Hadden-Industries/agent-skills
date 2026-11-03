@@ -51,7 +51,7 @@ test("current runtime and strict schema admit older records and reject malformed
   const fixture = createRepositoryFixture(t, "failure-schema-");
   const allocated = createTransactionWorkspace({
     repositoryRoot: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   }).transaction;
   const old = {
     ...allocated,

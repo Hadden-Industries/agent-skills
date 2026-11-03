@@ -73,7 +73,7 @@ The owning command defines those additional payload fields.
 | `disposition`, `exitCode` | Outcome classification and matching process exit, from the table below.                                                                                                |
 | `status`                  | The owning operation's progress/status token.                                                                                                                          |
 | `code`, `message`         | Stable uppercase diagnostic identity and bounded explanation, or null on success without a diagnostic. Non-success requires a code.                                    |
-| `transaction`             | Exact helper-returned transaction handle, or null when unavailable.                                                                                                    |
+| `transaction`             | Exact helper-returned transaction handle, or null when unavailable; memory storage returns a `proposal` instead.                                                       |
 | `phase`, `route`          | Observed transaction phase and `concise`/`extended` route; null means unavailable.                                                                                     |
 | `commitState`             | `absent`, `created`, or `unknown`, supplied by the operation that observed it.                                                                                         |
 | `publicationState`        | `not-requested`, `blocked`, `published`, `rejected`, or `unknown`.                                                                                                     |

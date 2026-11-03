@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "a6d9ab992492650f550032ab1565056241c0acae",
+  "reason": "Owner-directed ephemeral workflow state (docs/plans/2026-11-03-committing-to-git-ephemeral-state.md); behavioral evaluation of the changed guidance is still required before release.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/SKILL.md",
+      "previousSha256": "d771641753282f0fd7f8bbc834e984c3f6f6b20f1ad38ae1e08ed312f0218e69",
+      "byteLength": 13169,
+      "sha256": "e5a4d1d87141cccf567f8293352195315a9792e370032b9b4c118f00a018a6b7"
+    },
+    {
+      "path": "skills/committing-to-git/references/diagnostics.md",
+      "previousSha256": "c20114fc950fa6d7bc0e54972b0e97fd1b9e7bf9bd7ded1d2b073b58f8cf812f",
+      "byteLength": 15066,
+      "sha256": "a87824f8a3ba7e21bbcf61b671c34e68efeab2f6de0c2e0707955d0f2c9a6c9b"
+    },
+    {
+      "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "previousSha256": "08853c5384e5036e66f9bc8db3702d31e92590ac77ab0ebb1621e96c41813826",
+      "byteLength": 919370,
+      "sha256": "e8cda9069dae8f33a21613f3d0fc890a79bf3fff85520a621b9834c21ecac755"
+    }
+  ],
+  "addedFiles": [
+    {
+      "path": "skills/committing-to-git/references/state-storage.md",
+      "byteLength": 5765,
+      "sha256": "c0e4e4c85c9f5f9308798766d3cd42a67408f0eb6355f3ae68a946e8ba5e76d8"
+    }
+  ]
+}

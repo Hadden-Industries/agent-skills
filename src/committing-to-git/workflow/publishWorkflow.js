@@ -1,15 +1,7 @@
 import { readStableFile } from "../../../lib/filesystem/stableFile.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import {
-  executeCommand,
-  diagnosticWriterFor,
-} from "../cli/commandExecution.js";
-import {
-  observeTransactionFailure,
-  transactionDiagnosticState,
-} from "../transaction/transactionDiagnosticState.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
+import { transactionDiagnosticState } from "../transaction/transactionDiagnosticState.js";
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -1232,38 +1224,4 @@ export async function recoverPublicationOutcome({
   } finally {
     releaseTransactionStateLock(lock);
   }
-}
-
-function parseArguments(argv) {
-  const flags = parseCommandArguments("workflow publish", argv).values;
-  const format = flags.get("format") ?? "json";
-  if (!["json", "text"].includes(format))
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  for (const required of ["transaction", "remote", "destination"]) {
-    if (!flags.get(required))
-      fail("INVALID_ARGUMENT", `--${required} is required.`);
-  }
-  return {
-    transactionPath: flags.get("transaction"),
-    remote: flags.get("remote"),
-    destination: flags.get("destination"),
-    retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
-    format,
-  };
-}
-export async function runPublishCommand(
-  argv,
-  { stdout = process.stdout, stderr = process.stderr } = {},
-) {
-  return executeCommand(argv, {
-    parse: parseArguments,
-    includeProcessDiagnostics: true,
-    execute: (options) =>
-      publishWorkflow({
-        ...options,
-        diagnosticWriter: diagnosticWriterFor(options.format, stderr),
-      }),
-    failureState: observeTransactionFailure,
-    stdout,
-  });
 }

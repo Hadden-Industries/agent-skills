@@ -98,6 +98,10 @@ test("draft promotion reuses reviewed evidence instead of routing it again", (t)
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "draft",
       "--scope",
@@ -454,6 +458,10 @@ test("concise preapproval action budgets distinguish direct subjects from checke
   const prepared = runCommitWorkflow(
     "workflow prepare",
     [
+      "--state-storage",
+      "disk",
+      "--state-directory",
+      fixture.scratch,
       "--mode",
       "actual",
       "--scope",
@@ -537,6 +545,10 @@ for (const changeUnitCount of [1, 12, 1_000]) {
     const preparation = runCommitWorkflow(
       "workflow prepare",
       [
+        "--state-storage",
+        "disk",
+        "--state-directory",
+        fixture.scratch,
         "--mode",
         "actual",
         "--scope",

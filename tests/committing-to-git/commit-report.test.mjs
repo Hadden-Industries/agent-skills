@@ -15,10 +15,8 @@ import {
   renderCommitReport,
 } from "../../src/committing-to-git/report/commitReport.js";
 import { createCommitWorkflow } from "../../src/committing-to-git/workflow/createCommitWorkflow.js";
-import {
-  parsePrepareArguments,
-  prepareWorkflow,
-} from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { prepareWorkflow } from "../../src/committing-to-git/workflow/prepareWorkflow.js";
+import { parsePrepareArguments } from "../../src/committing-to-git/cli/prepareCommand.js";
 import {
   commitAll,
   createRepositoryFixture,
@@ -262,7 +260,7 @@ async function reportedTransaction(t, fixture) {
       "skipped",
     ]),
     cwd: fixture.repo,
-    temporaryRoot: fixture.scratch,
+    stateDirectory: fixture.scratch,
   });
   const committed = await createCommitWorkflow({
     transactionPath: prepared.transaction,

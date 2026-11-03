@@ -34,7 +34,7 @@ test("artifact checks skip generated outputs owned by unrelated skills", async (
 
 test("artifact check accepts the committed generated outputs", async () => {
   assert.deepEqual(await buildSkillArtifacts({ checkOnly: true }), {
-    artifactsChecked: 57,
+    artifactsChecked: 58,
     staleArtifacts: [],
   });
 });

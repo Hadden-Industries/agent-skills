@@ -596,7 +596,7 @@ function commandOptions(command) {
     ...["workflow prepare", "workflow preflight"].includes(command) ? {} : {
       transaction: {
         ...stringOption,
-        description: "<transaction.json>  Required opaque helper-returned path."
+        description: "<transaction.json>  Opaque helper-returned disk-storage path;\n    required unless the command accepts --proposal and it is supplied."
       }
     },
     format: {
@@ -774,6 +774,14 @@ var init_commandArguments = __esm({
         verification: {
           ...stringOption,
           description: "<required|advisory|skipped>  Signature policy; default: required."
+        },
+        "state-storage": {
+          ...stringOption,
+          description: "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory."
+        },
+        "state-directory": {
+          ...stringOption,
+          description: "<absolute-path>  Existing directory for disk storage; required with disk,\n    rejected with memory. There is no temporary-directory default."
         }
       },
       "workflow resume": {},
@@ -790,7 +798,12 @@ var init_commandArguments = __esm({
         }
       },
       "workflow promote": {},
-      "message check": {},
+      "message check": {
+        proposal: {
+          ...stringOption,
+          description: "<proposal>  Memory-storage proposal instead of --transaction; reads\n    the candidate message from standard input and writes nothing."
+        }
+      },
       "message finalize": {},
       "workflow check": {
         label: {
@@ -829,6 +842,18 @@ var init_commandArguments = __esm({
         }
       },
       "workflow commit": {
+        proposal: {
+          ...stringOption,
+          description: "<proposal>  Memory-storage proposal instead of --transaction; requires\n    --message or --message-stdin and rejects any repository drift first."
+        },
+        "message-stdin": {
+          ...booleanOption,
+          description: "Boolean switch; read the exact checked message from standard input.\n    Proposal route only."
+        },
+        "message-sha256": {
+          ...stringOption,
+          description: "<digest>  messageSha256 from message check; rejects other stdin bytes."
+        },
         execution: {
           ...stringOption,
           description: "<auto|native>  Default: auto. Both use native signed Git with identical journal, checks and verification. Snapshots above 8 MiB need no method exception (64 MiB maximum)."
@@ -912,14 +937,14 @@ function diagnosticWriterFor(format, stderr) {
 async function writeWorkflowOutput(stdout, encoded) {
   try {
     if (stdout instanceof Writable) {
-      await new Promise((resolve33, reject) => {
+      await new Promise((resolve34, reject) => {
         const onError = (error) => reject(error);
         stdout.once("error", onError);
         stdout.write(encoded.output, (error) => {
           if (error) reject(error);
           else {
             stdout.removeListener("error", onError);
-            resolve33();
+            resolve34();
           }
         });
       });
@@ -1210,7 +1235,7 @@ function buildReadOnlyDiffArguments(args) {
     "--root",
     "--"
   ]);
-  const invalid3 = optionArguments.find(
+  const invalid6 = optionArguments.find(
     (argument) => !allowedArguments.has(argument) && !FULL_OBJECT_ID.test(argument)
   );
   const outputModes = optionArguments.filter(
@@ -1222,9 +1247,9 @@ function buildReadOnlyDiffArguments(args) {
       "--quiet"
     ])).has(argument)
   );
-  if (invalid3 || separatorIndex < 0 || args.at(-1) !== "--" || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || optionArguments.some((argument) => isAbsolute(argument))) {
+  if (invalid6 || separatorIndex < 0 || args.at(-1) !== "--" || new Set(optionArguments).size !== optionArguments.length || outputModes.length > 1 || optionArguments.filter((argument) => FULL_OBJECT_ID.test(argument)).length > 1 || optionArguments.includes("--find-renames=50%") !== optionArguments.includes("-l0") || optionArguments.includes("--raw") !== optionArguments.includes("--no-abbrev") || outputModes.some((mode) => mode !== "--quiet") && !optionArguments.includes("-z") || optionArguments.some((argument) => isAbsolute(argument))) {
     throw new Error(
-      `Arguments are not permitted for read-only Git operation diff${invalid3 ? `: ${invalid3}` : ""}.`
+      `Arguments are not permitted for read-only Git operation diff${invalid6 ? `: ${invalid6}` : ""}.`
     );
   }
   return [
@@ -1233,6 +1258,31 @@ function buildReadOnlyDiffArguments(args) {
     "--no-textconv",
     "--no-color",
     ...optionArguments
+  ];
+}
+function buildReadOnlyNoIndexArguments(args) {
+  const [format, separator, path] = args;
+  if (args.length !== 3 || !(/* @__PURE__ */ new Set(["--raw-numstat", "--raw-numstat-patch", "--patch"])).has(format) || separator !== "--" || typeof path !== "string" || path.length === 0 || Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES || isAbsolute(path) || containsControlCharacter(path) || path.split("/").some((component) => component === "..")) {
+    throw new Error(
+      "Arguments are not permitted for read-only Git operation diff-no-index."
+    );
+  }
+  return [
+    "diff",
+    "--no-index",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    ...format === "--patch" ? [] : [
+      "-z",
+      "--raw",
+      "--numstat",
+      ...format === "--raw-numstat-patch" ? ["--patch"] : [],
+      "--no-abbrev"
+    ],
+    "--",
+    "/dev/null",
+    path
   ];
 }
 function buildReadOnlyCatFileArguments(args) {
@@ -1337,6 +1387,8 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
+    case "diff-no-index":
+      return buildReadOnlyNoIndexArguments(args);
     case "diff-files-names":
       assertExactArguments(args, [], operation);
       return [
@@ -1361,6 +1413,16 @@ function buildReadOnlyArguments(operation, args) {
         );
       }
       return ["hash-object", ...args];
+    // Without -w, hash-object computes identities and writes no object.
+    case "hash-object-paths":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "--stdin-paths"];
+    case "hash-object-unfiltered-input":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "--no-filters", "--stdin"];
+    case "empty-tree-object-id":
+      assertExactArguments(args, [], operation);
+      return ["hash-object", "-t", "tree", "--stdin"];
     case "show-message":
       if (args.length !== 1 || !FULL_OBJECT_ID.test(args[0])) {
         throw new Error(
@@ -1792,7 +1854,7 @@ function activeGitOperations(root, observe = readOnlyGitText) {
   ).map(([operation]) => operation);
   return [...new Set(operations)];
 }
-var READ_ONLY_ENVIRONMENT, READ_ONLY_GLOBAL_ARGUMENTS, INDEX_MUTATION_GLOBAL_ARGUMENTS, OPERATION_MARKER_NAMES, FULL_OBJECT_ID, readOnlyCapability, GitCapabilityError, GitCommandError, OPERATION_MARKERS;
+var READ_ONLY_ENVIRONMENT, READ_ONLY_GLOBAL_ARGUMENTS, INDEX_MUTATION_GLOBAL_ARGUMENTS, OPERATION_MARKER_NAMES, FULL_OBJECT_ID, readOnlyCapability, GitCapabilityError, MAXIMUM_NO_INDEX_PATH_BYTES, GitCommandError, OPERATION_MARKERS;
 var init_gitRepository = __esm({
   "src/committing-to-git/git/gitRepository.js"() {
     READ_ONLY_ENVIRONMENT = Object.freeze({
@@ -1835,6 +1897,7 @@ var init_gitRepository = __esm({
         this.gitVersion = gitVersion;
       }
     };
+    MAXIMUM_NO_INDEX_PATH_BYTES = 512;
     GitCommandError = class extends Error {
       constructor(args, result) {
         const stderr = result.stderr?.toString("utf8").trim();
@@ -3279,7 +3342,7 @@ import { existsSync as existsSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 function githubGet(endpoint, credential) {
-  return new Promise((resolve33, reject) => {
+  return new Promise((resolve34, reject) => {
     const req = request(
       {
         hostname: "api.github.com",
@@ -3308,7 +3371,7 @@ function githubGet(endpoint, credential) {
           try {
             const headers = ["x-ratelimit-remaining", "retry-after"].filter((key) => response.headers[key] !== void 0).map((key) => `${key}: ${response.headers[key]}\r
 `).join("");
-            resolve33(
+            resolve34(
               parseGitHubResponse(
                 {
                   status: response.statusCode === 200 ? 0 : 1,
@@ -3618,8 +3681,69 @@ var init_transportObservationWorker = __esm({
 });
 
 // src/committing-to-git/workflow/publicationPreflightWorkflow.js
-var publicationPreflightWorkflow_exports = {};
-__export(publicationPreflightWorkflow_exports, {
+async function publicationPreflightWorkflow(options, { cwd, repeatCommand }) {
+  const { inspectPublicationFeasibility: inspectPublicationFeasibility2 } = await Promise.resolve().then(() => (init_publicationPreflight(), publicationPreflight_exports));
+  const { observeTransportInWorker: observeTransportInWorker2 } = await Promise.resolve().then(() => (init_transportObservationWorker(), transportObservationWorker_exports));
+  const { observeTransportContext: observeTransportContext2 } = await Promise.resolve().then(() => (init_discoveryEvidence(), discoveryEvidence_exports));
+  let priorDiscovery;
+  if (options.reuseDiscovery) {
+    try {
+      if (!options.taskId) throw new Error("Invalid receipt.");
+      const prior = JSON.parse(
+        readStableFile(options.reuseDiscovery, 1024 * 1024).bytes.toString(
+          "utf8"
+        )
+      );
+      priorDiscovery = prior.feasibility?.discoveryEvidence ?? prior.data?.feasibility?.discoveryEvidence;
+      if (!priorDiscovery) throw new Error("Missing receipt.");
+    } catch {
+      throw new WorkflowDiagnosticError(
+        "INVALID_ARGUMENT",
+        "Reuse requires bounded preflight JSON retained from this task and --task-id."
+      );
+    }
+  }
+  const feasibility = inspectPublicationFeasibility2({
+    ...options,
+    cwd,
+    priorDiscovery,
+    observeContext: observeTransportContext2,
+    observeTransport: (binding) => observeTransportInWorker2(binding, process.argv[1])
+  });
+  return createWorkflowResult({
+    disposition: ["viable", "viable-with-prerequisites"].includes(
+      feasibility.status
+    ) ? "succeeded" : "unmet-prerequisite",
+    status: feasibility.status,
+    code: ["blocked", "unknown"].includes(feasibility.status) ? "PUBLICATION_PREFLIGHT_INCOMPLETE" : null,
+    message: feasibility.summary,
+    warnings: feasibility.warnings ?? [],
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    documentation: "references/publication-routing.md",
+    recovery: {
+      kind: feasibility.route ? "continue" : "satisfy-prerequisite",
+      automatic: false,
+      requiredInputs: feasibility.route ? [] : (feasibility.probes ?? []).filter(
+        (probe) => probe.required !== false && !["observed", "not-available"].includes(probe.classification)
+      ).map((probe) => `${probe.probe}: ${probe.resolution}`).slice(0, 32),
+      commands: feasibility.route ? [] : [{ arguments: repeatCommand }]
+    },
+    data: { feasibility, nextAction: feasibility.nextAction }
+  });
+}
+var init_publicationPreflightWorkflow = __esm({
+  "src/committing-to-git/workflow/publicationPreflightWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_stableFile();
+  }
+});
+
+// src/committing-to-git/cli/publicationPreflightCommand.js
+var publicationPreflightCommand_exports = {};
+__export(publicationPreflightCommand_exports, {
   runPublicationPreflightCommand: () => runPublicationPreflightCommand
 });
 async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(), stdout = process.stdout } = {}) {
@@ -3661,4262 +3785,71 @@ async function runPublicationPreflightCommand(arguments_, { cwd = process.cwd(),
         format: values.get("format") ?? "json"
       };
     },
-    execute: async (options) => {
-      const { inspectPublicationFeasibility: inspectPublicationFeasibility2 } = await Promise.resolve().then(() => (init_publicationPreflight(), publicationPreflight_exports));
-      const { observeTransportInWorker: observeTransportInWorker2 } = await Promise.resolve().then(() => (init_transportObservationWorker(), transportObservationWorker_exports));
-      const { observeTransportContext: observeTransportContext2 } = await Promise.resolve().then(() => (init_discoveryEvidence(), discoveryEvidence_exports));
-      let priorDiscovery;
-      if (options.reuseDiscovery) {
-        try {
-          if (!options.taskId) throw new Error("Invalid receipt.");
-          const prior = JSON.parse(
-            readStableFile(options.reuseDiscovery, 1024 * 1024).bytes.toString(
-              "utf8"
-            )
-          );
-          priorDiscovery = prior.feasibility?.discoveryEvidence ?? prior.data?.feasibility?.discoveryEvidence;
-          if (!priorDiscovery) throw new Error("Missing receipt.");
-        } catch {
-          throw new WorkflowDiagnosticError(
-            "INVALID_ARGUMENT",
-            "Reuse requires bounded preflight JSON retained from this task and --task-id."
-          );
-        }
-      }
-      const feasibility = inspectPublicationFeasibility2({
-        ...options,
-        cwd,
-        priorDiscovery,
-        observeContext: observeTransportContext2,
-        observeTransport: (binding) => observeTransportInWorker2(binding, process.argv[1])
-      });
-      return createWorkflowResult({
-        disposition: ["viable", "viable-with-prerequisites"].includes(
-          feasibility.status
-        ) ? "succeeded" : "unmet-prerequisite",
-        status: feasibility.status,
-        code: ["blocked", "unknown"].includes(feasibility.status) ? "PUBLICATION_PREFLIGHT_INCOMPLETE" : null,
-        message: feasibility.summary,
-        warnings: feasibility.warnings ?? [],
-        commitState: "absent",
-        publicationState: "not-requested",
-        publicationAllowed: false,
-        documentation: "references/publication-routing.md",
-        recovery: {
-          kind: feasibility.route ? "continue" : "satisfy-prerequisite",
-          automatic: false,
-          requiredInputs: feasibility.route ? [] : (feasibility.probes ?? []).filter(
-            (probe) => probe.required !== false && !["observed", "not-available"].includes(
-              probe.classification
-            )
-          ).map((probe) => `${probe.probe}: ${probe.resolution}`).slice(0, 32),
-          commands: feasibility.route ? [] : [{ arguments: ["workflow", "preflight", ...arguments_] }]
-        },
-        data: { feasibility, nextAction: feasibility.nextAction }
-      });
-    }
+    execute: (options) => publicationPreflightWorkflow(options, {
+      cwd,
+      repeatCommand: ["workflow", "preflight", ...arguments_]
+    })
   });
 }
-var init_publicationPreflightWorkflow = __esm({
-  "src/committing-to-git/workflow/publicationPreflightWorkflow.js"() {
+var init_publicationPreflightCommand = __esm({
+  "src/committing-to-git/cli/publicationPreflightCommand.js"() {
     init_commandArguments();
     init_commandExecution();
     init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_stableFile();
+    init_publicationPreflightWorkflow();
   }
 });
 
-// src/committing-to-git/selection/selectionVocabulary.js
-var ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS;
-var init_selectionVocabulary = __esm({
-  "src/committing-to-git/selection/selectionVocabulary.js"() {
-    ARRAY_SELECTOR_FIELDS = Object.freeze([
-      "ids",
-      "destinationPaths",
-      "destinationPathPrefixes",
-      "sourcePaths",
-      "sourcePathPrefixes",
-      "kinds"
-    ]);
-    SELECTOR_FIELDS = Object.freeze([
-      "all",
-      "remaining",
-      ...ARRAY_SELECTOR_FIELDS
-    ]);
-  }
-});
-
-// src/committing-to-git/selection/changeSelection.js
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function assertChangeManifest(manifest) {
-  if (!isPlainObject(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
-    throw new Error(
-      "Semantic selection requires one nonempty exact change manifest."
-    );
-  }
-  const ids = manifest.changeUnits.map(({ id }) => id);
-  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
-    throw new Error("Manifest change-unit IDs must be unique and canonical.");
-  }
-}
-function changeUnitPathBytes(unit, direction) {
-  const encoded = unit[`${direction}PathBytesBase64`];
-  if (typeof encoded === "string") {
-    return Buffer.from(encoded, "base64");
-  }
-  const path = unit[`${direction}Path`];
-  return typeof path === "string" ? Buffer.from(path, "utf8") : null;
-}
-function assertRepositoryPath(value, { prefix, field }) {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
-    );
-  }
-  if (prefix && !value.endsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
-    );
-  }
-  if (!prefix && value.endsWith("/")) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
-    );
-  }
-  const components = value.split("/");
-  const meaningful = prefix ? components.slice(0, -1) : components;
-  if (meaningful.some(
-    (component) => component.length === 0 || component === "." || component === ".."
-  )) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
-    );
-  }
-}
-function normalizeSelection(selection) {
-  if (!isPlainObject(selection)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Change selection must be an object."
-    );
-  }
-  const unknown = Object.keys(selection).find(
-    (field) => !SELECTOR_FIELDS.includes(field)
-  );
-  if (unknown) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      `Unknown change selector field ${unknown}.`
-    );
-  }
-  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Selector all and remaining values must be booleans."
-    );
-  }
-  const all = selection.all === true;
-  const remaining = selection.remaining === true;
-  const populated = [];
-  const normalized = {};
-  for (const field of ARRAY_SELECTOR_FIELDS) {
-    const values = selection[field];
-    if (values === void 0) {
-      continue;
+// src/committing-to-git/workflow/workflowStateStorage.js
+import { isAbsolute as isAbsolute2 } from "node:path";
+function invalid(code, message) {
+  throw new WorkflowDiagnosticError(code, message, {
+    recovery: {
+      kind: "correct-input",
+      requiredInputs: [
+        "--state-storage memory, or --state-storage disk with an absolute --state-directory"
+      ],
+      commands: [],
+      automatic: false
     }
-    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
-      throw new WorkflowDiagnosticError(
-        "INVALID_SELECTION",
-        `Selector ${field} must be a string array.`
+  });
+}
+function selectWorkflowStateStorage({
+  storage = null,
+  directory = null
+}) {
+  const selected = storage ?? "memory";
+  if (!(/* @__PURE__ */ new Set(["memory", "disk"])).has(selected)) {
+    invalid("INVALID_STATE_STORAGE", "--state-storage must be memory or disk.");
+  }
+  if (selected === "memory") {
+    if (directory !== null) {
+      invalid(
+        "STATE_DIRECTORY_WITHOUT_DISK_STORAGE",
+        "--state-directory applies only to --state-storage disk."
       );
     }
-    if (new Set(values).size !== values.length) {
-      throw new WorkflowDiagnosticError(
-        "INVALID_SELECTION",
-        `Selector ${field} contains duplicate values.`
-      );
-    }
-    if (field.endsWith("Paths")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: false, field })
-      );
-    } else if (field.endsWith("Prefixes")) {
-      values.forEach(
-        (value) => assertRepositoryPath(value, { prefix: true, field })
-      );
-    }
-    if (values.length > 0) {
-      populated.push(field);
-      normalized[field] = [...values];
-    }
+    return Object.freeze({ storage: "memory", directory: null });
   }
-  if ((all || remaining) && (all === remaining || populated.length > 0)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Selectors all and remaining are each exclusive of every other selector field."
+  if (directory === null || !isAbsolute2(directory)) {
+    invalid(
+      "STATE_DIRECTORY_REQUIRED",
+      "--state-storage disk requires an absolute --state-directory."
     );
   }
-  if (!all && !remaining && populated.length === 0) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_SELECTION",
-      "Change selection requires one nonempty selector."
-    );
-  }
-  if (all) {
-    return { all: true };
-  }
-  if (remaining) {
-    return { remaining: true };
-  }
-  return normalized;
+  return Object.freeze({ storage: "disk", directory });
 }
-function resolveSelection(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
-  assertChangeManifest(manifest);
-  if (!(assignedIds instanceof Set)) {
-    throw new Error("Selection assignedIds must be a Set.");
-  }
-  const normalized = normalizeSelection(selection);
-  if (normalized.all === true) {
-    return [...manifest.changeUnits];
-  }
-  if (normalized.remaining === true) {
-    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
-    if (units.length === 0) {
-      throw new WorkflowDiagnosticError(
-        "EMPTY_SELECTION",
-        "The remaining selector matched no change units. Remove the empty group or correct its preceding selections.",
-        { details: { selection: { remaining: true }, matchedCount: 0 } }
-      );
-    }
-    return units;
-  }
-  const matchedIds = /* @__PURE__ */ new Set();
-  const pathCandidates = /* @__PURE__ */ new Map();
-  function candidatesFor(field) {
-    const direction = field.startsWith("source") ? "source" : "destination";
-    if (!pathCandidates.has(direction)) {
-      const candidates = [];
-      for (const unit of manifest.changeUnits) {
-        if (direction === "source" && unit.kind !== "renamed") continue;
-        const bytes = changeUnitPathBytes(unit, direction);
-        if (bytes !== null) candidates.push({ unit, bytes });
-      }
-      pathCandidates.set(direction, candidates);
-    }
-    return pathCandidates.get(direction);
-  }
-  let unmatchedCount = 0;
-  const unmatchedValues = [];
-  for (const [field, values] of Object.entries(normalized)) {
-    const prefix = field.endsWith("Prefixes");
-    const pathField = field !== "ids" && field !== "kinds";
-    const index = /* @__PURE__ */ new Map();
-    const candidates = pathField ? candidatesFor(field) : null;
-    if (!prefix) {
-      const add = (key, unit) => {
-        if (!index.has(key)) index.set(key, []);
-        index.get(key).push(unit);
-      };
-      if (pathField) {
-        for (const { unit, bytes } of candidates) {
-          add(bytes.toString("base64"), unit);
-        }
-      } else {
-        for (const unit of manifest.changeUnits) {
-          add(field === "ids" ? unit.id : unit.kind, unit);
-        }
-      }
-    }
-    for (const [valueIndex, value] of values.entries()) {
-      const expected = pathField ? Buffer.from(value, "utf8") : null;
-      const matches = prefix ? candidates.filter(
-        ({ bytes }) => bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected)
-      ).map(({ unit }) => unit) : index.get(pathField ? expected.toString("base64") : value) ?? [];
-      if (matches.length === 0) {
-        unmatchedCount += 1;
-        if (unmatchedValues.length < 32) {
-          unmatchedValues.push(
-            Buffer.byteLength(value) <= 256 ? { field, value } : {
-              field,
-              index: valueIndex,
-              valueByteLength: Buffer.byteLength(value)
-            }
-          );
-        }
-      }
-      matches.forEach(({ id }) => matchedIds.add(id));
-    }
-  }
-  if (unmatchedCount > 0) {
-    throw new WorkflowDiagnosticError(
-      "UNMATCHED_SELECTION_VALUES",
-      `${unmatchedCount} explicit selector value(s) matched no change units.`,
-      {
-        details: {
-          unmatchedCount,
-          unmatchedValues,
-          omittedCount: unmatchedCount - unmatchedValues.length
-        },
-        recovery: {
-          kind: "correct-input",
-          automatic: false,
-          requiredInputs: ["selectors matching the current manifest"],
-          commands: []
-        }
-      }
-    );
-  }
-  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
-}
-var init_changeSelection = __esm({
-  "src/committing-to-git/selection/changeSelection.js"() {
-    init_selectionVocabulary();
+var init_workflowStateStorage = __esm({
+  "src/committing-to-git/workflow/workflowStateStorage.js"() {
     init_workflowDiagnosticError();
-  }
-});
-
-// src/committing-to-git/workflow/preparationInputs.js
-function fail2(code, message, options) {
-  throw new WorkflowDiagnosticError(code, message, options);
-}
-function isPlainObject2(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function assertExactKeys(value, keys, label, code) {
-  if (!isPlainObject2(value)) {
-    fail2(code, `${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail2(code, `${label} contains missing or unknown members.`);
-  }
-}
-function canonicalJsonBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}
-`, "utf8");
-}
-function validateRepositoryRelativePath(path, { prefix, label }) {
-  if (typeof path !== "string" || path.length === 0) {
-    fail2("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
-  }
-  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
-    fail2(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must be a slash-separated repository-relative path.`
-    );
-  }
-  if (prefix !== path.endsWith("/")) {
-    fail2(
-      "INVALID_SCOPE_SELECTOR",
-      prefix ? `${label} must end with a slash.` : `${label} must not end with a slash.`
-    );
-  }
-  const components = path.split("/");
-  const meaningfulComponents = prefix ? components.slice(0, -1) : components;
-  if (meaningfulComponents.some(
-    (component) => component.length === 0 || component === "." || component === ".."
-  )) {
-    fail2(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`
-    );
-  }
-  return Buffer.from(path, "utf8");
-}
-function decodeCanonicalBase64Path(value, label) {
-  if (typeof value !== "string" || value.length === 0) {
-    fail2("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
-  }
-  const bytes = Buffer.from(value, "base64");
-  if (bytes.length === 0 || bytes.toString("base64") !== value || bytes.includes(0) || bytes.includes(92) || bytes[0] === 47 || bytes[bytes.length - 1] === 47) {
-    fail2(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} must encode one canonical repository-relative exact path.`
-    );
-  }
-  const components = [];
-  let start = 0;
-  for (let index = 0; index <= bytes.length; index += 1) {
-    if (index === bytes.length || bytes[index] === 47) {
-      components.push(bytes.subarray(start, index));
-      start = index + 1;
-    }
-  }
-  if (components.some(
-    (component) => component.length === 0 || component.equals(Buffer.from(".")) || component.equals(Buffer.from(".."))
-  )) {
-    fail2(
-      "INVALID_SCOPE_SELECTOR",
-      `${label} contains an invalid path component.`
-    );
-  }
-  return bytes;
-}
-function compareBuffers(left, right) {
-  return Buffer.compare(left, right);
-}
-function pathStartsWith(path, prefix) {
-  return path.length >= prefix.length && path.subarray(0, prefix.length).equals(prefix);
-}
-function selectorContains(include, exclude) {
-  if (include.kind === "exact") {
-    return exclude.kind === "exact" && include.bytes.equals(exclude.bytes);
-  }
-  return pathStartsWith(exclude.bytes, include.bytes);
-}
-function selectorMatches(selector, path) {
-  return selector.kind === "exact" ? selector.bytes.equals(path) : pathStartsWith(path, selector.bytes);
-}
-function normalizeScopePayload(payload) {
-  assertExactKeys(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
-  if (payload.schemaVersion !== 2) {
-    fail2("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
-  }
-  for (const key of SCOPE_KEYS.slice(1)) {
-    if (!Array.isArray(payload[key])) {
-      fail2("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
-    }
-    if (payload[key].length > 4096) {
-      fail2("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
-    }
-  }
-  const descriptors = [];
-  function addUtf8(values, direction, kind, label) {
-    for (const value of values) {
-      descriptors.push({
-        direction,
-        kind,
-        bytes: validateRepositoryRelativePath(value, {
-          prefix: kind === "prefix",
-          label
-        })
-      });
-    }
-  }
-  addUtf8(payload.includePaths, "include", "exact", "includePaths entry");
-  addUtf8(
-    payload.includePathPrefixes,
-    "include",
-    "prefix",
-    "includePathPrefixes entry"
-  );
-  addUtf8(payload.excludePaths, "exclude", "exact", "excludePaths entry");
-  addUtf8(
-    payload.excludePathPrefixes,
-    "exclude",
-    "prefix",
-    "excludePathPrefixes entry"
-  );
-  for (const value of payload.includePathBytesBase64) {
-    descriptors.push({
-      direction: "include",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "includePathBytesBase64 entry")
-    });
-  }
-  for (const value of payload.excludePathBytesBase64) {
-    descriptors.push({
-      direction: "exclude",
-      kind: "exact",
-      bytes: decodeCanonicalBase64Path(value, "excludePathBytesBase64 entry")
-    });
-  }
-  const includes = descriptors.filter(
-    ({ direction }) => direction === "include"
-  );
-  const excludes = descriptors.filter(
-    ({ direction }) => direction === "exclude"
-  );
-  if (includes.length === 0) {
-    fail2("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
-  }
-  const seen = /* @__PURE__ */ new Set();
-  for (const selector of descriptors) {
-    const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
-    if (seen.has(key)) {
-      fail2("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
-    }
-    seen.add(key);
-  }
-  for (const exclusion of excludes) {
-    if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
-      fail2(
-        "UNCONTAINED_SCOPE_EXCLUSION",
-        "Every exclusion must be contained by at least one inclusion."
-      );
-    }
-  }
-  const canonicalPayload = {
-    schemaVersion: 2,
-    includePaths: [...payload.includePaths],
-    includePathPrefixes: [...payload.includePathPrefixes],
-    excludePaths: [...payload.excludePaths],
-    excludePathPrefixes: [...payload.excludePathPrefixes],
-    includePathBytesBase64: [...payload.includePathBytesBase64],
-    excludePathBytesBase64: [...payload.excludePathBytesBase64]
-  };
-  return {
-    canonicalPayload,
-    canonicalBytes: canonicalJsonBytes(canonicalPayload),
-    includes,
-    excludes,
-    descriptors
-  };
-}
-function normalizeEvidenceSelection(selection) {
-  normalizeSelection(selection);
-  if ("all" in selection && selection.all !== true) {
-    fail2("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
-  }
-  if ("remaining" in selection && selection.remaining !== true) {
-    fail2("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
-  }
-  for (const [key, value] of Object.entries(selection)) {
-    if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
-      continue;
-    }
-    if (value.length === 0) {
-      fail2(
-        "INVALID_EVIDENCE_PLAN",
-        `Evidence selection ${key} must be a non-empty string array.`
-      );
-    }
-  }
-  return structuredClone(selection);
-}
-function normalizeEvidencePlan(payload) {
-  assertExactKeys(
-    payload,
-    EVIDENCE_PLAN_KEYS,
-    "Evidence plan",
-    "INVALID_EVIDENCE_PLAN"
-  );
-  if (payload.schemaVersion !== 1) {
-    fail2("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
-  }
-  if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
-    fail2("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
-  }
-  if (payload.groups.length > 4096) {
-    fail2("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
-  }
-  const groups = payload.groups.map((group, index) => {
-    assertExactKeys(
-      group,
-      GROUP_KEYS,
-      `Evidence group ${index + 1}`,
-      "INVALID_EVIDENCE_PLAN"
-    );
-    assertExactKeys(
-      group.basis,
-      BASIS_KEYS,
-      `Evidence group ${index + 1} basis`,
-      "INVALID_EVIDENCE_PLAN"
-    );
-    return {
-      selection: normalizeEvidenceSelection(group.selection),
-      policy: group.policy,
-      basis: validateEvidenceBasis(group.policy, group.basis)
-    };
-  });
-  const canonicalPlan = { schemaVersion: 1, groups };
-  return {
-    plan: canonicalPlan,
-    canonicalBytes: canonicalJsonBytes(canonicalPlan)
-  };
-}
-var SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS;
-var init_preparationInputs = __esm({
-  "src/committing-to-git/workflow/preparationInputs.js"() {
-    init_workflowDiagnosticError();
-    init_changeSelection();
-    init_evidenceVocabulary();
-    SCOPE_KEYS = [
-      "schemaVersion",
-      "includePaths",
-      "includePathPrefixes",
-      "excludePaths",
-      "excludePathPrefixes",
-      "includePathBytesBase64",
-      "excludePathBytesBase64"
-    ];
-    EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
-    GROUP_KEYS = ["selection", "policy", "basis"];
-    BASIS_KEYS = ["kind", "note"];
-  }
-});
-
-// src/committing-to-git/message/changeSelection.js
-import { Buffer as Buffer2 } from "node:buffer";
-function isPlainObject3(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function validateReasons(reasons, label) {
-  if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
-    (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
-  )) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} requires one or more canonical reasons.`
-    );
-  }
-  if (new Set(reasons).size !== reasons.length) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} contains duplicate reasons.`
-    );
-  }
-  return [...reasons];
-}
-function resolvePartition(manifest, groups, { label, validateGroup }) {
-  if (!Array.isArray(groups) || groups.length === 0) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} groups must be a nonempty array.`
-    );
-  }
-  const assignedIds = /* @__PURE__ */ new Set();
-  const resolved = groups.map((group, index) => {
-    if (!isPlainObject3(group)) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} group ${index + 1} must be an object.`
-      );
-    }
-    const selection = normalizeSelection(group.selection);
-    if (selection.remaining === true && index !== groups.length - 1) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
-      );
-    }
-    const units = resolveSelection(manifest, selection, { assignedIds });
-    const overlap = units.find(({ id }) => assignedIds.has(id));
-    if (overlap) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} groups overlap at ${overlap.id}.`
-      );
-    }
-    units.forEach(({ id }) => assignedIds.add(id));
-    return {
-      ...validateGroup(group, index),
-      selection,
-      units
-    };
-  });
-  if (assignedIds.size !== manifest.changeUnitCount) {
-    const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
-    );
-  }
-  return { assignedIds, resolved };
-}
-function resolveOverlappingGroups(manifest, groups, label) {
-  if (groups === void 0) {
-    return [];
-  }
-  if (!Array.isArray(groups)) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      `${label} must be an array.`
-    );
-  }
-  const previouslyMatched = /* @__PURE__ */ new Set();
-  return groups.map((group, index) => {
-    if (!isPlainObject3(group)) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `${label} entry ${index + 1} must be an object.`
-      );
-    }
-    const selection = normalizeSelection(group.selection);
-    if (selection.remaining === true && index !== groups.length - 1) {
-      throw new WorkflowDiagnosticError(
-        "SEMANTIC_COVERAGE_INVALID",
-        `The remaining selector is permitted only in the final ${label} entry.`
-      );
-    }
-    const units = resolveSelection(manifest, selection, {
-      assignedIds: previouslyMatched
-    });
-    units.forEach(({ id }) => previouslyMatched.add(id));
-    return {
-      selection,
-      units,
-      reasons: validateReasons(group.reasons, `${label} entry ${index + 1}`)
-    };
-  });
-}
-function resolveSemanticCoverage(manifest, content) {
-  assertChangeManifest(manifest);
-  if (!isPlainObject3(content)) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Semantic message content must be an object."
-    );
-  }
-  const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
-    label: "Evidence",
-    validateGroup(group, index) {
-      if (!EVIDENCE_POLICIES.includes(group.policy)) {
-        throw new WorkflowDiagnosticError(
-          "SEMANTIC_COVERAGE_INVALID",
-          `Evidence group ${index + 1} has an invalid policy.`
-        );
-      }
-      return {
-        policy: group.policy,
-        basis: validateEvidenceBasis(group.policy, group.basis)
-      };
-    }
-  });
-  const sharedRationales = resolveOverlappingGroups(
-    manifest,
-    content.sharedRationales ?? [],
-    "shared rationale"
-  );
-  const fileNotes = resolveOverlappingGroups(
-    manifest,
-    content.fileNotes ?? [],
-    "file note"
-  );
-  let domains = [];
-  if (content.mode === "bulk") {
-    domains = resolvePartition(manifest, content.domains, {
-      label: "Domain",
-      validateGroup(group, index) {
-        if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
-          throw new WorkflowDiagnosticError(
-            "SEMANTIC_COVERAGE_INVALID",
-            `Domain group ${index + 1} has an invalid title.`
-          );
-        }
-        return {
-          title: group.title,
-          reasons: validateReasons(group.reasons, `Domain group ${index + 1}`)
-        };
-      }
-    }).resolved;
-  } else if (content.mode !== "detailed") {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Semantic message mode must be detailed or bulk."
-    );
-  } else if (content.domains !== void 0 && content.domains.length > 0) {
-    throw new WorkflowDiagnosticError(
-      "SEMANTIC_COVERAGE_INVALID",
-      "Detailed semantic content cannot contain bulk domains."
-    );
-  }
-  return {
-    coveredIds: evidenceCoverage.assignedIds,
-    evidenceGroups: evidenceCoverage.resolved,
-    sharedRationales,
-    domains,
-    fileNotes
-  };
-}
-function sortChangeUnitsByRawPath(units) {
-  if (units.length < 2) {
-    return [...units];
-  }
-  const empty = Buffer2.alloc(0);
-  return units.map((unit) => ({
-    unit,
-    destination: changeUnitPathBytes(unit, "destination") ?? empty,
-    source: changeUnitPathBytes(unit, "source") ?? empty,
-    id: Buffer2.from(unit.id)
-  })).sort(
-    (left, right) => Buffer2.compare(left.destination, right.destination) || Buffer2.compare(left.source, right.source) || Buffer2.compare(left.id, right.id)
-  ).map(({ unit }) => unit);
-}
-function formatMessagePath(rawPathBytes) {
-  if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
-    throw new Error("Message path identity must be raw bytes.");
-  }
-  const bytes = Buffer2.from(rawPathBytes);
-  let decoded;
-  try {
-    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    decoded = null;
-  }
-  if (decoded !== null && decoded.length > 0 && !PROHIBITED_RENDERED_PATH_CHARACTER.test(decoded)) {
-    return `\`${decoded}\``;
-  }
-  return `\`path-bytes-base64:${bytes.toString("base64")}\``;
-}
-function formatChangeUnitPath(unit) {
-  const destination = formatMessagePath(
-    changeUnitPathBytes(unit, "destination")
-  );
-  if (unit.kind !== "renamed") {
-    return destination;
-  }
-  const source = changeUnitPathBytes(unit, "source");
-  if (source === null) {
-    throw new Error(`Rename ${unit.id} has no recorded source path.`);
-  }
-  return `${formatMessagePath(source)} -> ${destination}`;
-}
-function selectMessagePresentation({
-  changeUnitCount,
-  projectedDetailedBytes,
-  maximumBytes = MAXIMUM_CANONICAL_MESSAGE_BYTES
-}) {
-  if (!Number.isSafeInteger(changeUnitCount) || changeUnitCount < 1 || !Number.isSafeInteger(projectedDetailedBytes) || projectedDetailedBytes < 0 || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
-    throw new Error("Message presentation inputs must be bounded integers.");
-  }
-  return changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
-}
-var MAXIMUM_CANONICAL_MESSAGE_BYTES, BULK_CHANGE_UNIT_THRESHOLD, PROHIBITED_RENDERED_PATH_CHARACTER;
-var init_changeSelection2 = __esm({
-  "src/committing-to-git/message/changeSelection.js"() {
-    init_workflowDiagnosticError();
-    init_evidenceVocabulary();
-    init_changeSelection();
-    MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
-    BULK_CHANGE_UNIT_THRESHOLD = 50;
-    PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
-  }
-});
-
-// src/committing-to-git/message/approvedMessage.js
-import { createHash as createHash3 } from "node:crypto";
-import { Buffer as Buffer3 } from "node:buffer";
-function fail3(code, message, details = {}) {
-  throw new WorkflowDiagnosticError(code, message, { details });
-}
-function scalarLength(value) {
-  return [...value].length;
-}
-function isCapitalizedDescription(description) {
-  const first = [...description][0] ?? "";
-  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
-}
-function validateRepositoryType(type, repositoryTypePolicy) {
-  if (repositoryTypePolicy === null || repositoryTypePolicy === void 0 || repositoryTypePolicy.allowedTypes === null || repositoryTypePolicy.allowedTypes === void 0 || Array.isArray(repositoryTypePolicy.allowedTypes) && repositoryTypePolicy.allowedTypes.length === 0) {
-    return;
-  }
-  if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
-    fail3(
-      "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
-      "Repository type policy must provide an allowedTypes array or null."
-    );
-  }
-  if (!repositoryTypePolicy.allowedTypes.includes(type)) {
-    fail3(
-      "SUBJECT_TYPE_NOT_ALLOWED",
-      `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
-      { type, allowedTypes: repositoryTypePolicy.allowedTypes }
-    );
-  }
-}
-function parseSubject(subjectText, repositoryTypePolicy) {
-  const match = SUBJECT_PATTERN.exec(subjectText);
-  if (!match) {
-    fail3(
-      "SUBJECT_FORMAT_INVALID",
-      "Subject must match <type>: <description> or <type>(<scope>): <description>."
-    );
-  }
-  const { type, description } = match.groups;
-  const scope = match.groups.scope ?? null;
-  if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
-    fail3(
-      "SUBJECT_FORMAT_INVALID",
-      "Subject description must be one exact nonempty line without controls or surrounding whitespace."
-    );
-  }
-  if (!isCapitalizedDescription(description)) {
-    fail3(
-      "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
-      "Subject description must begin with an uppercase Unicode cased letter."
-    );
-  }
-  if (description.endsWith(".")) {
-    fail3(
-      "SUBJECT_TRAILING_PERIOD",
-      "Subject description must not end with an ASCII period."
-    );
-  }
-  if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
-    fail3(
-      "SUBJECT_SCOPE_INVALID",
-      "Subject scope must be one exact nonempty value without parentheses or controls."
-    );
-  }
-  const length = scalarLength(subjectText);
-  if (length > MAXIMUM_SUBJECT_SCALARS) {
-    fail3(
-      "SUBJECT_TOO_LONG",
-      `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
-      { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
-    );
-  }
-  validateRepositoryType(type, repositoryTypePolicy);
-  return {
-    text: subjectText,
-    type,
-    scope,
-    description,
-    scalarLength: length
-  };
-}
-function canonicalBytes(value) {
-  if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
-    fail3("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
-  }
-  return Buffer3.from(value);
-}
-function decodeCanonicalMessage(bytes) {
-  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail3(
-      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
-      `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
-      {
-        byteCount: bytes.length,
-        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-        remedy: "Shorten prose or combine truthful structured domains without changing scope."
-      }
-    );
-  }
-  if (bytes.length === 0 || bytes.at(-1) !== 10) {
-    fail3(
-      "TERMINAL_LF_REQUIRED",
-      "Canonical message bytes must end in exactly one LF."
-    );
-  }
-  if (bytes.length > 1 && bytes.at(-2) === 10) {
-    fail3(
-      "MULTIPLE_TERMINAL_LF",
-      "Canonical message bytes must not end in multiple LF bytes."
-    );
-  }
-  if (bytes.includes(13)) {
-    fail3(
-      "CARRIAGE_RETURN_FORBIDDEN",
-      "Canonical message bytes must not contain CR or CRLF."
-    );
-  }
-  if (bytes.includes(0)) {
-    fail3("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
-  }
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    fail3("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
-  }
-  for (const character of text) {
-    if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
-      fail3(
-        "PROHIBITED_UNICODE_CHARACTER",
-        "Canonical message contains a prohibited Unicode control or format character."
-      );
-    }
-  }
-  return text;
-}
-function assertUsefulEntry(text, label) {
-  if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
-    fail3("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
-  }
-}
-function parseNarrativeSection(lines, heading) {
-  const entries = [];
-  let current = null;
-  for (const line of lines) {
-    if (line.startsWith("  - ")) {
-      const text = line.slice(4);
-      assertUsefulEntry(text, heading);
-      current = text;
-      entries.push(text);
-    } else if (line.startsWith("    ") && current !== null) {
-      const continuation = line.slice(4);
-      assertUsefulEntry(continuation, heading);
-      entries[entries.length - 1] += `
-${continuation}`;
-    } else {
-      fail3(
-        "SECTION_ENTRY_FORMAT_INVALID",
-        `${heading} entries must use two-space bullets with aligned continuations.`
-      );
-    }
-  }
-  if (entries.length === 0) {
-    fail3("EMPTY_SECTION", `${heading} cannot be present without entries.`);
-  }
-  return entries;
-}
-function expectedDetailedInventory(manifest) {
-  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
-    fail3(
-      "INVALID_MESSAGE_MANIFEST",
-      "Approved-message validation requires one exact nonempty manifest."
-    );
-  }
-  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
-  const width = String(units.length).length;
-  return units.map((unit, index) => ({
-    id: unit.id,
-    label: formatChangeUnitPath(unit),
-    ordinal: index + 1,
-    line: `${"  "}${String(index + 1).padStart(width, " ")}. ${formatChangeUnitPath(unit)}`
-  }));
-}
-function parseDetailedInventory(lines, manifest) {
-  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
-    fail3(
-      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
-      "A counted bulk inventory must be derived by the structured extended finalizer.",
-      {
-        remedy: "Use the authoring continuation supplied by the workflow; preserve requested sections."
-      }
-    );
-  }
-  const expected = expectedDetailedInventory(manifest);
-  const expectedLabels = new Set(expected.map(({ label }) => label));
-  const width = String(expected.length).length;
-  const notePrefix = `${" ".repeat(width + 4)}- `;
-  const continuationPrefix = " ".repeat(width + 6);
-  const listed = [];
-  let current = null;
-  for (const line of lines) {
-    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
-    if (match) {
-      const ordinal = Number(match[1]);
-      const label = match[2];
-      if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
-        fail3(
-          "STRUCTURED_BULK_FINALIZATION_REQUIRED",
-          "Free-form counted domains cannot prove manifest membership.",
-          { remedy: "Use the structured extended finalizer." }
-        );
-      }
-      if (listed.some((entry) => entry.label === label)) {
-        fail3(
-          "FILE_INVENTORY_DUPLICATE",
-          `Detailed inventory repeats ${label}.`
-        );
-      }
-      if (!expectedLabels.has(label)) {
-        fail3(
-          "FILE_INVENTORY_UNKNOWN_PATH",
-          `Detailed inventory path ${label} does not identify a manifest change unit.`
-        );
-      }
-      current = { ordinal, label, notes: [], line };
-      listed.push(current);
-      continue;
-    }
-    if (line.startsWith(notePrefix) && current !== null) {
-      const note = line.slice(notePrefix.length);
-      assertUsefulEntry(note, "File Changes:");
-      current.notes.push(note);
-      continue;
-    }
-    if (line.startsWith(continuationPrefix) && current?.notes.length > 0) {
-      const continuation = line.slice(continuationPrefix.length);
-      assertUsefulEntry(continuation, "File Changes:");
-      current.notes[current.notes.length - 1] += `
-${continuation}`;
-      continue;
-    }
-    fail3(
-      "FILE_INVENTORY_FORMAT_INVALID",
-      "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
-    );
-  }
-  if (listed.length !== expected.length) {
-    fail3(
-      "FILE_INVENTORY_INCOMPLETE",
-      `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
-    );
-  }
-  for (let index = 0; index < expected.length; index += 1) {
-    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
-      fail3(
-        "FILE_INVENTORY_ORDER_INVALID",
-        "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
-      );
-    }
-  }
-  return listed;
-}
-function parseStructuredBulkInventory(lines, manifest, structuredContent) {
-  const coverage = resolveSemanticCoverage(manifest, structuredContent);
-  const expected = coverage.domains.map((domain, index) => {
-    const count = domain.units.length;
-    const width2 = String(coverage.domains.length).length;
-    return {
-      ordinal: index + 1,
-      label: `${domain.title} (${count} ${count === 1 ? "file" : "files"})`,
-      prefix: `  ${String(index + 1).padStart(width2, " ")}. `
-    };
-  });
-  const listed = [];
-  const width = String(expected.length).length;
-  const reasonPrefix = `${" ".repeat(width + 4)}- `;
-  const continuationPrefix = " ".repeat(width + 6);
-  let current = null;
-  for (const line of lines) {
-    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
-    if (match) {
-      current = {
-        ordinal: Number(match[1]),
-        label: match[2],
-        reasons: [],
-        line
-      };
-      listed.push(current);
-      continue;
-    }
-    if (line.startsWith(reasonPrefix) && current !== null) {
-      const reason = line.slice(reasonPrefix.length);
-      assertUsefulEntry(reason, "File Changes:");
-      current.reasons.push(reason);
-      continue;
-    }
-    if (line.startsWith(continuationPrefix) && current?.reasons.length > 0) {
-      const continuation = line.slice(continuationPrefix.length);
-      assertUsefulEntry(continuation, "File Changes:");
-      current.reasons[current.reasons.length - 1] += `
-${continuation}`;
-      continue;
-    }
-    fail3(
-      "FILE_INVENTORY_FORMAT_INVALID",
-      "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
-    );
-  }
-  if (listed.length !== expected.length) {
-    fail3(
-      "FILE_INVENTORY_INCOMPLETE",
-      "Structured bulk rendering does not contain every derived domain."
-    );
-  }
-  for (let index = 0; index < expected.length; index += 1) {
-    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
-      fail3(
-        "FILE_INVENTORY_ORDER_INVALID",
-        "Structured bulk rendering must preserve derived domain order, counts, and reasons."
-      );
-    }
-  }
-  return listed;
-}
-function parseSections(bodyLines, manifest, { messageSource, structuredContent }) {
-  const parsed = {
-    rationale: { present: false, entries: [] },
-    userExperience: { present: false, entries: [] },
-    fileChanges: { present: false, entries: [] }
-  };
-  if (bodyLines.length === 0) {
-    return parsed;
-  }
-  if (bodyLines[0] !== "") {
-    fail3(
-      "SECTION_SPACING_INVALID",
-      "Subject and body must be separated by exactly one blank line."
-    );
-  }
-  let index = 1;
-  let priorOrder = -1;
-  while (index < bodyLines.length) {
-    const heading = bodyLines[index];
-    const order = SECTION_ORDER.indexOf(heading);
-    if (order < 0 || order <= priorOrder) {
-      fail3(
-        "SECTION_ORDER_INVALID",
-        "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
-      );
-    }
-    priorOrder = order;
-    index += 1;
-    const entries = [];
-    while (index < bodyLines.length && bodyLines[index] !== "") {
-      entries.push(bodyLines[index]);
-      index += 1;
-    }
-    if (entries.length === 0) {
-      fail3("EMPTY_SECTION", `${heading} cannot be empty.`);
-    }
-    if (heading === "Rationale:") {
-      parsed.rationale = {
-        present: true,
-        entries: parseNarrativeSection(entries, heading)
-      };
-    } else if (heading === "User Experience Changes:") {
-      parsed.userExperience = {
-        present: true,
-        entries: parseNarrativeSection(entries, heading)
-      };
-    } else {
-      parsed.fileChanges = {
-        present: true,
-        entries: messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? parseStructuredBulkInventory(entries, manifest, structuredContent) : parseDetailedInventory(entries, manifest)
-      };
-    }
-    if (index < bodyLines.length) {
-      index += 1;
-      if (index >= bodyLines.length || bodyLines[index] === "") {
-        fail3(
-          "SECTION_SPACING_INVALID",
-          "Sections must be separated by exactly one blank line."
-        );
-      }
-    }
-  }
-  return parsed;
-}
-function isFileIdentityLine(line) {
-  return /^ {2,}[0-9]+\. /u.test(line);
-}
-function presentationWarnings(lines) {
-  const warnings = [];
-  lines.forEach((line, index) => {
-    const length = scalarLength(line);
-    if (index === 0 || length <= MAXIMUM_BODY_LINE_SCALARS) {
-      return;
-    }
-    const trimmed = line.trim();
-    const words = trimmed.split(/\s+/u);
-    const formattedIdentity = isFileIdentityLine(line);
-    if (!formattedIdentity && words.length > 1) {
-      const longest = Math.max(...words.map(scalarLength));
-      if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
-        fail3(
-          "BODY_LINE_AVOIDABLY_OVERLONG",
-          `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
-          { lineNumber: index + 1, scalarLength: length }
-        );
-      }
-    }
-    warnings.push({
-      lineNumber: index + 1,
-      scalarLength: length,
-      reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
-    });
-  });
-  const sha25612 = warnings.length === 0 ? null : createHash3("sha256").update(JSON.stringify(warnings)).digest("hex");
-  return {
-    count: warnings.length,
-    samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
-    sha256: sha25612
-  };
-}
-function presentationDiagnostics(summary) {
-  return summary.count === 0 ? [] : [
-    createWorkflowWarning({
-      code: "MESSAGE_PRESENTATION_LIMIT",
-      message: "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
-      documentation: "references/message-format.md",
-      details: [{ kind: "limit", ...summary }]
-    })
-  ];
-}
-function canUseDirectSubjectTransport(subject) {
-  if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
-    return false;
-  }
-  try {
-    parseSubject(subject, { allowedTypes: [] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function validateApprovedMessage({
-  manifest,
-  route,
-  bytes: inputBytes,
-  repositoryTypePolicy,
-  messageSource,
-  structuredContent = null
-}) {
-  const sourceAllowed = route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(messageSource) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
-  if (!sourceAllowed) {
-    fail3(
-      "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
-      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
-    );
-  }
-  const bytes = canonicalBytes(inputBytes);
-  const displayText = decodeCanonicalMessage(bytes);
-  const withoutTerminalLf = displayText.slice(0, -1);
-  const lines = withoutTerminalLf.split("\n");
-  const subject = parseSubject(lines[0] ?? "", repositoryTypePolicy);
-  const sections = parseSections(lines.slice(1), manifest, {
-    messageSource,
-    structuredContent
-  });
-  if (messageSource === "approved-subject") {
-    if (lines.length !== 1) {
-      fail3(
-        "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
-        "Direct subject transport cannot contain a body."
-      );
-    }
-    if (!canUseDirectSubjectTransport(subject.text)) {
-      fail3(
-        "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
-        "Subject is valid canonical text but is outside the conservative direct transport set."
-      );
-    }
-    if (!bytes.equals(Buffer3.from(`${subject.text}
-`, "utf8"))) {
-      fail3(
-        "DIRECT_SUBJECT_ENCODING_INVALID",
-        "Direct subject bytes must equal the deterministic subject plus one LF encoding."
-      );
-    }
-  }
-  const warnings = presentationWarnings(lines);
-  const messageSha256 = createHash3("sha256").update(bytes).digest("hex");
-  const presentationEntryCount = sections.fileChanges.entries.length;
-  const listedCount = messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? manifest.changeUnitCount : presentationEntryCount;
-  return {
-    schemaVersion: 1,
-    valid: true,
-    route,
-    messageSource,
-    byteCount: bytes.length,
-    messageSha256,
-    displayText,
-    subject,
-    sections: {
-      rationale: {
-        present: sections.rationale.present,
-        entryCount: sections.rationale.entries.length
-      },
-      userExperience: {
-        present: sections.userExperience.present,
-        entryCount: sections.userExperience.entries.length
-      },
-      fileChanges: {
-        present: sections.fileChanges.present,
-        entryCount: presentationEntryCount
-      }
-    },
-    files: {
-      expectedCount: manifest.changeUnitCount,
-      listedCount,
-      setMatches: !sections.fileChanges.present || listedCount === manifest.changeUnitCount,
-      orderValid: true,
-      unique: true
-    },
-    presentationWarnings: warnings
-  };
-}
-var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN;
-var init_approvedMessage = __esm({
-  "src/committing-to-git/message/approvedMessage.js"() {
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_changeSelection2();
-    init_changeSelection2();
-    MAXIMUM_SUBJECT_SCALARS = 72;
-    MAXIMUM_BODY_LINE_SCALARS = 72;
-    MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
-    DIRECT_SUBJECT_TRANSPORT_PATTERN = /^[A-Za-z0-9 ():,._/+-]+$/u;
-    SUBJECT_PATTERN = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u;
-    PROHIBITED_UNICODE_CHARACTER = /[\p{Cc}\p{Cf}]/u;
-    SECTION_ORDER = Object.freeze([
-      "Rationale:",
-      "User Experience Changes:",
-      "File Changes:"
-    ]);
-    PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
-  }
-});
-
-// src/committing-to-git/transaction/transactionRecordValidation.js
-function assertExactKeys2(value, expected, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
-    throw new Error(`${label} contains missing or unknown members.`);
-  }
-}
-function validateHeadAnchor(headAnchor) {
-  if (headAnchor === null) {
-    return;
-  }
-  assertExactKeys2(
-    headAnchor,
-    ["headKind", "targetRef", "expectedParentOids"],
-    "Head anchor"
-  );
-  if (!(/* @__PURE__ */ new Set(["unborn", "attached", "detached"])).has(headAnchor.headKind)) {
-    throw new Error(
-      `Unknown head anchor kind ${JSON.stringify(headAnchor.headKind)}.`
-    );
-  }
-  if (!Array.isArray(headAnchor.expectedParentOids) || headAnchor.expectedParentOids.some(
-    (oid) => typeof oid !== "string" || !FULL_OID_PATTERN.test(oid)
-  )) {
-    throw new Error("Head anchor parent IDs must be full opaque object IDs.");
-  }
-  if (headAnchor.headKind === "unborn") {
-    if (typeof headAnchor.targetRef !== "string" || !headAnchor.targetRef.startsWith("refs/heads/") || headAnchor.expectedParentOids.length !== 0) {
-      throw new Error(
-        "An unborn head anchor requires a full branch ref and no parents."
-      );
-    }
-    return;
-  }
-  if (headAnchor.expectedParentOids.length !== 1) {
-    throw new Error(`${headAnchor.headKind} head anchor requires one parent.`);
-  }
-  if (headAnchor.headKind === "attached") {
-    if (typeof headAnchor.targetRef !== "string" || !headAnchor.targetRef.startsWith("refs/heads/")) {
-      throw new Error("An attached head anchor requires a full branch ref.");
-    }
-    return;
-  }
-  if (headAnchor.targetRef !== null) {
-    throw new Error("A detached head anchor requires a null target ref.");
-  }
-}
-var FULL_OID_PATTERN;
-var init_transactionRecordValidation = __esm({
-  "src/committing-to-git/transaction/transactionRecordValidation.js"() {
-    FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-  }
-});
-
-// src/committing-to-git/transaction/preparationFailureRecord.js
-function exactKeys(value, keys) {
-  if (!value || typeof value !== "object" || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort()))
-    throw new Error("Invalid retained preparation failure fields.");
-}
-function assertPlainFailureData(value, budget = { nodes: 1024 }, depth = 0) {
-  if (--budget.nodes < 0 || depth > 10)
-    throw new Error("Preparation failure exceeds structural bounds.");
-  if (value === null || ["string", "boolean"].includes(typeof value)) return;
-  if (typeof value === "number" && Number.isFinite(value)) return;
-  if (typeof value !== "object" || ![Object.prototype, Array.prototype, null].includes(
-    Object.getPrototypeOf(value)
-  ))
-    throw new Error("Preparation failure must contain plain JSON data.");
-  for (const [key, descriptor] of Object.entries(
-    Object.getOwnPropertyDescriptors(value)
-  )) {
-    if (key === "length" && Array.isArray(value)) continue;
-    if (![
-      "__proto__",
-      "constructor",
-      "prototype",
-      "toJSON",
-      "stack",
-      "cause"
-    ].includes(key) && descriptor.enumerable && "value" in descriptor)
-      assertPlainFailureData(descriptor.value, budget, depth + 1);
-    else
-      throw new Error(
-        "Preparation failure contains unsafe serialization fields."
-      );
-  }
-}
-function validatePreparationFailure(record) {
-  assertPlainFailureData(record);
-  exactKeys(record, [
-    "schemaVersion",
-    "diagnostic",
-    "snapshotObservation",
-    "correctionInputs"
-  ]);
-  if (record.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(record)) > 32 * 1024)
-    throw new Error("Invalid preparation failure version or capacity.");
-  const diagnostic = record.diagnostic;
-  exactKeys(diagnostic, [
-    "code",
-    "message",
-    "disposition",
-    "details",
-    "recovery",
-    "documentation"
-  ]);
-  if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(diagnostic.code) || typeof diagnostic.message !== "string" || Buffer.byteLength(diagnostic.message) > 4096 || projectDetails(diagnostic.message) !== diagnostic.message || !Array.isArray(diagnostic.details) || diagnostic.details.length > 64 || !DISPOSITIONS.has(diagnostic.disposition) || !["references/diagnostics.md", "references/native-execution.md"].includes(
-    diagnostic.documentation
-  ) || JSON.stringify(projectDetails(diagnostic.details)) !== JSON.stringify(diagnostic.details) || JSON.stringify(projectRecovery(diagnostic.recovery)) !== JSON.stringify(diagnostic.recovery))
-    throw new Error("Invalid retained preparation diagnostic.");
-  if (record.snapshotObservation !== null) {
-    const observation = record.snapshotObservation;
-    exactKeys(observation, [
-      "headOid",
-      "headAnchor",
-      "indexTreeOid",
-      "changeUnitCount",
-      "sourceIndexSha256"
-    ]);
-    if (observation.headAnchor === null)
-      throw new Error("Snapshot observations require a HEAD anchor.");
-    validateHeadAnchor(observation.headAnchor);
-    if (!(observation.headOid === null || OID.test(observation.headOid)) || !OID.test(observation.indexTreeOid) || !Number.isSafeInteger(observation.changeUnitCount) || observation.changeUnitCount < 1 || !(observation.sourceIndexSha256 === null || HASH.test(observation.sourceIndexSha256)))
-      throw new Error("Invalid preparation snapshot observations.");
-  }
-  if (record.correctionInputs !== null) {
-    exactKeys(record.correctionInputs, ["scope", "evidence"]);
-    for (const binding of Object.values(record.correctionInputs)) {
-      if (binding === null) continue;
-      exactKeys(binding, ["name", "sha256", "byteCount", "device", "inode"]);
-      if (!["correction-scope.json", "correction-evidence.json"].includes(
-        binding.name
-      ) || !HASH.test(binding.sha256) || !Number.isSafeInteger(binding.byteCount) || binding.byteCount < 1 || binding.byteCount > 8 * 1024 * 1024 || !/^\d+$/u.test(binding.device) || !/^\d+$/u.test(binding.inode))
-        throw new Error("Invalid correction input binding.");
-    }
-    if (record.correctionInputs.evidence?.name !== "correction-evidence.json" || record.correctionInputs.scope !== null && record.correctionInputs.scope.name !== "correction-scope.json")
-      throw new Error("Correction input roles do not match their fixed names.");
-  }
-  return record;
-}
-var HASH, OID, DISPOSITIONS;
-var init_preparationFailureRecord = __esm({
-  "src/committing-to-git/transaction/preparationFailureRecord.js"() {
-    init_transactionRecordValidation();
-    init_diagnosticContract();
-    HASH = /^[0-9a-f]{64}$/u;
-    OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    DISPOSITIONS = /* @__PURE__ */ new Set([
-      "invalid-input",
-      "rejected",
-      "unmet-prerequisite",
-      "internal-failure"
-    ]);
-  }
-});
-
-// src/committing-to-git/checks/checkReceipt.js
-import { isAbsolute as isAbsolute2, join as join2, resolve as resolve3 } from "node:path";
-function assertExactKeys3(value, expected, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
-    throw new Error(`${label} contains missing or unknown members.`);
-  }
-}
-function validTimestamp(value) {
-  return typeof value === "string" && Number.isFinite(Date.parse(value));
-}
-function validateCheckCommand(command) {
-  assertExactKeys3(command, ["executable", "arguments"], "Check command");
-  if (typeof command.executable !== "string" || command.executable.trim() !== command.executable || command.executable.length === 0 || /[\0\r\n;&|<>`]|\$\(/u.test(command.executable)) {
-    throw new Error(
-      "Check command executable token must be one literal executable or path, not shell syntax."
-    );
-  }
-  if (!Array.isArray(command.arguments) || command.arguments.length > MAXIMUM_ARGUMENTS || command.arguments.some(
-    (argument) => typeof argument !== "string" || argument.includes("\0")
-  ) || Buffer.byteLength(
-    JSON.stringify([command.executable, ...command.arguments]),
-    "utf8"
-  ) > MAXIMUM_COMMAND_BYTES) {
-    throw new Error(
-      "Check command arguments must be a bounded literal argument vector."
-    );
-  }
-}
-function validateCheckContext(context) {
-  assertExactKeys3(
-    context,
-    ["kind", "repositoryRelativeWorkingDirectory"],
-    "Check context"
-  );
-  const directory = context.repositoryRelativeWorkingDirectory;
-  if (context.kind !== "current-worktree" || typeof directory !== "string" || directory.length === 0 || directory.includes("\0") || isAbsolute2(directory) || directory.split(/[\\/]/u).some((component) => component === "..")) {
-    throw new Error(
-      "Check context must be current-worktree with a contained repository-relative working directory."
-    );
-  }
-}
-function validateSubject(subject, transaction) {
-  assertExactKeys3(
-    subject,
-    ["manifestSha256", "headAnchor", "preparedTreeOid"],
-    "Check subject"
-  );
-  if (!SHA256_PATTERN.test(subject.manifestSha256) || !FULL_OID_PATTERN2.test(subject.preparedTreeOid) || subject.manifestSha256 !== transaction.snapshot?.sha256 || subject.preparedTreeOid !== transaction.snapshot?.indexTreeOid || JSON.stringify(subject.headAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    throw new Error(
-      "Check receipt does not match the prepared transaction subject."
-    );
-  }
-}
-function validateChildIdentity(identity) {
-  if (identity === null) {
-    return;
-  }
-  assertExactKeys3(identity, ["pid", "startIdentity"], "Check child identity");
-  if (!Number.isSafeInteger(identity.pid) || identity.pid < 1 || identity.startIdentity !== null && typeof identity.startIdentity !== "string") {
-    throw new Error("Check child identity is invalid.");
-  }
-}
-function validateWorkspaceObservation(observation, label) {
-  if (observation === null) {
-    return;
-  }
-  assertExactKeys3(observation, ["matches", "pathCount", "observedAt"], label);
-  if (typeof observation.matches !== "boolean" || !Number.isSafeInteger(observation.pathCount) || observation.pathCount < 0 || !validTimestamp(observation.observedAt)) {
-    throw new Error(`${label} is invalid.`);
-  }
-}
-function validateWorkspace(workspace) {
-  assertExactKeys3(workspace, ["before", "after"], "Check workspace");
-  validateWorkspaceObservation(workspace.before, "Check workspace before");
-  validateWorkspaceObservation(workspace.after, "Check workspace after");
-  if (workspace.before === null || workspace.before.matches !== true) {
-    throw new Error(
-      "A check may launch only after the selected scope matches its prepared tree."
-    );
-  }
-}
-function validateOutputChannel(channel, label, expectedPaths) {
-  assertExactKeys3(
-    channel,
-    [
-      "totalByteCount",
-      "sha256",
-      "headPath",
-      "headByteCount",
-      "headSha256",
-      "tailPath",
-      "tailByteCount",
-      "tailSha256",
-      "truncated"
-    ],
-    label
-  );
-  if (!Number.isSafeInteger(channel.totalByteCount) || channel.totalByteCount < 0 || !SHA256_PATTERN.test(channel.sha256) || channel.headPath !== null && !isAbsolute2(channel.headPath) || !Number.isSafeInteger(channel.headByteCount) || channel.headByteCount < 0 || channel.headSha256 !== null && !SHA256_PATTERN.test(channel.headSha256) || channel.tailPath !== null && !isAbsolute2(channel.tailPath) || !Number.isSafeInteger(channel.tailByteCount) || channel.tailByteCount < 0 || channel.tailSha256 !== null && !SHA256_PATTERN.test(channel.tailSha256) || typeof channel.truncated !== "boolean") {
-    throw new Error(`${label} is invalid.`);
-  }
-  for (const segment of ["head", "tail"]) {
-    const path = channel[`${segment}Path`];
-    const byteCount = channel[`${segment}ByteCount`];
-    const digest3 = channel[`${segment}Sha256`];
-    if (byteCount === 0 && (path !== null || digest3 !== null) || byteCount > 0 && (path === null || digest3 === null || resolve3(path) !== expectedPaths[segment])) {
-      throw new Error(
-        `${label} ${segment} segment is not bound to its transaction path and digest.`
-      );
-    }
-  }
-}
-function validateOutput(output, attempt, transaction) {
-  if (output === null) {
-    return;
-  }
-  assertExactKeys3(
-    output,
-    ["schemaVersion", "stdout", "stderr"],
-    "Check output"
-  );
-  if (output.schemaVersion !== 1) {
-    throw new Error("Check output schemaVersion must be 1.");
-  }
-  const directory = join2(resolve3(transaction.attemptDirectory), "process-logs");
-  for (const channel of ["stdout", "stderr"]) {
-    validateOutputChannel(output[channel], `Check ${channel} output`, {
-      head: join2(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
-      tail: join2(directory, `check-${attempt.receiptId}-${channel}-tail.bin`)
-    });
-  }
-}
-function validateCompletion(completion) {
-  if (completion === null) {
-    return;
-  }
-  assertExactKeys3(
-    completion,
-    [
-      "finishedAt",
-      "durationMilliseconds",
-      "outcome",
-      "exitCode",
-      "signal",
-      "launchError"
-    ],
-    "Check completion"
-  );
-  if (!validTimestamp(completion.finishedAt) || !Number.isSafeInteger(completion.durationMilliseconds) || completion.durationMilliseconds < 0 || !OUTCOMES.has(completion.outcome) || completion.exitCode !== null && !Number.isInteger(completion.exitCode) || completion.signal !== null && typeof completion.signal !== "string" || completion.launchError !== null && (typeof completion.launchError !== "object" || Array.isArray(completion.launchError))) {
-    throw new Error("Check completion is invalid.");
-  }
-  const outcomeShapeIsValid = completion.outcome === "passed" && completion.exitCode === 0 && completion.signal === null && completion.launchError === null || completion.outcome === "failed" && completion.exitCode !== null && completion.exitCode !== 0 && completion.signal === null && completion.launchError === null || completion.outcome === "launch-error" && completion.exitCode === null && completion.signal === null && completion.launchError !== null || completion.outcome === "signaled" && completion.exitCode === null && completion.signal !== null && completion.launchError === null || completion.outcome === "timed-out" && completion.exitCode === null && completion.launchError === null || completion.outcome === "unknown" && completion.exitCode === null && completion.signal === null && completion.launchError === null;
-  if (!outcomeShapeIsValid) {
-    throw new Error("Check completion outcome contradicts its process facts.");
-  }
-}
-function validateResolution(resolution) {
-  if (resolution === null) {
-    return;
-  }
-  assertExactKeys3(
-    resolution,
-    ["kind", "resolvedAt"],
-    "Check recovery resolution"
-  );
-  if (resolution.kind !== "confirmed-no-live-child" || !validTimestamp(resolution.resolvedAt)) {
-    throw new Error("Check recovery resolution is invalid.");
-  }
-}
-function validateCheckAttempt(attempt, transaction) {
-  assertExactKeys3(
-    attempt,
-    [
-      "schemaVersion",
-      "receiptId",
-      "retryOf",
-      "label",
-      "command",
-      "context",
-      "subject",
-      "launchState",
-      "childIdentity",
-      "startedAt",
-      "completion",
-      "workspace",
-      "output",
-      "resolution"
-    ],
-    "Check attempt"
-  );
-  if (attempt.schemaVersion !== 1 || !RECEIPT_ID_PATTERN.test(attempt.receiptId) || attempt.retryOf !== null && !RECEIPT_ID_PATTERN.test(attempt.retryOf) || typeof attempt.label !== "string" || attempt.label.trim() !== attempt.label || attempt.label.length === 0 || /[\0\r\n]/u.test(attempt.label) || Buffer.byteLength(attempt.label, "utf8") > MAXIMUM_LABEL_BYTES || !LAUNCH_STATES.has(attempt.launchState) || !validTimestamp(attempt.startedAt)) {
-    throw new Error("Check attempt contains invalid identity or launch facts.");
-  }
-  validateCheckCommand(attempt.command);
-  validateCheckContext(attempt.context);
-  validateSubject(attempt.subject, transaction);
-  validateChildIdentity(attempt.childIdentity);
-  validateCompletion(attempt.completion);
-  validateWorkspace(attempt.workspace);
-  validateOutput(attempt.output, attempt, transaction);
-  validateResolution(attempt.resolution);
-  if (attempt.launchState === "launching" && (attempt.childIdentity !== null || attempt.completion !== null || attempt.output !== null || attempt.workspace.after !== null || attempt.resolution !== null) || attempt.launchState === "running" && (attempt.childIdentity === null || attempt.completion !== null || attempt.workspace.after !== null || attempt.resolution !== null) || attempt.launchState === "completed" && attempt.completion === null || attempt.completion !== null && !(/* @__PURE__ */ new Set(["launch-error", "unknown"])).has(attempt.completion.outcome) && (attempt.childIdentity === null || attempt.output === null || attempt.workspace.after === null) || attempt.completion?.outcome === "unknown" && attempt.resolution === null || attempt.resolution !== null && attempt.completion?.outcome !== "unknown") {
-    throw new Error("Check launch state and outcome are inconsistent.");
-  }
-}
-function validateCheckAttempts(checkAttempts, transaction) {
-  if (!Array.isArray(checkAttempts)) {
-    throw new Error("Transaction checkAttempts must be an array.");
-  }
-  for (const [index, attempt] of checkAttempts.entries()) {
-    const expectedId = `C${String(index + 1).padStart(6, "0")}`;
-    if (attempt?.receiptId !== expectedId) {
-      throw new Error(
-        "Check receipt IDs must form deterministic append-only history."
-      );
-    }
-  }
-  for (const [index, attempt] of checkAttempts.entries()) {
-    validateCheckAttempt(attempt, transaction);
-    if (attempt.retryOf !== null) {
-      const prior = checkAttempts[index - 1];
-      if (prior === void 0 || attempt.retryOf !== prior.receiptId || prior.completion?.outcome !== "unknown" || prior.resolution === null) {
-        throw new Error(
-          "Check retry links must name the immediately earlier resolved unknown attempt."
-        );
-      }
-    }
-    if (index < checkAttempts.length - 1 && attempt.launchState !== "completed") {
-      throw new Error(
-        "Only the latest check attempt may have an unresolved launch state."
-      );
-    }
-    if (attempt.completion?.outcome === "unknown" && index < checkAttempts.length - 1 && checkAttempts[index + 1].retryOf !== attempt.receiptId) {
-      throw new Error(
-        "A resolved unknown check must be followed immediately by its linked retry."
-      );
-    }
-  }
-}
-function completedCheckReceipts(checkAttempts) {
-  return checkAttempts.filter(
-    (attempt) => attempt.launchState === "completed" && REPORTABLE_OUTCOMES.has(attempt.completion?.outcome) && attempt.workspace.before.matches && attempt.workspace.after?.matches
-  );
-}
-function analyzeCheckCommitReadiness(checkAttempts, acknowledgedFailedCheckIds) {
-  const acknowledgements = Array.isArray(acknowledgedFailedCheckIds) ? acknowledgedFailedCheckIds : [];
-  const uniqueAcknowledgements = new Set(acknowledgements);
-  const receipts = completedCheckReceipts(checkAttempts);
-  const failedReceiptIds = receipts.filter((attempt) => attempt.completion.outcome !== "passed").map((attempt) => attempt.receiptId);
-  const failedReceiptSet = new Set(failedReceiptIds);
-  return {
-    activeAttemptIds: checkAttempts.filter((attempt) => attempt.launchState !== "completed").map((attempt) => attempt.receiptId),
-    retryRequiredIds: checkAttempts.filter(
-      (attempt, index) => attempt.completion?.outcome === "unknown" && checkAttempts[index + 1]?.retryOf !== attempt.receiptId
-    ).map((attempt) => attempt.receiptId),
-    failedReceiptIds,
-    missingAcknowledgementIds: failedReceiptIds.filter(
-      (receiptId) => !uniqueAcknowledgements.has(receiptId)
-    ),
-    invalidAcknowledgementIds: [...uniqueAcknowledgements].filter(
-      (receiptId) => !failedReceiptSet.has(receiptId)
-    ),
-    duplicateAcknowledgementIds: acknowledgements.filter(
-      (receiptId, index) => acknowledgements.indexOf(receiptId) !== index
-    )
-  };
-}
-function reportOutputChannel(channel) {
-  return {
-    totalByteCount: channel.totalByteCount,
-    sha256: channel.sha256,
-    truncated: channel.truncated
-  };
-}
-function summarizeCheckReceipts(checkAttempts, acknowledgedFailedCheckIds = []) {
-  const acknowledged = new Set(acknowledgedFailedCheckIds);
-  const receipts = completedCheckReceipts(checkAttempts).map((attempt) => ({
-    receiptId: attempt.receiptId,
-    label: attempt.label,
-    command: attempt.command,
-    context: attempt.context,
-    outcome: attempt.completion.outcome,
-    exitCode: attempt.completion.exitCode,
-    signal: attempt.completion.signal,
-    durationMilliseconds: attempt.completion.durationMilliseconds,
-    selectedScopeStable: true,
-    failureAcknowledged: attempt.completion.outcome === "passed" ? null : acknowledged.has(attempt.receiptId),
-    output: {
-      stdout: reportOutputChannel(attempt.output.stdout),
-      stderr: reportOutputChannel(attempt.output.stderr)
-    }
-  }));
-  return {
-    schemaVersion: 2,
-    attemptCount: checkAttempts.length,
-    receipts
-  };
-}
-var FULL_OID_PATTERN2, SHA256_PATTERN, RECEIPT_ID_PATTERN, LAUNCH_STATES, OUTCOMES, MAXIMUM_LABEL_BYTES, MAXIMUM_COMMAND_BYTES, MAXIMUM_ARGUMENTS, REPORTABLE_OUTCOMES;
-var init_checkReceipt = __esm({
-  "src/committing-to-git/checks/checkReceipt.js"() {
-    FULL_OID_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    SHA256_PATTERN = /^[0-9a-f]{64}$/u;
-    RECEIPT_ID_PATTERN = /^C[0-9]{6}$/u;
-    LAUNCH_STATES = /* @__PURE__ */ new Set(["launching", "running", "completed"]);
-    OUTCOMES = /* @__PURE__ */ new Set([
-      "passed",
-      "failed",
-      "launch-error",
-      "signaled",
-      "timed-out",
-      "unknown"
-    ]);
-    MAXIMUM_LABEL_BYTES = 256;
-    MAXIMUM_COMMAND_BYTES = 32 * 1024;
-    MAXIMUM_ARGUMENTS = 256;
-    REPORTABLE_OUTCOMES = /* @__PURE__ */ new Set([
-      "passed",
-      "failed",
-      "signaled",
-      "timed-out"
-    ]);
-  }
-});
-
-// src/committing-to-git/transaction/transactionWorkspace.js
-import { randomUUID as systemRandomUUID } from "node:crypto";
-import {
-  closeSync as closeSync3,
-  constants as fsConstants,
-  existsSync as existsSync3,
-  fstatSync as fstatSync3,
-  fsyncSync,
-  lstatSync as lstatSync2,
-  mkdirSync,
-  openSync as openSync3,
-  readFileSync,
-  realpathSync as realpathSync2,
-  renameSync,
-  rmSync,
-  writeFileSync as writeFileSync2
-} from "node:fs";
-import { tmpdir } from "node:os";
-import {
-  basename,
-  dirname,
-  isAbsolute as isAbsolute3,
-  join as join3,
-  relative,
-  resolve as resolve4
-} from "node:path";
-function transactionStateKey(transaction) {
-  return JSON.stringify([
-    transaction.phase,
-    transaction.status,
-    transaction.terminalDisposition
-  ]);
-}
-function validateIndexIdentity(identity, label) {
-  if (identity?.state === "absent") {
-    assertExactKeys2(identity, ["state"], label);
-    return;
-  }
-  assertExactKeys2(
-    identity,
-    ["state", "byteCount", "sha256", "fileIdentity"],
-    label
-  );
-  if (identity.state !== "file" || !Number.isSafeInteger(identity.byteCount) || identity.byteCount < 0 || !SHA256_PATTERN2.test(identity.sha256)) {
-    throw new Error(`${label} is not a canonical index identity.`);
-  }
-  assertExactKeys2(
-    identity.fileIdentity,
-    [
-      "device",
-      "inode",
-      "mode",
-      "modifiedTimeMilliseconds",
-      "changeTimeMilliseconds"
-    ],
-    `${label} file identity`
-  );
-  if (typeof identity.fileIdentity.device !== "string" || identity.fileIdentity.device.length === 0 || typeof identity.fileIdentity.inode !== "string" || identity.fileIdentity.inode.length === 0 || !Number.isSafeInteger(identity.fileIdentity.mode) || identity.fileIdentity.mode < 0 || !Number.isFinite(identity.fileIdentity.modifiedTimeMilliseconds) || identity.fileIdentity.modifiedTimeMilliseconds < 0 || !Number.isFinite(identity.fileIdentity.changeTimeMilliseconds) || identity.fileIdentity.changeTimeMilliseconds < 0) {
-    throw new Error(`${label} file identity is invalid.`);
-  }
-}
-function validatePromotionState(snapshot, transaction) {
-  if (snapshot?.promotion === void 0 || snapshot.promotion === null) {
-    return;
-  }
-  const promotion = snapshot.promotion;
-  assertExactKeys2(
-    promotion,
-    [
-      "schemaVersion",
-      "status",
-      "headAnchor",
-      "indexTreeOid",
-      "originalIndexIdentity",
-      "preparedIndexPath",
-      "preparedIndexIdentity",
-      "installedIndexIdentity",
-      "recoveryObservation"
-    ],
-    "Promotion state"
-  );
-  if (promotion.schemaVersion !== 1 || !(/* @__PURE__ */ new Set(["prepared", "recovery-observed", "installed"])).has(
-    promotion.status
-  ) || !FULL_OID_PATTERN3.test(promotion.indexTreeOid) || promotion.indexTreeOid !== snapshot.indexTreeOid || JSON.stringify(promotion.headAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    throw new Error("Promotion state does not match the transaction anchors.");
-  }
-  validateHeadAnchor(promotion.headAnchor);
-  validateIndexIdentity(
-    promotion.originalIndexIdentity,
-    "Promotion original index identity"
-  );
-  validateIndexIdentity(
-    promotion.preparedIndexIdentity,
-    "Promotion prepared index identity"
-  );
-  if (promotion.installedIndexIdentity !== null) {
-    validateIndexIdentity(
-      promotion.installedIndexIdentity,
-      "Promotion installed index identity"
-    );
-  }
-  if (promotion.preparedIndexPath !== null && (typeof promotion.preparedIndexPath !== "string" || !isAbsolute3(promotion.preparedIndexPath))) {
-    throw new Error("Promotion prepared index path is invalid.");
-  }
-  if (promotion.recoveryObservation !== null) {
-    const observation = promotion.recoveryObservation;
-    assertExactKeys2(
-      observation,
-      [
-        "status",
-        "resumeAllowed",
-        "recoveryRequired",
-        "currentIndexIdentity",
-        "preparedIndexTreeOid",
-        "headAnchor"
-      ],
-      "Promotion recovery observation"
-    );
-    if (!(/* @__PURE__ */ new Set([
-      "installed",
-      "matching-index-observed",
-      "not-installed",
-      "ambiguous"
-    ])).has(observation.status) || typeof observation.resumeAllowed !== "boolean" || typeof observation.recoveryRequired !== "boolean" || observation.preparedIndexTreeOid !== promotion.indexTreeOid || JSON.stringify(observation.headAnchor) !== JSON.stringify(promotion.headAnchor)) {
-      throw new Error("Promotion recovery observation is invalid.");
-    }
-    validateIndexIdentity(
-      observation.currentIndexIdentity,
-      "Promotion recovery current index identity"
-    );
-  }
-  if (promotion.status === "prepared" && (promotion.installedIndexIdentity !== null || promotion.recoveryObservation !== null) || promotion.status === "recovery-observed" && (promotion.installedIndexIdentity !== null || promotion.recoveryObservation === null) || promotion.status === "installed" && promotion.installedIndexIdentity === null) {
-    throw new Error("Promotion status and durable facts are inconsistent.");
-  }
-}
-function validateRepositoryTypePolicy(policy) {
-  assertExactKeys2(policy, ["allowedTypes"], "Repository type policy");
-  if (policy.allowedTypes === null) {
-    return;
-  }
-  if (!Array.isArray(policy.allowedTypes) || policy.allowedTypes.length > 64 || new Set(policy.allowedTypes).size !== policy.allowedTypes.length || policy.allowedTypes.some(
-    (type) => typeof type !== "string" || !TYPE_TOKEN_PATTERN.test(type)
-  )) {
-    throw new Error(
-      "Repository allowed types must be unique lowercase tokens."
-    );
-  }
-}
-function validateInlineEvidence(inlineEvidence) {
-  if (inlineEvidence === null) {
-    return;
-  }
-  assertExactKeys2(
-    inlineEvidence,
-    ["capsuleSha256", "manifestSha256", "evidencePlanSha256", "capsule"],
-    "Inline evidence"
-  );
-  for (const field of [
-    "capsuleSha256",
-    "manifestSha256",
-    "evidencePlanSha256"
-  ]) {
-    if (!SHA256_PATTERN2.test(inlineEvidence[field])) {
-      throw new Error(`Inline evidence ${field} must be a SHA-256 digest.`);
-    }
-  }
-  if (inlineEvidence.capsule === null || typeof inlineEvidence.capsule !== "object" || Array.isArray(inlineEvidence.capsule)) {
-    throw new Error("Inline evidence capsule must be an object.");
-  }
-}
-function validateReviewTraversal(traversal) {
-  if (traversal === null) {
-    return;
-  }
-  assertExactKeys2(
-    traversal,
-    [
-      "schemaVersion",
-      "catalogSha256",
-      "deliveredPacketCount",
-      "lastRequestCursor",
-      "nextCursor",
-      "complete"
-    ],
-    "Review traversal"
-  );
-  if (traversal.schemaVersion !== 1 || !SHA256_PATTERN2.test(traversal.catalogSha256) || !Number.isSafeInteger(traversal.deliveredPacketCount) || traversal.deliveredPacketCount < 1 || !(traversal.lastRequestCursor === null || typeof traversal.lastRequestCursor === "string") || traversal.lastRequestCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.lastRequestCursor) || !(traversal.nextCursor === null || typeof traversal.nextCursor === "string") || traversal.nextCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.nextCursor) || typeof traversal.complete !== "boolean" || traversal.complete !== (traversal.nextCursor === null)) {
-    throw new Error("Review traversal is invalid.");
-  }
-}
-function validateReviewReceipt(receipt, review) {
-  if (receipt === null) {
-    return;
-  }
-  assertExactKeys2(
-    receipt,
-    [
-      "schemaVersion",
-      "catalogSha256",
-      "evidencePlanSha256",
-      "requiredPacketsReviewed",
-      "additionalPacketIds"
-    ],
-    "Review receipt"
-  );
-  if (receipt.schemaVersion !== 1 || receipt.catalogSha256 !== review.catalogSha256 || receipt.evidencePlanSha256 !== review.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length || receipt.additionalPacketIds.some(
-    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
-  )) {
-    throw new Error("Review receipt is invalid for the current review state.");
-  }
-}
-function validateReviewState(review) {
-  if (review === null) {
-    return;
-  }
-  const required = [
-    "catalogPath",
-    "catalogSha256",
-    "evidencePlanPath",
-    "evidencePlanSha256",
-    "extendedReason",
-    "deliveryPacketIds",
-    "queue",
-    "receipt",
-    "semanticStructureRequired",
-    "structuredMessageMode",
-    "traversal"
-  ];
-  const optional = ["coveredCapsuleSha256", "preparationEvidence"].filter(
-    (key) => Object.hasOwn(review, key)
-  );
-  assertExactKeys2(review, [...required, ...optional], "Review state");
-  if (Object.hasOwn(review, "preparationEvidence")) {
-    validateInlineEvidence(review.preparationEvidence);
-    if (review.preparationEvidence === null)
-      throw new Error("Preparation evidence must be present.");
-  }
-  if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN2.test(review.catalogSha256) || !SHA256_PATTERN2.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN2.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || !Array.isArray(review.deliveryPacketIds) || new Set(review.deliveryPacketIds).size !== review.deliveryPacketIds.length || review.deliveryPacketIds.some(
-    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
-  ) || typeof review.semanticStructureRequired !== "boolean" || !(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(review.structuredMessageMode)) {
-    throw new Error(
-      "Review state contains invalid identities or routing facts."
-    );
-  }
-  for (const field of ["queue", "receipt"]) {
-    if (review[field] !== null && (typeof review[field] !== "object" || Array.isArray(review[field]))) {
-      throw new Error(`Review state ${field} must be an object or null.`);
-    }
-  }
-  validateReviewTraversal(review.traversal);
-  validateReviewReceipt(review.receipt, review);
-  if (review.traversal !== null && (review.deliveryPacketIds.length === 0 || review.traversal.catalogSha256 !== review.catalogSha256 || review.traversal.deliveredPacketCount > review.deliveryPacketIds.length || review.traversal.complete !== (review.traversal.deliveredPacketCount === review.deliveryPacketIds.length))) {
-    throw new Error(
-      "Review traversal does not match the current delivery packet set."
-    );
-  }
-  const deliveryComplete = review.deliveryPacketIds.length === 0 || review.traversal?.complete === true;
-  if (review.receipt !== null !== deliveryComplete) {
-    throw new Error(
-      "Review receipt presence does not match helper-owned delivery completion."
-    );
-  }
-}
-function validateMessageState(message) {
-  if (message === null) {
-    return;
-  }
-  assertExactKeys2(
-    message,
-    [
-      "schemaVersion",
-      "revision",
-      "sha256",
-      "source",
-      "byteCount",
-      "stateSha256",
-      "validationSha256",
-      "slot"
-    ],
-    "Canonical message state"
-  );
-  if (message.schemaVersion !== 1 || !Number.isSafeInteger(message.revision) || message.revision < 1 || !SHA256_PATTERN2.test(message.sha256) || !MESSAGE_SOURCES.has(message.source) || !Number.isSafeInteger(message.byteCount) || message.byteCount < 1 || !SHA256_PATTERN2.test(message.stateSha256) || !SHA256_PATTERN2.test(message.validationSha256) || message.slot !== "message/current") {
-    throw new Error("Canonical message state is invalid.");
-  }
-}
-function validateSignaturePreflight(preflight) {
-  if (preflight === null) {
-    return;
-  }
-  assertExactKeys2(preflight, ["backend", "trustSource"], "Signature preflight");
-  if (!(/* @__PURE__ */ new Set([null, "ssh", "openpgp"])).has(preflight.backend)) {
-    throw new Error("Signature preflight backend is invalid.");
-  }
-  if (preflight.backend !== "ssh") {
-    if (preflight.trustSource !== null) {
-      throw new Error(
-        "Only SSH preflight may record an allowed-signers source."
-      );
-    }
-    return;
-  }
-  assertExactKeys2(
-    preflight.trustSource,
-    ["configured", "origin", "path", "state", "errorCode"],
-    "SSH trust source"
-  );
-  if (typeof preflight.trustSource.configured !== "boolean" || !(/* @__PURE__ */ new Set([
-    "readable",
-    "not-configured",
-    "not-found",
-    "permission-denied",
-    "invalid-file-type",
-    "probe-error"
-  ])).has(preflight.trustSource.state) || preflight.trustSource.errorCode !== null && typeof preflight.trustSource.errorCode !== "string" || preflight.trustSource.origin !== null && typeof preflight.trustSource.origin !== "string" || preflight.trustSource.path !== null && typeof preflight.trustSource.path !== "string" || preflight.trustSource.configured && (!preflight.trustSource.origin || !preflight.trustSource.path || preflight.trustSource.state === "not-configured") || !preflight.trustSource.configured && (preflight.trustSource.origin !== null || preflight.trustSource.path !== null || preflight.trustSource.state !== "not-configured" || preflight.trustSource.errorCode !== null)) {
-    throw new Error("SSH trust-source preflight is invalid.");
-  }
-}
-function validateCommitJournal(commit) {
-  if (commit === null) {
-    return;
-  }
-  assertExactKeys2(
-    commit,
-    [
-      "status",
-      "launchState",
-      "childIdentity",
-      "headAnchor",
-      "expectedTreeOid",
-      "messageSha256",
-      "messageByteCount",
-      "acknowledgedFailedCheckIds",
-      "startedAt",
-      "completion",
-      "transcript",
-      "commitOid",
-      "comparison",
-      "observationProvenance",
-      "recoveryObservations",
-      "recoveryResolution"
-    ],
-    "Commit journal"
-  );
-  validateHeadAnchor(commit.headAnchor);
-  if (!(/* @__PURE__ */ new Set(["pending", "created"])).has(commit.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
-    commit.launchState
-  ) || !FULL_OID_PATTERN3.test(commit.expectedTreeOid) || !SHA256_PATTERN2.test(commit.messageSha256) || !Number.isSafeInteger(commit.messageByteCount) || commit.messageByteCount < 1 || !Array.isArray(commit.acknowledgedFailedCheckIds) || commit.acknowledgedFailedCheckIds.some(
-    (receiptId) => typeof receiptId !== "string" || !/^C[0-9]{6}$/u.test(receiptId)
-  ) || new Set(commit.acknowledgedFailedCheckIds).size !== commit.acknowledgedFailedCheckIds.length || typeof commit.startedAt !== "string" || !Number.isFinite(Date.parse(commit.startedAt)) || commit.commitOid !== null && !FULL_OID_PATTERN3.test(commit.commitOid) || !(/* @__PURE__ */ new Set([null, "witnessed", "recovered"])).has(commit.observationProvenance)) {
-    throw new Error(
-      "Commit journal contains invalid identity or launch facts."
-    );
-  }
-  if (commit.childIdentity !== null) {
-    assertExactKeys2(
-      commit.childIdentity,
-      ["pid", "startIdentity"],
-      "Commit child identity"
-    );
-    if (!Number.isSafeInteger(commit.childIdentity.pid) || commit.childIdentity.pid < 1 || commit.childIdentity.startIdentity !== null && typeof commit.childIdentity.startIdentity !== "string") {
-      throw new Error("Commit child identity is invalid.");
-    }
-  }
-  if (commit.completion !== null) {
-    assertExactKeys2(
-      commit.completion,
-      [
-        "exitCode",
-        "signal",
-        "transcriptCompletionSha256",
-        "nonLaunchGuaranteed",
-        "launchError"
-      ],
-      "Commit completion"
-    );
-    if (commit.completion.exitCode !== null && !Number.isInteger(commit.completion.exitCode) || commit.completion.signal !== null && typeof commit.completion.signal !== "string" || commit.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN2.test(commit.completion.transcriptCompletionSha256) || typeof commit.completion.nonLaunchGuaranteed !== "boolean" || commit.completion.launchError !== null && (typeof commit.completion.launchError !== "object" || Array.isArray(commit.completion.launchError))) {
-      throw new Error("Commit completion is invalid.");
-    }
-  }
-  for (const field of [
-    "transcript",
-    "comparison",
-    "recoveryObservations",
-    "recoveryResolution"
-  ]) {
-    if (commit[field] !== null && (typeof commit[field] !== "object" || Array.isArray(commit[field]))) {
-      throw new Error(`Commit journal ${field} must be an object or null.`);
-    }
-  }
-}
-function validateVerificationHistory(verification) {
-  if (verification === null) {
-    return;
-  }
-  assertExactKeys2(
-    verification,
-    [
-      "schemaVersion",
-      "commitOid",
-      "initialPolicy",
-      "finalPolicy",
-      "attempts",
-      "effectiveAttempt",
-      "blocksPush"
-    ],
-    "Verification history"
-  );
-  if (verification.schemaVersion !== 2 || !FULL_OID_PATTERN3.test(verification.commitOid) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
-    verification.initialPolicy
-  ) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
-    verification.finalPolicy
-  ) || !Array.isArray(verification.attempts) || verification.attempts.length < 1 || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || typeof verification.blocksPush !== "boolean") {
-    throw new Error("Verification history is invalid.");
-  }
-  for (const attempt of verification.attempts) {
-    assertExactKeys2(
-      attempt,
-      ["status", "reason", "backend", "identity", "timestamp"],
-      "Signature verification attempt"
-    );
-    if (!(/* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"])).has(
-      attempt.status
-    ) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
-      throw new Error("Signature verification attempt is invalid.");
-    }
-    if (attempt.status !== "verified") {
-      if (attempt.identity !== null || attempt.status === "skipped" && attempt.backend !== null) {
-        throw new Error("Signature verification attempt is invalid.");
-      }
-      continue;
-    }
-    const sshIdentity2 = attempt.backend === "ssh" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 2 && Object.hasOwn(attempt.identity, "principal") && Object.hasOwn(attempt.identity, "keyFingerprint") && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN.test(attempt.identity.keyFingerprint);
-    const openPgpIdentity2 = attempt.backend === "openpgp" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 3 && Object.hasOwn(attempt.identity, "signer") && Object.hasOwn(attempt.identity, "primaryKeyFingerprint") && Object.hasOwn(attempt.identity, "signingSubkeyFingerprint") && typeof attempt.identity.signer === "string" && attempt.identity.signer.length > 0 && typeof attempt.identity.primaryKeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
-      attempt.identity.primaryKeyFingerprint
-    ) && (attempt.identity.signingSubkeyFingerprint === null || typeof attempt.identity.signingSubkeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
-      attempt.identity.signingSubkeyFingerprint
-    ));
-    if (!sshIdentity2 && !openPgpIdentity2) {
-      throw new Error(
-        "Verified signature attempts require a backend-specific identity."
-      );
-    }
-  }
-}
-function validatePublicationAttempt(attempt) {
-  assertExactKeys2(
-    attempt,
-    [
-      "schemaVersion",
-      "attemptId",
-      "retryOf",
-      "status",
-      "launchState",
-      "childIdentity",
-      "commitOid",
-      "remote",
-      "destination",
-      "refspec",
-      "startedAt",
-      "completion",
-      "transcript",
-      "observation",
-      "resolution",
-      "retryPermitted",
-      "reason"
-    ],
-    "Publication attempt"
-  );
-  if (attempt.schemaVersion !== 1 || !UUID_V4_PATTERN.test(attempt.attemptId) || attempt.retryOf !== null && !UUID_V4_PATTERN.test(attempt.retryOf) || !(/* @__PURE__ */ new Set([
-    "pending",
-    "unknown",
-    "rejected",
-    "succeeded",
-    "observed-matching"
-  ])).has(attempt.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
-    attempt.launchState
-  ) || !FULL_OID_PATTERN3.test(attempt.commitOid) || typeof attempt.remote !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(attempt.remote) || typeof attempt.destination !== "string" || !attempt.destination.startsWith("refs/heads/") || attempt.refspec !== `${attempt.commitOid}:${attempt.destination}` || typeof attempt.startedAt !== "string" || !Number.isFinite(Date.parse(attempt.startedAt)) || typeof attempt.retryPermitted !== "boolean" || attempt.reason !== null && typeof attempt.reason !== "string") {
-    throw new Error("Publication attempt contains invalid identity facts.");
-  }
-  if (attempt.childIdentity !== null) {
-    assertExactKeys2(
-      attempt.childIdentity,
-      ["pid", "startIdentity"],
-      "Publication child identity"
-    );
-    if (!Number.isSafeInteger(attempt.childIdentity.pid) || attempt.childIdentity.pid < 1 || attempt.childIdentity.startIdentity !== null && typeof attempt.childIdentity.startIdentity !== "string") {
-      throw new Error("Publication child identity is invalid.");
-    }
-  }
-  if (attempt.completion !== null) {
-    assertExactKeys2(
-      attempt.completion,
-      [
-        "exitCode",
-        "signal",
-        "transcriptCompletionSha256",
-        "nonLaunchGuaranteed",
-        "launchError",
-        "outcome"
-      ],
-      "Publication completion"
-    );
-    if (attempt.completion.exitCode !== null && !Number.isInteger(attempt.completion.exitCode) || attempt.completion.signal !== null && typeof attempt.completion.signal !== "string" || attempt.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN2.test(attempt.completion.transcriptCompletionSha256) || typeof attempt.completion.nonLaunchGuaranteed !== "boolean" || attempt.completion.launchError !== null && (typeof attempt.completion.launchError !== "object" || Array.isArray(attempt.completion.launchError)) || !(/* @__PURE__ */ new Set([
-      "not-launched",
-      "witnessed-success",
-      "known-rejection",
-      "unknown"
-    ])).has(attempt.completion.outcome)) {
-      throw new Error("Publication completion is invalid.");
-    }
-  }
-  if (attempt.observation !== null) {
-    assertExactKeys2(
-      attempt.observation,
-      [
-        "status",
-        "observedAt",
-        "observedOid",
-        "exitCode",
-        "stdoutSha256",
-        "stderrSha256",
-        "commandDigest",
-        "reason"
-      ],
-      "Publication observation"
-    );
-    if (!(/* @__PURE__ */ new Set(["querying", "observed", "absent", "unavailable"])).has(
-      attempt.observation.status
-    ) || typeof attempt.observation.observedAt !== "string" || !Number.isFinite(Date.parse(attempt.observation.observedAt)) || attempt.observation.observedOid !== null && !FULL_OID_PATTERN3.test(attempt.observation.observedOid) || attempt.observation.exitCode !== null && !Number.isInteger(attempt.observation.exitCode) || !SHA256_PATTERN2.test(attempt.observation.stdoutSha256) || !SHA256_PATTERN2.test(attempt.observation.stderrSha256) || !SHA256_PATTERN2.test(attempt.observation.commandDigest) || attempt.observation.reason !== null && typeof attempt.observation.reason !== "string" || attempt.observation.status === "observed" && (attempt.observation.observedOid === null || attempt.observation.exitCode !== 0) || attempt.observation.status === "absent" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== 2) || attempt.observation.status === "unavailable" && (attempt.observation.observedOid !== null || attempt.observation.reason === null) || attempt.observation.status === "querying" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== null || attempt.observation.reason === null)) {
-      throw new Error("Publication observation is invalid.");
-    }
-  }
-  if (attempt.resolution !== null) {
-    assertExactKeys2(
-      attempt.resolution,
-      ["kind", "assertedAt", "observationDigest"],
-      "Publication resolution"
-    );
-    if (attempt.resolution.kind !== "confirmed-no-live-child" || typeof attempt.resolution.assertedAt !== "string" || !Number.isFinite(Date.parse(attempt.resolution.assertedAt)) || !SHA256_PATTERN2.test(attempt.resolution.observationDigest) || attempt.observation === null || attempt.resolution.observationDigest !== attempt.observation.commandDigest) {
-      throw new Error("Publication resolution is invalid.");
-    }
-  }
-  if (attempt.retryPermitted !== (attempt.resolution !== null) || attempt.retryPermitted && attempt.status !== "unknown") {
-    throw new Error(
-      "Publication retry permission requires an observation and resolution."
-    );
-  }
-  for (const field of ["transcript", "completion"]) {
-    if (attempt[field] !== null && (typeof attempt[field] !== "object" || Array.isArray(attempt[field]))) {
-      throw new Error(`Publication ${field} must be an object or null.`);
-    }
-  }
-  if (attempt.transcript !== null) {
-    assertExactKeys2(
-      attempt.transcript,
-      [
-        "path",
-        "status",
-        "signal",
-        "totalByteCount",
-        "stdoutByteCount",
-        "stderrByteCount",
-        "stdoutSha256",
-        "stderrSha256",
-        "sha256",
-        "completionSha256",
-        "retainRecommended"
-      ],
-      "Publication transcript"
-    );
-    if (typeof attempt.transcript.path !== "string" || attempt.transcript.path.length === 0 || attempt.transcript.status !== null && !Number.isInteger(attempt.transcript.status) || attempt.transcript.signal !== null && typeof attempt.transcript.signal !== "string" || !Number.isSafeInteger(attempt.transcript.totalByteCount) || attempt.transcript.totalByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stdoutByteCount) || attempt.transcript.stdoutByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stderrByteCount) || attempt.transcript.stderrByteCount < 0 || !SHA256_PATTERN2.test(attempt.transcript.stdoutSha256) || !SHA256_PATTERN2.test(attempt.transcript.stderrSha256) || !SHA256_PATTERN2.test(attempt.transcript.sha256) || !SHA256_PATTERN2.test(attempt.transcript.completionSha256) || typeof attempt.transcript.retainRecommended !== "boolean" || attempt.transcript.totalByteCount !== attempt.transcript.stdoutByteCount + attempt.transcript.stderrByteCount) {
-      throw new Error("Publication transcript is invalid.");
-    }
-  }
-  if (attempt.launchState === "not-started" && (attempt.childIdentity !== null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "launching" && (attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "running" && (attempt.childIdentity === null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "completed" && attempt.completion === null || attempt.completion?.outcome === "not-launched" && attempt.completion.nonLaunchGuaranteed !== true || attempt.completion?.outcome === "witnessed-success" && (attempt.completion.exitCode !== 0 || attempt.transcript === null) || attempt.completion?.outcome === "known-rejection" && (attempt.completion.exitCode === null || attempt.completion.exitCode === 0 || attempt.transcript === null) || attempt.status === "succeeded" && (attempt.launchState !== "completed" || attempt.completion?.outcome !== "witnessed-success") || attempt.status === "observed-matching" && (attempt.observation?.status !== "observed" || attempt.observation.observedOid !== attempt.commitOid)) {
-    throw new Error("Publication launch state and outcome are inconsistent.");
-  }
-}
-function validateTransaction(transaction) {
-  if (transaction?.schemaVersion !== 4) {
-    throw new WorkflowDiagnosticError(
-      "UNSUPPORTED_ATTEMPT_VERSION",
-      "Transaction schemaVersion must be 4; attempts are never migrated in place."
-    );
-  }
-  assertExactKeys2(
-    transaction,
-    [
-      ...REQUIRED_TRANSACTION_KEYS,
-      ...Object.hasOwn(transaction, "messageFormat") ? ["messageFormat"] : [],
-      ...Object.hasOwn(transaction, "preparationFailure") ? ["preparationFailure"] : []
-    ],
-    "Transaction"
-  );
-  if (Object.hasOwn(transaction, "preparationFailure")) {
-    if (!["stopped", "abandoned", "superseded"].includes(transaction.phase))
-      throw new Error(
-        "Preparation failure requires a terminal no-commit attempt."
-      );
-    if (transaction.commit !== null || transaction.snapshot !== null || transaction.headAnchor !== null || transaction.route !== null)
-      throw new Error(
-        "Preparation failure must not attach resumable or committed state."
-      );
-    validatePreparationFailure(transaction.preparationFailure);
-  }
-  if (Object.hasOwn(transaction, "messageFormat") && transaction.messageFormat !== "detailed") {
-    throw new Error("Requested message format must be detailed.");
-  }
-  if (!PHASES.has(transaction.phase)) {
-    throw new Error(
-      `Unknown transaction phase ${JSON.stringify(transaction.phase)}.`
-    );
-  }
-  if (!isAbsolute3(transaction.repositoryRoot)) {
-    throw new Error("Transaction repositoryRoot must be absolute.");
-  }
-  if (!isAbsolute3(transaction.attemptDirectory)) {
-    throw new Error("Transaction attemptDirectory must be absolute.");
-  }
-  if (!(/* @__PURE__ */ new Set([null, "actual", "draft"])).has(transaction.mode)) {
-    throw new Error(
-      `Unknown transaction mode ${JSON.stringify(transaction.mode)}.`
-    );
-  }
-  if (transaction.status !== null && !STATUSES.has(transaction.status)) {
-    throw new Error(
-      `Unknown transaction status ${JSON.stringify(transaction.status)}.`
-    );
-  }
-  if (transaction.terminalDisposition !== null && !TERMINAL_DISPOSITIONS.has(transaction.terminalDisposition)) {
-    throw new Error(
-      `Unknown terminal disposition ${JSON.stringify(transaction.terminalDisposition)}.`
-    );
-  }
-  if (!STATE_COMBINATIONS.has(transactionStateKey(transaction))) {
-    throw new Error(
-      "Transaction phase, status, and terminal disposition form an impossible combination."
-    );
-  }
-  if (!(/* @__PURE__ */ new Set([null, "concise", "extended"])).has(transaction.route)) {
-    throw new Error(
-      `Unknown transaction route ${JSON.stringify(transaction.route)}.`
-    );
-  }
-  if (!(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
-    transaction.verificationPolicy
-  )) {
-    throw new Error("Transaction verification policy is invalid.");
-  }
-  validateRepositoryTypePolicy(transaction.repositoryTypePolicy);
-  validateHeadAnchor(transaction.headAnchor);
-  validateInlineEvidence(transaction.inlineEvidence);
-  validateReviewState(transaction.review);
-  if (transaction.review?.preparationEvidence && (transaction.review.preparationEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan?.sha256 || transaction.review.preparationEvidence.manifestSha256 !== transaction.snapshot?.sha256)) {
-    throw new Error(
-      "Preparation evidence must match the original plan and snapshot."
-    );
-  }
-  validateMessageState(transaction.message);
-  validateSignaturePreflight(transaction.signaturePreflight);
-  validatePromotionState(transaction.snapshot, transaction);
-  validateCommitJournal(transaction.commit);
-  validateVerificationHistory(transaction.verification);
-  validateCheckAttempts(transaction.checkAttempts, transaction);
-  if (transaction.commit !== null) {
-    const readiness = analyzeCheckCommitReadiness(
-      transaction.checkAttempts,
-      transaction.commit.acknowledgedFailedCheckIds
-    );
-    if (readiness.activeAttemptIds.length > 0 || readiness.retryRequiredIds.length > 0 || readiness.missingAcknowledgementIds.length > 0 || readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
-      throw new Error(
-        "Commit journal check acknowledgements do not match its ready witnessed receipts."
-      );
-    }
-  }
-  if (transaction.status === "promoted" && (transaction.mode !== "actual" || transaction.snapshot?.promotion?.status !== "installed")) {
-    throw new Error(
-      "A promoted transaction requires an installed promotion and actual mode."
-    );
-  }
-  if (transaction.phase === "evidence-ready" && (transaction.route !== "concise" || transaction.inlineEvidence === null || transaction.review !== null)) {
-    throw new Error(
-      "An evidence-ready transaction requires concise inline evidence only."
-    );
-  }
-  if ((/* @__PURE__ */ new Set(["review-pending", "authoring-pending"])).has(transaction.phase) && (transaction.route !== "extended" || transaction.inlineEvidence !== null || transaction.review === null)) {
-    throw new Error(
-      "Review and authoring transactions require extended review state only."
-    );
-  }
-  if (transaction.phase === "authoring-pending" && transaction.review?.receipt?.requiredPacketsReviewed !== true) {
-    throw new Error(
-      "An authoring-pending transaction requires a complete review receipt."
-    );
-  }
-  if (transaction.phase === "review-pending" && transaction.review?.receipt !== null) {
-    throw new Error(
-      "A review-pending transaction cannot retain a complete review receipt."
-    );
-  }
-  if (transaction.phase === "message-ready" && transaction.message === null) {
-    throw new Error(
-      "A message-ready transaction requires one canonical message state."
-    );
-  }
-  if ((/* @__PURE__ */ new Set(["allocated", "snapshot-created", "evidence-ready"])).has(
-    transaction.phase
-  ) && transaction.message !== null) {
-    throw new Error(
-      `Transaction phase ${transaction.phase} cannot retain a canonical message.`
-    );
-  }
-  if (transaction.message !== null) {
-    const sourceMatchesRoute = transaction.route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(
-      transaction.message.source
-    ) || transaction.route === "extended" && transaction.message.source === "finalized-extended" || transaction.route === "extended" && transaction.message.source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true;
-    if (!sourceMatchesRoute) {
-      throw new Error(
-        "Canonical message source does not match the transaction route."
-      );
-    }
-  }
-  if (!Array.isArray(transaction.publicationAttempts)) {
-    throw new Error("Transaction publicationAttempts must be an array.");
-  }
-  const publicationIds = /* @__PURE__ */ new Set();
-  for (const attempt of transaction.publicationAttempts) {
-    validatePublicationAttempt(attempt);
-    if (publicationIds.has(attempt.attemptId) || attempt.retryOf !== null && !publicationIds.has(attempt.retryOf)) {
-      throw new Error(
-        "Publication attempt IDs and retry links must form append-only history."
-      );
-    }
-    publicationIds.add(attempt.attemptId);
-  }
-  const latestPublication = transaction.publicationAttempts.at(-1) ?? null;
-  for (const attempt of transaction.publicationAttempts) {
-    if (attempt.commitOid !== transaction.commit?.commitOid) {
-      throw new Error(
-        "Every publication attempt must bind the transaction commit OID."
-      );
-    }
-  }
-  if (transaction.phase === "publication-pending" && latestPublication === null) {
-    throw new Error(
-      "A publication-pending transaction requires a journaled publication attempt."
-    );
-  }
-  if (transaction.phase === "published" && (latestPublication === null || !(/* @__PURE__ */ new Set(["succeeded", "observed-matching"])).has(
-    latestPublication.status
-  ))) {
-    throw new Error(
-      "A published transaction requires a successful or observed-matching attempt."
-    );
-  }
-  if (transaction.phase === "reported" && latestPublication !== null && latestPublication.status !== "rejected") {
-    throw new Error(
-      "A reported transaction may retain only a latest known rejected publication attempt."
-    );
-  }
-  if (transaction.phase === "commit-pending" && transaction.commit === null) {
-    throw new Error(
-      "A commit-pending transaction requires its commit journal."
-    );
-  }
-  if (transaction.phase === "reported" && (transaction.commit === null || transaction.commit.commitOid === null || transaction.commit.comparison === null || transaction.verification === null || transaction.report === null)) {
-    throw new Error(
-      "A reported transaction requires commit, comparison, verification, and report facts."
-    );
-  }
-  for (const field of [
-    "scope",
-    "initialEvidencePlan",
-    "signaturePreflight",
-    "snapshot",
-    "inlineEvidence",
-    "review",
-    "message",
-    "commit",
-    "verification",
-    "report"
-  ]) {
-    const value = transaction[field];
-    if (value !== null && (typeof value !== "object" || Array.isArray(value))) {
-      throw new Error(`Transaction ${field} must be an object or null.`);
-    }
-  }
-  return transaction;
-}
-function initialTransaction(repositoryRoot2, attemptDirectory) {
-  return {
-    schemaVersion: 4,
-    phase: "allocated",
-    repositoryRoot: repositoryRoot2,
-    attemptDirectory,
-    mode: null,
-    status: null,
-    terminalDisposition: null,
-    scope: null,
-    headAnchor: null,
-    repositoryTypePolicy: { allowedTypes: null },
-    initialEvidencePlan: null,
-    route: null,
-    verificationPolicy: "required",
-    signaturePreflight: null,
-    snapshot: null,
-    inlineEvidence: null,
-    review: null,
-    message: null,
-    commit: null,
-    verification: null,
-    report: null,
-    checkAttempts: [],
-    publicationAttempts: []
-  };
-}
-function openReadOnlyNoFollow(path) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  return openSync3(path, fsConstants.O_RDONLY + noFollow, 384);
-}
-function fileIdentity(stat) {
-  return {
-    device: String(stat.dev),
-    inode: String(stat.ino),
-    byteCount: Number(stat.size)
-  };
-}
-function identitiesMatch(left, right) {
-  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount;
-}
-function readStableRegularFile(path) {
-  const fd = openReadOnlyNoFollow(path);
-  try {
-    const before = fstatSync3(fd, { bigint: true });
-    if (!before.isFile()) {
-      throw new Error(`Expected a regular file at ${path}.`);
-    }
-    const payload = readFileSync(fd);
-    const after = fstatSync3(fd, { bigint: true });
-    const pathStat = lstatSync2(path, { bigint: true });
-    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
-      throw new Error(
-        `Transaction path was replaced or is not a regular file: ${path}`
-      );
-    }
-    if (!identitiesMatch(fileIdentity(before), fileIdentity(after)) || !identitiesMatch(fileIdentity(after), fileIdentity(pathStat))) {
-      throw new Error(
-        `Transaction path changed while it was being read: ${path}`
-      );
-    }
-    return payload;
-  } finally {
-    closeSync3(fd);
-  }
-}
-function flushDirectory(path) {
-  if (process.platform === "win32") {
-    return;
-  }
-  const fd = openSync3(path, fsConstants.O_RDONLY, 384);
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync3(fd);
-  }
-}
-function writeNewFile(path, payload) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
-  const fd = openSync3(
-    path,
-    fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL + noFollow,
-    384
-  );
-  try {
-    writeFileSync2(fd, payload);
-    fsyncSync(fd);
-  } finally {
-    closeSync3(fd);
-  }
-  flushDirectory(dirname(path));
-}
-function writeNewJson(path, value) {
-  writeNewFile(path, Buffer.from(`${JSON.stringify(value, null, 2)}
-`));
-}
-function replaceJsonAtomically(path, value) {
-  const directory = dirname(path);
-  const candidatePath = join3(
-    directory,
-    `.transaction-${systemRandomUUID()}.tmp`
-  );
-  writeNewJson(candidatePath, value);
-  let attempt = 0;
-  while (true) {
-    attempt += 1;
-    try {
-      renameSync(candidatePath, path);
-      flushDirectory(directory);
-      return;
-    } catch (error) {
-      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS;
-      if (!retryable) {
-        throw error;
-      }
-    }
-  }
-}
-function ensureDirectory(path, label) {
-  const stat = lstatSync2(path);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw new Error(`${label} was replaced or is not a directory: ${path}`);
-  }
-  if (realpathSync2(path) !== path) {
-    throw new Error(`${label} does not resolve to its recorded path: ${path}`);
-  }
-}
-function validateRepositoryPath(repositoryRoot2) {
-  ensureDirectory(repositoryRoot2, "Recorded repository root");
-  if (!existsSync3(join3(repositoryRoot2, ".git"))) {
-    throw new Error(
-      `Recorded repository root is no longer a Git working tree: ${repositoryRoot2}`
-    );
-  }
-}
-function assertOwnedPath(attemptDirectory, path) {
-  const pathRelative = relative(attemptDirectory, path);
-  if (pathRelative === "" || pathRelative === ".." || pathRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute3(pathRelative)) {
-    throw new Error(
-      `Derived transaction artifact escapes its attempt: ${path}`
-    );
-  }
-}
-function allocateAttemptDirectory({
-  temporaryRoot,
-  randomUuid = systemRandomUUID,
-  createDirectory = mkdirSync,
-  maximumAttempts = MAXIMUM_ALLOCATION_ATTEMPTS
-}) {
-  const absoluteTemporaryRoot = resolve4(temporaryRoot);
-  if (!Number.isInteger(maximumAttempts) || maximumAttempts < 1) {
-    throw new Error("maximumAttempts must be a positive integer.");
-  }
-  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-    const uuid = randomUuid();
-    if (typeof uuid !== "string" || !UUID_V4_PATTERN.test(uuid)) {
-      throw new Error("Transaction allocation requires a genuine UUIDv4.");
-    }
-    const attemptDirectory = join3(
-      absoluteTemporaryRoot,
-      `committing-to-git-${uuid}`
-    );
-    const transactionPath = join3(attemptDirectory, TRANSACTION_FILE);
-    if (Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-      throw new Error(
-        "The absolute transaction.json handle exceeds 2,048 UTF-8 bytes."
-      );
-    }
-    try {
-      createDirectory(attemptDirectory, { mode: 448 });
-      return { attemptDirectory, transactionPath };
-    } catch (error) {
-      if (error.code !== "EEXIST") {
-        throw error;
-      }
-    }
-  }
-  throw new Error(
-    `Unable to allocate a transaction workspace after ${maximumAttempts} collision attempts.`
-  );
-}
-function createTransactionWorkspace({
-  repositoryRoot: repositoryRoot2,
-  temporaryRoot = tmpdir()
-}) {
-  const normalizedRepositoryRoot = realpathSync2(resolve4(repositoryRoot2));
-  const normalizedTemporaryRoot = realpathSync2(resolve4(temporaryRoot));
-  validateRepositoryPath(normalizedRepositoryRoot);
-  ensureDirectory(normalizedTemporaryRoot, "Temporary root");
-  const { attemptDirectory, transactionPath } = allocateAttemptDirectory({
-    temporaryRoot: normalizedTemporaryRoot
-  });
-  ensureDirectory(attemptDirectory, "Transaction attempt directory");
-  const transaction = initialTransaction(
-    normalizedRepositoryRoot,
-    attemptDirectory
-  );
-  validateTransaction(transaction);
-  writeNewJson(transactionPath, transaction);
-  return { attemptDirectory, transactionPath, transaction };
-}
-function readTransaction(transactionPath) {
-  const absoluteTransactionPath = resolve4(transactionPath);
-  if (basename(absoluteTransactionPath) !== TRANSACTION_FILE) {
-    throw new Error("Transaction handle must name transaction.json.");
-  }
-  if (Buffer.byteLength(absoluteTransactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-    throw new Error("Transaction handle exceeds 2,048 UTF-8 bytes.");
-  }
-  const payload = readStableRegularFile(absoluteTransactionPath);
-  let transaction;
-  try {
-    transaction = JSON.parse(payload.toString("utf8"));
-  } catch (error) {
-    throw new Error(`Transaction JSON is invalid: ${error.message}`, {
-      cause: error
-    });
-  }
-  validateTransaction(transaction);
-  if (resolve4(transaction.attemptDirectory) !== dirname(absoluteTransactionPath)) {
-    throw new Error(
-      "Recorded attempt directory does not contain the supplied transaction path."
-    );
-  }
-  ensureDirectory(transaction.attemptDirectory, "Recorded attempt directory");
-  validateRepositoryPath(transaction.repositoryRoot);
-  return transaction;
-}
-function fixedArtifactPath(transactionPath, name) {
-  const transaction = readTransaction(transactionPath);
-  const path = join3(transaction.attemptDirectory, name);
-  assertOwnedPath(transaction.attemptDirectory, path);
-  return path;
-}
-function getEvidencePlanInputPath(transactionPath) {
-  return fixedArtifactPath(transactionPath, "evidence-plan-input.json");
-}
-function advanceTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve4(transactionPath);
-  const current = readTransaction(absoluteTransactionPath);
-  if (current.phase !== expectedPhase) {
-    throw new Error(
-      `expected phase ${expectedPhase}, but transaction is ${current.phase}.`
-    );
-  }
-  if (nextState === null || typeof nextState !== "object" || Array.isArray(nextState) || typeof nextState.phase !== "string") {
-    throw new Error("A transaction advance requires a next phase.");
-  }
-  if (!PHASE_TRANSITIONS.get(current.phase)?.has(nextState.phase)) {
-    throw new Error(
-      `Invalid transaction transition from ${current.phase} to ${nextState.phase}.`
-    );
-  }
-  const candidate = { ...current, ...nextState };
-  if (candidate.repositoryRoot !== current.repositoryRoot || candidate.attemptDirectory !== current.attemptDirectory) {
-    throw new Error(
-      "A transaction transition cannot replace its recorded paths."
-    );
-  }
-  validateTransaction(candidate);
-  replaceJsonAtomically(absoluteTransactionPath, candidate);
-  return readTransaction(absoluteTransactionPath);
-}
-function updateTransaction(transactionPath, expectedPhase, nextState) {
-  const absoluteTransactionPath = resolve4(transactionPath);
-  const current = readTransaction(absoluteTransactionPath);
-  if (current.phase !== expectedPhase) {
-    throw new Error(
-      `expected phase ${expectedPhase}, but transaction is ${current.phase}.`
-    );
-  }
-  if (nextState === null || typeof nextState !== "object" || Array.isArray(nextState) || nextState.phase !== current.phase) {
-    throw new Error("A reversible transaction update must preserve phase.");
-  }
-  const candidate = { ...current, ...nextState };
-  if (candidate.repositoryRoot !== current.repositoryRoot || candidate.attemptDirectory !== current.attemptDirectory) {
-    throw new Error("A transaction update cannot replace its recorded paths.");
-  }
-  validateTransaction(candidate);
-  replaceJsonAtomically(absoluteTransactionPath, candidate);
-  return readTransaction(absoluteTransactionPath);
-}
-var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN3, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, REVIEW_PACKET_ID_PATTERN, REVIEW_CURSOR_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
-var init_transactionWorkspace = __esm({
-  "src/committing-to-git/transaction/transactionWorkspace.js"() {
-    init_transactionRecordValidation();
-    init_workflowDiagnosticError();
-    init_preparationFailureRecord();
-    init_checkReceipt();
-    MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
-    MAXIMUM_INITIAL_JSON_INPUT_BYTES = 8 * 1024 * 1024;
-    TRANSACTION_FILE = "transaction.json";
-    MAXIMUM_ALLOCATION_ATTEMPTS = 16;
-    MAXIMUM_WINDOWS_RENAME_ATTEMPTS = 4;
-    UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-    FULL_OID_PATTERN3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
-    WINDOWS_RENAME_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
-    SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
-    REVIEW_PACKET_ID_PATTERN = /^[SIPD][0-9]{6}$/u;
-    REVIEW_CURSOR_PATTERN = /^review-v1-[0-9a-f]{64}$/u;
-    SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
-    OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
-    MESSAGE_SOURCES = /* @__PURE__ */ new Set([
-      "approved-subject",
-      "checked-file",
-      "finalized-extended"
-    ]);
-    EXTENDED_REASONS = /* @__PURE__ */ new Set([
-      "review-policy",
-      "required-evidence-over-budget",
-      "scope-synopsis-over-budget",
-      "invalid-evidence-encoding",
-      "required-object-unavailable",
-      "unresolved-anomaly",
-      "evidence-uncertainty",
-      "semantic-structure-required"
-    ]);
-    PHASES = /* @__PURE__ */ new Set([
-      "allocated",
-      "snapshot-created",
-      "evidence-ready",
-      "review-pending",
-      "authoring-pending",
-      "message-ready",
-      "commit-pending",
-      "reported",
-      "publication-pending",
-      "published",
-      "stopped",
-      "abandoned",
-      "superseded"
-    ]);
-    STATUSES = /* @__PURE__ */ new Set([
-      "prepared",
-      "review-pending",
-      "authoring-pending",
-      "message-ready",
-      "evidence-required",
-      "promoted",
-      "reported",
-      "published",
-      "commit-blocked",
-      "outcome-unknown",
-      "recovered",
-      "cleaned",
-      "stopped",
-      "invalid"
-    ]);
-    TERMINAL_DISPOSITIONS = /* @__PURE__ */ new Set([
-      "no-commit-stopped",
-      "local-commit-recorded",
-      "published",
-      "abandoned",
-      "superseded"
-    ]);
-    REQUIRED_TRANSACTION_KEYS = [
-      "schemaVersion",
-      "phase",
-      "repositoryRoot",
-      "attemptDirectory",
-      "mode",
-      "status",
-      "terminalDisposition",
-      "scope",
-      "headAnchor",
-      "repositoryTypePolicy",
-      "initialEvidencePlan",
-      "route",
-      "verificationPolicy",
-      "signaturePreflight",
-      "snapshot",
-      "inlineEvidence",
-      "review",
-      "message",
-      "commit",
-      "verification",
-      "report",
-      "checkAttempts",
-      "publicationAttempts"
-    ];
-    STATE_COMBINATIONS = new Set(
-      [
-        ["allocated", null, null],
-        ["snapshot-created", null, null],
-        ["evidence-ready", "prepared", null],
-        ["evidence-ready", "promoted", null],
-        ["review-pending", "review-pending", null],
-        ["review-pending", "evidence-required", null],
-        ["authoring-pending", "authoring-pending", null],
-        ["authoring-pending", "promoted", null],
-        ["message-ready", "message-ready", null],
-        ["message-ready", "promoted", null],
-        ["commit-pending", "outcome-unknown", null],
-        ["reported", "reported", "local-commit-recorded"],
-        ["reported", "commit-blocked", "local-commit-recorded"],
-        ["reported", "recovered", "local-commit-recorded"],
-        ["publication-pending", "outcome-unknown", null],
-        ["published", "published", "published"],
-        ["published", "recovered", "published"],
-        ["stopped", "stopped", "no-commit-stopped"],
-        ["stopped", "invalid", "no-commit-stopped"],
-        ["stopped", "cleaned", "no-commit-stopped"],
-        ["stopped", "recovered", "no-commit-stopped"],
-        ["abandoned", "stopped", "abandoned"],
-        ["abandoned", "cleaned", "abandoned"],
-        ["superseded", "stopped", "superseded"],
-        ["superseded", "cleaned", "superseded"]
-      ].map((combination) => JSON.stringify(combination))
-    );
-    PHASE_TRANSITIONS = /* @__PURE__ */ new Map([
-      [
-        "allocated",
-        /* @__PURE__ */ new Set(["snapshot-created", "stopped", "abandoned", "superseded"])
-      ],
-      [
-        "snapshot-created",
-        /* @__PURE__ */ new Set([
-          "evidence-ready",
-          "review-pending",
-          "authoring-pending",
-          "stopped",
-          "abandoned",
-          "superseded"
-        ])
-      ],
-      [
-        "evidence-ready",
-        /* @__PURE__ */ new Set([
-          "review-pending",
-          "authoring-pending",
-          "message-ready",
-          "commit-pending",
-          "stopped",
-          "abandoned",
-          "superseded"
-        ])
-      ],
-      [
-        "review-pending",
-        /* @__PURE__ */ new Set(["authoring-pending", "stopped", "abandoned", "superseded"])
-      ],
-      [
-        "authoring-pending",
-        /* @__PURE__ */ new Set([
-          "review-pending",
-          "message-ready",
-          "stopped",
-          "abandoned",
-          "superseded"
-        ])
-      ],
-      [
-        "message-ready",
-        /* @__PURE__ */ new Set([
-          "review-pending",
-          "commit-pending",
-          "stopped",
-          "abandoned",
-          "superseded"
-        ])
-      ],
-      ["commit-pending", /* @__PURE__ */ new Set(["reported", "stopped"])],
-      ["reported", /* @__PURE__ */ new Set(["publication-pending", "published"])],
-      ["publication-pending", /* @__PURE__ */ new Set(["reported", "published"])],
-      ["published", /* @__PURE__ */ new Set()],
-      ["stopped", /* @__PURE__ */ new Set()],
-      ["abandoned", /* @__PURE__ */ new Set()],
-      ["superseded", /* @__PURE__ */ new Set()]
-    ]);
-  }
-});
-
-// src/committing-to-git/message/canonicalMessageState.js
-import { createHash as createHash4, randomUUID } from "node:crypto";
-import {
-  closeSync as closeSync4,
-  constants as fsConstants2,
-  existsSync as existsSync4,
-  fstatSync as fstatSync4,
-  fsyncSync as fsyncSync2,
-  lstatSync as lstatSync3,
-  mkdirSync as mkdirSync2,
-  openSync as openSync4,
-  readSync as readSync2,
-  realpathSync as realpathSync3,
-  renameSync as renameSync2,
-  rmSync as rmSync2,
-  unlinkSync,
-  writeFileSync as writeFileSync3
-} from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve5, sep } from "node:path";
-import { TextDecoder as TextDecoder2 } from "node:util";
-function fail4(code, message, options) {
-  throw new WorkflowDiagnosticError(code, message, options);
-}
-function sha256(bytes) {
-  return createHash4("sha256").update(bytes).digest("hex");
-}
-function canonicalJsonBytes2(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}
-`, "utf8");
-}
-function flushDirectory2(path) {
-  if (process.platform === "win32") {
-    return;
-  }
-  const descriptor = openSync4(path, fsConstants2.O_RDONLY);
-  try {
-    fsyncSync2(descriptor);
-  } finally {
-    closeSync4(descriptor);
-  }
-}
-function assertContained(attemptDirectory, path) {
-  const contained = relative2(attemptDirectory, path);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute4(contained)) {
-    fail4(
-      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
-      `Derived message artifact escapes its transaction: ${path}`
-    );
-  }
-}
-function artifactPath(transaction, name) {
-  const path = join4(transaction.attemptDirectory, name);
-  assertContained(transaction.attemptDirectory, path);
-  return path;
-}
-function ensureDirectory2(path, label) {
-  const stat = lstatSync3(path);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail4(
-      "MESSAGE_ARTIFACT_REPLACED",
-      `${label} was replaced or is not a directory: ${path}`
-    );
-  }
-  if (realpathSync3(path) !== resolve5(path)) {
-    fail4(
-      "MESSAGE_ARTIFACT_REPLACED",
-      `${label} no longer resolves to its recorded path: ${path}`
-    );
-  }
-}
-function ensureMessageDirectory(transaction) {
-  const path = artifactPath(transaction, MESSAGE_DIRECTORY_NAME);
-  if (!existsSync4(path)) {
-    mkdirSync2(path, { mode: 448 });
-    flushDirectory2(transaction.attemptDirectory);
-  }
-  ensureDirectory2(path, "Canonical message directory");
-  return path;
-}
-function statIdentity(stat) {
-  const device = String(stat.dev);
-  const inode = String(stat.ino);
-  return {
-    available: inode !== "0",
-    device,
-    inode,
-    byteCount: Number(stat.size),
-    modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
-  };
-}
-function sameIdentity2(left, right) {
-  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
-}
-function openReadOnlyNoFollow2(path) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  return openSync4(path, fsConstants2.O_RDONLY + noFollow);
-}
-function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
-  let initial;
-  try {
-    initial = lstatSync3(path, { bigint: true });
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      fail4("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
-    }
-    throw error;
-  }
-  if (initial.isSymbolicLink() || !initial.isFile()) {
-    fail4(
-      "MESSAGE_INPUT_NOT_REGULAR",
-      `${label} must be a non-link regular file: ${path}`
-    );
-  }
-  if (initial.size > BigInt(maximumBytes)) {
-    fail4("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
-      details: { maximumBytes, byteCount: Number(initial.size) }
-    });
-  }
-  const descriptor = openReadOnlyNoFollow2(path);
-  try {
-    const before = fstatSync4(descriptor, { bigint: true });
-    const initialIdentity = statIdentity(initial);
-    const openedIdentity = statIdentity(before);
-    if (!before.isFile() || !sameIdentity2(initialIdentity, openedIdentity)) {
-      fail4(
-        "MESSAGE_INPUT_CHANGED",
-        `${label} changed before its fixed path could be opened safely.`
-      );
-    }
-    afterOpen?.({ descriptor, identity: openedIdentity, path });
-    const bytes = Buffer.alloc(openedIdentity.byteCount);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = readSync2(
-        descriptor,
-        bytes,
-        offset,
-        Math.min(64 * 1024, bytes.length - offset),
-        null
-      );
-      if (count === 0) break;
-      offset += count;
-    }
-    const extra = readSync2(descriptor, Buffer.alloc(1), 0, 1, null);
-    const after = fstatSync4(descriptor, { bigint: true });
-    const finalIdentity = statIdentity(after);
-    if (!after.isFile() || !sameIdentity2(openedIdentity, finalIdentity) || offset !== bytes.length || extra !== 0 || bytes.length > maximumBytes) {
-      fail4(
-        "MESSAGE_INPUT_CHANGED",
-        `${label} changed while its opened handle was being read.`
-      );
-    }
-    if (!allowPathReplacement) {
-      const pathStat = lstatSync3(path, { bigint: true });
-      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity2(finalIdentity, statIdentity(pathStat))) {
-        fail4(
-          "MESSAGE_INPUT_CHANGED",
-          `${label} path changed while its opened handle was being read.`
-        );
-      }
-    }
-    return { bytes, identity: finalIdentity, path };
-  } finally {
-    closeSync4(descriptor);
-  }
-}
-function readTransactionOwnedFile({
-  transactionPath,
-  artifactName,
-  maximumBytes,
-  label,
-  afterOpen,
-  allowPathReplacement = true
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  return {
-    transaction,
-    ...readStablePath(path, {
-      maximumBytes,
-      label,
-      afterOpen,
-      allowPathReplacement
-    })
-  };
-}
-function warning(code, message, path) {
-  return createWorkflowWarning({
-    code,
-    message,
-    details: [{ kind: "prerequisite", path }]
-  });
-}
-function cleanupTransactionOwnedInput({
-  path,
-  identity,
-  forceIdentityUnavailable = false
-}) {
-  if (forceIdentityUnavailable || identity.available !== true) {
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_IDENTITY_UNAVAILABLE",
-        "The fixed input was retained because same-object identity is unavailable on this filesystem.",
-        path
-      )
-    };
-  }
-  let descriptor;
-  try {
-    descriptor = openReadOnlyNoFollow2(path);
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return { removed: true, warning: null };
-    }
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_CLEANUP_FAILED",
-        `The fixed input was retained because it could not be reopened safely: ${error.message}`,
-        path
-      )
-    };
-  }
-  try {
-    const opened = fstatSync4(descriptor, { bigint: true });
-    if (!opened.isFile() || !sameIdentity2(identity, statIdentity(opened))) {
-      return {
-        removed: false,
-        warning: warning(
-          "MESSAGE_INPUT_REPLACED",
-          "The fixed input was retained because its directory entry no longer identifies the opened object.",
-          path
-        )
-      };
-    }
-  } finally {
-    closeSync4(descriptor);
-  }
-  try {
-    const finalPathStat = lstatSync3(path, { bigint: true });
-    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity2(identity, statIdentity(finalPathStat))) {
-      return {
-        removed: false,
-        warning: warning(
-          "MESSAGE_INPUT_REPLACED",
-          "The fixed input was retained because it changed during cleanup.",
-          path
-        )
-      };
-    }
-    unlinkSync(path);
-    flushDirectory2(dirname2(path));
-    return { removed: true, warning: null };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return { removed: true, warning: null };
-    }
-    return {
-      removed: false,
-      warning: warning(
-        "MESSAGE_INPUT_CLEANUP_FAILED",
-        `The fixed input was retained because cleanup failed: ${error.message}`,
-        path
-      )
-    };
-  }
-}
-function writeNewFile2(path, bytes) {
-  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
-  const descriptor = openSync4(
-    path,
-    fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
-    384
-  );
-  try {
-    writeFileSync3(descriptor, bytes);
-    fsyncSync2(descriptor);
-  } finally {
-    closeSync4(descriptor);
-  }
-}
-function ensureTransactionOwnedJson({
-  transactionPath,
-  artifactName,
-  value,
-  maximumBytes = 8 * 1024 * 1024
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  const bytes = canonicalJsonBytes2(value);
-  if (bytes.length > maximumBytes) {
-    fail4(
-      "MESSAGE_ARTIFACT_TOO_LARGE",
-      `${artifactName} exceeds ${maximumBytes} bytes.`
-    );
-  }
-  if (existsSync4(path)) {
-    const current = readStablePath(path, {
-      maximumBytes,
-      label: `Fixed ${artifactName}`,
-      allowPathReplacement: false
-    }).bytes;
-    if (!current.equals(bytes)) {
-      fail4(
-        "MESSAGE_ARTIFACT_COLLISION",
-        `Fixed ${artifactName} already exists with conflicting bytes.`
-      );
-    }
-    return path;
-  }
-  try {
-    writeNewFile2(path, bytes);
-  } catch (error) {
-    if (error.code !== "EEXIST") {
-      throw error;
-    }
-    const current = readStablePath(path, {
-      maximumBytes,
-      label: `Fixed ${artifactName}`,
-      allowPathReplacement: false
-    }).bytes;
-    if (!current.equals(bytes)) {
-      fail4(
-        "MESSAGE_ARTIFACT_COLLISION",
-        `Fixed ${artifactName} was concurrently created with conflicting bytes.`
-      );
-    }
-  }
-  flushDirectory2(transaction.attemptDirectory);
-  return path;
-}
-function currentPathMatches(path, identity) {
-  let descriptor;
-  try {
-    descriptor = openReadOnlyNoFollow2(path);
-    const stat = fstatSync4(descriptor, { bigint: true });
-    return stat.isFile() && sameIdentity2(identity, statIdentity(stat));
-  } catch {
-    return false;
-  } finally {
-    if (descriptor !== void 0) {
-      closeSync4(descriptor);
-    }
-  }
-}
-function replaceTransactionOwnedJson({
-  transactionPath,
-  artifactName,
-  value,
-  expectedIdentity = null
-}) {
-  const transaction = readTransaction(transactionPath);
-  const path = artifactPath(transaction, artifactName);
-  if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
-    fail4(
-      "MESSAGE_INPUT_REPLACED",
-      `The fixed ${artifactName} changed before normalized content could be persisted.`
-    );
-  }
-  const candidatePath = artifactPath(
-    transaction,
-    `.${artifactName}-${randomUUID()}.tmp`
-  );
-  writeNewFile2(candidatePath, canonicalJsonBytes2(value));
-  let attempt = 0;
-  while (true) {
-    attempt += 1;
-    try {
-      renameSync2(candidatePath, path);
-      flushDirectory2(transaction.attemptDirectory);
-      return path;
-    } catch (error) {
-      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES2.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS2;
-      if (!retryable) {
-        throw error;
-      }
-    }
-  }
-}
-function slotPaths(messageDirectory, slot) {
-  const directory = join4(messageDirectory, slot);
-  return {
-    directory,
-    messagePath: join4(directory, MESSAGE_FILE_NAME),
-    validationPath: join4(directory, VALIDATION_FILE_NAME),
-    statePath: join4(directory, STATE_FILE_NAME)
-  };
-}
-function assertExactKeys4(value, keys, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    fail4("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
-  }
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    fail4(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `${label} contains missing or unknown members.`
-    );
-  }
-}
-function assertValidationMatches(bytes, validation, source) {
-  if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
-    fail4(
-      "MESSAGE_VALIDATION_MISMATCH",
-      "Canonical message replacement requires one successful validation object."
-    );
-  }
-  const digest3 = sha256(bytes);
-  const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
-  if (validation.messageSha256 !== digest3 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
-    fail4(
-      "MESSAGE_VALIDATION_MISMATCH",
-      "Canonical validation does not describe the exact replacement message bytes."
-    );
-  }
-}
-function transactionMessageState(state, stateSha256) {
-  return {
-    schemaVersion: 1,
-    revision: state.messageRevision,
-    sha256: state.messageSha256,
-    source: state.messageSource,
-    byteCount: state.byteCount,
-    stateSha256,
-    validationSha256: state.validationSha256,
-    slot: "message/current"
-  };
-}
-function writeCandidate({
-  messageDirectory,
-  bytes,
-  validation,
-  source,
-  revision,
-  failureInjector
-}) {
-  const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
-  if (existsSync4(paths.directory)) {
-    fail4(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      "The fixed candidate slot is occupied; recover the pending replacement first."
-    );
-  }
-  mkdirSync2(paths.directory, { mode: 448 });
-  writeNewFile2(paths.messagePath, bytes);
-  const validationBytes = canonicalJsonBytes2(validation);
-  if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
-    fail4(
-      "MESSAGE_VALIDATION_TOO_LARGE",
-      `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
-    );
-  }
-  writeNewFile2(paths.validationPath, validationBytes);
-  const state = {
-    schemaVersion: 1,
-    messageRevision: revision,
-    messageSha256: sha256(bytes),
-    messageSource: source,
-    byteCount: bytes.length,
-    validationSha256: sha256(validationBytes)
-  };
-  const stateBytes = canonicalJsonBytes2(state);
-  writeNewFile2(paths.statePath, stateBytes);
-  failureInjector("before-candidate-flush");
-  flushDirectory2(paths.directory);
-  flushDirectory2(messageDirectory);
-  failureInjector("after-candidate-flush");
-  return {
-    ...state,
-    stateSha256: sha256(stateBytes),
-    transactionState: transactionMessageState(state, sha256(stateBytes))
-  };
-}
-function readSlot(messageDirectory, slot) {
-  const paths = slotPaths(messageDirectory, slot);
-  if (!existsSync4(paths.directory)) {
-    return null;
-  }
-  ensureDirectory2(paths.directory, `Canonical message ${slot} slot`);
-  const message = readStablePath(paths.messagePath, {
-    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-    label: `Canonical message ${slot} body`,
-    allowPathReplacement: false
-  }).bytes;
-  const validationBytes = readStablePath(paths.validationPath, {
-    maximumBytes: MAXIMUM_VALIDATION_BYTES,
-    label: `Canonical message ${slot} validation`,
-    allowPathReplacement: false
-  }).bytes;
-  const stateBytes = readStablePath(paths.statePath, {
-    maximumBytes: MAXIMUM_JOURNAL_BYTES,
-    label: `Canonical message ${slot} state`,
-    allowPathReplacement: false
-  }).bytes;
-  let validation;
-  let state;
-  try {
-    validation = JSON.parse(STRICT_UTF8_DECODER.decode(validationBytes));
-    state = JSON.parse(STRICT_UTF8_DECODER.decode(stateBytes));
-  } catch (error) {
-    fail4(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `Canonical message ${slot} JSON is invalid: ${error.message}`
-    );
-  }
-  assertExactKeys4(
-    state,
-    [
-      "schemaVersion",
-      "messageRevision",
-      "messageSha256",
-      "messageSource",
-      "byteCount",
-      "validationSha256"
-    ],
-    `Canonical message ${slot} state`
-  );
-  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN3.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN3.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
-    fail4(
-      "CANONICAL_MESSAGE_CORRUPT",
-      `Canonical message ${slot} state does not match its artifacts.`
-    );
-  }
-  assertValidationMatches(message, validation, state.messageSource);
-  const stateSha256 = sha256(stateBytes);
-  return {
-    ...state,
-    bytes: message,
-    displayText: message.toString("utf8"),
-    validation,
-    stateSha256,
-    transactionState: transactionMessageState(state, stateSha256),
-    ...paths
-  };
-}
-function sameTransactionMessage(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function removeSlot(transaction, messageDirectory, slot) {
-  const { directory } = slotPaths(messageDirectory, slot);
-  assertContained(transaction.attemptDirectory, directory);
-  if (!existsSync4(directory)) {
-    return;
-  }
-  ensureDirectory2(directory, `Canonical message ${slot} slot`);
-  rmSync2(directory, { recursive: true, force: false });
-  flushDirectory2(messageDirectory);
-}
-function renameSlot(messageDirectory, source, destination) {
-  const sourcePath = slotPaths(messageDirectory, source).directory;
-  const destinationPath = slotPaths(messageDirectory, destination).directory;
-  if (existsSync4(destinationPath)) {
-    fail4(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      `Canonical message ${destination} slot is already occupied.`
-    );
-  }
-  renameSync2(sourcePath, destinationPath);
-  flushDirectory2(messageDirectory);
-}
-function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
-  const current = readTransaction(transactionPath);
-  if (sameTransactionMessage(current.message, nextMessage)) {
-    return current;
-  }
-  if (!sameTransactionMessage(current.message, priorMessage)) {
-    fail4(
-      "MESSAGE_TRANSACTION_DRIFT",
-      "Transaction message state changed during canonical replacement."
-    );
-  }
-  if (current.phase === "message-ready") {
-    return updateTransaction(transactionPath, "message-ready", {
-      ...current,
-      phase: "message-ready",
-      status: "message-ready",
-      message: nextMessage
-    });
-  }
-  if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending", "authoring-pending"])).has(
-    current.phase
-  )) {
-    fail4(
-      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
-      `Canonical message replacement is not allowed in phase ${current.phase}.`
-    );
-  }
-  return advanceTransaction(transactionPath, current.phase, {
-    ...current,
-    phase: "message-ready",
-    status: "message-ready",
-    message: nextMessage
-  });
-}
-function readJournal(transaction, journalPath) {
-  const bytes = readStablePath(journalPath, {
-    maximumBytes: MAXIMUM_JOURNAL_BYTES,
-    label: "Canonical message replacement journal",
-    allowPathReplacement: false
-  }).bytes;
-  let journal;
-  try {
-    journal = JSON.parse(STRICT_UTF8_DECODER.decode(bytes));
-  } catch (error) {
-    fail4(
-      "MESSAGE_REPLACEMENT_CORRUPT",
-      `Canonical message replacement journal is invalid: ${error.message}`
-    );
-  }
-  assertExactKeys4(
-    journal,
-    ["schemaVersion", "priorMessage", "nextMessage"],
-    "Canonical message replacement journal"
-  );
-  if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
-    fail4(
-      "MESSAGE_REPLACEMENT_CORRUPT",
-      "Canonical message replacement journal has invalid state references."
-    );
-  }
-  assertContained(transaction.attemptDirectory, journalPath);
-  return journal;
-}
-function safeSlot(messageDirectory, slot) {
-  try {
-    return { value: readSlot(messageDirectory, slot), error: null };
-  } catch (error) {
-    return { value: null, error };
-  }
-}
-function cleanupReplacementRemnants(transaction, messageDirectory, journalPath) {
-  removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
-  removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
-  if (existsSync4(journalPath)) {
-    unlinkSync(journalPath);
-    flushDirectory2(transaction.attemptDirectory);
-  }
-}
-function steadyCanonicalMessage(transaction, messageDirectory) {
-  if (transaction.message === null) {
-    return null;
-  }
-  const current = readSlot(messageDirectory, CURRENT_SLOT);
-  if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
-    fail4(
-      "CANONICAL_MESSAGE_CORRUPT",
-      "The transaction does not match its fixed current message slot."
-    );
-  }
-  return current;
-}
-function recoverCanonicalMessageReplacement(transactionPath) {
-  let transaction = readTransaction(transactionPath);
-  const messageDirectory = ensureMessageDirectory(transaction);
-  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
-  if (!existsSync4(journalPath)) {
-    const current2 = safeSlot(messageDirectory, CURRENT_SLOT);
-    const candidate2 = safeSlot(messageDirectory, CANDIDATE_SLOT);
-    const previous2 = safeSlot(messageDirectory, PREVIOUS_SLOT);
-    if (candidate2.value !== null || candidate2.error !== null) {
-      removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
-    }
-    if (previous2.value !== null || previous2.error !== null) {
-      if (current2.value !== null && sameTransactionMessage(
-        current2.value.transactionState,
-        transaction.message
-      )) {
-        removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
-      } else {
-        fail4(
-          "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
-          "A previous canonical slot remains without a replacement journal."
-        );
-      }
-    }
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  const journal = readJournal(transaction, journalPath);
-  let current = safeSlot(messageDirectory, CURRENT_SLOT);
-  const candidate = safeSlot(messageDirectory, CANDIDATE_SLOT);
-  let previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
-  const nextMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.nextMessage);
-  const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
-  if (!nextMatches(current) && nextMatches(candidate)) {
-    if (current.value !== null && !priorMatches(current)) {
-      fail4(
-        "MESSAGE_REPLACEMENT_CORRUPT",
-        "The current message slot matches neither side of the pending replacement."
-      );
-    }
-    if (current.value !== null) {
-      if (previous.value !== null || previous.error !== null) {
-        fail4(
-          "MESSAGE_REPLACEMENT_CORRUPT",
-          "Both current and previous slots are occupied during recovery."
-        );
-      }
-      renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
-      previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
-    }
-    renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
-    current = safeSlot(messageDirectory, CURRENT_SLOT);
-  }
-  if (nextMatches(current)) {
-    transaction = installTransactionMessage(
-      transactionPath,
-      journal.priorMessage,
-      journal.nextMessage
-    );
-    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  if (!priorMatches(current) && priorMatches(previous)) {
-    if (current.value !== null || current.error !== null) {
-      removeSlot(transaction, messageDirectory, CURRENT_SLOT);
-    }
-    renameSlot(messageDirectory, PREVIOUS_SLOT, CURRENT_SLOT);
-    current = safeSlot(messageDirectory, CURRENT_SLOT);
-  }
-  if (priorMatches(current)) {
-    if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
-      if (transaction.phase !== "message-ready") {
-        fail4(
-          "MESSAGE_REPLACEMENT_CORRUPT",
-          "The transaction advanced without a recoverable canonical candidate."
-        );
-      }
-      transaction = updateTransaction(transactionPath, "message-ready", {
-        ...transaction,
-        message: journal.priorMessage
-      });
-    }
-    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-    return steadyCanonicalMessage(transaction, messageDirectory);
-  }
-  fail4(
-    "MESSAGE_REPLACEMENT_CORRUPT",
-    "Neither side of the pending canonical message replacement is recoverable."
-  );
-}
-function readCanonicalMessage(transactionPath) {
-  return recoverCanonicalMessageReplacement(transactionPath);
-}
-function assertReplacementRoute(transaction, source) {
-  if (!MESSAGE_SOURCES2.has(source)) {
-    fail4(
-      "MESSAGE_SOURCE_INVALID",
-      `Unknown canonical message source ${JSON.stringify(source)}.`
-    );
-  }
-  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase);
-  if (!allowed || transaction.commit !== null) {
-    fail4(
-      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
-      `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
-    );
-  }
-}
-function replaceCanonicalMessage({
-  transactionPath,
-  bytes: inputBytes,
-  validation,
-  source,
-  failureInjector = () => {
-  }
-}) {
-  if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
-    fail4("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
-  }
-  const bytes = Buffer.from(inputBytes);
-  if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    fail4(
-      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
-      `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
-    );
-  }
-  let transaction = readTransaction(transactionPath);
-  assertReplacementRoute(transaction, source);
-  assertValidationMatches(bytes, validation, source);
-  const prior = recoverCanonicalMessageReplacement(transactionPath);
-  transaction = readTransaction(transactionPath);
-  assertReplacementRoute(transaction, source);
-  const messageDirectory = ensureMessageDirectory(transaction);
-  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
-  if (existsSync4(journalPath) || existsSync4(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync4(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
-    fail4(
-      "MESSAGE_REPLACEMENT_OCCUPIED",
-      "Canonical replacement remnants remain after recovery."
-    );
-  }
-  const candidate = writeCandidate({
-    messageDirectory,
-    bytes,
-    validation,
-    source,
-    revision: (prior?.messageRevision ?? 0) + 1,
-    failureInjector
-  });
-  const journal = {
-    schemaVersion: 1,
-    priorMessage: prior?.transactionState ?? null,
-    nextMessage: candidate.transactionState
-  };
-  failureInjector("before-journal-flush");
-  writeNewFile2(journalPath, canonicalJsonBytes2(journal));
-  flushDirectory2(transaction.attemptDirectory);
-  failureInjector("after-journal-flush");
-  failureInjector("before-current-to-previous");
-  if (prior !== null) {
-    renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
-  }
-  failureInjector("after-current-to-previous");
-  failureInjector("before-candidate-to-current");
-  renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
-  failureInjector("after-candidate-to-current");
-  failureInjector("before-transaction-advance");
-  transaction = installTransactionMessage(
-    transactionPath,
-    journal.priorMessage,
-    journal.nextMessage
-  );
-  failureInjector("after-transaction-advance");
-  failureInjector("before-remnant-cleanup");
-  cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
-  failureInjector("after-remnant-cleanup");
-  return steadyCanonicalMessage(transaction, messageDirectory);
-}
-var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES, SHA256_PATTERN3, STRICT_UTF8_DECODER, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2;
-var init_canonicalMessageState = __esm({
-  "src/committing-to-git/message/canonicalMessageState.js"() {
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_approvedMessage();
-    init_transactionWorkspace();
-    MESSAGE_DIRECTORY_NAME = "message";
-    CURRENT_SLOT = "current";
-    CANDIDATE_SLOT = "candidate";
-    PREVIOUS_SLOT = "previous";
-    PENDING_JOURNAL_NAME = "message-replacement.pending.json";
-    MESSAGE_FILE_NAME = "message.txt";
-    VALIDATION_FILE_NAME = "validation.json";
-    STATE_FILE_NAME = "state.json";
-    MAXIMUM_VALIDATION_BYTES = 80 * 1024;
-    MAXIMUM_JOURNAL_BYTES = 16 * 1024;
-    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
-    STRICT_UTF8_DECODER = new TextDecoder2("utf-8", { fatal: true });
-    WINDOWS_RENAME_RETRY_CODES2 = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
-    MAXIMUM_WINDOWS_RENAME_ATTEMPTS2 = 4;
-    MESSAGE_SOURCES2 = /* @__PURE__ */ new Set([
-      "approved-subject",
-      "checked-file",
-      "finalized-extended"
-    ]);
-  }
-});
-
-// src/committing-to-git/snapshot/recordedSnapshot.js
-import { resolve as resolve6 } from "node:path";
-function assertSnapshotCapacity(byteCount) {
-  if (byteCount > MAXIMUM_SNAPSHOT_BYTES) {
-    throw new WorkflowDiagnosticError(
-      "SNAPSHOT_CAPACITY_EXCEEDED",
-      `Recorded snapshot requires ${byteCount} bytes; native execution supports at most ${MAXIMUM_SNAPSHOT_BYTES}. Preserve the complete scope and transaction; a larger-capacity implementation is required.`,
-      {
-        disposition: "unmet-prerequisite",
-        details: { byteCount, maximumBytes: MAXIMUM_SNAPSHOT_BYTES },
-        recovery: {
-          kind: "satisfy-prerequisite",
-          automatic: false,
-          requiredInputs: [
-            "A helper implementation supporting this complete snapshot; retain existing evidence and approval. Do not shrink the message, truncate the inventory or split the commit."
-          ],
-          commands: []
-        },
-        documentation: "references/native-execution.md"
-      }
-    );
-  }
-}
-function snapshotExecution(byteCount) {
-  assertSnapshotCapacity(byteCount);
-  return {
-    kind: "native-git",
-    selection: byteCount > STANDARD_SNAPSHOT_BYTES ? "snapshot-capacity" : "standard",
-    snapshotByteCount: byteCount,
-    maximumSnapshotBytes: MAXIMUM_SNAPSHOT_BYTES,
-    arguments: ["workflow", "commit", "--execution", "native"]
-  };
-}
-function readRecordedSnapshotFile(transactionPath) {
-  try {
-    return readTransactionOwnedFile({
-      transactionPath,
-      artifactName: "snapshot.json",
-      maximumBytes: MAXIMUM_SNAPSHOT_BYTES,
-      label: "Recorded snapshot",
-      allowPathReplacement: false
-    });
-  } catch (error) {
-    if (error.code === "MESSAGE_INPUT_TOO_LARGE") {
-      try {
-        assertSnapshotCapacity(error.details.byteCount);
-      } catch (capacityError) {
-        capacityError.state = { transaction: resolve6(transactionPath) };
-        throw capacityError;
-      }
-    }
-    throw error;
-  }
-}
-var STANDARD_SNAPSHOT_BYTES, MAXIMUM_SNAPSHOT_BYTES;
-var init_recordedSnapshot = __esm({
-  "src/committing-to-git/snapshot/recordedSnapshot.js"() {
-    init_canonicalMessageState();
-    init_workflowDiagnosticError();
-    STANDARD_SNAPSHOT_BYTES = 8 * 1024 * 1024;
-    MAXIMUM_SNAPSHOT_BYTES = 64 * 1024 * 1024;
-  }
-});
-
-// src/committing-to-git/git/gitPath.js
-function splitNul(buffer) {
-  const fields = [];
-  let start = 0;
-  for (let index = 0; index < buffer.length; index += 1) {
-    if (buffer[index] !== 0) {
-      continue;
-    }
-    fields.push(buffer.subarray(start, index));
-    start = index + 1;
-  }
-  if (start < buffer.length) {
-    fields.push(buffer.subarray(start));
-  }
-  return fields.filter((field) => field.length > 0);
-}
-function comparePathBytes(left, right) {
-  return Buffer.compare(left, right);
-}
-function pathRecord(raw) {
-  const decoded = raw.toString("utf8");
-  return {
-    bytesBase64: raw.toString("base64"),
-    text: decoded,
-    display: decoded
-  };
-}
-var init_gitPath = __esm({
-  "src/committing-to-git/git/gitPath.js"() {
-  }
-});
-
-// src/committing-to-git/git/projectedIndex.js
-import { randomUUID as randomUUID2 } from "node:crypto";
-import {
-  chmodSync,
-  closeSync as closeSync5,
-  constants as fsConstants3,
-  existsSync as existsSync5,
-  lstatSync as lstatSync4,
-  openSync as openSync5,
-  unlinkSync as unlinkSync2
-} from "node:fs";
-import { dirname as dirname3, resolve as resolve7 } from "node:path";
-function validatedPathBytes(pathBytes) {
-  if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
-    throw new Error(
-      "Projected-index entries require a nonempty raw path Buffer without NUL bytes."
-    );
-  }
-  return pathBytes;
-}
-function validatedEntry(entry) {
-  if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !INDEX_MODES.has(entry.mode) || !FULL_OBJECT_ID2.test(entry.oid)) {
-    throw new Error(
-      "Projected-index entries require a supported Git mode and full object ID."
-    );
-  }
-  return {
-    mode: entry.mode,
-    oid: entry.oid,
-    pathBytes: validatedPathBytes(entry.pathBytes)
-  };
-}
-function encodeIndexInfoRecords(entries) {
-  if (!Array.isArray(entries)) {
-    throw new Error("Projected-index entries must be an array.");
-  }
-  const seen = /* @__PURE__ */ new Set();
-  const records = [];
-  for (const candidate of entries) {
-    const entry = validatedEntry(candidate);
-    const identity = entry.pathBytes.toString("base64");
-    if (seen.has(identity)) {
-      throw new Error(
-        "Projected-index entries contain a duplicate raw path identity."
-      );
-    }
-    seen.add(identity);
-    records.push(
-      Buffer.from(`${entry.mode} ${entry.oid}	`, "ascii"),
-      entry.pathBytes,
-      NUL
-    );
-  }
-  return Buffer.concat(records);
-}
-function allocateProjectedIndexPath(temporaryDirectory, purpose) {
-  const canonicalDirectory = resolve7(temporaryDirectory);
-  const directoryStat = lstatSync4(canonicalDirectory);
-  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
-    throw new Error(
-      "Projected indexes require a real helper-owned temporary directory."
-    );
-  }
-  const indexPath = resolve7(
-    canonicalDirectory,
-    `.projected-index-${purpose}-${randomUUID2()}.tmp`
-  );
-  if (dirname3(indexPath) !== canonicalDirectory) {
-    throw new Error("Projected index escaped its temporary directory.");
-  }
-  const reservation = openSync5(
-    indexPath,
-    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
-    384
-  );
-  closeSync5(reservation);
-  unlinkSync2(indexPath);
-  return indexPath;
-}
-function removeExactArtifact(path) {
-  if (existsSync5(path)) {
-    unlinkSync2(path);
-  }
-}
-async function withProjectedIndex({
-  root,
-  baselineTreeOid = null,
-  entries,
-  temporaryDirectory,
-  environment = {},
-  purpose = "projection",
-  launchers = {}
-}, useIndex) {
-  if (typeof root !== "string" || root.length === 0 || typeof temporaryDirectory !== "string" || temporaryDirectory.length === 0 || !PURPOSE.test(purpose) || baselineTreeOid !== null && !FULL_OBJECT_ID2.test(baselineTreeOid) || typeof useIndex !== "function" || launchers === null || typeof launchers !== "object" || Array.isArray(launchers) || launchers.synchronous !== void 0 && typeof launchers.synchronous !== "function") {
-    throw new Error("Projected-index invocation is invalid.");
-  }
-  const encodedEntries = encodeIndexInfoRecords(entries);
-  const indexPath = allocateProjectedIndexPath(temporaryDirectory, purpose);
-  const lockPath = `${indexPath}.lock`;
-  const projectedEnvironment = {
-    ...environment,
-    GIT_INDEX_FILE: indexPath,
-    GIT_OPTIONAL_LOCKS: "0"
-  };
-  const gitOptions = {
-    env: projectedEnvironment,
-    launcher: launchers.synchronous
-  };
-  let primaryError = null;
-  let result;
-  try {
-    runIndexMutationGit(
-      root,
-      "read-index-tree",
-      [baselineTreeOid ?? "--empty"],
-      gitOptions
-    );
-    if (encodedEntries.length > 0) {
-      runIndexMutationGit(root, "update-index-info", [], {
-        ...gitOptions,
-        input: encodedEntries
-      });
-    }
-    if (process.platform !== "win32") {
-      chmodSync(indexPath, 384);
-    }
-    result = await useIndex({
-      environment: projectedEnvironment,
-      indexPath
-    });
-  } catch (error) {
-    primaryError = error;
-  }
-  let cleanupError = null;
-  try {
-    removeExactArtifact(lockPath);
-    removeExactArtifact(indexPath);
-  } catch (error) {
-    cleanupError = error;
-  }
-  if (primaryError !== null && cleanupError !== null) {
-    throw new AggregateError(
-      [primaryError, cleanupError],
-      "Projected-index operation and exact cleanup both failed."
-    );
-  }
-  if (primaryError !== null) {
-    throw primaryError;
-  }
-  if (cleanupError !== null) {
-    throw cleanupError;
-  }
-  return result;
-}
-var FULL_OBJECT_ID2, INDEX_MODES, PURPOSE, NUL;
-var init_projectedIndex = __esm({
-  "src/committing-to-git/git/projectedIndex.js"() {
-    init_gitRepository();
-    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    INDEX_MODES = /* @__PURE__ */ new Set(["000000", "100644", "100755", "120000", "160000"]);
-    PURPOSE = /^[a-z][a-z0-9-]{0,63}$/u;
-    NUL = Buffer.from([0]);
   }
 });
 
 // src/committing-to-git/inspection/inlineEvidenceCapsule.js
-import { createHash as createHash5 } from "node:crypto";
-import { TextDecoder as TextDecoder3 } from "node:util";
+import { createHash as createHash3 } from "node:crypto";
+import { TextDecoder as TextDecoder2 } from "node:util";
 function sha256Bytes(bytes) {
-  return createHash5("sha256").update(bytes).digest("hex");
+  return createHash3("sha256").update(bytes).digest("hex");
 }
 function canonicalValue(value) {
   if (Array.isArray(value)) {
@@ -7955,7 +3888,7 @@ function manifestDigest(manifest) {
 }
 function strictUtf8(bytes) {
   try {
-    return STRICT_UTF8_DECODER2.decode(bytes);
+    return STRICT_UTF8_DECODER.decode(bytes);
   } catch {
     return null;
   }
@@ -8405,7 +4338,7 @@ function createInlineEvidenceCapsule({
   capsule.byteCount = byteCount;
   return { route: "concise", capsule, extendedReason: null };
 }
-var MAXIMUM_CONCISE_RESULT_BYTES, MAXIMUM_SYNOPSIS_GROUPS, MAXIMUM_GROUP_SAMPLES, MAXIMUM_BULK_SYNOPSIS_BYTES, MAXIMUM_SAFE_TEXT_BYTES, STRICT_UTF8_DECODER2, EPHEMERAL_MANIFEST_KEYS, EPHEMERAL_CHANGE_UNIT_KEYS;
+var MAXIMUM_CONCISE_RESULT_BYTES, MAXIMUM_SYNOPSIS_GROUPS, MAXIMUM_GROUP_SAMPLES, MAXIMUM_BULK_SYNOPSIS_BYTES, MAXIMUM_SAFE_TEXT_BYTES, STRICT_UTF8_DECODER, EPHEMERAL_MANIFEST_KEYS, EPHEMERAL_CHANGE_UNIT_KEYS;
 var init_inlineEvidenceCapsule = __esm({
   "src/committing-to-git/inspection/inlineEvidenceCapsule.js"() {
     MAXIMUM_CONCISE_RESULT_BYTES = 32 * 1024;
@@ -8413,7 +4346,7 @@ var init_inlineEvidenceCapsule = __esm({
     MAXIMUM_GROUP_SAMPLES = 3;
     MAXIMUM_BULK_SYNOPSIS_BYTES = 8 * 1024 - 1;
     MAXIMUM_SAFE_TEXT_BYTES = 192;
-    STRICT_UTF8_DECODER2 = new TextDecoder3("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER = new TextDecoder2("utf-8", { fatal: true });
     EPHEMERAL_MANIFEST_KEYS = /* @__PURE__ */ new Set([
       "conciseEnvelope",
       "coveredEvidenceGroupIds",
@@ -8446,27 +4379,282 @@ var init_byteOrdering = __esm({
   }
 });
 
+// src/committing-to-git/selection/selectionVocabulary.js
+var ARRAY_SELECTOR_FIELDS, SELECTOR_FIELDS;
+var init_selectionVocabulary = __esm({
+  "src/committing-to-git/selection/selectionVocabulary.js"() {
+    ARRAY_SELECTOR_FIELDS = Object.freeze([
+      "ids",
+      "destinationPaths",
+      "destinationPathPrefixes",
+      "sourcePaths",
+      "sourcePathPrefixes",
+      "kinds"
+    ]);
+    SELECTOR_FIELDS = Object.freeze([
+      "all",
+      "remaining",
+      ...ARRAY_SELECTOR_FIELDS
+    ]);
+  }
+});
+
+// src/committing-to-git/selection/changeSelection.js
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertChangeManifest(manifest) {
+  if (!isPlainObject(manifest) || !Array.isArray(manifest.changeUnits) || !Number.isSafeInteger(manifest.changeUnitCount) || manifest.changeUnitCount < 1 || manifest.changeUnitCount !== manifest.changeUnits.length) {
+    throw new Error(
+      "Semantic selection requires one nonempty exact change manifest."
+    );
+  }
+  const ids = manifest.changeUnits.map(({ id }) => id);
+  if (ids.some((id) => typeof id !== "string" || !/^F[0-9]{6}$/u.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error("Manifest change-unit IDs must be unique and canonical.");
+  }
+}
+function changeUnitPathBytes(unit, direction) {
+  const encoded = unit[`${direction}PathBytesBase64`];
+  if (typeof encoded === "string") {
+    return Buffer.from(encoded, "base64");
+  }
+  const path = unit[`${direction}Path`];
+  return typeof path === "string" ? Buffer.from(path, "utf8") : null;
+}
+function assertRepositoryPath(value, { prefix, field }) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || value.includes("\\") || value.startsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} is not a canonical repository-relative path.`
+    );
+  }
+  if (prefix && !value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} prefix ${JSON.stringify(value)} must end in '/'.`
+    );
+  }
+  if (!prefix && value.endsWith("/")) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} exact path ${JSON.stringify(value)} must not end in '/'.`
+    );
+  }
+  const components = value.split("/");
+  const meaningful = prefix ? components.slice(0, -1) : components;
+  if (meaningful.some(
+    (component) => component.length === 0 || component === "." || component === ".."
+  )) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Selector ${field} value ${JSON.stringify(value)} contains an invalid path component.`
+    );
+  }
+}
+function normalizeSelection(selection) {
+  if (!isPlainObject(selection)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection must be an object."
+    );
+  }
+  const unknown = Object.keys(selection).find(
+    (field) => !SELECTOR_FIELDS.includes(field)
+  );
+  if (unknown) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      `Unknown change selector field ${unknown}.`
+    );
+  }
+  if ("all" in selection && typeof selection.all !== "boolean" || "remaining" in selection && typeof selection.remaining !== "boolean") {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selector all and remaining values must be booleans."
+    );
+  }
+  const all = selection.all === true;
+  const remaining = selection.remaining === true;
+  const populated = [];
+  const normalized = {};
+  for (const field of ARRAY_SELECTOR_FIELDS) {
+    const values = selection[field];
+    if (values === void 0) {
+      continue;
+    }
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} must be a string array.`
+      );
+    }
+    if (new Set(values).size !== values.length) {
+      throw new WorkflowDiagnosticError(
+        "INVALID_SELECTION",
+        `Selector ${field} contains duplicate values.`
+      );
+    }
+    if (field.endsWith("Paths")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: false, field })
+      );
+    } else if (field.endsWith("Prefixes")) {
+      values.forEach(
+        (value) => assertRepositoryPath(value, { prefix: true, field })
+      );
+    }
+    if (values.length > 0) {
+      populated.push(field);
+      normalized[field] = [...values];
+    }
+  }
+  if ((all || remaining) && (all === remaining || populated.length > 0)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Selectors all and remaining are each exclusive of every other selector field."
+    );
+  }
+  if (!all && !remaining && populated.length === 0) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_SELECTION",
+      "Change selection requires one nonempty selector."
+    );
+  }
+  if (all) {
+    return { all: true };
+  }
+  if (remaining) {
+    return { remaining: true };
+  }
+  return normalized;
+}
+function resolveSelection(manifest, selection, { assignedIds = /* @__PURE__ */ new Set() } = {}) {
+  assertChangeManifest(manifest);
+  if (!(assignedIds instanceof Set)) {
+    throw new Error("Selection assignedIds must be a Set.");
+  }
+  const normalized = normalizeSelection(selection);
+  if (normalized.all === true) {
+    return [...manifest.changeUnits];
+  }
+  if (normalized.remaining === true) {
+    const units = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id));
+    if (units.length === 0) {
+      throw new WorkflowDiagnosticError(
+        "EMPTY_SELECTION",
+        "The remaining selector matched no change units. Remove the empty group or correct its preceding selections.",
+        { details: { selection: { remaining: true }, matchedCount: 0 } }
+      );
+    }
+    return units;
+  }
+  const matchedIds = /* @__PURE__ */ new Set();
+  const pathCandidates = /* @__PURE__ */ new Map();
+  function candidatesFor(field) {
+    const direction = field.startsWith("source") ? "source" : "destination";
+    if (!pathCandidates.has(direction)) {
+      const candidates = [];
+      for (const unit of manifest.changeUnits) {
+        if (direction === "source" && unit.kind !== "renamed") continue;
+        const bytes = changeUnitPathBytes(unit, direction);
+        if (bytes !== null) candidates.push({ unit, bytes });
+      }
+      pathCandidates.set(direction, candidates);
+    }
+    return pathCandidates.get(direction);
+  }
+  let unmatchedCount = 0;
+  const unmatchedValues = [];
+  for (const [field, values] of Object.entries(normalized)) {
+    const prefix = field.endsWith("Prefixes");
+    const pathField = field !== "ids" && field !== "kinds";
+    const index = /* @__PURE__ */ new Map();
+    const candidates = pathField ? candidatesFor(field) : null;
+    if (!prefix) {
+      const add = (key, unit) => {
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(unit);
+      };
+      if (pathField) {
+        for (const { unit, bytes } of candidates) {
+          add(bytes.toString("base64"), unit);
+        }
+      } else {
+        for (const unit of manifest.changeUnits) {
+          add(field === "ids" ? unit.id : unit.kind, unit);
+        }
+      }
+    }
+    for (const [valueIndex, value] of values.entries()) {
+      const expected = pathField ? Buffer.from(value, "utf8") : null;
+      const matches = prefix ? candidates.filter(
+        ({ bytes }) => bytes.length >= expected.length && bytes.subarray(0, expected.length).equals(expected)
+      ).map(({ unit }) => unit) : index.get(pathField ? expected.toString("base64") : value) ?? [];
+      if (matches.length === 0) {
+        unmatchedCount += 1;
+        if (unmatchedValues.length < 32) {
+          unmatchedValues.push(
+            Buffer.byteLength(value) <= 256 ? { field, value } : {
+              field,
+              index: valueIndex,
+              valueByteLength: Buffer.byteLength(value)
+            }
+          );
+        }
+      }
+      matches.forEach(({ id }) => matchedIds.add(id));
+    }
+  }
+  if (unmatchedCount > 0) {
+    throw new WorkflowDiagnosticError(
+      "UNMATCHED_SELECTION_VALUES",
+      `${unmatchedCount} explicit selector value(s) matched no change units.`,
+      {
+        details: {
+          unmatchedCount,
+          unmatchedValues,
+          omittedCount: unmatchedCount - unmatchedValues.length
+        },
+        recovery: {
+          kind: "correct-input",
+          automatic: false,
+          requiredInputs: ["selectors matching the current manifest"],
+          commands: []
+        }
+      }
+    );
+  }
+  return manifest.changeUnits.filter(({ id }) => matchedIds.has(id));
+}
+var init_changeSelection = __esm({
+  "src/committing-to-git/selection/changeSelection.js"() {
+    init_selectionVocabulary();
+    init_workflowDiagnosticError();
+  }
+});
+
 // src/committing-to-git/inspection/streamingPacketWriter.js
-import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
+import { createHash as createHash4, randomUUID } from "node:crypto";
 import {
-  closeSync as closeSync6,
-  existsSync as existsSync6,
-  fstatSync as fstatSync5,
-  fsyncSync as fsyncSync3,
-  mkdirSync as mkdirSync3,
-  openSync as openSync6,
-  readSync as readSync3,
-  renameSync as renameSync3,
-  unlinkSync as unlinkSync3,
-  writeFileSync as writeFileSync4
+  closeSync as closeSync3,
+  existsSync as existsSync3,
+  fstatSync as fstatSync3,
+  fsyncSync,
+  mkdirSync,
+  openSync as openSync3,
+  readSync as readSync2,
+  renameSync,
+  unlinkSync,
+  writeFileSync as writeFileSync2
 } from "node:fs";
-import { join as join5 } from "node:path";
-import { TextDecoder as TextDecoder4 } from "node:util";
+import { join as join2 } from "node:path";
+import { TextDecoder as TextDecoder3 } from "node:util";
 function ensureOutputDirectories(outputDirectory) {
   for (const name of ["packets", "raw"]) {
-    const path = join5(outputDirectory, name);
-    if (!existsSync6(path)) {
-      mkdirSync3(path);
+    const path = join2(outputDirectory, name);
+    if (!existsSync3(path)) {
+      mkdirSync(path);
     }
   }
 }
@@ -8512,19 +4700,19 @@ function sourceIterableSync(source) {
   throw new Error("Synchronous packet source must be bytes or an iterable.");
 }
 function publishTemporaryFile(temporaryPath, finalPath) {
-  if (existsSync6(finalPath)) {
+  if (existsSync3(finalPath)) {
     if (!filesEqualBounded(finalPath, temporaryPath)) {
       throw new Error(`Content-addressed packet collision at ${finalPath}.`);
     }
-    unlinkSync3(temporaryPath);
+    unlinkSync(temporaryPath);
     return;
   }
-  renameSync3(temporaryPath, finalPath);
+  renameSync(temporaryPath, finalPath);
 }
 function readChunkExactly(descriptor, buffer, length, position) {
   let total = 0;
   while (total < length) {
-    const count = readSync3(
+    const count = readSync2(
       descriptor,
       buffer,
       total,
@@ -8539,11 +4727,11 @@ function readChunkExactly(descriptor, buffer, length, position) {
   return total;
 }
 function filesEqualBounded(leftPath, rightPath) {
-  const left = openSync6(leftPath, "r");
-  const right = openSync6(rightPath, "r");
+  const left = openSync3(leftPath, "r");
+  const right = openSync3(rightPath, "r");
   try {
-    const leftSize = Number(fstatSync5(left, { bigint: true }).size);
-    const rightSize = Number(fstatSync5(right, { bigint: true }).size);
+    const leftSize = Number(fstatSync3(left, { bigint: true }).size);
+    const rightSize = Number(fstatSync3(right, { bigint: true }).size);
     if (leftSize !== rightSize) {
       return false;
     }
@@ -8560,15 +4748,15 @@ function filesEqualBounded(leftPath, rightPath) {
     }
     return true;
   } finally {
-    closeSync6(right);
-    closeSync6(left);
+    closeSync3(right);
+    closeSync3(left);
   }
 }
 async function spoolSource(outputDirectory, source) {
-  const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
-  const descriptor = openSync6(temporaryPath, "wx", 384);
-  const hash = createHash6("sha256");
-  const decoder = new TextDecoder4("utf-8", { fatal: true });
+  const temporaryPath = join2(outputDirectory, `.raw-${randomUUID()}.tmp`);
+  const descriptor = openSync3(temporaryPath, "wx", 384);
+  const hash = createHash4("sha256");
+  const decoder = new TextDecoder3("utf-8", { fatal: true });
   let validUtf8 = true;
   let byteCount = 0;
   let newlineCount = 0;
@@ -8579,7 +4767,7 @@ async function spoolSource(outputDirectory, source) {
       if (chunk.length === 0) {
         continue;
       }
-      writeFileSync4(descriptor, chunk);
+      writeFileSync2(descriptor, chunk);
       hash.update(chunk);
       byteCount += chunk.length;
       newlineCount += countNewlines(chunk);
@@ -8598,17 +4786,17 @@ async function spoolSource(outputDirectory, source) {
         validUtf8 = false;
       }
     }
-    fsyncSync3(descriptor);
+    fsyncSync(descriptor);
     complete = true;
   } finally {
-    closeSync6(descriptor);
-    if (!complete && existsSync6(temporaryPath)) {
-      unlinkSync3(temporaryPath);
+    closeSync3(descriptor);
+    if (!complete && existsSync3(temporaryPath)) {
+      unlinkSync(temporaryPath);
     }
   }
   const rawSha256 = hash.digest("hex");
   const rawArtifact = `raw/${rawSha256}.bin`;
-  const finalPath = join5(outputDirectory, rawArtifact);
+  const finalPath = join2(outputDirectory, rawArtifact);
   publishTemporaryFile(temporaryPath, finalPath);
   return {
     path: finalPath,
@@ -8620,10 +4808,10 @@ async function spoolSource(outputDirectory, source) {
   };
 }
 function spoolSourceSync(outputDirectory, source) {
-  const temporaryPath = join5(outputDirectory, `.raw-${randomUUID3()}.tmp`);
-  const descriptor = openSync6(temporaryPath, "wx", 384);
-  const hash = createHash6("sha256");
-  const decoder = new TextDecoder4("utf-8", { fatal: true });
+  const temporaryPath = join2(outputDirectory, `.raw-${randomUUID()}.tmp`);
+  const descriptor = openSync3(temporaryPath, "wx", 384);
+  const hash = createHash4("sha256");
+  const decoder = new TextDecoder3("utf-8", { fatal: true });
   let validUtf8 = true;
   let byteCount = 0;
   let newlineCount = 0;
@@ -8634,7 +4822,7 @@ function spoolSourceSync(outputDirectory, source) {
       if (chunk.length === 0) {
         continue;
       }
-      writeFileSync4(descriptor, chunk);
+      writeFileSync2(descriptor, chunk);
       hash.update(chunk);
       byteCount += chunk.length;
       newlineCount += countNewlines(chunk);
@@ -8653,17 +4841,17 @@ function spoolSourceSync(outputDirectory, source) {
         validUtf8 = false;
       }
     }
-    fsyncSync3(descriptor);
+    fsyncSync(descriptor);
     complete = true;
   } finally {
-    closeSync6(descriptor);
-    if (!complete && existsSync6(temporaryPath)) {
-      unlinkSync3(temporaryPath);
+    closeSync3(descriptor);
+    if (!complete && existsSync3(temporaryPath)) {
+      unlinkSync(temporaryPath);
     }
   }
   const rawSha256 = hash.digest("hex");
   const rawArtifact = `raw/${rawSha256}.bin`;
-  const finalPath = join5(outputDirectory, rawArtifact);
+  const finalPath = join2(outputDirectory, rawArtifact);
   publishTemporaryFile(temporaryPath, finalPath);
   return {
     path: finalPath,
@@ -8685,7 +4873,7 @@ function utf8Boundary(buffer, candidateEnd) {
   return boundary > 0 ? boundary : candidateEnd;
 }
 function* readRawSegments(path, byteCount, validUtf8) {
-  const descriptor = openSync6(path, "r");
+  const descriptor = openSync3(path, "r");
   let start = 0;
   try {
     while (start < byteCount) {
@@ -8694,7 +4882,7 @@ function* readRawSegments(path, byteCount, validUtf8) {
         byteCount - start
       );
       const buffer = Buffer.alloc(available);
-      const bytesRead = readSync3(descriptor, buffer, 0, available, start);
+      const bytesRead = readSync2(descriptor, buffer, 0, available, start);
       if (bytesRead === 0) {
         throw new Error(
           "Raw packet spool ended before its recorded byte count."
@@ -8727,20 +4915,20 @@ function* readRawSegments(path, byteCount, validUtf8) {
       start = end;
     }
   } finally {
-    closeSync6(descriptor);
+    closeSync3(descriptor);
   }
 }
 function finalByte(path, byteCount) {
   if (byteCount === 0) {
     return null;
   }
-  const descriptor = openSync6(path, "r");
+  const descriptor = openSync3(path, "r");
   const byte = Buffer.alloc(1);
   try {
-    readSync3(descriptor, byte, 0, 1, byteCount - 1);
+    readSync2(descriptor, byte, 0, 1, byteCount - 1);
     return byte[0];
   } finally {
-    closeSync6(descriptor);
+    closeSync3(descriptor);
   }
 }
 function escapedHex(bytes, absoluteStart) {
@@ -8837,13 +5025,13 @@ function writePacket(outputDirectory, descriptorData, payload) {
   }
   const digest3 = sha256Bytes(packetBytes);
   const artifact = `packets/${digest3}.packet`;
-  const temporaryPath = join5(
+  const temporaryPath = join2(
     outputDirectory,
     "packets",
-    `.packet-${randomUUID3()}.tmp`
+    `.packet-${randomUUID()}.tmp`
   );
-  writeFileSync4(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
-  publishTemporaryFile(temporaryPath, join5(outputDirectory, artifact));
+  writeFileSync2(temporaryPath, packetBytes, { flag: "wx", mode: 384 });
+  publishTemporaryFile(temporaryPath, join2(outputDirectory, artifact));
   return {
     id: descriptorData.id,
     kind: descriptorData.kind,
@@ -8909,7 +5097,7 @@ function packetsForSpool(outputDirectory, spooled, {
       context,
       segmentBytes: segment.bytes
     });
-    const payload = spooled.validUtf8 ? Buffer.from(STRICT_UTF8_DECODER3.decode(segment.bytes), "utf8") : escapedHex(segment.bytes, segment.start);
+    const payload = spooled.validUtf8 ? Buffer.from(STRICT_UTF8_DECODER2.decode(segment.bytes), "utf8") : escapedHex(segment.bytes, segment.start);
     packets.push(
       writePacket(
         outputDirectory,
@@ -9010,7 +5198,7 @@ function writePacketBytesSync(options) {
   }
   return writePacketChunksSync({ ...options, source: [options.source] });
 }
-var MAXIMUM_PACKET_LINES, MAXIMUM_PACKET_BYTES, MAXIMUM_RAW_SEGMENT_BYTES, MAXIMUM_RAW_SEGMENT_LINES, STRICT_UTF8_DECODER3;
+var MAXIMUM_PACKET_LINES, MAXIMUM_PACKET_BYTES, MAXIMUM_RAW_SEGMENT_BYTES, MAXIMUM_RAW_SEGMENT_LINES, STRICT_UTF8_DECODER2;
 var init_streamingPacketWriter = __esm({
   "src/committing-to-git/inspection/streamingPacketWriter.js"() {
     init_inlineEvidenceCapsule();
@@ -9018,36 +5206,3502 @@ var init_streamingPacketWriter = __esm({
     MAXIMUM_PACKET_BYTES = 16 * 1024;
     MAXIMUM_RAW_SEGMENT_BYTES = 4 * 1024;
     MAXIMUM_RAW_SEGMENT_LINES = 160;
+    STRICT_UTF8_DECODER2 = new TextDecoder3("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/message/changeSelection.js
+import { Buffer as Buffer2 } from "node:buffer";
+function isPlainObject2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function validateReasons(reasons, label) {
+  if (!Array.isArray(reasons) || reasons.length === 0 || reasons.some(
+    (reason) => typeof reason !== "string" || reason.length === 0 || reason !== reason.trim() || /[\p{Cc}\p{Cf}]/u.test(reason)
+  )) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} requires one or more canonical reasons.`
+    );
+  }
+  if (new Set(reasons).size !== reasons.length) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} contains duplicate reasons.`
+    );
+  }
+  return [...reasons];
+}
+function resolvePartition(manifest, groups, { label, validateGroup }) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} groups must be a nonempty array.`
+    );
+  }
+  const assignedIds = /* @__PURE__ */ new Set();
+  const resolved = groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} group ${index + 1} must be an object.`
+      );
+    }
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `The remaining selector is permitted only in the final ${label.toLowerCase()} group.`
+      );
+    }
+    const units = resolveSelection(manifest, selection, { assignedIds });
+    const overlap = units.find(({ id }) => assignedIds.has(id));
+    if (overlap) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} groups overlap at ${overlap.id}.`
+      );
+    }
+    units.forEach(({ id }) => assignedIds.add(id));
+    return {
+      ...validateGroup(group, index),
+      selection,
+      units
+    };
+  });
+  if (assignedIds.size !== manifest.changeUnitCount) {
+    const omitted = manifest.changeUnits.filter(({ id }) => !assignedIds.has(id)).map(({ id }) => id);
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} groups must be exhaustive; omitted ${omitted.join(", ")}.`
+    );
+  }
+  return { assignedIds, resolved };
+}
+function resolveOverlappingGroups(manifest, groups, label) {
+  if (groups === void 0) {
+    return [];
+  }
+  if (!Array.isArray(groups)) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      `${label} must be an array.`
+    );
+  }
+  const previouslyMatched = /* @__PURE__ */ new Set();
+  return groups.map((group, index) => {
+    if (!isPlainObject2(group)) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `${label} entry ${index + 1} must be an object.`
+      );
+    }
+    const selection = normalizeSelection(group.selection);
+    if (selection.remaining === true && index !== groups.length - 1) {
+      throw new WorkflowDiagnosticError(
+        "SEMANTIC_COVERAGE_INVALID",
+        `The remaining selector is permitted only in the final ${label} entry.`
+      );
+    }
+    const units = resolveSelection(manifest, selection, {
+      assignedIds: previouslyMatched
+    });
+    units.forEach(({ id }) => previouslyMatched.add(id));
+    return {
+      selection,
+      units,
+      reasons: validateReasons(group.reasons, `${label} entry ${index + 1}`)
+    };
+  });
+}
+function resolveSemanticCoverage(manifest, content) {
+  assertChangeManifest(manifest);
+  if (!isPlainObject2(content)) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message content must be an object."
+    );
+  }
+  const evidenceCoverage = resolvePartition(manifest, content.evidenceGroups, {
+    label: "Evidence",
+    validateGroup(group, index) {
+      if (!EVIDENCE_POLICIES.includes(group.policy)) {
+        throw new WorkflowDiagnosticError(
+          "SEMANTIC_COVERAGE_INVALID",
+          `Evidence group ${index + 1} has an invalid policy.`
+        );
+      }
+      return {
+        policy: group.policy,
+        basis: validateEvidenceBasis(group.policy, group.basis)
+      };
+    }
+  });
+  const sharedRationales = resolveOverlappingGroups(
+    manifest,
+    content.sharedRationales ?? [],
+    "shared rationale"
+  );
+  const fileNotes = resolveOverlappingGroups(
+    manifest,
+    content.fileNotes ?? [],
+    "file note"
+  );
+  let domains = [];
+  if (content.mode === "bulk") {
+    domains = resolvePartition(manifest, content.domains, {
+      label: "Domain",
+      validateGroup(group, index) {
+        if (typeof group.title !== "string" || group.title.length === 0 || group.title !== group.title.trim() || /[\p{Cc}\p{Cf}]/u.test(group.title)) {
+          throw new WorkflowDiagnosticError(
+            "SEMANTIC_COVERAGE_INVALID",
+            `Domain group ${index + 1} has an invalid title.`
+          );
+        }
+        return {
+          title: group.title,
+          reasons: validateReasons(group.reasons, `Domain group ${index + 1}`)
+        };
+      }
+    }).resolved;
+  } else if (content.mode !== "detailed") {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Semantic message mode must be detailed or bulk."
+    );
+  } else if (content.domains !== void 0 && content.domains.length > 0) {
+    throw new WorkflowDiagnosticError(
+      "SEMANTIC_COVERAGE_INVALID",
+      "Detailed semantic content cannot contain bulk domains."
+    );
+  }
+  return {
+    coveredIds: evidenceCoverage.assignedIds,
+    evidenceGroups: evidenceCoverage.resolved,
+    sharedRationales,
+    domains,
+    fileNotes
+  };
+}
+function sortChangeUnitsByRawPath(units) {
+  if (units.length < 2) {
+    return [...units];
+  }
+  const empty = Buffer2.alloc(0);
+  return units.map((unit) => ({
+    unit,
+    destination: changeUnitPathBytes(unit, "destination") ?? empty,
+    source: changeUnitPathBytes(unit, "source") ?? empty,
+    id: Buffer2.from(unit.id)
+  })).sort(
+    (left, right) => Buffer2.compare(left.destination, right.destination) || Buffer2.compare(left.source, right.source) || Buffer2.compare(left.id, right.id)
+  ).map(({ unit }) => unit);
+}
+function formatMessagePath(rawPathBytes) {
+  if (!Buffer2.isBuffer(rawPathBytes) && !(rawPathBytes instanceof Uint8Array)) {
+    throw new Error("Message path identity must be raw bytes.");
+  }
+  const bytes = Buffer2.from(rawPathBytes);
+  let decoded;
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    decoded = null;
+  }
+  if (decoded !== null && decoded.length > 0 && !PROHIBITED_RENDERED_PATH_CHARACTER.test(decoded)) {
+    return `\`${decoded}\``;
+  }
+  return `\`path-bytes-base64:${bytes.toString("base64")}\``;
+}
+function formatChangeUnitPath(unit) {
+  const destination = formatMessagePath(
+    changeUnitPathBytes(unit, "destination")
+  );
+  if (unit.kind !== "renamed") {
+    return destination;
+  }
+  const source = changeUnitPathBytes(unit, "source");
+  if (source === null) {
+    throw new Error(`Rename ${unit.id} has no recorded source path.`);
+  }
+  return `${formatMessagePath(source)} -> ${destination}`;
+}
+function selectMessagePresentation({
+  changeUnitCount,
+  projectedDetailedBytes,
+  maximumBytes = MAXIMUM_CANONICAL_MESSAGE_BYTES
+}) {
+  if (!Number.isSafeInteger(changeUnitCount) || changeUnitCount < 1 || !Number.isSafeInteger(projectedDetailedBytes) || projectedDetailedBytes < 0 || !Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new Error("Message presentation inputs must be bounded integers.");
+  }
+  return changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD || projectedDetailedBytes > maximumBytes ? "bulk" : "detailed";
+}
+var MAXIMUM_CANONICAL_MESSAGE_BYTES, BULK_CHANGE_UNIT_THRESHOLD, PROHIBITED_RENDERED_PATH_CHARACTER;
+var init_changeSelection2 = __esm({
+  "src/committing-to-git/message/changeSelection.js"() {
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    init_changeSelection();
+    MAXIMUM_CANONICAL_MESSAGE_BYTES = 32 * 1024;
+    BULK_CHANGE_UNIT_THRESHOLD = 50;
+    PROHIBITED_RENDERED_PATH_CHARACTER = /[\p{Cc}\p{Cf}`]/u;
+  }
+});
+
+// src/committing-to-git/message/approvedMessage.js
+import { createHash as createHash5 } from "node:crypto";
+import { Buffer as Buffer3 } from "node:buffer";
+function fail2(code, message, details = {}) {
+  throw new WorkflowDiagnosticError(code, message, { details });
+}
+function scalarLength(value) {
+  return [...value].length;
+}
+function isCapitalizedDescription(description) {
+  const first = [...description][0] ?? "";
+  return first !== "" && first === first.toLocaleUpperCase("en-US") && first !== first.toLocaleLowerCase("en-US");
+}
+function validateRepositoryType(type, repositoryTypePolicy) {
+  if (repositoryTypePolicy === null || repositoryTypePolicy === void 0 || repositoryTypePolicy.allowedTypes === null || repositoryTypePolicy.allowedTypes === void 0 || Array.isArray(repositoryTypePolicy.allowedTypes) && repositoryTypePolicy.allowedTypes.length === 0) {
+    return;
+  }
+  if (!Array.isArray(repositoryTypePolicy.allowedTypes)) {
+    fail2(
+      "UNSUPPORTED_REPOSITORY_MESSAGE_POLICY",
+      "Repository type policy must provide an allowedTypes array or null."
+    );
+  }
+  if (!repositoryTypePolicy.allowedTypes.includes(type)) {
+    fail2(
+      "SUBJECT_TYPE_NOT_ALLOWED",
+      `Subject type ${JSON.stringify(type)} is not allowed by the recorded repository policy.`,
+      { type, allowedTypes: repositoryTypePolicy.allowedTypes }
+    );
+  }
+}
+function parseSubject(subjectText, repositoryTypePolicy) {
+  const match = SUBJECT_PATTERN.exec(subjectText);
+  if (!match) {
+    fail2(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject must match <type>: <description> or <type>(<scope>): <description>."
+    );
+  }
+  const { type, description } = match.groups;
+  const scope = match.groups.scope ?? null;
+  if (description.length === 0 || description !== description.trim() || PROHIBITED_UNICODE_CHARACTER.test(description)) {
+    fail2(
+      "SUBJECT_FORMAT_INVALID",
+      "Subject description must be one exact nonempty line without controls or surrounding whitespace."
+    );
+  }
+  if (!isCapitalizedDescription(description)) {
+    fail2(
+      "SUBJECT_DESCRIPTION_NOT_CAPITALIZED",
+      "Subject description must begin with an uppercase Unicode cased letter."
+    );
+  }
+  if (description.endsWith(".")) {
+    fail2(
+      "SUBJECT_TRAILING_PERIOD",
+      "Subject description must not end with an ASCII period."
+    );
+  }
+  if (scope !== null && (scope !== scope.trim() || scope.length === 0 || PROHIBITED_UNICODE_CHARACTER.test(scope))) {
+    fail2(
+      "SUBJECT_SCOPE_INVALID",
+      "Subject scope must be one exact nonempty value without parentheses or controls."
+    );
+  }
+  const length = scalarLength(subjectText);
+  if (length > MAXIMUM_SUBJECT_SCALARS) {
+    fail2(
+      "SUBJECT_TOO_LONG",
+      `Subject is ${length} Unicode scalar values; maximum is ${MAXIMUM_SUBJECT_SCALARS}.`,
+      { scalarLength: length, maximum: MAXIMUM_SUBJECT_SCALARS }
+    );
+  }
+  validateRepositoryType(type, repositoryTypePolicy);
+  return {
+    text: subjectText,
+    type,
+    scope,
+    description,
+    scalarLength: length
+  };
+}
+function canonicalBytes(value) {
+  if (!Buffer3.isBuffer(value) && !(value instanceof Uint8Array)) {
+    fail2("MESSAGE_BYTES_REQUIRED", "Approved message input must be bytes.");
+  }
+  return Buffer3.from(value);
+}
+function decodeCanonicalMessage(bytes) {
+  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail2(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
+      {
+        byteCount: bytes.length,
+        maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+        remedy: "Shorten prose or combine truthful structured domains without changing scope."
+      }
+    );
+  }
+  if (bytes.length === 0 || bytes.at(-1) !== 10) {
+    fail2(
+      "TERMINAL_LF_REQUIRED",
+      "Canonical message bytes must end in exactly one LF."
+    );
+  }
+  if (bytes.length > 1 && bytes.at(-2) === 10) {
+    fail2(
+      "MULTIPLE_TERMINAL_LF",
+      "Canonical message bytes must not end in multiple LF bytes."
+    );
+  }
+  if (bytes.includes(13)) {
+    fail2(
+      "CARRIAGE_RETURN_FORBIDDEN",
+      "Canonical message bytes must not contain CR or CRLF."
+    );
+  }
+  if (bytes.includes(0)) {
+    fail2("NUL_FORBIDDEN", "Canonical message bytes must not contain NUL.");
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail2("INVALID_UTF8", "Canonical message bytes must be strict UTF-8.");
+  }
+  for (const character of text) {
+    if (character !== "\n" && PROHIBITED_UNICODE_CHARACTER.test(character)) {
+      fail2(
+        "PROHIBITED_UNICODE_CHARACTER",
+        "Canonical message contains a prohibited Unicode control or format character."
+      );
+    }
+  }
+  return text;
+}
+function assertUsefulEntry(text, label) {
+  if (text.length === 0 || text !== text.trimEnd() || PLACEHOLDER_PATTERN.test(text)) {
+    fail2("EMPTY_SECTION", `${label} contains an empty or placeholder entry.`);
+  }
+}
+function parseNarrativeSection(lines, heading) {
+  const entries = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith("  - ")) {
+      const text = line.slice(4);
+      assertUsefulEntry(text, heading);
+      current = text;
+      entries.push(text);
+    } else if (line.startsWith("    ") && current !== null) {
+      const continuation = line.slice(4);
+      assertUsefulEntry(continuation, heading);
+      entries[entries.length - 1] += `
+${continuation}`;
+    } else {
+      fail2(
+        "SECTION_ENTRY_FORMAT_INVALID",
+        `${heading} entries must use two-space bullets with aligned continuations.`
+      );
+    }
+  }
+  if (entries.length === 0) {
+    fail2("EMPTY_SECTION", `${heading} cannot be present without entries.`);
+  }
+  return entries;
+}
+function expectedDetailedInventory(manifest) {
+  if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || manifest.changeUnitCount < 1) {
+    fail2(
+      "INVALID_MESSAGE_MANIFEST",
+      "Approved-message validation requires one exact nonempty manifest."
+    );
+  }
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
+  const width = String(units.length).length;
+  return units.map((unit, index) => ({
+    id: unit.id,
+    label: formatChangeUnitPath(unit),
+    ordinal: index + 1,
+    line: `${"  "}${String(index + 1).padStart(width, " ")}. ${formatChangeUnitPath(unit)}`
+  }));
+}
+function parseDetailedInventory(lines, manifest) {
+  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
+    fail2(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+      "A counted bulk inventory must be derived by the structured extended finalizer.",
+      {
+        remedy: "Use the authoring continuation supplied by the workflow; preserve requested sections."
+      }
+    );
+  }
+  const expected = expectedDetailedInventory(manifest);
+  const expectedLabels = new Set(expected.map(({ label }) => label));
+  const width = String(expected.length).length;
+  const notePrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  const listed = [];
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      const ordinal = Number(match[1]);
+      const label = match[2];
+      if (/\([0-9]+ files?\)$/u.test(label) && !expectedLabels.has(label)) {
+        fail2(
+          "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+          "Free-form counted domains cannot prove manifest membership.",
+          { remedy: "Use the structured extended finalizer." }
+        );
+      }
+      if (listed.some((entry) => entry.label === label)) {
+        fail2(
+          "FILE_INVENTORY_DUPLICATE",
+          `Detailed inventory repeats ${label}.`
+        );
+      }
+      if (!expectedLabels.has(label)) {
+        fail2(
+          "FILE_INVENTORY_UNKNOWN_PATH",
+          `Detailed inventory path ${label} does not identify a manifest change unit.`
+        );
+      }
+      current = { ordinal, label, notes: [], line };
+      listed.push(current);
+      continue;
+    }
+    if (line.startsWith(notePrefix) && current !== null) {
+      const note = line.slice(notePrefix.length);
+      assertUsefulEntry(note, "File Changes:");
+      current.notes.push(note);
+      continue;
+    }
+    if (line.startsWith(continuationPrefix) && current?.notes.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.notes[current.notes.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail2(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Detailed File Changes entries must use numbered reversible paths and optional aligned notes."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail2(
+      "FILE_INVENTORY_INCOMPLETE",
+      `Detailed inventory lists ${listed.length} of ${expected.length} change units.`
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== expected[index].line) {
+      fail2(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Detailed inventory must use deterministic raw-byte order and aligned ordinals."
+      );
+    }
+  }
+  return listed;
+}
+function parseStructuredBulkInventory(lines, manifest, structuredContent) {
+  const coverage = resolveSemanticCoverage(manifest, structuredContent);
+  const expected = coverage.domains.map((domain, index) => {
+    const count = domain.units.length;
+    const width2 = String(coverage.domains.length).length;
+    return {
+      ordinal: index + 1,
+      label: `${domain.title} (${count} ${count === 1 ? "file" : "files"})`,
+      prefix: `  ${String(index + 1).padStart(width2, " ")}. `
+    };
+  });
+  const listed = [];
+  const width = String(expected.length).length;
+  const reasonPrefix = `${" ".repeat(width + 4)}- `;
+  const continuationPrefix = " ".repeat(width + 6);
+  let current = null;
+  for (const line of lines) {
+    const match = /^ {2,}([0-9]+)\. (.+)$/u.exec(line);
+    if (match) {
+      current = {
+        ordinal: Number(match[1]),
+        label: match[2],
+        reasons: [],
+        line
+      };
+      listed.push(current);
+      continue;
+    }
+    if (line.startsWith(reasonPrefix) && current !== null) {
+      const reason = line.slice(reasonPrefix.length);
+      assertUsefulEntry(reason, "File Changes:");
+      current.reasons.push(reason);
+      continue;
+    }
+    if (line.startsWith(continuationPrefix) && current?.reasons.length > 0) {
+      const continuation = line.slice(continuationPrefix.length);
+      assertUsefulEntry(continuation, "File Changes:");
+      current.reasons[current.reasons.length - 1] += `
+${continuation}`;
+      continue;
+    }
+    fail2(
+      "FILE_INVENTORY_FORMAT_INVALID",
+      "Structured bulk File Changes entries must use derived numbered domains and aligned reasons."
+    );
+  }
+  if (listed.length !== expected.length) {
+    fail2(
+      "FILE_INVENTORY_INCOMPLETE",
+      "Structured bulk rendering does not contain every derived domain."
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (listed[index].ordinal !== expected[index].ordinal || listed[index].label !== expected[index].label || listed[index].line !== `${expected[index].prefix}${expected[index].label}` || listed[index].reasons.length === 0) {
+      fail2(
+        "FILE_INVENTORY_ORDER_INVALID",
+        "Structured bulk rendering must preserve derived domain order, counts, and reasons."
+      );
+    }
+  }
+  return listed;
+}
+function parseSections(bodyLines, manifest, { messageSource, structuredContent }) {
+  const parsed = {
+    rationale: { present: false, entries: [] },
+    userExperience: { present: false, entries: [] },
+    fileChanges: { present: false, entries: [] }
+  };
+  if (bodyLines.length === 0) {
+    return parsed;
+  }
+  if (bodyLines[0] !== "") {
+    fail2(
+      "SECTION_SPACING_INVALID",
+      "Subject and body must be separated by exactly one blank line."
+    );
+  }
+  let index = 1;
+  let priorOrder = -1;
+  while (index < bodyLines.length) {
+    const heading = bodyLines[index];
+    const order = SECTION_ORDER.indexOf(heading);
+    if (order < 0 || order <= priorOrder) {
+      fail2(
+        "SECTION_ORDER_INVALID",
+        "Optional sections must appear once in Rationale, User Experience Changes, File Changes order."
+      );
+    }
+    priorOrder = order;
+    index += 1;
+    const entries = [];
+    while (index < bodyLines.length && bodyLines[index] !== "") {
+      entries.push(bodyLines[index]);
+      index += 1;
+    }
+    if (entries.length === 0) {
+      fail2("EMPTY_SECTION", `${heading} cannot be empty.`);
+    }
+    if (heading === "Rationale:") {
+      parsed.rationale = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else if (heading === "User Experience Changes:") {
+      parsed.userExperience = {
+        present: true,
+        entries: parseNarrativeSection(entries, heading)
+      };
+    } else {
+      parsed.fileChanges = {
+        present: true,
+        entries: messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? parseStructuredBulkInventory(entries, manifest, structuredContent) : parseDetailedInventory(entries, manifest)
+      };
+    }
+    if (index < bodyLines.length) {
+      index += 1;
+      if (index >= bodyLines.length || bodyLines[index] === "") {
+        fail2(
+          "SECTION_SPACING_INVALID",
+          "Sections must be separated by exactly one blank line."
+        );
+      }
+    }
+  }
+  return parsed;
+}
+function isFileIdentityLine(line) {
+  return /^ {2,}[0-9]+\. /u.test(line);
+}
+function presentationWarnings(lines) {
+  const warnings = [];
+  lines.forEach((line, index) => {
+    const length = scalarLength(line);
+    if (index === 0 || length <= MAXIMUM_BODY_LINE_SCALARS) {
+      return;
+    }
+    const trimmed = line.trim();
+    const words = trimmed.split(/\s+/u);
+    const formattedIdentity = isFileIdentityLine(line);
+    if (!formattedIdentity && words.length > 1) {
+      const longest = Math.max(...words.map(scalarLength));
+      if (longest <= MAXIMUM_BODY_LINE_SCALARS - 4) {
+        fail2(
+          "BODY_LINE_AVOIDABLY_OVERLONG",
+          `Body line ${index + 1} is ${length} scalars and could be wrapped at whitespace.`,
+          { lineNumber: index + 1, scalarLength: length }
+        );
+      }
+    }
+    warnings.push({
+      lineNumber: index + 1,
+      scalarLength: length,
+      reason: formattedIdentity ? "formatted-path-identity" : "indivisible-token"
+    });
+  });
+  const sha25612 = warnings.length === 0 ? null : createHash5("sha256").update(JSON.stringify(warnings)).digest("hex");
+  return {
+    count: warnings.length,
+    samples: warnings.slice(0, MAXIMUM_PRESENTATION_WARNING_SAMPLES),
+    sha256: sha25612
+  };
+}
+function presentationDiagnostics(summary) {
+  return summary.count === 0 ? [] : [
+    createWorkflowWarning({
+      code: "MESSAGE_PRESENTATION_LIMIT",
+      message: "Some lines exceed the presentation width because their identities or tokens cannot be wrapped safely.",
+      documentation: "references/message-format.md",
+      details: [{ kind: "limit", ...summary }]
+    })
+  ];
+}
+function canUseDirectSubjectTransport(subject) {
+  if (typeof subject !== "string" || !DIRECT_SUBJECT_TRANSPORT_PATTERN.test(subject) || subject.includes("\n") || subject.includes("\r")) {
+    return false;
+  }
+  try {
+    parseSubject(subject, { allowedTypes: [] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function validateApprovedMessage({
+  manifest,
+  route,
+  bytes: inputBytes,
+  repositoryTypePolicy,
+  messageSource,
+  structuredContent = null
+}) {
+  const sourceAllowed = route === "concise" && // checked-input is memory-mode text read from standard input.
+  (/* @__PURE__ */ new Set(["approved-subject", "checked-file", "checked-input"])).has(
+    messageSource
+  ) || route === "extended" && (/* @__PURE__ */ new Set(["checked-file", "structured-finalizer"])).has(messageSource);
+  if (!sourceAllowed) {
+    fail2(
+      "DIRECT_TEXT_REQUIRES_CONCISE_TRANSACTION",
+      "Direct subjects require a concise transaction; checked text additionally requires a completed non-semantic extended review."
+    );
+  }
+  const bytes = canonicalBytes(inputBytes);
+  const displayText = decodeCanonicalMessage(bytes);
+  const withoutTerminalLf = displayText.slice(0, -1);
+  const lines = withoutTerminalLf.split("\n");
+  const subject = parseSubject(lines[0] ?? "", repositoryTypePolicy);
+  const sections = parseSections(lines.slice(1), manifest, {
+    messageSource,
+    structuredContent
+  });
+  if (messageSource === "approved-subject") {
+    if (lines.length !== 1) {
+      fail2(
+        "DIRECT_SUBJECT_MUST_BE_SUBJECT_ONLY",
+        "Direct subject transport cannot contain a body."
+      );
+    }
+    if (!canUseDirectSubjectTransport(subject.text)) {
+      fail2(
+        "DIRECT_SUBJECT_TRANSPORT_UNSAFE",
+        "Subject is valid canonical text but is outside the conservative direct transport set."
+      );
+    }
+    if (!bytes.equals(Buffer3.from(`${subject.text}
+`, "utf8"))) {
+      fail2(
+        "DIRECT_SUBJECT_ENCODING_INVALID",
+        "Direct subject bytes must equal the deterministic subject plus one LF encoding."
+      );
+    }
+  }
+  const warnings = presentationWarnings(lines);
+  const messageSha256 = createHash5("sha256").update(bytes).digest("hex");
+  const presentationEntryCount = sections.fileChanges.entries.length;
+  const listedCount = messageSource === "structured-finalizer" && structuredContent?.mode === "bulk" ? manifest.changeUnitCount : presentationEntryCount;
+  return {
+    schemaVersion: 1,
+    valid: true,
+    route,
+    messageSource,
+    byteCount: bytes.length,
+    messageSha256,
+    displayText,
+    subject,
+    sections: {
+      rationale: {
+        present: sections.rationale.present,
+        entryCount: sections.rationale.entries.length
+      },
+      userExperience: {
+        present: sections.userExperience.present,
+        entryCount: sections.userExperience.entries.length
+      },
+      fileChanges: {
+        present: sections.fileChanges.present,
+        entryCount: presentationEntryCount
+      }
+    },
+    files: {
+      expectedCount: manifest.changeUnitCount,
+      listedCount,
+      setMatches: !sections.fileChanges.present || listedCount === manifest.changeUnitCount,
+      orderValid: true,
+      unique: true
+    },
+    presentationWarnings: warnings
+  };
+}
+var MAXIMUM_SUBJECT_SCALARS, MAXIMUM_BODY_LINE_SCALARS, MAXIMUM_PRESENTATION_WARNING_SAMPLES, DIRECT_SUBJECT_TRANSPORT_PATTERN, SUBJECT_PATTERN, PROHIBITED_UNICODE_CHARACTER, SECTION_ORDER, PLACEHOLDER_PATTERN;
+var init_approvedMessage = __esm({
+  "src/committing-to-git/message/approvedMessage.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_changeSelection2();
+    init_changeSelection2();
+    MAXIMUM_SUBJECT_SCALARS = 72;
+    MAXIMUM_BODY_LINE_SCALARS = 72;
+    MAXIMUM_PRESENTATION_WARNING_SAMPLES = 16;
+    DIRECT_SUBJECT_TRANSPORT_PATTERN = /^[A-Za-z0-9 ():,._/+-]+$/u;
+    SUBJECT_PATTERN = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^()\r\n]+)\))?: (?<description>.+)$/u;
+    PROHIBITED_UNICODE_CHARACTER = /[\p{Cc}\p{Cf}]/u;
+    SECTION_ORDER = Object.freeze([
+      "Rationale:",
+      "User Experience Changes:",
+      "File Changes:"
+    ]);
+    PLACEHOLDER_PATTERN = /<[^<>]+>|\b(?:todo|tbd|placeholder)\b/iu;
+  }
+});
+
+// src/committing-to-git/transaction/transactionRecordValidation.js
+function assertExactKeys(value, expected, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
+    throw new Error(`${label} contains missing or unknown members.`);
+  }
+}
+function validateHeadAnchor(headAnchor) {
+  if (headAnchor === null) {
+    return;
+  }
+  assertExactKeys(
+    headAnchor,
+    ["headKind", "targetRef", "expectedParentOids"],
+    "Head anchor"
+  );
+  if (!(/* @__PURE__ */ new Set(["unborn", "attached", "detached"])).has(headAnchor.headKind)) {
+    throw new Error(
+      `Unknown head anchor kind ${JSON.stringify(headAnchor.headKind)}.`
+    );
+  }
+  if (!Array.isArray(headAnchor.expectedParentOids) || headAnchor.expectedParentOids.some(
+    (oid) => typeof oid !== "string" || !FULL_OID_PATTERN.test(oid)
+  )) {
+    throw new Error("Head anchor parent IDs must be full opaque object IDs.");
+  }
+  if (headAnchor.headKind === "unborn") {
+    if (typeof headAnchor.targetRef !== "string" || !headAnchor.targetRef.startsWith("refs/heads/") || headAnchor.expectedParentOids.length !== 0) {
+      throw new Error(
+        "An unborn head anchor requires a full branch ref and no parents."
+      );
+    }
+    return;
+  }
+  if (headAnchor.expectedParentOids.length !== 1) {
+    throw new Error(`${headAnchor.headKind} head anchor requires one parent.`);
+  }
+  if (headAnchor.headKind === "attached") {
+    if (typeof headAnchor.targetRef !== "string" || !headAnchor.targetRef.startsWith("refs/heads/")) {
+      throw new Error("An attached head anchor requires a full branch ref.");
+    }
+    return;
+  }
+  if (headAnchor.targetRef !== null) {
+    throw new Error("A detached head anchor requires a null target ref.");
+  }
+}
+var FULL_OID_PATTERN;
+var init_transactionRecordValidation = __esm({
+  "src/committing-to-git/transaction/transactionRecordValidation.js"() {
+    FULL_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+  }
+});
+
+// src/committing-to-git/transaction/preparationFailureRecord.js
+function exactKeys(value, keys) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort()))
+    throw new Error("Invalid retained preparation failure fields.");
+}
+function assertPlainFailureData(value, budget = { nodes: 1024 }, depth = 0) {
+  if (--budget.nodes < 0 || depth > 10)
+    throw new Error("Preparation failure exceeds structural bounds.");
+  if (value === null || ["string", "boolean"].includes(typeof value)) return;
+  if (typeof value === "number" && Number.isFinite(value)) return;
+  if (typeof value !== "object" || ![Object.prototype, Array.prototype, null].includes(
+    Object.getPrototypeOf(value)
+  ))
+    throw new Error("Preparation failure must contain plain JSON data.");
+  for (const [key, descriptor] of Object.entries(
+    Object.getOwnPropertyDescriptors(value)
+  )) {
+    if (key === "length" && Array.isArray(value)) continue;
+    if (![
+      "__proto__",
+      "constructor",
+      "prototype",
+      "toJSON",
+      "stack",
+      "cause"
+    ].includes(key) && descriptor.enumerable && "value" in descriptor)
+      assertPlainFailureData(descriptor.value, budget, depth + 1);
+    else
+      throw new Error(
+        "Preparation failure contains unsafe serialization fields."
+      );
+  }
+}
+function validatePreparationFailure(record) {
+  assertPlainFailureData(record);
+  exactKeys(record, [
+    "schemaVersion",
+    "diagnostic",
+    "snapshotObservation",
+    "correctionInputs"
+  ]);
+  if (record.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(record)) > 32 * 1024)
+    throw new Error("Invalid preparation failure version or capacity.");
+  const diagnostic = record.diagnostic;
+  exactKeys(diagnostic, [
+    "code",
+    "message",
+    "disposition",
+    "details",
+    "recovery",
+    "documentation"
+  ]);
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(diagnostic.code) || typeof diagnostic.message !== "string" || Buffer.byteLength(diagnostic.message) > 4096 || projectDetails(diagnostic.message) !== diagnostic.message || !Array.isArray(diagnostic.details) || diagnostic.details.length > 64 || !DISPOSITIONS.has(diagnostic.disposition) || !["references/diagnostics.md", "references/native-execution.md"].includes(
+    diagnostic.documentation
+  ) || JSON.stringify(projectDetails(diagnostic.details)) !== JSON.stringify(diagnostic.details) || JSON.stringify(projectRecovery(diagnostic.recovery)) !== JSON.stringify(diagnostic.recovery))
+    throw new Error("Invalid retained preparation diagnostic.");
+  if (record.snapshotObservation !== null) {
+    const observation = record.snapshotObservation;
+    exactKeys(observation, [
+      "headOid",
+      "headAnchor",
+      "indexTreeOid",
+      "changeUnitCount",
+      "sourceIndexSha256"
+    ]);
+    if (observation.headAnchor === null)
+      throw new Error("Snapshot observations require a HEAD anchor.");
+    validateHeadAnchor(observation.headAnchor);
+    if (!(observation.headOid === null || OID.test(observation.headOid)) || !OID.test(observation.indexTreeOid) || !Number.isSafeInteger(observation.changeUnitCount) || observation.changeUnitCount < 1 || !(observation.sourceIndexSha256 === null || HASH.test(observation.sourceIndexSha256)))
+      throw new Error("Invalid preparation snapshot observations.");
+  }
+  if (record.correctionInputs !== null) {
+    exactKeys(record.correctionInputs, ["scope", "evidence"]);
+    for (const binding of Object.values(record.correctionInputs)) {
+      if (binding === null) continue;
+      exactKeys(binding, ["name", "sha256", "byteCount", "device", "inode"]);
+      if (!["correction-scope.json", "correction-evidence.json"].includes(
+        binding.name
+      ) || !HASH.test(binding.sha256) || !Number.isSafeInteger(binding.byteCount) || binding.byteCount < 1 || binding.byteCount > 8 * 1024 * 1024 || !/^\d+$/u.test(binding.device) || !/^\d+$/u.test(binding.inode))
+        throw new Error("Invalid correction input binding.");
+    }
+    if (record.correctionInputs.evidence?.name !== "correction-evidence.json" || record.correctionInputs.scope !== null && record.correctionInputs.scope.name !== "correction-scope.json")
+      throw new Error("Correction input roles do not match their fixed names.");
+  }
+  return record;
+}
+var HASH, OID, DISPOSITIONS;
+var init_preparationFailureRecord = __esm({
+  "src/committing-to-git/transaction/preparationFailureRecord.js"() {
+    init_transactionRecordValidation();
+    init_diagnosticContract();
+    HASH = /^[0-9a-f]{64}$/u;
+    OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    DISPOSITIONS = /* @__PURE__ */ new Set([
+      "invalid-input",
+      "rejected",
+      "unmet-prerequisite",
+      "internal-failure"
+    ]);
+  }
+});
+
+// src/committing-to-git/checks/checkReceipt.js
+import { isAbsolute as isAbsolute3, join as join3, resolve as resolve3 } from "node:path";
+function assertExactKeys2(value, expected, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
+    throw new Error(`${label} contains missing or unknown members.`);
+  }
+}
+function validTimestamp(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+function validateCheckCommand(command) {
+  assertExactKeys2(command, ["executable", "arguments"], "Check command");
+  if (typeof command.executable !== "string" || command.executable.trim() !== command.executable || command.executable.length === 0 || /[\0\r\n;&|<>`]|\$\(/u.test(command.executable)) {
+    throw new Error(
+      "Check command executable token must be one literal executable or path, not shell syntax."
+    );
+  }
+  if (!Array.isArray(command.arguments) || command.arguments.length > MAXIMUM_ARGUMENTS || command.arguments.some(
+    (argument) => typeof argument !== "string" || argument.includes("\0")
+  ) || Buffer.byteLength(
+    JSON.stringify([command.executable, ...command.arguments]),
+    "utf8"
+  ) > MAXIMUM_COMMAND_BYTES) {
+    throw new Error(
+      "Check command arguments must be a bounded literal argument vector."
+    );
+  }
+}
+function validateCheckContext(context) {
+  assertExactKeys2(
+    context,
+    ["kind", "repositoryRelativeWorkingDirectory"],
+    "Check context"
+  );
+  const directory = context.repositoryRelativeWorkingDirectory;
+  if (context.kind !== "current-worktree" || typeof directory !== "string" || directory.length === 0 || directory.includes("\0") || isAbsolute3(directory) || directory.split(/[\\/]/u).some((component) => component === "..")) {
+    throw new Error(
+      "Check context must be current-worktree with a contained repository-relative working directory."
+    );
+  }
+}
+function validateSubject(subject, transaction) {
+  assertExactKeys2(
+    subject,
+    ["manifestSha256", "headAnchor", "preparedTreeOid"],
+    "Check subject"
+  );
+  if (!SHA256_PATTERN.test(subject.manifestSha256) || !FULL_OID_PATTERN2.test(subject.preparedTreeOid) || subject.manifestSha256 !== transaction.snapshot?.sha256 || subject.preparedTreeOid !== transaction.snapshot?.indexTreeOid || JSON.stringify(subject.headAnchor) !== JSON.stringify(transaction.headAnchor)) {
+    throw new Error(
+      "Check receipt does not match the prepared transaction subject."
+    );
+  }
+}
+function validateChildIdentity(identity) {
+  if (identity === null) {
+    return;
+  }
+  assertExactKeys2(identity, ["pid", "startIdentity"], "Check child identity");
+  if (!Number.isSafeInteger(identity.pid) || identity.pid < 1 || identity.startIdentity !== null && typeof identity.startIdentity !== "string") {
+    throw new Error("Check child identity is invalid.");
+  }
+}
+function validateWorkspaceObservation(observation, label) {
+  if (observation === null) {
+    return;
+  }
+  assertExactKeys2(observation, ["matches", "pathCount", "observedAt"], label);
+  if (typeof observation.matches !== "boolean" || !Number.isSafeInteger(observation.pathCount) || observation.pathCount < 0 || !validTimestamp(observation.observedAt)) {
+    throw new Error(`${label} is invalid.`);
+  }
+}
+function validateWorkspace(workspace) {
+  assertExactKeys2(workspace, ["before", "after"], "Check workspace");
+  validateWorkspaceObservation(workspace.before, "Check workspace before");
+  validateWorkspaceObservation(workspace.after, "Check workspace after");
+  if (workspace.before === null || workspace.before.matches !== true) {
+    throw new Error(
+      "A check may launch only after the selected scope matches its prepared tree."
+    );
+  }
+}
+function validateOutputChannel(channel, label, expectedPaths) {
+  assertExactKeys2(
+    channel,
+    [
+      "totalByteCount",
+      "sha256",
+      "headPath",
+      "headByteCount",
+      "headSha256",
+      "tailPath",
+      "tailByteCount",
+      "tailSha256",
+      "truncated"
+    ],
+    label
+  );
+  if (!Number.isSafeInteger(channel.totalByteCount) || channel.totalByteCount < 0 || !SHA256_PATTERN.test(channel.sha256) || channel.headPath !== null && !isAbsolute3(channel.headPath) || !Number.isSafeInteger(channel.headByteCount) || channel.headByteCount < 0 || channel.headSha256 !== null && !SHA256_PATTERN.test(channel.headSha256) || channel.tailPath !== null && !isAbsolute3(channel.tailPath) || !Number.isSafeInteger(channel.tailByteCount) || channel.tailByteCount < 0 || channel.tailSha256 !== null && !SHA256_PATTERN.test(channel.tailSha256) || typeof channel.truncated !== "boolean") {
+    throw new Error(`${label} is invalid.`);
+  }
+  for (const segment of ["head", "tail"]) {
+    const path = channel[`${segment}Path`];
+    const byteCount = channel[`${segment}ByteCount`];
+    const digest3 = channel[`${segment}Sha256`];
+    if (byteCount === 0 && (path !== null || digest3 !== null) || byteCount > 0 && (path === null || digest3 === null || resolve3(path) !== expectedPaths[segment])) {
+      throw new Error(
+        `${label} ${segment} segment is not bound to its transaction path and digest.`
+      );
+    }
+  }
+}
+function validateOutput(output, attempt, transaction) {
+  if (output === null) {
+    return;
+  }
+  assertExactKeys2(
+    output,
+    ["schemaVersion", "stdout", "stderr"],
+    "Check output"
+  );
+  if (output.schemaVersion !== 1) {
+    throw new Error("Check output schemaVersion must be 1.");
+  }
+  const directory = join3(resolve3(transaction.attemptDirectory), "process-logs");
+  for (const channel of ["stdout", "stderr"]) {
+    validateOutputChannel(output[channel], `Check ${channel} output`, {
+      head: join3(directory, `check-${attempt.receiptId}-${channel}-head.bin`),
+      tail: join3(directory, `check-${attempt.receiptId}-${channel}-tail.bin`)
+    });
+  }
+}
+function validateCompletion(completion) {
+  if (completion === null) {
+    return;
+  }
+  assertExactKeys2(
+    completion,
+    [
+      "finishedAt",
+      "durationMilliseconds",
+      "outcome",
+      "exitCode",
+      "signal",
+      "launchError"
+    ],
+    "Check completion"
+  );
+  if (!validTimestamp(completion.finishedAt) || !Number.isSafeInteger(completion.durationMilliseconds) || completion.durationMilliseconds < 0 || !OUTCOMES.has(completion.outcome) || completion.exitCode !== null && !Number.isInteger(completion.exitCode) || completion.signal !== null && typeof completion.signal !== "string" || completion.launchError !== null && (typeof completion.launchError !== "object" || Array.isArray(completion.launchError))) {
+    throw new Error("Check completion is invalid.");
+  }
+  const outcomeShapeIsValid = completion.outcome === "passed" && completion.exitCode === 0 && completion.signal === null && completion.launchError === null || completion.outcome === "failed" && completion.exitCode !== null && completion.exitCode !== 0 && completion.signal === null && completion.launchError === null || completion.outcome === "launch-error" && completion.exitCode === null && completion.signal === null && completion.launchError !== null || completion.outcome === "signaled" && completion.exitCode === null && completion.signal !== null && completion.launchError === null || completion.outcome === "timed-out" && completion.exitCode === null && completion.launchError === null || completion.outcome === "unknown" && completion.exitCode === null && completion.signal === null && completion.launchError === null;
+  if (!outcomeShapeIsValid) {
+    throw new Error("Check completion outcome contradicts its process facts.");
+  }
+}
+function validateResolution(resolution) {
+  if (resolution === null) {
+    return;
+  }
+  assertExactKeys2(
+    resolution,
+    ["kind", "resolvedAt"],
+    "Check recovery resolution"
+  );
+  if (resolution.kind !== "confirmed-no-live-child" || !validTimestamp(resolution.resolvedAt)) {
+    throw new Error("Check recovery resolution is invalid.");
+  }
+}
+function validateCheckAttempt(attempt, transaction) {
+  assertExactKeys2(
+    attempt,
+    [
+      "schemaVersion",
+      "receiptId",
+      "retryOf",
+      "label",
+      "command",
+      "context",
+      "subject",
+      "launchState",
+      "childIdentity",
+      "startedAt",
+      "completion",
+      "workspace",
+      "output",
+      "resolution"
+    ],
+    "Check attempt"
+  );
+  if (attempt.schemaVersion !== 1 || !RECEIPT_ID_PATTERN.test(attempt.receiptId) || attempt.retryOf !== null && !RECEIPT_ID_PATTERN.test(attempt.retryOf) || typeof attempt.label !== "string" || attempt.label.trim() !== attempt.label || attempt.label.length === 0 || /[\0\r\n]/u.test(attempt.label) || Buffer.byteLength(attempt.label, "utf8") > MAXIMUM_LABEL_BYTES || !LAUNCH_STATES.has(attempt.launchState) || !validTimestamp(attempt.startedAt)) {
+    throw new Error("Check attempt contains invalid identity or launch facts.");
+  }
+  validateCheckCommand(attempt.command);
+  validateCheckContext(attempt.context);
+  validateSubject(attempt.subject, transaction);
+  validateChildIdentity(attempt.childIdentity);
+  validateCompletion(attempt.completion);
+  validateWorkspace(attempt.workspace);
+  validateOutput(attempt.output, attempt, transaction);
+  validateResolution(attempt.resolution);
+  if (attempt.launchState === "launching" && (attempt.childIdentity !== null || attempt.completion !== null || attempt.output !== null || attempt.workspace.after !== null || attempt.resolution !== null) || attempt.launchState === "running" && (attempt.childIdentity === null || attempt.completion !== null || attempt.workspace.after !== null || attempt.resolution !== null) || attempt.launchState === "completed" && attempt.completion === null || attempt.completion !== null && !(/* @__PURE__ */ new Set(["launch-error", "unknown"])).has(attempt.completion.outcome) && (attempt.childIdentity === null || attempt.output === null || attempt.workspace.after === null) || attempt.completion?.outcome === "unknown" && attempt.resolution === null || attempt.resolution !== null && attempt.completion?.outcome !== "unknown") {
+    throw new Error("Check launch state and outcome are inconsistent.");
+  }
+}
+function validateCheckAttempts(checkAttempts, transaction) {
+  if (!Array.isArray(checkAttempts)) {
+    throw new Error("Transaction checkAttempts must be an array.");
+  }
+  for (const [index, attempt] of checkAttempts.entries()) {
+    const expectedId = `C${String(index + 1).padStart(6, "0")}`;
+    if (attempt?.receiptId !== expectedId) {
+      throw new Error(
+        "Check receipt IDs must form deterministic append-only history."
+      );
+    }
+  }
+  for (const [index, attempt] of checkAttempts.entries()) {
+    validateCheckAttempt(attempt, transaction);
+    if (attempt.retryOf !== null) {
+      const prior = checkAttempts[index - 1];
+      if (prior === void 0 || attempt.retryOf !== prior.receiptId || prior.completion?.outcome !== "unknown" || prior.resolution === null) {
+        throw new Error(
+          "Check retry links must name the immediately earlier resolved unknown attempt."
+        );
+      }
+    }
+    if (index < checkAttempts.length - 1 && attempt.launchState !== "completed") {
+      throw new Error(
+        "Only the latest check attempt may have an unresolved launch state."
+      );
+    }
+    if (attempt.completion?.outcome === "unknown" && index < checkAttempts.length - 1 && checkAttempts[index + 1].retryOf !== attempt.receiptId) {
+      throw new Error(
+        "A resolved unknown check must be followed immediately by its linked retry."
+      );
+    }
+  }
+}
+function completedCheckReceipts(checkAttempts) {
+  return checkAttempts.filter(
+    (attempt) => attempt.launchState === "completed" && REPORTABLE_OUTCOMES.has(attempt.completion?.outcome) && attempt.workspace.before.matches && attempt.workspace.after?.matches
+  );
+}
+function analyzeCheckCommitReadiness(checkAttempts, acknowledgedFailedCheckIds) {
+  const acknowledgements = Array.isArray(acknowledgedFailedCheckIds) ? acknowledgedFailedCheckIds : [];
+  const uniqueAcknowledgements = new Set(acknowledgements);
+  const receipts = completedCheckReceipts(checkAttempts);
+  const failedReceiptIds = receipts.filter((attempt) => attempt.completion.outcome !== "passed").map((attempt) => attempt.receiptId);
+  const failedReceiptSet = new Set(failedReceiptIds);
+  return {
+    activeAttemptIds: checkAttempts.filter((attempt) => attempt.launchState !== "completed").map((attempt) => attempt.receiptId),
+    retryRequiredIds: checkAttempts.filter(
+      (attempt, index) => attempt.completion?.outcome === "unknown" && checkAttempts[index + 1]?.retryOf !== attempt.receiptId
+    ).map((attempt) => attempt.receiptId),
+    failedReceiptIds,
+    missingAcknowledgementIds: failedReceiptIds.filter(
+      (receiptId) => !uniqueAcknowledgements.has(receiptId)
+    ),
+    invalidAcknowledgementIds: [...uniqueAcknowledgements].filter(
+      (receiptId) => !failedReceiptSet.has(receiptId)
+    ),
+    duplicateAcknowledgementIds: acknowledgements.filter(
+      (receiptId, index) => acknowledgements.indexOf(receiptId) !== index
+    )
+  };
+}
+function reportOutputChannel(channel) {
+  return {
+    totalByteCount: channel.totalByteCount,
+    sha256: channel.sha256,
+    truncated: channel.truncated
+  };
+}
+function summarizeCheckReceipts(checkAttempts, acknowledgedFailedCheckIds = []) {
+  const acknowledged = new Set(acknowledgedFailedCheckIds);
+  const receipts = completedCheckReceipts(checkAttempts).map((attempt) => ({
+    receiptId: attempt.receiptId,
+    label: attempt.label,
+    command: attempt.command,
+    context: attempt.context,
+    outcome: attempt.completion.outcome,
+    exitCode: attempt.completion.exitCode,
+    signal: attempt.completion.signal,
+    durationMilliseconds: attempt.completion.durationMilliseconds,
+    selectedScopeStable: true,
+    failureAcknowledged: attempt.completion.outcome === "passed" ? null : acknowledged.has(attempt.receiptId),
+    output: {
+      stdout: reportOutputChannel(attempt.output.stdout),
+      stderr: reportOutputChannel(attempt.output.stderr)
+    }
+  }));
+  return {
+    schemaVersion: 2,
+    attemptCount: checkAttempts.length,
+    receipts
+  };
+}
+var FULL_OID_PATTERN2, SHA256_PATTERN, RECEIPT_ID_PATTERN, LAUNCH_STATES, OUTCOMES, MAXIMUM_LABEL_BYTES, MAXIMUM_COMMAND_BYTES, MAXIMUM_ARGUMENTS, REPORTABLE_OUTCOMES;
+var init_checkReceipt = __esm({
+  "src/committing-to-git/checks/checkReceipt.js"() {
+    FULL_OID_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+    RECEIPT_ID_PATTERN = /^C[0-9]{6}$/u;
+    LAUNCH_STATES = /* @__PURE__ */ new Set(["launching", "running", "completed"]);
+    OUTCOMES = /* @__PURE__ */ new Set([
+      "passed",
+      "failed",
+      "launch-error",
+      "signaled",
+      "timed-out",
+      "unknown"
+    ]);
+    MAXIMUM_LABEL_BYTES = 256;
+    MAXIMUM_COMMAND_BYTES = 32 * 1024;
+    MAXIMUM_ARGUMENTS = 256;
+    REPORTABLE_OUTCOMES = /* @__PURE__ */ new Set([
+      "passed",
+      "failed",
+      "signaled",
+      "timed-out"
+    ]);
+  }
+});
+
+// src/committing-to-git/transaction/transactionWorkspace.js
+import { randomUUID as systemRandomUUID } from "node:crypto";
+import {
+  closeSync as closeSync4,
+  constants as fsConstants,
+  existsSync as existsSync4,
+  fstatSync as fstatSync4,
+  fsyncSync as fsyncSync2,
+  lstatSync as lstatSync2,
+  mkdirSync as mkdirSync2,
+  openSync as openSync4,
+  readFileSync,
+  realpathSync as realpathSync2,
+  renameSync as renameSync2,
+  rmSync,
+  writeFileSync as writeFileSync3
+} from "node:fs";
+import {
+  basename,
+  dirname,
+  isAbsolute as isAbsolute4,
+  join as join4,
+  relative,
+  resolve as resolve4
+} from "node:path";
+function transactionStateKey(transaction) {
+  return JSON.stringify([
+    transaction.phase,
+    transaction.status,
+    transaction.terminalDisposition
+  ]);
+}
+function validateIndexIdentity(identity, label) {
+  if (identity?.state === "absent") {
+    assertExactKeys(identity, ["state"], label);
+    return;
+  }
+  assertExactKeys(
+    identity,
+    ["state", "byteCount", "sha256", "fileIdentity"],
+    label
+  );
+  if (identity.state !== "file" || !Number.isSafeInteger(identity.byteCount) || identity.byteCount < 0 || !SHA256_PATTERN2.test(identity.sha256)) {
+    throw new Error(`${label} is not a canonical index identity.`);
+  }
+  assertExactKeys(
+    identity.fileIdentity,
+    [
+      "device",
+      "inode",
+      "mode",
+      "modifiedTimeMilliseconds",
+      "changeTimeMilliseconds"
+    ],
+    `${label} file identity`
+  );
+  if (typeof identity.fileIdentity.device !== "string" || identity.fileIdentity.device.length === 0 || typeof identity.fileIdentity.inode !== "string" || identity.fileIdentity.inode.length === 0 || !Number.isSafeInteger(identity.fileIdentity.mode) || identity.fileIdentity.mode < 0 || !Number.isFinite(identity.fileIdentity.modifiedTimeMilliseconds) || identity.fileIdentity.modifiedTimeMilliseconds < 0 || !Number.isFinite(identity.fileIdentity.changeTimeMilliseconds) || identity.fileIdentity.changeTimeMilliseconds < 0) {
+    throw new Error(`${label} file identity is invalid.`);
+  }
+}
+function validatePromotionState(snapshot, transaction) {
+  if (snapshot?.promotion === void 0 || snapshot.promotion === null) {
+    return;
+  }
+  const promotion = snapshot.promotion;
+  assertExactKeys(
+    promotion,
+    [
+      "schemaVersion",
+      "status",
+      "headAnchor",
+      "indexTreeOid",
+      "originalIndexIdentity",
+      "preparedIndexPath",
+      "preparedIndexIdentity",
+      "installedIndexIdentity",
+      "recoveryObservation"
+    ],
+    "Promotion state"
+  );
+  if (promotion.schemaVersion !== 1 || !(/* @__PURE__ */ new Set(["prepared", "recovery-observed", "installed"])).has(
+    promotion.status
+  ) || !FULL_OID_PATTERN3.test(promotion.indexTreeOid) || promotion.indexTreeOid !== snapshot.indexTreeOid || JSON.stringify(promotion.headAnchor) !== JSON.stringify(transaction.headAnchor)) {
+    throw new Error("Promotion state does not match the transaction anchors.");
+  }
+  validateHeadAnchor(promotion.headAnchor);
+  validateIndexIdentity(
+    promotion.originalIndexIdentity,
+    "Promotion original index identity"
+  );
+  validateIndexIdentity(
+    promotion.preparedIndexIdentity,
+    "Promotion prepared index identity"
+  );
+  if (promotion.installedIndexIdentity !== null) {
+    validateIndexIdentity(
+      promotion.installedIndexIdentity,
+      "Promotion installed index identity"
+    );
+  }
+  if (promotion.preparedIndexPath !== null && (typeof promotion.preparedIndexPath !== "string" || !isAbsolute4(promotion.preparedIndexPath))) {
+    throw new Error("Promotion prepared index path is invalid.");
+  }
+  if (promotion.recoveryObservation !== null) {
+    const observation = promotion.recoveryObservation;
+    assertExactKeys(
+      observation,
+      [
+        "status",
+        "resumeAllowed",
+        "recoveryRequired",
+        "currentIndexIdentity",
+        "preparedIndexTreeOid",
+        "headAnchor"
+      ],
+      "Promotion recovery observation"
+    );
+    if (!(/* @__PURE__ */ new Set([
+      "installed",
+      "matching-index-observed",
+      "not-installed",
+      "ambiguous"
+    ])).has(observation.status) || typeof observation.resumeAllowed !== "boolean" || typeof observation.recoveryRequired !== "boolean" || observation.preparedIndexTreeOid !== promotion.indexTreeOid || JSON.stringify(observation.headAnchor) !== JSON.stringify(promotion.headAnchor)) {
+      throw new Error("Promotion recovery observation is invalid.");
+    }
+    validateIndexIdentity(
+      observation.currentIndexIdentity,
+      "Promotion recovery current index identity"
+    );
+  }
+  if (promotion.status === "prepared" && (promotion.installedIndexIdentity !== null || promotion.recoveryObservation !== null) || promotion.status === "recovery-observed" && (promotion.installedIndexIdentity !== null || promotion.recoveryObservation === null) || promotion.status === "installed" && promotion.installedIndexIdentity === null) {
+    throw new Error("Promotion status and durable facts are inconsistent.");
+  }
+}
+function validateRepositoryTypePolicy(policy) {
+  assertExactKeys(policy, ["allowedTypes"], "Repository type policy");
+  if (policy.allowedTypes === null) {
+    return;
+  }
+  if (!Array.isArray(policy.allowedTypes) || policy.allowedTypes.length > 64 || new Set(policy.allowedTypes).size !== policy.allowedTypes.length || policy.allowedTypes.some(
+    (type) => typeof type !== "string" || !TYPE_TOKEN_PATTERN.test(type)
+  )) {
+    throw new Error(
+      "Repository allowed types must be unique lowercase tokens."
+    );
+  }
+}
+function validateInlineEvidence(inlineEvidence) {
+  if (inlineEvidence === null) {
+    return;
+  }
+  assertExactKeys(
+    inlineEvidence,
+    ["capsuleSha256", "manifestSha256", "evidencePlanSha256", "capsule"],
+    "Inline evidence"
+  );
+  for (const field of [
+    "capsuleSha256",
+    "manifestSha256",
+    "evidencePlanSha256"
+  ]) {
+    if (!SHA256_PATTERN2.test(inlineEvidence[field])) {
+      throw new Error(`Inline evidence ${field} must be a SHA-256 digest.`);
+    }
+  }
+  if (inlineEvidence.capsule === null || typeof inlineEvidence.capsule !== "object" || Array.isArray(inlineEvidence.capsule)) {
+    throw new Error("Inline evidence capsule must be an object.");
+  }
+}
+function validateReviewTraversal(traversal) {
+  if (traversal === null) {
+    return;
+  }
+  assertExactKeys(
+    traversal,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "deliveredPacketCount",
+      "lastRequestCursor",
+      "nextCursor",
+      "complete"
+    ],
+    "Review traversal"
+  );
+  if (traversal.schemaVersion !== 1 || !SHA256_PATTERN2.test(traversal.catalogSha256) || !Number.isSafeInteger(traversal.deliveredPacketCount) || traversal.deliveredPacketCount < 1 || !(traversal.lastRequestCursor === null || typeof traversal.lastRequestCursor === "string") || traversal.lastRequestCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.lastRequestCursor) || !(traversal.nextCursor === null || typeof traversal.nextCursor === "string") || traversal.nextCursor !== null && !REVIEW_CURSOR_PATTERN.test(traversal.nextCursor) || typeof traversal.complete !== "boolean" || traversal.complete !== (traversal.nextCursor === null)) {
+    throw new Error("Review traversal is invalid.");
+  }
+}
+function validateReviewReceipt(receipt, review) {
+  if (receipt === null) {
+    return;
+  }
+  assertExactKeys(
+    receipt,
+    [
+      "schemaVersion",
+      "catalogSha256",
+      "evidencePlanSha256",
+      "requiredPacketsReviewed",
+      "additionalPacketIds"
+    ],
+    "Review receipt"
+  );
+  if (receipt.schemaVersion !== 1 || receipt.catalogSha256 !== review.catalogSha256 || receipt.evidencePlanSha256 !== review.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length || receipt.additionalPacketIds.some(
+    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
+  )) {
+    throw new Error("Review receipt is invalid for the current review state.");
+  }
+}
+function validateReviewState(review) {
+  if (review === null) {
+    return;
+  }
+  const required = [
+    "catalogPath",
+    "catalogSha256",
+    "evidencePlanPath",
+    "evidencePlanSha256",
+    "extendedReason",
+    "deliveryPacketIds",
+    "queue",
+    "receipt",
+    "semanticStructureRequired",
+    "structuredMessageMode",
+    "traversal"
+  ];
+  const optional = ["coveredCapsuleSha256", "preparationEvidence"].filter(
+    (key) => Object.hasOwn(review, key)
+  );
+  assertExactKeys(review, [...required, ...optional], "Review state");
+  if (Object.hasOwn(review, "preparationEvidence")) {
+    validateInlineEvidence(review.preparationEvidence);
+    if (review.preparationEvidence === null)
+      throw new Error("Preparation evidence must be present.");
+  }
+  if (typeof review.catalogPath !== "string" || review.catalogPath.length === 0 || typeof review.evidencePlanPath !== "string" || review.evidencePlanPath.length === 0 || !SHA256_PATTERN2.test(review.catalogSha256) || !SHA256_PATTERN2.test(review.evidencePlanSha256) || review.coveredCapsuleSha256 !== void 0 && !SHA256_PATTERN2.test(review.coveredCapsuleSha256) || !EXTENDED_REASONS.has(review.extendedReason) || !Array.isArray(review.deliveryPacketIds) || new Set(review.deliveryPacketIds).size !== review.deliveryPacketIds.length || review.deliveryPacketIds.some(
+    (id) => typeof id !== "string" || !REVIEW_PACKET_ID_PATTERN.test(id)
+  ) || typeof review.semanticStructureRequired !== "boolean" || !(/* @__PURE__ */ new Set(["detailed", "bulk"])).has(review.structuredMessageMode)) {
+    throw new Error(
+      "Review state contains invalid identities or routing facts."
+    );
+  }
+  for (const field of ["queue", "receipt"]) {
+    if (review[field] !== null && (typeof review[field] !== "object" || Array.isArray(review[field]))) {
+      throw new Error(`Review state ${field} must be an object or null.`);
+    }
+  }
+  validateReviewTraversal(review.traversal);
+  validateReviewReceipt(review.receipt, review);
+  if (review.traversal !== null && (review.deliveryPacketIds.length === 0 || review.traversal.catalogSha256 !== review.catalogSha256 || review.traversal.deliveredPacketCount > review.deliveryPacketIds.length || review.traversal.complete !== (review.traversal.deliveredPacketCount === review.deliveryPacketIds.length))) {
+    throw new Error(
+      "Review traversal does not match the current delivery packet set."
+    );
+  }
+  const deliveryComplete = review.deliveryPacketIds.length === 0 || review.traversal?.complete === true;
+  if (review.receipt !== null !== deliveryComplete) {
+    throw new Error(
+      "Review receipt presence does not match helper-owned delivery completion."
+    );
+  }
+}
+function validateMessageState(message) {
+  if (message === null) {
+    return;
+  }
+  assertExactKeys(
+    message,
+    [
+      "schemaVersion",
+      "revision",
+      "sha256",
+      "source",
+      "byteCount",
+      "stateSha256",
+      "validationSha256",
+      "slot"
+    ],
+    "Canonical message state"
+  );
+  if (message.schemaVersion !== 1 || !Number.isSafeInteger(message.revision) || message.revision < 1 || !SHA256_PATTERN2.test(message.sha256) || !MESSAGE_SOURCES.has(message.source) || !Number.isSafeInteger(message.byteCount) || message.byteCount < 1 || !SHA256_PATTERN2.test(message.stateSha256) || !SHA256_PATTERN2.test(message.validationSha256) || message.slot !== "message/current") {
+    throw new Error("Canonical message state is invalid.");
+  }
+}
+function validateSignaturePreflight(preflight) {
+  if (preflight === null) {
+    return;
+  }
+  assertExactKeys(preflight, ["backend", "trustSource"], "Signature preflight");
+  if (!(/* @__PURE__ */ new Set([null, "ssh", "openpgp"])).has(preflight.backend)) {
+    throw new Error("Signature preflight backend is invalid.");
+  }
+  if (preflight.backend !== "ssh") {
+    if (preflight.trustSource !== null) {
+      throw new Error(
+        "Only SSH preflight may record an allowed-signers source."
+      );
+    }
+    return;
+  }
+  assertExactKeys(
+    preflight.trustSource,
+    ["configured", "origin", "path", "state", "errorCode"],
+    "SSH trust source"
+  );
+  if (typeof preflight.trustSource.configured !== "boolean" || !(/* @__PURE__ */ new Set([
+    "readable",
+    "not-configured",
+    "not-found",
+    "permission-denied",
+    "invalid-file-type",
+    "probe-error"
+  ])).has(preflight.trustSource.state) || preflight.trustSource.errorCode !== null && typeof preflight.trustSource.errorCode !== "string" || preflight.trustSource.origin !== null && typeof preflight.trustSource.origin !== "string" || preflight.trustSource.path !== null && typeof preflight.trustSource.path !== "string" || preflight.trustSource.configured && (!preflight.trustSource.origin || !preflight.trustSource.path || preflight.trustSource.state === "not-configured") || !preflight.trustSource.configured && (preflight.trustSource.origin !== null || preflight.trustSource.path !== null || preflight.trustSource.state !== "not-configured" || preflight.trustSource.errorCode !== null)) {
+    throw new Error("SSH trust-source preflight is invalid.");
+  }
+}
+function validateCommitJournal(commit) {
+  if (commit === null) {
+    return;
+  }
+  assertExactKeys(
+    commit,
+    [
+      "status",
+      "launchState",
+      "childIdentity",
+      "headAnchor",
+      "expectedTreeOid",
+      "messageSha256",
+      "messageByteCount",
+      "acknowledgedFailedCheckIds",
+      "startedAt",
+      "completion",
+      "transcript",
+      "commitOid",
+      "comparison",
+      "observationProvenance",
+      "recoveryObservations",
+      "recoveryResolution"
+    ],
+    "Commit journal"
+  );
+  validateHeadAnchor(commit.headAnchor);
+  if (!(/* @__PURE__ */ new Set(["pending", "created"])).has(commit.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
+    commit.launchState
+  ) || !FULL_OID_PATTERN3.test(commit.expectedTreeOid) || !SHA256_PATTERN2.test(commit.messageSha256) || !Number.isSafeInteger(commit.messageByteCount) || commit.messageByteCount < 1 || !Array.isArray(commit.acknowledgedFailedCheckIds) || commit.acknowledgedFailedCheckIds.some(
+    (receiptId) => typeof receiptId !== "string" || !/^C[0-9]{6}$/u.test(receiptId)
+  ) || new Set(commit.acknowledgedFailedCheckIds).size !== commit.acknowledgedFailedCheckIds.length || typeof commit.startedAt !== "string" || !Number.isFinite(Date.parse(commit.startedAt)) || commit.commitOid !== null && !FULL_OID_PATTERN3.test(commit.commitOid) || !(/* @__PURE__ */ new Set([null, "witnessed", "recovered"])).has(commit.observationProvenance)) {
+    throw new Error(
+      "Commit journal contains invalid identity or launch facts."
+    );
+  }
+  if (commit.childIdentity !== null) {
+    assertExactKeys(
+      commit.childIdentity,
+      ["pid", "startIdentity"],
+      "Commit child identity"
+    );
+    if (!Number.isSafeInteger(commit.childIdentity.pid) || commit.childIdentity.pid < 1 || commit.childIdentity.startIdentity !== null && typeof commit.childIdentity.startIdentity !== "string") {
+      throw new Error("Commit child identity is invalid.");
+    }
+  }
+  if (commit.completion !== null) {
+    assertExactKeys(
+      commit.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError"
+      ],
+      "Commit completion"
+    );
+    if (commit.completion.exitCode !== null && !Number.isInteger(commit.completion.exitCode) || commit.completion.signal !== null && typeof commit.completion.signal !== "string" || commit.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN2.test(commit.completion.transcriptCompletionSha256) || typeof commit.completion.nonLaunchGuaranteed !== "boolean" || commit.completion.launchError !== null && (typeof commit.completion.launchError !== "object" || Array.isArray(commit.completion.launchError))) {
+      throw new Error("Commit completion is invalid.");
+    }
+  }
+  for (const field of [
+    "transcript",
+    "comparison",
+    "recoveryObservations",
+    "recoveryResolution"
+  ]) {
+    if (commit[field] !== null && (typeof commit[field] !== "object" || Array.isArray(commit[field]))) {
+      throw new Error(`Commit journal ${field} must be an object or null.`);
+    }
+  }
+}
+function validateVerificationHistory(verification) {
+  if (verification === null) {
+    return;
+  }
+  assertExactKeys(
+    verification,
+    [
+      "schemaVersion",
+      "commitOid",
+      "initialPolicy",
+      "finalPolicy",
+      "attempts",
+      "effectiveAttempt",
+      "blocksPush"
+    ],
+    "Verification history"
+  );
+  if (verification.schemaVersion !== 2 || !FULL_OID_PATTERN3.test(verification.commitOid) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    verification.initialPolicy
+  ) || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    verification.finalPolicy
+  ) || !Array.isArray(verification.attempts) || verification.attempts.length < 1 || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || typeof verification.blocksPush !== "boolean") {
+    throw new Error("Verification history is invalid.");
+  }
+  for (const attempt of verification.attempts) {
+    assertExactKeys(
+      attempt,
+      ["status", "reason", "backend", "identity", "timestamp"],
+      "Signature verification attempt"
+    );
+    if (!(/* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"])).has(
+      attempt.status
+    ) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
+      throw new Error("Signature verification attempt is invalid.");
+    }
+    if (attempt.status !== "verified") {
+      if (attempt.identity !== null || attempt.status === "skipped" && attempt.backend !== null) {
+        throw new Error("Signature verification attempt is invalid.");
+      }
+      continue;
+    }
+    const sshIdentity2 = attempt.backend === "ssh" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 2 && Object.hasOwn(attempt.identity, "principal") && Object.hasOwn(attempt.identity, "keyFingerprint") && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN.test(attempt.identity.keyFingerprint);
+    const openPgpIdentity2 = attempt.backend === "openpgp" && attempt.identity !== null && typeof attempt.identity === "object" && !Array.isArray(attempt.identity) && Object.keys(attempt.identity).length === 3 && Object.hasOwn(attempt.identity, "signer") && Object.hasOwn(attempt.identity, "primaryKeyFingerprint") && Object.hasOwn(attempt.identity, "signingSubkeyFingerprint") && typeof attempt.identity.signer === "string" && attempt.identity.signer.length > 0 && typeof attempt.identity.primaryKeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
+      attempt.identity.primaryKeyFingerprint
+    ) && (attempt.identity.signingSubkeyFingerprint === null || typeof attempt.identity.signingSubkeyFingerprint === "string" && OPENPGP_FINGERPRINT_PATTERN.test(
+      attempt.identity.signingSubkeyFingerprint
+    ));
+    if (!sshIdentity2 && !openPgpIdentity2) {
+      throw new Error(
+        "Verified signature attempts require a backend-specific identity."
+      );
+    }
+  }
+}
+function validatePublicationAttempt(attempt) {
+  assertExactKeys(
+    attempt,
+    [
+      "schemaVersion",
+      "attemptId",
+      "retryOf",
+      "status",
+      "launchState",
+      "childIdentity",
+      "commitOid",
+      "remote",
+      "destination",
+      "refspec",
+      "startedAt",
+      "completion",
+      "transcript",
+      "observation",
+      "resolution",
+      "retryPermitted",
+      "reason"
+    ],
+    "Publication attempt"
+  );
+  if (attempt.schemaVersion !== 1 || !UUID_V4_PATTERN.test(attempt.attemptId) || attempt.retryOf !== null && !UUID_V4_PATTERN.test(attempt.retryOf) || !(/* @__PURE__ */ new Set([
+    "pending",
+    "unknown",
+    "rejected",
+    "succeeded",
+    "observed-matching"
+  ])).has(attempt.status) || !(/* @__PURE__ */ new Set(["not-started", "launching", "running", "completed"])).has(
+    attempt.launchState
+  ) || !FULL_OID_PATTERN3.test(attempt.commitOid) || typeof attempt.remote !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(attempt.remote) || typeof attempt.destination !== "string" || !attempt.destination.startsWith("refs/heads/") || attempt.refspec !== `${attempt.commitOid}:${attempt.destination}` || typeof attempt.startedAt !== "string" || !Number.isFinite(Date.parse(attempt.startedAt)) || typeof attempt.retryPermitted !== "boolean" || attempt.reason !== null && typeof attempt.reason !== "string") {
+    throw new Error("Publication attempt contains invalid identity facts.");
+  }
+  if (attempt.childIdentity !== null) {
+    assertExactKeys(
+      attempt.childIdentity,
+      ["pid", "startIdentity"],
+      "Publication child identity"
+    );
+    if (!Number.isSafeInteger(attempt.childIdentity.pid) || attempt.childIdentity.pid < 1 || attempt.childIdentity.startIdentity !== null && typeof attempt.childIdentity.startIdentity !== "string") {
+      throw new Error("Publication child identity is invalid.");
+    }
+  }
+  if (attempt.completion !== null) {
+    assertExactKeys(
+      attempt.completion,
+      [
+        "exitCode",
+        "signal",
+        "transcriptCompletionSha256",
+        "nonLaunchGuaranteed",
+        "launchError",
+        "outcome"
+      ],
+      "Publication completion"
+    );
+    if (attempt.completion.exitCode !== null && !Number.isInteger(attempt.completion.exitCode) || attempt.completion.signal !== null && typeof attempt.completion.signal !== "string" || attempt.completion.transcriptCompletionSha256 !== null && !SHA256_PATTERN2.test(attempt.completion.transcriptCompletionSha256) || typeof attempt.completion.nonLaunchGuaranteed !== "boolean" || attempt.completion.launchError !== null && (typeof attempt.completion.launchError !== "object" || Array.isArray(attempt.completion.launchError)) || !(/* @__PURE__ */ new Set([
+      "not-launched",
+      "witnessed-success",
+      "known-rejection",
+      "unknown"
+    ])).has(attempt.completion.outcome)) {
+      throw new Error("Publication completion is invalid.");
+    }
+  }
+  if (attempt.observation !== null) {
+    assertExactKeys(
+      attempt.observation,
+      [
+        "status",
+        "observedAt",
+        "observedOid",
+        "exitCode",
+        "stdoutSha256",
+        "stderrSha256",
+        "commandDigest",
+        "reason"
+      ],
+      "Publication observation"
+    );
+    if (!(/* @__PURE__ */ new Set(["querying", "observed", "absent", "unavailable"])).has(
+      attempt.observation.status
+    ) || typeof attempt.observation.observedAt !== "string" || !Number.isFinite(Date.parse(attempt.observation.observedAt)) || attempt.observation.observedOid !== null && !FULL_OID_PATTERN3.test(attempt.observation.observedOid) || attempt.observation.exitCode !== null && !Number.isInteger(attempt.observation.exitCode) || !SHA256_PATTERN2.test(attempt.observation.stdoutSha256) || !SHA256_PATTERN2.test(attempt.observation.stderrSha256) || !SHA256_PATTERN2.test(attempt.observation.commandDigest) || attempt.observation.reason !== null && typeof attempt.observation.reason !== "string" || attempt.observation.status === "observed" && (attempt.observation.observedOid === null || attempt.observation.exitCode !== 0) || attempt.observation.status === "absent" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== 2) || attempt.observation.status === "unavailable" && (attempt.observation.observedOid !== null || attempt.observation.reason === null) || attempt.observation.status === "querying" && (attempt.observation.observedOid !== null || attempt.observation.exitCode !== null || attempt.observation.reason === null)) {
+      throw new Error("Publication observation is invalid.");
+    }
+  }
+  if (attempt.resolution !== null) {
+    assertExactKeys(
+      attempt.resolution,
+      ["kind", "assertedAt", "observationDigest"],
+      "Publication resolution"
+    );
+    if (attempt.resolution.kind !== "confirmed-no-live-child" || typeof attempt.resolution.assertedAt !== "string" || !Number.isFinite(Date.parse(attempt.resolution.assertedAt)) || !SHA256_PATTERN2.test(attempt.resolution.observationDigest) || attempt.observation === null || attempt.resolution.observationDigest !== attempt.observation.commandDigest) {
+      throw new Error("Publication resolution is invalid.");
+    }
+  }
+  if (attempt.retryPermitted !== (attempt.resolution !== null) || attempt.retryPermitted && attempt.status !== "unknown") {
+    throw new Error(
+      "Publication retry permission requires an observation and resolution."
+    );
+  }
+  for (const field of ["transcript", "completion"]) {
+    if (attempt[field] !== null && (typeof attempt[field] !== "object" || Array.isArray(attempt[field]))) {
+      throw new Error(`Publication ${field} must be an object or null.`);
+    }
+  }
+  if (attempt.transcript !== null) {
+    assertExactKeys(
+      attempt.transcript,
+      [
+        "path",
+        "status",
+        "signal",
+        "totalByteCount",
+        "stdoutByteCount",
+        "stderrByteCount",
+        "stdoutSha256",
+        "stderrSha256",
+        "sha256",
+        "completionSha256",
+        "retainRecommended"
+      ],
+      "Publication transcript"
+    );
+    if (typeof attempt.transcript.path !== "string" || attempt.transcript.path.length === 0 || attempt.transcript.status !== null && !Number.isInteger(attempt.transcript.status) || attempt.transcript.signal !== null && typeof attempt.transcript.signal !== "string" || !Number.isSafeInteger(attempt.transcript.totalByteCount) || attempt.transcript.totalByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stdoutByteCount) || attempt.transcript.stdoutByteCount < 0 || !Number.isSafeInteger(attempt.transcript.stderrByteCount) || attempt.transcript.stderrByteCount < 0 || !SHA256_PATTERN2.test(attempt.transcript.stdoutSha256) || !SHA256_PATTERN2.test(attempt.transcript.stderrSha256) || !SHA256_PATTERN2.test(attempt.transcript.sha256) || !SHA256_PATTERN2.test(attempt.transcript.completionSha256) || typeof attempt.transcript.retainRecommended !== "boolean" || attempt.transcript.totalByteCount !== attempt.transcript.stdoutByteCount + attempt.transcript.stderrByteCount) {
+      throw new Error("Publication transcript is invalid.");
+    }
+  }
+  if (attempt.launchState === "not-started" && (attempt.childIdentity !== null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "launching" && (attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "running" && (attempt.childIdentity === null || attempt.completion !== null || attempt.transcript !== null) || attempt.launchState === "completed" && attempt.completion === null || attempt.completion?.outcome === "not-launched" && attempt.completion.nonLaunchGuaranteed !== true || attempt.completion?.outcome === "witnessed-success" && (attempt.completion.exitCode !== 0 || attempt.transcript === null) || attempt.completion?.outcome === "known-rejection" && (attempt.completion.exitCode === null || attempt.completion.exitCode === 0 || attempt.transcript === null) || attempt.status === "succeeded" && (attempt.launchState !== "completed" || attempt.completion?.outcome !== "witnessed-success") || attempt.status === "observed-matching" && (attempt.observation?.status !== "observed" || attempt.observation.observedOid !== attempt.commitOid)) {
+    throw new Error("Publication launch state and outcome are inconsistent.");
+  }
+}
+function validateTransaction(transaction) {
+  if (transaction?.schemaVersion !== 4) {
+    throw new WorkflowDiagnosticError(
+      "UNSUPPORTED_ATTEMPT_VERSION",
+      "Transaction schemaVersion must be 4; attempts are never migrated in place."
+    );
+  }
+  assertExactKeys(
+    transaction,
+    [
+      ...REQUIRED_TRANSACTION_KEYS,
+      ...Object.hasOwn(transaction, "messageFormat") ? ["messageFormat"] : [],
+      ...Object.hasOwn(transaction, "preparationFailure") ? ["preparationFailure"] : []
+    ],
+    "Transaction"
+  );
+  if (Object.hasOwn(transaction, "preparationFailure")) {
+    if (!["stopped", "abandoned", "superseded"].includes(transaction.phase))
+      throw new Error(
+        "Preparation failure requires a terminal no-commit attempt."
+      );
+    if (transaction.commit !== null || transaction.snapshot !== null || transaction.headAnchor !== null || transaction.route !== null)
+      throw new Error(
+        "Preparation failure must not attach resumable or committed state."
+      );
+    validatePreparationFailure(transaction.preparationFailure);
+  }
+  if (Object.hasOwn(transaction, "messageFormat") && transaction.messageFormat !== "detailed") {
+    throw new Error("Requested message format must be detailed.");
+  }
+  if (!PHASES.has(transaction.phase)) {
+    throw new Error(
+      `Unknown transaction phase ${JSON.stringify(transaction.phase)}.`
+    );
+  }
+  if (!isAbsolute4(transaction.repositoryRoot)) {
+    throw new Error("Transaction repositoryRoot must be absolute.");
+  }
+  if (!isAbsolute4(transaction.attemptDirectory)) {
+    throw new Error("Transaction attemptDirectory must be absolute.");
+  }
+  if (!(/* @__PURE__ */ new Set([null, "actual", "draft"])).has(transaction.mode)) {
+    throw new Error(
+      `Unknown transaction mode ${JSON.stringify(transaction.mode)}.`
+    );
+  }
+  if (transaction.status !== null && !STATUSES.has(transaction.status)) {
+    throw new Error(
+      `Unknown transaction status ${JSON.stringify(transaction.status)}.`
+    );
+  }
+  if (transaction.terminalDisposition !== null && !TERMINAL_DISPOSITIONS.has(transaction.terminalDisposition)) {
+    throw new Error(
+      `Unknown terminal disposition ${JSON.stringify(transaction.terminalDisposition)}.`
+    );
+  }
+  if (!STATE_COMBINATIONS.has(transactionStateKey(transaction))) {
+    throw new Error(
+      "Transaction phase, status, and terminal disposition form an impossible combination."
+    );
+  }
+  if (!(/* @__PURE__ */ new Set([null, "concise", "extended"])).has(transaction.route)) {
+    throw new Error(
+      `Unknown transaction route ${JSON.stringify(transaction.route)}.`
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    transaction.verificationPolicy
+  )) {
+    throw new Error("Transaction verification policy is invalid.");
+  }
+  validateRepositoryTypePolicy(transaction.repositoryTypePolicy);
+  validateHeadAnchor(transaction.headAnchor);
+  validateInlineEvidence(transaction.inlineEvidence);
+  validateReviewState(transaction.review);
+  if (transaction.review?.preparationEvidence && (transaction.review.preparationEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan?.sha256 || transaction.review.preparationEvidence.manifestSha256 !== transaction.snapshot?.sha256)) {
+    throw new Error(
+      "Preparation evidence must match the original plan and snapshot."
+    );
+  }
+  validateMessageState(transaction.message);
+  validateSignaturePreflight(transaction.signaturePreflight);
+  validatePromotionState(transaction.snapshot, transaction);
+  validateCommitJournal(transaction.commit);
+  validateVerificationHistory(transaction.verification);
+  validateCheckAttempts(transaction.checkAttempts, transaction);
+  if (transaction.commit !== null) {
+    const readiness = analyzeCheckCommitReadiness(
+      transaction.checkAttempts,
+      transaction.commit.acknowledgedFailedCheckIds
+    );
+    if (readiness.activeAttemptIds.length > 0 || readiness.retryRequiredIds.length > 0 || readiness.missingAcknowledgementIds.length > 0 || readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
+      throw new Error(
+        "Commit journal check acknowledgements do not match its ready witnessed receipts."
+      );
+    }
+  }
+  if (transaction.status === "promoted" && (transaction.mode !== "actual" || transaction.snapshot?.promotion?.status !== "installed")) {
+    throw new Error(
+      "A promoted transaction requires an installed promotion and actual mode."
+    );
+  }
+  if (transaction.phase === "evidence-ready" && (transaction.route !== "concise" || transaction.inlineEvidence === null || transaction.review !== null)) {
+    throw new Error(
+      "An evidence-ready transaction requires concise inline evidence only."
+    );
+  }
+  if ((/* @__PURE__ */ new Set(["review-pending", "authoring-pending"])).has(transaction.phase) && (transaction.route !== "extended" || transaction.inlineEvidence !== null || transaction.review === null)) {
+    throw new Error(
+      "Review and authoring transactions require extended review state only."
+    );
+  }
+  if (transaction.phase === "authoring-pending" && transaction.review?.receipt?.requiredPacketsReviewed !== true) {
+    throw new Error(
+      "An authoring-pending transaction requires a complete review receipt."
+    );
+  }
+  if (transaction.phase === "review-pending" && transaction.review?.receipt !== null) {
+    throw new Error(
+      "A review-pending transaction cannot retain a complete review receipt."
+    );
+  }
+  if (transaction.phase === "message-ready" && transaction.message === null) {
+    throw new Error(
+      "A message-ready transaction requires one canonical message state."
+    );
+  }
+  if ((/* @__PURE__ */ new Set(["allocated", "snapshot-created", "evidence-ready"])).has(
+    transaction.phase
+  ) && transaction.message !== null) {
+    throw new Error(
+      `Transaction phase ${transaction.phase} cannot retain a canonical message.`
+    );
+  }
+  if (transaction.message !== null) {
+    const sourceMatchesRoute = transaction.route === "concise" && (/* @__PURE__ */ new Set(["approved-subject", "checked-file"])).has(
+      transaction.message.source
+    ) || transaction.route === "extended" && transaction.message.source === "finalized-extended" || transaction.route === "extended" && transaction.message.source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true;
+    if (!sourceMatchesRoute) {
+      throw new Error(
+        "Canonical message source does not match the transaction route."
+      );
+    }
+  }
+  if (!Array.isArray(transaction.publicationAttempts)) {
+    throw new Error("Transaction publicationAttempts must be an array.");
+  }
+  const publicationIds = /* @__PURE__ */ new Set();
+  for (const attempt of transaction.publicationAttempts) {
+    validatePublicationAttempt(attempt);
+    if (publicationIds.has(attempt.attemptId) || attempt.retryOf !== null && !publicationIds.has(attempt.retryOf)) {
+      throw new Error(
+        "Publication attempt IDs and retry links must form append-only history."
+      );
+    }
+    publicationIds.add(attempt.attemptId);
+  }
+  const latestPublication = transaction.publicationAttempts.at(-1) ?? null;
+  for (const attempt of transaction.publicationAttempts) {
+    if (attempt.commitOid !== transaction.commit?.commitOid) {
+      throw new Error(
+        "Every publication attempt must bind the transaction commit OID."
+      );
+    }
+  }
+  if (transaction.phase === "publication-pending" && latestPublication === null) {
+    throw new Error(
+      "A publication-pending transaction requires a journaled publication attempt."
+    );
+  }
+  if (transaction.phase === "published" && (latestPublication === null || !(/* @__PURE__ */ new Set(["succeeded", "observed-matching"])).has(
+    latestPublication.status
+  ))) {
+    throw new Error(
+      "A published transaction requires a successful or observed-matching attempt."
+    );
+  }
+  if (transaction.phase === "reported" && latestPublication !== null && latestPublication.status !== "rejected") {
+    throw new Error(
+      "A reported transaction may retain only a latest known rejected publication attempt."
+    );
+  }
+  if (transaction.phase === "commit-pending" && transaction.commit === null) {
+    throw new Error(
+      "A commit-pending transaction requires its commit journal."
+    );
+  }
+  if (transaction.phase === "reported" && (transaction.commit === null || transaction.commit.commitOid === null || transaction.commit.comparison === null || transaction.verification === null || transaction.report === null)) {
+    throw new Error(
+      "A reported transaction requires commit, comparison, verification, and report facts."
+    );
+  }
+  for (const field of [
+    "scope",
+    "initialEvidencePlan",
+    "signaturePreflight",
+    "snapshot",
+    "inlineEvidence",
+    "review",
+    "message",
+    "commit",
+    "verification",
+    "report"
+  ]) {
+    const value = transaction[field];
+    if (value !== null && (typeof value !== "object" || Array.isArray(value))) {
+      throw new Error(`Transaction ${field} must be an object or null.`);
+    }
+  }
+  return transaction;
+}
+function initialTransaction(repositoryRoot2, attemptDirectory) {
+  return {
+    schemaVersion: 4,
+    phase: "allocated",
+    repositoryRoot: repositoryRoot2,
+    attemptDirectory,
+    mode: null,
+    status: null,
+    terminalDisposition: null,
+    scope: null,
+    headAnchor: null,
+    repositoryTypePolicy: { allowedTypes: null },
+    initialEvidencePlan: null,
+    route: null,
+    verificationPolicy: "required",
+    signaturePreflight: null,
+    snapshot: null,
+    inlineEvidence: null,
+    review: null,
+    message: null,
+    commit: null,
+    verification: null,
+    report: null,
+    checkAttempts: [],
+    publicationAttempts: []
+  };
+}
+function openReadOnlyNoFollow(path) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  return openSync4(path, fsConstants.O_RDONLY + noFollow, 384);
+}
+function fileIdentity(stat) {
+  return {
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    byteCount: Number(stat.size)
+  };
+}
+function identitiesMatch(left, right) {
+  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount;
+}
+function readStableRegularFile(path) {
+  const fd = openReadOnlyNoFollow(path);
+  try {
+    const before = fstatSync4(fd, { bigint: true });
+    if (!before.isFile()) {
+      throw new Error(`Expected a regular file at ${path}.`);
+    }
+    const payload = readFileSync(fd);
+    const after = fstatSync4(fd, { bigint: true });
+    const pathStat = lstatSync2(path, { bigint: true });
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+      throw new Error(
+        `Transaction path was replaced or is not a regular file: ${path}`
+      );
+    }
+    if (!identitiesMatch(fileIdentity(before), fileIdentity(after)) || !identitiesMatch(fileIdentity(after), fileIdentity(pathStat))) {
+      throw new Error(
+        `Transaction path changed while it was being read: ${path}`
+      );
+    }
+    return payload;
+  } finally {
+    closeSync4(fd);
+  }
+}
+function flushDirectory(path) {
+  if (process.platform === "win32") {
+    return;
+  }
+  const fd = openSync4(path, fsConstants.O_RDONLY, 384);
+  try {
+    fsyncSync2(fd);
+  } finally {
+    closeSync4(fd);
+  }
+}
+function writeNewFile(path, payload) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  const fd = openSync4(
+    path,
+    fsConstants.O_WRONLY + fsConstants.O_CREAT + fsConstants.O_EXCL + noFollow,
+    384
+  );
+  try {
+    writeFileSync3(fd, payload);
+    fsyncSync2(fd);
+  } finally {
+    closeSync4(fd);
+  }
+  flushDirectory(dirname(path));
+}
+function writeNewJson(path, value) {
+  writeNewFile(path, Buffer.from(`${JSON.stringify(value, null, 2)}
+`));
+}
+function replaceJsonAtomically(path, value) {
+  const directory = dirname(path);
+  const candidatePath = join4(
+    directory,
+    `.transaction-${systemRandomUUID()}.tmp`
+  );
+  writeNewJson(candidatePath, value);
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      renameSync2(candidatePath, path);
+      flushDirectory(directory);
+      return;
+    } catch (error) {
+      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS;
+      if (!retryable) {
+        throw error;
+      }
+    }
+  }
+}
+function ensureDirectory(path, label) {
+  const stat = lstatSync2(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`${label} was replaced or is not a directory: ${path}`);
+  }
+  if (realpathSync2(path) !== path) {
+    throw new Error(`${label} does not resolve to its recorded path: ${path}`);
+  }
+}
+function validateRepositoryPath(repositoryRoot2) {
+  ensureDirectory(repositoryRoot2, "Recorded repository root");
+  if (!existsSync4(join4(repositoryRoot2, ".git"))) {
+    throw new Error(
+      `Recorded repository root is no longer a Git working tree: ${repositoryRoot2}`
+    );
+  }
+}
+function assertOwnedPath(attemptDirectory, path) {
+  const pathRelative = relative(attemptDirectory, path);
+  if (pathRelative === "" || pathRelative === ".." || pathRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute4(pathRelative)) {
+    throw new Error(
+      `Derived transaction artifact escapes its attempt: ${path}`
+    );
+  }
+}
+function allocateAttemptDirectory({
+  stateDirectory,
+  randomUuid = systemRandomUUID,
+  createDirectory = mkdirSync2,
+  maximumAttempts = MAXIMUM_ALLOCATION_ATTEMPTS
+}) {
+  const absoluteStateDirectory = resolve4(stateDirectory);
+  if (!Number.isInteger(maximumAttempts) || maximumAttempts < 1) {
+    throw new Error("maximumAttempts must be a positive integer.");
+  }
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    const uuid = randomUuid();
+    if (typeof uuid !== "string" || !UUID_V4_PATTERN.test(uuid)) {
+      throw new Error("Transaction allocation requires a genuine UUIDv4.");
+    }
+    const attemptDirectory = join4(
+      absoluteStateDirectory,
+      `committing-to-git-${uuid}`
+    );
+    const transactionPath = join4(attemptDirectory, TRANSACTION_FILE);
+    if (Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
+      throw new Error(
+        "The absolute transaction.json handle exceeds 2,048 UTF-8 bytes."
+      );
+    }
+    try {
+      createDirectory(attemptDirectory, { mode: 448 });
+      return { attemptDirectory, transactionPath };
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+  throw new Error(
+    `Unable to allocate a transaction workspace after ${maximumAttempts} collision attempts.`
+  );
+}
+function createTransactionWorkspace({ repositoryRoot: repositoryRoot2, stateDirectory }) {
+  if (typeof stateDirectory !== "string" || !isAbsolute4(stateDirectory)) {
+    throw new WorkflowDiagnosticError(
+      "STATE_DIRECTORY_REQUIRED",
+      "Disk workflow state requires an explicit absolute --state-directory."
+    );
+  }
+  const normalizedRepositoryRoot = realpathSync2(resolve4(repositoryRoot2));
+  const normalizedStateDirectory = realpathSync2(stateDirectory);
+  validateRepositoryPath(normalizedRepositoryRoot);
+  ensureDirectory(normalizedStateDirectory, "State directory");
+  const { attemptDirectory, transactionPath } = allocateAttemptDirectory({
+    stateDirectory: normalizedStateDirectory
+  });
+  ensureDirectory(attemptDirectory, "Transaction attempt directory");
+  const transaction = initialTransaction(
+    normalizedRepositoryRoot,
+    attemptDirectory
+  );
+  validateTransaction(transaction);
+  writeNewJson(transactionPath, transaction);
+  return { attemptDirectory, transactionPath, transaction };
+}
+function readTransaction(transactionPath) {
+  const absoluteTransactionPath = resolve4(transactionPath);
+  if (basename(absoluteTransactionPath) !== TRANSACTION_FILE) {
+    throw new Error("Transaction handle must name transaction.json.");
+  }
+  if (Buffer.byteLength(absoluteTransactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
+    throw new Error("Transaction handle exceeds 2,048 UTF-8 bytes.");
+  }
+  const payload = readStableRegularFile(absoluteTransactionPath);
+  let transaction;
+  try {
+    transaction = JSON.parse(payload.toString("utf8"));
+  } catch (error) {
+    throw new Error(`Transaction JSON is invalid: ${error.message}`, {
+      cause: error
+    });
+  }
+  validateTransaction(transaction);
+  if (resolve4(transaction.attemptDirectory) !== dirname(absoluteTransactionPath)) {
+    throw new Error(
+      "Recorded attempt directory does not contain the supplied transaction path."
+    );
+  }
+  ensureDirectory(transaction.attemptDirectory, "Recorded attempt directory");
+  validateRepositoryPath(transaction.repositoryRoot);
+  return transaction;
+}
+function fixedArtifactPath(transactionPath, name) {
+  const transaction = readTransaction(transactionPath);
+  const path = join4(transaction.attemptDirectory, name);
+  assertOwnedPath(transaction.attemptDirectory, path);
+  return path;
+}
+function getEvidencePlanInputPath(transactionPath) {
+  return fixedArtifactPath(transactionPath, "evidence-plan-input.json");
+}
+function advanceTransaction(transactionPath, expectedPhase, nextState) {
+  const absoluteTransactionPath = resolve4(transactionPath);
+  const current = readTransaction(absoluteTransactionPath);
+  if (current.phase !== expectedPhase) {
+    throw new Error(
+      `expected phase ${expectedPhase}, but transaction is ${current.phase}.`
+    );
+  }
+  if (nextState === null || typeof nextState !== "object" || Array.isArray(nextState) || typeof nextState.phase !== "string") {
+    throw new Error("A transaction advance requires a next phase.");
+  }
+  if (!PHASE_TRANSITIONS.get(current.phase)?.has(nextState.phase)) {
+    throw new Error(
+      `Invalid transaction transition from ${current.phase} to ${nextState.phase}.`
+    );
+  }
+  const candidate = { ...current, ...nextState };
+  if (candidate.repositoryRoot !== current.repositoryRoot || candidate.attemptDirectory !== current.attemptDirectory) {
+    throw new Error(
+      "A transaction transition cannot replace its recorded paths."
+    );
+  }
+  validateTransaction(candidate);
+  replaceJsonAtomically(absoluteTransactionPath, candidate);
+  return readTransaction(absoluteTransactionPath);
+}
+function updateTransaction(transactionPath, expectedPhase, nextState) {
+  const absoluteTransactionPath = resolve4(transactionPath);
+  const current = readTransaction(absoluteTransactionPath);
+  if (current.phase !== expectedPhase) {
+    throw new Error(
+      `expected phase ${expectedPhase}, but transaction is ${current.phase}.`
+    );
+  }
+  if (nextState === null || typeof nextState !== "object" || Array.isArray(nextState) || nextState.phase !== current.phase) {
+    throw new Error("A reversible transaction update must preserve phase.");
+  }
+  const candidate = { ...current, ...nextState };
+  if (candidate.repositoryRoot !== current.repositoryRoot || candidate.attemptDirectory !== current.attemptDirectory) {
+    throw new Error("A transaction update cannot replace its recorded paths.");
+  }
+  validateTransaction(candidate);
+  replaceJsonAtomically(absoluteTransactionPath, candidate);
+  return readTransaction(absoluteTransactionPath);
+}
+var MAXIMUM_TRANSACTION_PATH_BYTES, MAXIMUM_INITIAL_JSON_INPUT_BYTES, TRANSACTION_FILE, MAXIMUM_ALLOCATION_ATTEMPTS, MAXIMUM_WINDOWS_RENAME_ATTEMPTS, UUID_V4_PATTERN, FULL_OID_PATTERN3, TYPE_TOKEN_PATTERN, WINDOWS_RENAME_RETRY_CODES, SHA256_PATTERN2, REVIEW_PACKET_ID_PATTERN, REVIEW_CURSOR_PATTERN, SSH_FINGERPRINT_PATTERN, OPENPGP_FINGERPRINT_PATTERN, MESSAGE_SOURCES, EXTENDED_REASONS, PHASES, STATUSES, TERMINAL_DISPOSITIONS, REQUIRED_TRANSACTION_KEYS, STATE_COMBINATIONS, PHASE_TRANSITIONS;
+var init_transactionWorkspace = __esm({
+  "src/committing-to-git/transaction/transactionWorkspace.js"() {
+    init_transactionRecordValidation();
+    init_workflowDiagnosticError();
+    init_preparationFailureRecord();
+    init_checkReceipt();
+    MAXIMUM_TRANSACTION_PATH_BYTES = 2 * 1024;
+    MAXIMUM_INITIAL_JSON_INPUT_BYTES = 8 * 1024 * 1024;
+    TRANSACTION_FILE = "transaction.json";
+    MAXIMUM_ALLOCATION_ATTEMPTS = 16;
+    MAXIMUM_WINDOWS_RENAME_ATTEMPTS = 4;
+    UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    FULL_OID_PATTERN3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    TYPE_TOKEN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
+    WINDOWS_RENAME_RETRY_CODES = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
+    SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
+    REVIEW_PACKET_ID_PATTERN = /^[SIPD][0-9]{6}$/u;
+    REVIEW_CURSOR_PATTERN = /^review-v1-[0-9a-f]{64}$/u;
+    SSH_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
+    OPENPGP_FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    MESSAGE_SOURCES = /* @__PURE__ */ new Set([
+      "approved-subject",
+      "checked-file",
+      "finalized-extended"
+    ]);
+    EXTENDED_REASONS = /* @__PURE__ */ new Set([
+      "review-policy",
+      "required-evidence-over-budget",
+      "scope-synopsis-over-budget",
+      "invalid-evidence-encoding",
+      "required-object-unavailable",
+      "unresolved-anomaly",
+      "evidence-uncertainty",
+      "semantic-structure-required"
+    ]);
+    PHASES = /* @__PURE__ */ new Set([
+      "allocated",
+      "snapshot-created",
+      "evidence-ready",
+      "review-pending",
+      "authoring-pending",
+      "message-ready",
+      "commit-pending",
+      "reported",
+      "publication-pending",
+      "published",
+      "stopped",
+      "abandoned",
+      "superseded"
+    ]);
+    STATUSES = /* @__PURE__ */ new Set([
+      "prepared",
+      "review-pending",
+      "authoring-pending",
+      "message-ready",
+      "evidence-required",
+      "promoted",
+      "reported",
+      "published",
+      "commit-blocked",
+      "outcome-unknown",
+      "recovered",
+      "cleaned",
+      "stopped",
+      "invalid"
+    ]);
+    TERMINAL_DISPOSITIONS = /* @__PURE__ */ new Set([
+      "no-commit-stopped",
+      "local-commit-recorded",
+      "published",
+      "abandoned",
+      "superseded"
+    ]);
+    REQUIRED_TRANSACTION_KEYS = [
+      "schemaVersion",
+      "phase",
+      "repositoryRoot",
+      "attemptDirectory",
+      "mode",
+      "status",
+      "terminalDisposition",
+      "scope",
+      "headAnchor",
+      "repositoryTypePolicy",
+      "initialEvidencePlan",
+      "route",
+      "verificationPolicy",
+      "signaturePreflight",
+      "snapshot",
+      "inlineEvidence",
+      "review",
+      "message",
+      "commit",
+      "verification",
+      "report",
+      "checkAttempts",
+      "publicationAttempts"
+    ];
+    STATE_COMBINATIONS = new Set(
+      [
+        ["allocated", null, null],
+        ["snapshot-created", null, null],
+        ["evidence-ready", "prepared", null],
+        ["evidence-ready", "promoted", null],
+        ["review-pending", "review-pending", null],
+        ["review-pending", "evidence-required", null],
+        ["authoring-pending", "authoring-pending", null],
+        ["authoring-pending", "promoted", null],
+        ["message-ready", "message-ready", null],
+        ["message-ready", "promoted", null],
+        ["commit-pending", "outcome-unknown", null],
+        ["reported", "reported", "local-commit-recorded"],
+        ["reported", "commit-blocked", "local-commit-recorded"],
+        ["reported", "recovered", "local-commit-recorded"],
+        ["publication-pending", "outcome-unknown", null],
+        ["published", "published", "published"],
+        ["published", "recovered", "published"],
+        ["stopped", "stopped", "no-commit-stopped"],
+        ["stopped", "invalid", "no-commit-stopped"],
+        ["stopped", "cleaned", "no-commit-stopped"],
+        ["stopped", "recovered", "no-commit-stopped"],
+        ["abandoned", "stopped", "abandoned"],
+        ["abandoned", "cleaned", "abandoned"],
+        ["superseded", "stopped", "superseded"],
+        ["superseded", "cleaned", "superseded"]
+      ].map((combination) => JSON.stringify(combination))
+    );
+    PHASE_TRANSITIONS = /* @__PURE__ */ new Map([
+      [
+        "allocated",
+        /* @__PURE__ */ new Set(["snapshot-created", "stopped", "abandoned", "superseded"])
+      ],
+      [
+        "snapshot-created",
+        /* @__PURE__ */ new Set([
+          "evidence-ready",
+          "review-pending",
+          "authoring-pending",
+          "stopped",
+          "abandoned",
+          "superseded"
+        ])
+      ],
+      [
+        "evidence-ready",
+        /* @__PURE__ */ new Set([
+          "review-pending",
+          "authoring-pending",
+          "message-ready",
+          "commit-pending",
+          "stopped",
+          "abandoned",
+          "superseded"
+        ])
+      ],
+      [
+        "review-pending",
+        /* @__PURE__ */ new Set(["authoring-pending", "stopped", "abandoned", "superseded"])
+      ],
+      [
+        "authoring-pending",
+        /* @__PURE__ */ new Set([
+          "review-pending",
+          "message-ready",
+          "stopped",
+          "abandoned",
+          "superseded"
+        ])
+      ],
+      [
+        "message-ready",
+        /* @__PURE__ */ new Set([
+          "review-pending",
+          "commit-pending",
+          "stopped",
+          "abandoned",
+          "superseded"
+        ])
+      ],
+      ["commit-pending", /* @__PURE__ */ new Set(["reported", "stopped"])],
+      ["reported", /* @__PURE__ */ new Set(["publication-pending", "published"])],
+      ["publication-pending", /* @__PURE__ */ new Set(["reported", "published"])],
+      ["published", /* @__PURE__ */ new Set()],
+      ["stopped", /* @__PURE__ */ new Set()],
+      ["abandoned", /* @__PURE__ */ new Set()],
+      ["superseded", /* @__PURE__ */ new Set()]
+    ]);
+  }
+});
+
+// src/committing-to-git/message/canonicalMessageState.js
+import { createHash as createHash6, randomUUID as randomUUID2 } from "node:crypto";
+import {
+  closeSync as closeSync5,
+  constants as fsConstants2,
+  existsSync as existsSync5,
+  fstatSync as fstatSync5,
+  fsyncSync as fsyncSync3,
+  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync3,
+  openSync as openSync5,
+  readSync as readSync3,
+  realpathSync as realpathSync3,
+  renameSync as renameSync3,
+  rmSync as rmSync2,
+  unlinkSync as unlinkSync2,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute5, join as join5, relative as relative2, resolve as resolve5, sep } from "node:path";
+import { TextDecoder as TextDecoder4 } from "node:util";
+function fail3(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function sha256(bytes) {
+  return createHash6("sha256").update(bytes).digest("hex");
+}
+function canonicalJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function flushDirectory2(path) {
+  if (process.platform === "win32") {
+    return;
+  }
+  const descriptor = openSync5(path, fsConstants2.O_RDONLY);
+  try {
+    fsyncSync3(descriptor);
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function assertContained(attemptDirectory, path) {
+  const contained = relative2(attemptDirectory, path);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute5(contained)) {
+    fail3(
+      "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
+      `Derived message artifact escapes its transaction: ${path}`
+    );
+  }
+}
+function artifactPath(transaction, name) {
+  const path = join5(transaction.attemptDirectory, name);
+  assertContained(transaction.attemptDirectory, path);
+  return path;
+}
+function ensureDirectory2(path, label) {
+  const stat = lstatSync3(path);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    fail3(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} was replaced or is not a directory: ${path}`
+    );
+  }
+  if (realpathSync3(path) !== resolve5(path)) {
+    fail3(
+      "MESSAGE_ARTIFACT_REPLACED",
+      `${label} no longer resolves to its recorded path: ${path}`
+    );
+  }
+}
+function ensureMessageDirectory(transaction) {
+  const path = artifactPath(transaction, MESSAGE_DIRECTORY_NAME);
+  if (!existsSync5(path)) {
+    mkdirSync3(path, { mode: 448 });
+    flushDirectory2(transaction.attemptDirectory);
+  }
+  ensureDirectory2(path, "Canonical message directory");
+  return path;
+}
+function statIdentity(stat) {
+  const device = String(stat.dev);
+  const inode = String(stat.ino);
+  return {
+    available: inode !== "0",
+    device,
+    inode,
+    byteCount: Number(stat.size),
+    modifiedNanoseconds: stat.mtimeNs === void 0 ? String(Math.trunc(Number(stat.mtimeMs) * 1e6)) : String(stat.mtimeNs)
+  };
+}
+function sameIdentity2(left, right) {
+  return left.device === right.device && left.inode === right.inode && left.byteCount === right.byteCount && left.modifiedNanoseconds === right.modifiedNanoseconds;
+}
+function openReadOnlyNoFollow2(path) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
+  return openSync5(path, fsConstants2.O_RDONLY + noFollow);
+}
+function readStablePath(path, { maximumBytes, label, afterOpen = null, allowPathReplacement = false }) {
+  let initial;
+  try {
+    initial = lstatSync3(path, { bigint: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      fail3("MESSAGE_INPUT_MISSING", `${label} does not exist: ${path}`);
+    }
+    throw error;
+  }
+  if (initial.isSymbolicLink() || !initial.isFile()) {
+    fail3(
+      "MESSAGE_INPUT_NOT_REGULAR",
+      `${label} must be a non-link regular file: ${path}`
+    );
+  }
+  if (initial.size > BigInt(maximumBytes)) {
+    fail3("MESSAGE_INPUT_TOO_LARGE", `${label} exceeds ${maximumBytes} bytes.`, {
+      details: { maximumBytes, byteCount: Number(initial.size) }
+    });
+  }
+  const descriptor = openReadOnlyNoFollow2(path);
+  try {
+    const before = fstatSync5(descriptor, { bigint: true });
+    const initialIdentity = statIdentity(initial);
+    const openedIdentity = statIdentity(before);
+    if (!before.isFile() || !sameIdentity2(initialIdentity, openedIdentity)) {
+      fail3(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed before its fixed path could be opened safely.`
+      );
+    }
+    afterOpen?.({ descriptor, identity: openedIdentity, path });
+    const bytes = Buffer.alloc(openedIdentity.byteCount);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync3(
+        descriptor,
+        bytes,
+        offset,
+        Math.min(64 * 1024, bytes.length - offset),
+        null
+      );
+      if (count === 0) break;
+      offset += count;
+    }
+    const extra = readSync3(descriptor, Buffer.alloc(1), 0, 1, null);
+    const after = fstatSync5(descriptor, { bigint: true });
+    const finalIdentity = statIdentity(after);
+    if (!after.isFile() || !sameIdentity2(openedIdentity, finalIdentity) || offset !== bytes.length || extra !== 0 || bytes.length > maximumBytes) {
+      fail3(
+        "MESSAGE_INPUT_CHANGED",
+        `${label} changed while its opened handle was being read.`
+      );
+    }
+    if (!allowPathReplacement) {
+      const pathStat = lstatSync3(path, { bigint: true });
+      if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameIdentity2(finalIdentity, statIdentity(pathStat))) {
+        fail3(
+          "MESSAGE_INPUT_CHANGED",
+          `${label} path changed while its opened handle was being read.`
+        );
+      }
+    }
+    return { bytes, identity: finalIdentity, path };
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function readTransactionOwnedFile({
+  transactionPath,
+  artifactName,
+  maximumBytes,
+  label,
+  afterOpen,
+  allowPathReplacement = true
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  return {
+    transaction,
+    ...readStablePath(path, {
+      maximumBytes,
+      label,
+      afterOpen,
+      allowPathReplacement
+    })
+  };
+}
+function warning(code, message, path) {
+  return createWorkflowWarning({
+    code,
+    message,
+    details: [{ kind: "prerequisite", path }]
+  });
+}
+function cleanupTransactionOwnedInput({
+  path,
+  identity,
+  forceIdentityUnavailable = false
+}) {
+  if (forceIdentityUnavailable || identity.available !== true) {
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_IDENTITY_UNAVAILABLE",
+        "The fixed input was retained because same-object identity is unavailable on this filesystem.",
+        path
+      )
+    };
+  }
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow2(path);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because it could not be reopened safely: ${error.message}`,
+        path
+      )
+    };
+  }
+  try {
+    const opened = fstatSync5(descriptor, { bigint: true });
+    if (!opened.isFile() || !sameIdentity2(identity, statIdentity(opened))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because its directory entry no longer identifies the opened object.",
+          path
+        )
+      };
+    }
+  } finally {
+    closeSync5(descriptor);
+  }
+  try {
+    const finalPathStat = lstatSync3(path, { bigint: true });
+    if (finalPathStat.isSymbolicLink() || !finalPathStat.isFile() || !sameIdentity2(identity, statIdentity(finalPathStat))) {
+      return {
+        removed: false,
+        warning: warning(
+          "MESSAGE_INPUT_REPLACED",
+          "The fixed input was retained because it changed during cleanup.",
+          path
+        )
+      };
+    }
+    unlinkSync2(path);
+    flushDirectory2(dirname2(path));
+    return { removed: true, warning: null };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { removed: true, warning: null };
+    }
+    return {
+      removed: false,
+      warning: warning(
+        "MESSAGE_INPUT_CLEANUP_FAILED",
+        `The fixed input was retained because cleanup failed: ${error.message}`,
+        path
+      )
+    };
+  }
+}
+function writeNewFile2(path, bytes) {
+  const noFollow = process.platform === "win32" ? 0 : fsConstants2.O_NOFOLLOW;
+  const descriptor = openSync5(
+    path,
+    fsConstants2.O_WRONLY + fsConstants2.O_CREAT + fsConstants2.O_EXCL + noFollow,
+    384
+  );
+  try {
+    writeFileSync4(descriptor, bytes);
+    fsyncSync3(descriptor);
+  } finally {
+    closeSync5(descriptor);
+  }
+}
+function ensureTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  maximumBytes = 8 * 1024 * 1024
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  const bytes = canonicalJsonBytes(value);
+  if (bytes.length > maximumBytes) {
+    fail3(
+      "MESSAGE_ARTIFACT_TOO_LARGE",
+      `${artifactName} exceeds ${maximumBytes} bytes.`
+    );
+  }
+  if (existsSync5(path)) {
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail3(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} already exists with conflicting bytes.`
+      );
+    }
+    return path;
+  }
+  try {
+    writeNewFile2(path, bytes);
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      throw error;
+    }
+    const current = readStablePath(path, {
+      maximumBytes,
+      label: `Fixed ${artifactName}`,
+      allowPathReplacement: false
+    }).bytes;
+    if (!current.equals(bytes)) {
+      fail3(
+        "MESSAGE_ARTIFACT_COLLISION",
+        `Fixed ${artifactName} was concurrently created with conflicting bytes.`
+      );
+    }
+  }
+  flushDirectory2(transaction.attemptDirectory);
+  return path;
+}
+function currentPathMatches(path, identity) {
+  let descriptor;
+  try {
+    descriptor = openReadOnlyNoFollow2(path);
+    const stat = fstatSync5(descriptor, { bigint: true });
+    return stat.isFile() && sameIdentity2(identity, statIdentity(stat));
+  } catch {
+    return false;
+  } finally {
+    if (descriptor !== void 0) {
+      closeSync5(descriptor);
+    }
+  }
+}
+function replaceTransactionOwnedJson({
+  transactionPath,
+  artifactName,
+  value,
+  expectedIdentity = null
+}) {
+  const transaction = readTransaction(transactionPath);
+  const path = artifactPath(transaction, artifactName);
+  if (expectedIdentity && !currentPathMatches(path, expectedIdentity)) {
+    fail3(
+      "MESSAGE_INPUT_REPLACED",
+      `The fixed ${artifactName} changed before normalized content could be persisted.`
+    );
+  }
+  const candidatePath = artifactPath(
+    transaction,
+    `.${artifactName}-${randomUUID2()}.tmp`
+  );
+  writeNewFile2(candidatePath, canonicalJsonBytes(value));
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      renameSync3(candidatePath, path);
+      flushDirectory2(transaction.attemptDirectory);
+      return path;
+    } catch (error) {
+      const retryable = process.platform === "win32" && WINDOWS_RENAME_RETRY_CODES2.has(error.code) && attempt < MAXIMUM_WINDOWS_RENAME_ATTEMPTS2;
+      if (!retryable) {
+        throw error;
+      }
+    }
+  }
+}
+function slotPaths(messageDirectory, slot) {
+  const directory = join5(messageDirectory, slot);
+  return {
+    directory,
+    messagePath: join5(directory, MESSAGE_FILE_NAME),
+    validationPath: join5(directory, VALIDATION_FILE_NAME),
+    statePath: join5(directory, STATE_FILE_NAME)
+  };
+}
+function assertExactKeys3(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail3("CANONICAL_MESSAGE_CORRUPT", `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail3(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `${label} contains missing or unknown members.`
+    );
+  }
+}
+function assertValidationMatches(bytes, validation, source) {
+  if (validation === null || typeof validation !== "object" || Array.isArray(validation) || validation.valid !== true) {
+    fail3(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical message replacement requires one successful validation object."
+    );
+  }
+  const digest3 = sha256(bytes);
+  const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
+  if (validation.messageSha256 !== digest3 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
+    fail3(
+      "MESSAGE_VALIDATION_MISMATCH",
+      "Canonical validation does not describe the exact replacement message bytes."
+    );
+  }
+}
+function transactionMessageState(state, stateSha256) {
+  return {
+    schemaVersion: 1,
+    revision: state.messageRevision,
+    sha256: state.messageSha256,
+    source: state.messageSource,
+    byteCount: state.byteCount,
+    stateSha256,
+    validationSha256: state.validationSha256,
+    slot: "message/current"
+  };
+}
+function writeCandidate({
+  messageDirectory,
+  bytes,
+  validation,
+  source,
+  revision,
+  failureInjector
+}) {
+  const paths = slotPaths(messageDirectory, CANDIDATE_SLOT);
+  if (existsSync5(paths.directory)) {
+    fail3(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "The fixed candidate slot is occupied; recover the pending replacement first."
+    );
+  }
+  mkdirSync3(paths.directory, { mode: 448 });
+  writeNewFile2(paths.messagePath, bytes);
+  const validationBytes = canonicalJsonBytes(validation);
+  if (validationBytes.length > MAXIMUM_VALIDATION_BYTES) {
+    fail3(
+      "MESSAGE_VALIDATION_TOO_LARGE",
+      `Canonical validation exceeds ${MAXIMUM_VALIDATION_BYTES} bytes.`
+    );
+  }
+  writeNewFile2(paths.validationPath, validationBytes);
+  const state = {
+    schemaVersion: 1,
+    messageRevision: revision,
+    messageSha256: sha256(bytes),
+    messageSource: source,
+    byteCount: bytes.length,
+    validationSha256: sha256(validationBytes)
+  };
+  const stateBytes = canonicalJsonBytes(state);
+  writeNewFile2(paths.statePath, stateBytes);
+  failureInjector("before-candidate-flush");
+  flushDirectory2(paths.directory);
+  flushDirectory2(messageDirectory);
+  failureInjector("after-candidate-flush");
+  return {
+    ...state,
+    stateSha256: sha256(stateBytes),
+    transactionState: transactionMessageState(state, sha256(stateBytes))
+  };
+}
+function readSlot(messageDirectory, slot) {
+  const paths = slotPaths(messageDirectory, slot);
+  if (!existsSync5(paths.directory)) {
+    return null;
+  }
+  ensureDirectory2(paths.directory, `Canonical message ${slot} slot`);
+  const message = readStablePath(paths.messagePath, {
+    maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    label: `Canonical message ${slot} body`,
+    allowPathReplacement: false
+  }).bytes;
+  const validationBytes = readStablePath(paths.validationPath, {
+    maximumBytes: MAXIMUM_VALIDATION_BYTES,
+    label: `Canonical message ${slot} validation`,
+    allowPathReplacement: false
+  }).bytes;
+  const stateBytes = readStablePath(paths.statePath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES,
+    label: `Canonical message ${slot} state`,
+    allowPathReplacement: false
+  }).bytes;
+  let validation;
+  let state;
+  try {
+    validation = JSON.parse(STRICT_UTF8_DECODER3.decode(validationBytes));
+    state = JSON.parse(STRICT_UTF8_DECODER3.decode(stateBytes));
+  } catch (error) {
+    fail3(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} JSON is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys3(
+    state,
+    [
+      "schemaVersion",
+      "messageRevision",
+      "messageSha256",
+      "messageSource",
+      "byteCount",
+      "validationSha256"
+    ],
+    `Canonical message ${slot} state`
+  );
+  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.messageRevision) || state.messageRevision < 1 || !SHA256_PATTERN3.test(state.messageSha256) || !MESSAGE_SOURCES2.has(state.messageSource) || state.byteCount !== message.length || state.messageSha256 !== sha256(message) || !SHA256_PATTERN3.test(state.validationSha256) || state.validationSha256 !== sha256(validationBytes)) {
+    fail3(
+      "CANONICAL_MESSAGE_CORRUPT",
+      `Canonical message ${slot} state does not match its artifacts.`
+    );
+  }
+  assertValidationMatches(message, validation, state.messageSource);
+  const stateSha256 = sha256(stateBytes);
+  return {
+    ...state,
+    bytes: message,
+    displayText: message.toString("utf8"),
+    validation,
+    stateSha256,
+    transactionState: transactionMessageState(state, stateSha256),
+    ...paths
+  };
+}
+function sameTransactionMessage(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function removeSlot(transaction, messageDirectory, slot) {
+  const { directory } = slotPaths(messageDirectory, slot);
+  assertContained(transaction.attemptDirectory, directory);
+  if (!existsSync5(directory)) {
+    return;
+  }
+  ensureDirectory2(directory, `Canonical message ${slot} slot`);
+  rmSync2(directory, { recursive: true, force: false });
+  flushDirectory2(messageDirectory);
+}
+function renameSlot(messageDirectory, source, destination) {
+  const sourcePath = slotPaths(messageDirectory, source).directory;
+  const destinationPath = slotPaths(messageDirectory, destination).directory;
+  if (existsSync5(destinationPath)) {
+    fail3(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      `Canonical message ${destination} slot is already occupied.`
+    );
+  }
+  renameSync3(sourcePath, destinationPath);
+  flushDirectory2(messageDirectory);
+}
+function installTransactionMessage(transactionPath, priorMessage, nextMessage) {
+  const current = readTransaction(transactionPath);
+  if (sameTransactionMessage(current.message, nextMessage)) {
+    return current;
+  }
+  if (!sameTransactionMessage(current.message, priorMessage)) {
+    fail3(
+      "MESSAGE_TRANSACTION_DRIFT",
+      "Transaction message state changed during canonical replacement."
+    );
+  }
+  if (current.phase === "message-ready") {
+    return updateTransaction(transactionPath, "message-ready", {
+      ...current,
+      phase: "message-ready",
+      status: "message-ready",
+      message: nextMessage
+    });
+  }
+  if (!(/* @__PURE__ */ new Set(["evidence-ready", "review-pending", "authoring-pending"])).has(
+    current.phase
+  )) {
+    fail3(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Canonical message replacement is not allowed in phase ${current.phase}.`
+    );
+  }
+  return advanceTransaction(transactionPath, current.phase, {
+    ...current,
+    phase: "message-ready",
+    status: "message-ready",
+    message: nextMessage
+  });
+}
+function readJournal(transaction, journalPath) {
+  const bytes = readStablePath(journalPath, {
+    maximumBytes: MAXIMUM_JOURNAL_BYTES,
+    label: "Canonical message replacement journal",
+    allowPathReplacement: false
+  }).bytes;
+  let journal;
+  try {
+    journal = JSON.parse(STRICT_UTF8_DECODER3.decode(bytes));
+  } catch (error) {
+    fail3(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      `Canonical message replacement journal is invalid: ${error.message}`
+    );
+  }
+  assertExactKeys3(
+    journal,
+    ["schemaVersion", "priorMessage", "nextMessage"],
+    "Canonical message replacement journal"
+  );
+  if (journal.schemaVersion !== 1 || journal.priorMessage !== null && (typeof journal.priorMessage !== "object" || Array.isArray(journal.priorMessage)) || journal.nextMessage === null || typeof journal.nextMessage !== "object" || Array.isArray(journal.nextMessage)) {
+    fail3(
+      "MESSAGE_REPLACEMENT_CORRUPT",
+      "Canonical message replacement journal has invalid state references."
+    );
+  }
+  assertContained(transaction.attemptDirectory, journalPath);
+  return journal;
+}
+function safeSlot(messageDirectory, slot) {
+  try {
+    return { value: readSlot(messageDirectory, slot), error: null };
+  } catch (error) {
+    return { value: null, error };
+  }
+}
+function cleanupReplacementRemnants(transaction, messageDirectory, journalPath) {
+  removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+  removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+  if (existsSync5(journalPath)) {
+    unlinkSync2(journalPath);
+    flushDirectory2(transaction.attemptDirectory);
+  }
+}
+function steadyCanonicalMessage(transaction, messageDirectory) {
+  if (transaction.message === null) {
+    return null;
+  }
+  const current = readSlot(messageDirectory, CURRENT_SLOT);
+  if (current === null || !sameTransactionMessage(current.transactionState, transaction.message)) {
+    fail3(
+      "CANONICAL_MESSAGE_CORRUPT",
+      "The transaction does not match its fixed current message slot."
+    );
+  }
+  return current;
+}
+function recoverCanonicalMessageReplacement(transactionPath) {
+  let transaction = readTransaction(transactionPath);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (!existsSync5(journalPath)) {
+    const current2 = safeSlot(messageDirectory, CURRENT_SLOT);
+    const candidate2 = safeSlot(messageDirectory, CANDIDATE_SLOT);
+    const previous2 = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    if (candidate2.value !== null || candidate2.error !== null) {
+      removeSlot(transaction, messageDirectory, CANDIDATE_SLOT);
+    }
+    if (previous2.value !== null || previous2.error !== null) {
+      if (current2.value !== null && sameTransactionMessage(
+        current2.value.transactionState,
+        transaction.message
+      )) {
+        removeSlot(transaction, messageDirectory, PREVIOUS_SLOT);
+      } else {
+        fail3(
+          "MESSAGE_REPLACEMENT_RECOVERY_REQUIRED",
+          "A previous canonical slot remains without a replacement journal."
+        );
+      }
+    }
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  const journal = readJournal(transaction, journalPath);
+  let current = safeSlot(messageDirectory, CURRENT_SLOT);
+  const candidate = safeSlot(messageDirectory, CANDIDATE_SLOT);
+  let previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+  const nextMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.nextMessage);
+  const priorMatches = (slot) => slot.value !== null && sameTransactionMessage(slot.value.transactionState, journal.priorMessage);
+  if (!nextMatches(current) && nextMatches(candidate)) {
+    if (current.value !== null && !priorMatches(current)) {
+      fail3(
+        "MESSAGE_REPLACEMENT_CORRUPT",
+        "The current message slot matches neither side of the pending replacement."
+      );
+    }
+    if (current.value !== null) {
+      if (previous.value !== null || previous.error !== null) {
+        fail3(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "Both current and previous slots are occupied during recovery."
+        );
+      }
+      renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+      previous = safeSlot(messageDirectory, PREVIOUS_SLOT);
+    }
+    renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (nextMatches(current)) {
+    transaction = installTransactionMessage(
+      transactionPath,
+      journal.priorMessage,
+      journal.nextMessage
+    );
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  if (!priorMatches(current) && priorMatches(previous)) {
+    if (current.value !== null || current.error !== null) {
+      removeSlot(transaction, messageDirectory, CURRENT_SLOT);
+    }
+    renameSlot(messageDirectory, PREVIOUS_SLOT, CURRENT_SLOT);
+    current = safeSlot(messageDirectory, CURRENT_SLOT);
+  }
+  if (priorMatches(current)) {
+    if (!sameTransactionMessage(transaction.message, journal.priorMessage)) {
+      if (transaction.phase !== "message-ready") {
+        fail3(
+          "MESSAGE_REPLACEMENT_CORRUPT",
+          "The transaction advanced without a recoverable canonical candidate."
+        );
+      }
+      transaction = updateTransaction(transactionPath, "message-ready", {
+        ...transaction,
+        message: journal.priorMessage
+      });
+    }
+    cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+    return steadyCanonicalMessage(transaction, messageDirectory);
+  }
+  fail3(
+    "MESSAGE_REPLACEMENT_CORRUPT",
+    "Neither side of the pending canonical message replacement is recoverable."
+  );
+}
+function readCanonicalMessage(transactionPath) {
+  return recoverCanonicalMessageReplacement(transactionPath);
+}
+function assertReplacementRoute(transaction, source) {
+  if (!MESSAGE_SOURCES2.has(source)) {
+    fail3(
+      "MESSAGE_SOURCE_INVALID",
+      `Unknown canonical message source ${JSON.stringify(source)}.`
+    );
+  }
+  const allowed = transaction.route === "concise" && source === "checked-file" && (/* @__PURE__ */ new Set(["evidence-ready", "message-ready"])).has(transaction.phase) || transaction.route === "concise" && source === "approved-subject" && transaction.phase === "evidence-ready" || transaction.route === "extended" && source === "checked-file" && transaction.review?.semanticStructureRequired === false && transaction.review?.receipt?.requiredPacketsReviewed === true && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.route === "extended" && source === "finalized-extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase);
+  if (!allowed || transaction.commit !== null) {
+    fail3(
+      "MESSAGE_REPLACEMENT_NOT_ALLOWED",
+      `Source ${source} cannot replace a message for ${transaction.route ?? "unrouted"} phase ${transaction.phase}.`
+    );
+  }
+}
+function replaceCanonicalMessage({
+  transactionPath,
+  bytes: inputBytes,
+  validation,
+  source,
+  failureInjector = () => {
+  }
+}) {
+  if (!Buffer.isBuffer(inputBytes) && !(inputBytes instanceof Uint8Array)) {
+    fail3("MESSAGE_BYTES_REQUIRED", "Canonical replacement requires bytes.");
+  }
+  const bytes = Buffer.from(inputBytes);
+  if (bytes.length === 0 || bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    fail3(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Canonical message must contain 1-${MAXIMUM_CANONICAL_MESSAGE_BYTES} bytes.`
+    );
+  }
+  let transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  assertValidationMatches(bytes, validation, source);
+  const prior = recoverCanonicalMessageReplacement(transactionPath);
+  transaction = readTransaction(transactionPath);
+  assertReplacementRoute(transaction, source);
+  const messageDirectory = ensureMessageDirectory(transaction);
+  const journalPath = artifactPath(transaction, PENDING_JOURNAL_NAME);
+  if (existsSync5(journalPath) || existsSync5(slotPaths(messageDirectory, CANDIDATE_SLOT).directory) || existsSync5(slotPaths(messageDirectory, PREVIOUS_SLOT).directory)) {
+    fail3(
+      "MESSAGE_REPLACEMENT_OCCUPIED",
+      "Canonical replacement remnants remain after recovery."
+    );
+  }
+  const candidate = writeCandidate({
+    messageDirectory,
+    bytes,
+    validation,
+    source,
+    revision: (prior?.messageRevision ?? 0) + 1,
+    failureInjector
+  });
+  const journal = {
+    schemaVersion: 1,
+    priorMessage: prior?.transactionState ?? null,
+    nextMessage: candidate.transactionState
+  };
+  failureInjector("before-journal-flush");
+  writeNewFile2(journalPath, canonicalJsonBytes(journal));
+  flushDirectory2(transaction.attemptDirectory);
+  failureInjector("after-journal-flush");
+  failureInjector("before-current-to-previous");
+  if (prior !== null) {
+    renameSlot(messageDirectory, CURRENT_SLOT, PREVIOUS_SLOT);
+  }
+  failureInjector("after-current-to-previous");
+  failureInjector("before-candidate-to-current");
+  renameSlot(messageDirectory, CANDIDATE_SLOT, CURRENT_SLOT);
+  failureInjector("after-candidate-to-current");
+  failureInjector("before-transaction-advance");
+  transaction = installTransactionMessage(
+    transactionPath,
+    journal.priorMessage,
+    journal.nextMessage
+  );
+  failureInjector("after-transaction-advance");
+  failureInjector("before-remnant-cleanup");
+  cleanupReplacementRemnants(transaction, messageDirectory, journalPath);
+  failureInjector("after-remnant-cleanup");
+  return steadyCanonicalMessage(transaction, messageDirectory);
+}
+var MESSAGE_DIRECTORY_NAME, CURRENT_SLOT, CANDIDATE_SLOT, PREVIOUS_SLOT, PENDING_JOURNAL_NAME, MESSAGE_FILE_NAME, VALIDATION_FILE_NAME, STATE_FILE_NAME, MAXIMUM_VALIDATION_BYTES, MAXIMUM_JOURNAL_BYTES, SHA256_PATTERN3, STRICT_UTF8_DECODER3, WINDOWS_RENAME_RETRY_CODES2, MAXIMUM_WINDOWS_RENAME_ATTEMPTS2, MESSAGE_SOURCES2;
+var init_canonicalMessageState = __esm({
+  "src/committing-to-git/message/canonicalMessageState.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_approvedMessage();
+    init_transactionWorkspace();
+    MESSAGE_DIRECTORY_NAME = "message";
+    CURRENT_SLOT = "current";
+    CANDIDATE_SLOT = "candidate";
+    PREVIOUS_SLOT = "previous";
+    PENDING_JOURNAL_NAME = "message-replacement.pending.json";
+    MESSAGE_FILE_NAME = "message.txt";
+    VALIDATION_FILE_NAME = "validation.json";
+    STATE_FILE_NAME = "state.json";
+    MAXIMUM_VALIDATION_BYTES = 80 * 1024;
+    MAXIMUM_JOURNAL_BYTES = 16 * 1024;
+    SHA256_PATTERN3 = /^[0-9a-f]{64}$/u;
     STRICT_UTF8_DECODER3 = new TextDecoder4("utf-8", { fatal: true });
+    WINDOWS_RENAME_RETRY_CODES2 = /* @__PURE__ */ new Set(["EACCES", "EBUSY", "EPERM"]);
+    MAXIMUM_WINDOWS_RENAME_ATTEMPTS2 = 4;
+    MESSAGE_SOURCES2 = /* @__PURE__ */ new Set([
+      "approved-subject",
+      "checked-file",
+      "finalized-extended"
+    ]);
+  }
+});
+
+// src/committing-to-git/snapshot/recordedSnapshot.js
+import { resolve as resolve6 } from "node:path";
+function assertSnapshotCapacity(byteCount) {
+  if (byteCount > MAXIMUM_SNAPSHOT_BYTES) {
+    throw new WorkflowDiagnosticError(
+      "SNAPSHOT_CAPACITY_EXCEEDED",
+      `Recorded snapshot requires ${byteCount} bytes; native execution supports at most ${MAXIMUM_SNAPSHOT_BYTES}. Preserve the complete scope and transaction; a larger-capacity implementation is required.`,
+      {
+        disposition: "unmet-prerequisite",
+        details: { byteCount, maximumBytes: MAXIMUM_SNAPSHOT_BYTES },
+        recovery: {
+          kind: "satisfy-prerequisite",
+          automatic: false,
+          requiredInputs: [
+            "A helper implementation supporting this complete snapshot; retain existing evidence and approval. Do not shrink the message, truncate the inventory or split the commit."
+          ],
+          commands: []
+        },
+        documentation: "references/native-execution.md"
+      }
+    );
+  }
+}
+function snapshotExecution(byteCount) {
+  assertSnapshotCapacity(byteCount);
+  return {
+    kind: "native-git",
+    selection: byteCount > STANDARD_SNAPSHOT_BYTES ? "snapshot-capacity" : "standard",
+    snapshotByteCount: byteCount,
+    maximumSnapshotBytes: MAXIMUM_SNAPSHOT_BYTES,
+    arguments: ["workflow", "commit", "--execution", "native"]
+  };
+}
+function readRecordedSnapshotFile(transactionPath) {
+  try {
+    return readTransactionOwnedFile({
+      transactionPath,
+      artifactName: "snapshot.json",
+      maximumBytes: MAXIMUM_SNAPSHOT_BYTES,
+      label: "Recorded snapshot",
+      allowPathReplacement: false
+    });
+  } catch (error) {
+    if (error.code === "MESSAGE_INPUT_TOO_LARGE") {
+      try {
+        assertSnapshotCapacity(error.details.byteCount);
+      } catch (capacityError) {
+        capacityError.state = { transaction: resolve6(transactionPath) };
+        throw capacityError;
+      }
+    }
+    throw error;
+  }
+}
+var STANDARD_SNAPSHOT_BYTES, MAXIMUM_SNAPSHOT_BYTES;
+var init_recordedSnapshot = __esm({
+  "src/committing-to-git/snapshot/recordedSnapshot.js"() {
+    init_canonicalMessageState();
+    init_workflowDiagnosticError();
+    STANDARD_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+    MAXIMUM_SNAPSHOT_BYTES = 64 * 1024 * 1024;
   }
 });
 
 // src/committing-to-git/transaction/indexInstallation.js
-import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash7, randomUUID as randomUUID3 } from "node:crypto";
 import {
-  closeSync as closeSync7,
-  constants as fsConstants4,
-  existsSync as existsSync7,
+  closeSync as closeSync6,
+  constants as fsConstants3,
+  existsSync as existsSync6,
   fstatSync as fstatSync6,
   fsyncSync as fsyncSync4,
   futimesSync,
-  lstatSync as lstatSync5,
-  openSync as openSync7,
+  lstatSync as lstatSync4,
+  openSync as openSync6,
   readFileSync as readFileSync2,
   realpathSync as realpathSync4,
   renameSync as renameSync4,
   rmSync as rmSync3,
   writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve8 } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute6, join as join6, relative as relative3, resolve as resolve7 } from "node:path";
 function samePath(left, right) {
-  const leftPath = resolve8(left);
-  const rightPath = resolve8(right);
+  const leftPath = resolve7(left);
+  const rightPath = resolve7(right);
   return process.platform === "win32" ? leftPath.toLowerCase() === rightPath.toLowerCase() : leftPath === rightPath;
 }
 function assertContainedPath(parent, candidate, label) {
   const relation = relative3(parent, candidate);
-  if (relation.length === 0 || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute5(relation)) {
+  if (relation.length === 0 || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute6(relation)) {
     throw new Error(`${label} must be contained by the transaction attempt.`);
   }
 }
@@ -9064,9 +8718,9 @@ function stableIdentityMatches(left, right) {
   return left.device === right.device && left.inode === right.inode && left.mode === right.mode && left.modifiedTimeMilliseconds === right.modifiedTimeMilliseconds && left.changeTimeMilliseconds === right.changeTimeMilliseconds;
 }
 function openReadOnlyNoFollow3(path) {
-  return openSync7(
+  return openSync6(
     path,
-    fsConstants4.O_RDONLY + (fsConstants4.O_NOFOLLOW ?? 0) + (fsConstants4.O_NONBLOCK ?? 0),
+    fsConstants3.O_RDONLY + (fsConstants3.O_NOFOLLOW ?? 0) + (fsConstants3.O_NONBLOCK ?? 0),
     384
   );
 }
@@ -9085,7 +8739,7 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
     }
     const bytes = readFileSync2(descriptor);
     const after = fstatSync6(descriptor);
-    const finalPathStat = lstatSync5(path);
+    const finalPathStat = lstatSync4(path);
     const beforeIdentity = statIdentity2(before);
     const afterIdentity = statIdentity2(after);
     const finalPathIdentity = statIdentity2(finalPathStat);
@@ -9105,7 +8759,7 @@ function readStableRegularFile2(path, { allowAbsent = false } = {}) {
       }
     };
   } finally {
-    closeSync7(descriptor);
+    closeSync6(descriptor);
   }
 }
 function assertIndexIdentity(identity, label) {
@@ -9128,7 +8782,7 @@ function indexIdentitiesMatch(left, right) {
   return left.byteCount === right.byteCount && left.sha256 === right.sha256;
 }
 function readIndexIdentity(indexPath) {
-  const stableFile = readStableRegularFile2(resolve8(indexPath), {
+  const stableFile = readStableRegularFile2(resolve7(indexPath), {
     allowAbsent: true
   });
   return stableFile?.identity ?? { state: "absent" };
@@ -9136,7 +8790,7 @@ function readIndexIdentity(indexPath) {
 function flushDirectory3(path) {
   let descriptor;
   try {
-    descriptor = openSync7(path, fsConstants4.O_RDONLY);
+    descriptor = openSync6(path, fsConstants3.O_RDONLY);
     fsyncSync4(descriptor);
   } catch (error) {
     if (process.platform !== "win32") {
@@ -9144,14 +8798,14 @@ function flushDirectory3(path) {
     }
   } finally {
     if (descriptor !== void 0) {
-      closeSync7(descriptor);
+      closeSync6(descriptor);
     }
   }
 }
 function writeNewJson2(path, value) {
-  const descriptor = openSync7(
+  const descriptor = openSync6(
     path,
-    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+    fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
     384
   );
   try {
@@ -9159,19 +8813,19 @@ function writeNewJson2(path, value) {
 `, "utf8");
     fsyncSync4(descriptor);
   } finally {
-    closeSync7(descriptor);
+    closeSync6(descriptor);
   }
-  flushDirectory3(dirname4(path));
+  flushDirectory3(dirname3(path));
 }
 function replaceJson(path, value) {
   const temporaryPath = join6(
-    dirname4(path),
-    `.index-installation-${randomUUID4()}.tmp`
+    dirname3(path),
+    `.index-installation-${randomUUID3()}.tmp`
   );
   writeNewJson2(temporaryPath, value);
   try {
     renameSync4(temporaryPath, path);
-    flushDirectory3(dirname4(path));
+    flushDirectory3(dirname3(path));
   } catch (error) {
     rmSync3(temporaryPath, { force: true });
     throw error;
@@ -9226,7 +8880,7 @@ function validateJournal(journal) {
 }
 function resolveRealIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve8(isAbsolute5(gitPath) ? gitPath : join6(root, gitPath));
+  return resolve7(isAbsolute6(gitPath) ? gitPath : join6(root, gitPath));
 }
 function captureHeadAnchor(root) {
   const symbolic = runReadOnlyGit(root, "symbolic-head", [], {
@@ -9265,7 +8919,7 @@ function validateInvocation({
       "Index installation root does not match the transaction repository."
     );
   }
-  const canonicalPreparedPath = resolve8(preparedIndexPath);
+  const canonicalPreparedPath = resolve7(preparedIndexPath);
   assertContainedPath(
     transaction.attemptDirectory,
     canonicalPreparedPath,
@@ -9278,7 +8932,7 @@ function validateInvocation({
   if (!exactIdentityMatches(stablePrepared.identity, preparedIndexIdentity)) {
     throw new Error("Prepared index identity changed before installation.");
   }
-  const canonicalTransactionPath = resolve8(transactionPath);
+  const canonicalTransactionPath = resolve7(transactionPath);
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const indexPath = resolveRealIndexPath(canonicalRoot);
   return {
@@ -9324,7 +8978,7 @@ function recoveryFromJournal(journal) {
     resumeAllowed: status !== "ambiguous",
     recoveryRequired: journal.status === "pending",
     currentIndexIdentity,
-    journalPath: join6(dirname4(journal.transactionPath), JOURNAL_FILE),
+    journalPath: join6(dirname3(journal.transactionPath), JOURNAL_FILE),
     preparedIndexTreeOid: journal.preparedIndexTreeOid,
     headAnchor: journal.headAnchor
   };
@@ -9338,7 +8992,7 @@ function recoverIndexInstallation({ root, transactionPath }) {
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve8(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname3(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   return recoveryFromJournal(journal);
@@ -9354,9 +9008,9 @@ function performJournaledReplacement({
   let lockDescriptor;
   let lockOwned = false;
   try {
-    lockDescriptor = openSync7(
+    lockDescriptor = openSync6(
       lockPath,
-      fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+      fsConstants3.O_WRONLY + fsConstants3.O_CREAT + fsConstants3.O_EXCL,
       438
     );
     lockOwned = true;
@@ -9369,7 +9023,7 @@ function performJournaledReplacement({
       );
     }
     fsyncSync4(lockDescriptor);
-    closeSync7(lockDescriptor);
+    closeSync6(lockDescriptor);
     lockDescriptor = void 0;
     const lockedIdentity = readIndexIdentity(journal.indexPath);
     const lockedHeadAnchor = captureHeadAnchor(journal.repositoryRoot);
@@ -9395,7 +9049,7 @@ function performJournaledReplacement({
     };
   } finally {
     if (lockDescriptor !== void 0) {
-      closeSync7(lockDescriptor);
+      closeSync6(lockDescriptor);
     }
     if (lockOwned) {
       rmSync3(lockPath, { force: true });
@@ -9411,7 +9065,7 @@ function resumePreparedIndexInstallation({ root, transactionPath }) {
   const journalPath = join6(transaction.attemptDirectory, JOURNAL_FILE);
   const journal = readJournal2(journalPath);
   const indexPath = resolveRealIndexPath(canonicalRoot);
-  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve8(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname4(journal.preparedIndexPath), transaction.attemptDirectory)) {
+  if (!samePath(journal.repositoryRoot, canonicalRoot) || !samePath(journal.transactionPath, resolve7(transactionPath)) || !samePath(journal.indexPath, indexPath) || !samePath(dirname3(journal.preparedIndexPath), transaction.attemptDirectory)) {
     throw new Error("Index installation journal path bindings are invalid.");
   }
   const recovery = recoveryFromJournal(journal);
@@ -9434,7 +9088,7 @@ function resumePreparedIndexInstallation({ root, transactionPath }) {
       installedIndexIdentity: recovery.currentIndexIdentity
     };
   }
-  if (existsSync7(`${journal.indexPath}.lock`)) {
+  if (existsSync6(`${journal.indexPath}.lock`)) {
     throw new Error(
       `The repository index lock already exists: ${journal.indexPath}.lock`
     );
@@ -9473,12 +9127,12 @@ function installPreparedIndex({
     preparedIndexPath,
     preparedIndexIdentity
   });
-  if (existsSync7(invocation.journalPath)) {
+  if (existsSync6(invocation.journalPath)) {
     const journal2 = readJournal2(invocation.journalPath);
     assertJournalMatchesInvocation(journal2, invocation);
     return recoveryFromJournal(journal2);
   }
-  if (existsSync7(`${invocation.indexPath}.lock`)) {
+  if (existsSync6(`${invocation.indexPath}.lock`)) {
     throw new Error(
       `The repository index lock already exists: ${invocation.indexPath}.lock`
     );
@@ -9524,10 +9178,42 @@ var init_indexInstallation = __esm({
   }
 });
 
+// src/committing-to-git/git/gitPath.js
+function splitNul(buffer) {
+  const fields = [];
+  let start = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    if (buffer[index] !== 0) {
+      continue;
+    }
+    fields.push(buffer.subarray(start, index));
+    start = index + 1;
+  }
+  if (start < buffer.length) {
+    fields.push(buffer.subarray(start));
+  }
+  return fields.filter((field) => field.length > 0);
+}
+function comparePathBytes(left, right) {
+  return Buffer.compare(left, right);
+}
+function pathRecord(raw) {
+  const decoded = raw.toString("utf8");
+  return {
+    bytesBase64: raw.toString("base64"),
+    text: decoded,
+    display: decoded
+  };
+}
+var init_gitPath = __esm({
+  "src/committing-to-git/git/gitPath.js"() {
+  }
+});
+
 // src/committing-to-git/snapshot/commitSnapshot.js
 import { createHash as createHash8 } from "node:crypto";
-import { chmodSync as chmodSync2, existsSync as existsSync8, mkdirSync as mkdirSync4 } from "node:fs";
-import { dirname as dirname5 } from "node:path";
+import { chmodSync, existsSync as existsSync7, mkdirSync as mkdirSync4 } from "node:fs";
+import { dirname as dirname4 } from "node:path";
 function nulPathInput(paths) {
   return Buffer.concat(
     paths.flatMap((path) => [
@@ -9563,12 +9249,12 @@ function preparePromotionIndex({
       "Path promotion requires at least one recorded literal path."
     );
   }
-  if (existsSync8(preparedIndexPath)) {
+  if (existsSync7(preparedIndexPath)) {
     throw new Error(
       `Promotion index already exists without a recovery record: ${preparedIndexPath}`
     );
   }
-  mkdirSync4(dirname5(preparedIndexPath), { recursive: true });
+  mkdirSync4(dirname4(preparedIndexPath), { recursive: true });
   const env = {
     GIT_INDEX_FILE: preparedIndexPath,
     GIT_OPTIONAL_LOCKS: "0"
@@ -9586,7 +9272,7 @@ function preparePromotionIndex({
   }
   const indexTreeOid = writeIndexTree(root, env);
   if (process.platform !== "win32") {
-    chmodSync2(preparedIndexPath, 384);
+    chmodSync(preparedIndexPath, 384);
   }
   return {
     preparedIndexPath,
@@ -9636,11 +9322,11 @@ function selectRenamePolicy({
   };
 }
 function selectLineStatisticsPolicy({
-  eligibleBlobBytes,
+  eligibleBlobBytes: eligibleBlobBytes2,
   maximumEagerBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
 }) {
   const eligible = parseNonNegativeInteger(
-    eligibleBlobBytes,
+    eligibleBlobBytes2,
     "Eligible blob bytes"
   );
   const maximum = parseNonNegativeInteger(
@@ -9905,16 +9591,16 @@ function inspectObjectSizes(root, env, changeUnits) {
       size: parseNonNegativeInteger(fields[2], "Git object size")
     });
   }
-  let eligibleBlobBytes = 0n;
+  let eligibleBlobBytes2 = 0n;
   for (const unit of changeUnits) {
     for (const oid of [unit.oldOid, unit.newOid]) {
       const object = objects.get(oid);
       if (object?.type === "blob") {
-        eligibleBlobBytes += object.size;
+        eligibleBlobBytes2 += object.size;
       }
     }
   }
-  return { eligibleBlobBytes, unavailableObjectIds };
+  return { eligibleBlobBytes: eligibleBlobBytes2, unavailableObjectIds };
 }
 function statisticsForUnit(unit, statistics) {
   if (unit.kind === "renamed" && unit.renameClassification === "exact-object" && unit.oldOid === unit.newOid && unit.oldMode === unit.newMode) {
@@ -9951,6 +9637,8 @@ function buildSnapshot({
   sourceIndex,
   headOid,
   indexTreeOid = null,
+  // Memory preparation never writes tree objects; its manifest has no tree OID.
+  writeTree = true,
   maximumSimilarityCandidatePairs = MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
   maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
 }) {
@@ -10001,13 +9689,13 @@ function buildSnapshot({
       `Similarity rename detection deferred: ${renameSelection.candidatePairs} candidate pairs exceed the ${maximumSimilarityCandidatePairs} pair budget.`
     );
   }
-  const { eligibleBlobBytes, unavailableObjectIds } = inspectObjectSizes(
+  const { eligibleBlobBytes: eligibleBlobBytes2, unavailableObjectIds } = inspectObjectSizes(
     root,
     env,
     changeUnits
   );
   const selectedLineStatistics = selectLineStatisticsPolicy({
-    eligibleBlobBytes,
+    eligibleBlobBytes: eligibleBlobBytes2,
     maximumEagerBytes: maximumEagerLineStatInputBytes
   });
   const lineStatistics = {
@@ -10035,7 +9723,42 @@ function buildSnapshot({
       lineStatistics: "eager"
     }));
   }
-  changeUnits = assignIdentifiers(changeUnits);
+  return assembleSnapshot({
+    root,
+    workflowMode,
+    scopeKind,
+    sourceIndex,
+    headOid,
+    indexTreeOid: writeTree ? indexTreeOid ?? writeIndexTree(root, env) : null,
+    rename: {
+      mode: renameSelection.mode,
+      maximumCandidatePairs: maximumSimilarityCandidatePairs,
+      addedCandidates,
+      deletedCandidates,
+      candidatePairs: renameSelection.candidatePairs
+    },
+    lineStatistics: {
+      mode: lineStatistics.mode,
+      maximumEagerBytes: maximumEagerLineStatInputBytes,
+      eligibleBlobBytes: lineStatistics.eligibleBlobBytes
+    },
+    changeUnits,
+    warnings
+  });
+}
+function assembleSnapshot({
+  root,
+  workflowMode,
+  scopeKind,
+  sourceIndex,
+  headOid,
+  indexTreeOid,
+  rename,
+  lineStatistics,
+  changeUnits: unorderedChangeUnits,
+  warnings
+}) {
+  const changeUnits = assignIdentifiers(unorderedChangeUnits);
   const textUnits = changeUnits.filter(({ binary }) => binary === false);
   const deferredStatistics = lineStatistics.mode === "deferred";
   return {
@@ -10045,25 +9768,15 @@ function buildSnapshot({
     sourceIndex,
     repositoryRoot: root,
     headOid,
-    indexTreeOid: indexTreeOid ?? writeIndexTree(root, env),
+    indexTreeOid,
     diffPolicy: {
       renameScore: RENAME_SCORE,
       copyDetection: false,
       renameLimit: 0,
       externalDiff: false,
       textconv: false,
-      rename: {
-        mode: renameSelection.mode,
-        maximumCandidatePairs: maximumSimilarityCandidatePairs,
-        addedCandidates,
-        deletedCandidates,
-        candidatePairs: renameSelection.candidatePairs
-      },
-      lineStatistics: {
-        mode: lineStatistics.mode,
-        maximumEagerBytes: maximumEagerLineStatInputBytes,
-        eligibleBlobBytes: lineStatistics.eligibleBlobBytes
-      }
+      rename,
+      lineStatistics
     },
     changeUnitCount: changeUnits.length,
     changeUnits,
@@ -10091,16 +9804,16 @@ var init_commitSnapshot = __esm({
 
 // src/committing-to-git/snapshot/createSnapshot.js
 import {
-  chmodSync as chmodSync3,
+  chmodSync as chmodSync2,
   copyFileSync,
-  existsSync as existsSync9,
-  lstatSync as lstatSync6,
+  existsSync as existsSync8,
+  lstatSync as lstatSync5,
   mkdirSync as mkdirSync5,
   readdirSync,
   utimesSync,
   writeFileSync as writeFileSync6
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, resolve as resolve9 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute7, join as join7, resolve as resolve8 } from "node:path";
 function nulPathInput2(paths) {
   return Buffer.concat(
     paths.flatMap((path) => [
@@ -10111,31 +9824,31 @@ function nulPathInput2(paths) {
 }
 function resolveGitPath(root, name) {
   const path = readOnlyGitText(root, "git-path", [name]).trim();
-  return resolve9(isAbsolute6(path) ? path : join7(root, path));
+  return resolve8(isAbsolute7(path) ? path : join7(root, path));
 }
 function copyIndexFile(source, destination) {
-  const observedTime = lstatSync6(source, { bigint: true }).mtimeNs;
+  const observedTime = lstatSync5(source, { bigint: true }).mtimeNs;
   const timestamp = Number(observedTime / 1000000000n);
   copyFileSync(source, destination);
   utimesSync(destination, timestamp, timestamp);
-  if (lstatSync6(destination, { bigint: true }).mtimeNs > observedTime) {
+  if (lstatSync5(destination, { bigint: true }).mtimeNs > observedTime) {
     throw new Error(
       "Copied index timestamp could not preserve native Git freshness."
     );
   }
 }
 function copySharedIndexFiles(realIndexPath2, preparedIndexPath) {
-  const sourceDirectory = dirname6(realIndexPath2);
-  const destinationDirectory = dirname6(preparedIndexPath);
+  const sourceDirectory = dirname5(realIndexPath2);
+  const destinationDirectory = dirname5(preparedIndexPath);
   for (const name of readdirSync(sourceDirectory)) {
     if (!name.startsWith("sharedindex.")) {
       continue;
     }
     const destination = join7(destinationDirectory, name);
-    if (!existsSync9(destination)) {
+    if (!existsSync8(destination)) {
       copyIndexFile(join7(sourceDirectory, name), destination);
       if (process.platform !== "win32") {
-        chmodSync3(destination, 384);
+        chmodSync2(destination, 384);
       }
     }
   }
@@ -10236,14 +9949,14 @@ function formatGitAlternatePaths(paths) {
 function createDraftObjectEnvironment({ root, attemptDirectory }) {
   const indexPath = join7(attemptDirectory, "draft-index");
   const objectDirectory = join7(attemptDirectory, "draft-objects");
-  if (existsSync9(indexPath) || existsSync9(objectDirectory)) {
+  if (existsSync8(indexPath) || existsSync8(objectDirectory)) {
     throw new Error("Draft storage already exists in the transaction attempt.");
   }
   mkdirSync5(objectDirectory, { mode: 448 });
   const primaryObjectDirectory = resolveGitPath(root, "objects");
   const inheritedAlternates = parseGitAlternatePaths(
     process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
-  ).map((path) => resolve9(isAbsolute6(path) ? path : join7(root, path)));
+  ).map((path) => resolve8(isAbsolute7(path) ? path : join7(root, path)));
   const alternates = [
     .../* @__PURE__ */ new Set([primaryObjectDirectory, ...inheritedAlternates])
   ];
@@ -10293,7 +10006,7 @@ function copyStableIndex(realIndexPath2, preparedIndexPath, originalIdentity) {
   copyIndexFile(realIndexPath2, preparedIndexPath);
   copySharedIndexFiles(realIndexPath2, preparedIndexPath);
   if (process.platform !== "win32") {
-    chmodSync3(preparedIndexPath, 384);
+    chmodSync2(preparedIndexPath, 384);
   }
   const currentIdentity = readIndexIdentity(realIndexPath2);
   const copiedIdentity = readIndexIdentity(preparedIndexPath);
@@ -10345,7 +10058,7 @@ function createSnapshot({
   if (mode === "draft") {
     draftStorage = createDraftObjectEnvironment({
       root,
-      attemptDirectory: dirname6(outputPath)
+      attemptDirectory: dirname5(outputPath)
     });
     actualPreparedIndexPath = draftStorage.indexPath;
     env = draftStorage.env;
@@ -10362,13 +10075,13 @@ function createSnapshot({
       });
     }
   } else {
-    actualPreparedIndexPath = preparedIndexPath ?? join7(dirname6(outputPath), "preparation-index");
-    if (existsSync9(actualPreparedIndexPath)) {
+    actualPreparedIndexPath = preparedIndexPath ?? join7(dirname5(outputPath), "preparation-index");
+    if (existsSync8(actualPreparedIndexPath)) {
       throw new Error(
         `Temporary index already exists: ${actualPreparedIndexPath}`
       );
     }
-    mkdirSync5(dirname6(actualPreparedIndexPath), { recursive: true });
+    mkdirSync5(dirname5(actualPreparedIndexPath), { recursive: true });
     env = {
       GIT_INDEX_FILE: actualPreparedIndexPath,
       GIT_OPTIONAL_LOCKS: "0"
@@ -10406,7 +10119,7 @@ function createSnapshot({
     ...maximumEagerLineStatInputBytes === void 0 ? {} : { maximumEagerLineStatInputBytes }
   });
   if (actualPreparedIndexPath && process.platform !== "win32") {
-    chmodSync3(actualPreparedIndexPath, 384);
+    chmodSync2(actualPreparedIndexPath, 384);
   }
   const preparedIndexIdentity = actualPreparedIndexPath ? readIndexIdentity(actualPreparedIndexPath) : readIndexIdentity(realIndexPath2);
   const promotionBlocker = mode === "draft" && scope === "paths" && stagedPromotionSummary?.stagedChangeUnitCount > 0 ? {
@@ -10428,7 +10141,7 @@ function createSnapshot({
   const serializedSnapshot = `${JSON.stringify(snapshot, null, 2)}
 `;
   assertSnapshotCapacity(Buffer.byteLength(serializedSnapshot));
-  mkdirSync5(dirname6(outputPath), { recursive: true });
+  mkdirSync5(dirname5(outputPath), { recursive: true });
   try {
     writeFileSync6(outputPath, serializedSnapshot, { flag: "wx", mode: 384 });
   } catch (error) {
@@ -10493,19 +10206,19 @@ var init_createSnapshot = __esm({
 // src/committing-to-git/inspection/reviewCatalog.js
 import { createHash as createHash9 } from "node:crypto";
 import {
-  closeSync as closeSync8,
+  closeSync as closeSync7,
   createReadStream,
-  existsSync as existsSync10,
+  existsSync as existsSync9,
   fsyncSync as fsyncSync5,
   mkdirSync as mkdirSync6,
-  openSync as openSync8,
+  openSync as openSync7,
   readFileSync as readFileSync3,
   readdirSync as readdirSync2,
   writeFileSync as writeFileSync7,
-  unlinkSync as unlinkSync4
+  unlinkSync as unlinkSync3
 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve10, sep as sep2 } from "node:path";
-function isPlainObject4(value) {
+import { dirname as dirname6, isAbsolute as isAbsolute8, join as join8, relative as relative4, resolve as resolve9, sep as sep2 } from "node:path";
+function isPlainObject3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function canonicalCatalogPayload(catalog) {
@@ -10576,7 +10289,7 @@ function canonicalizeEvidencePlan({ manifest, groups }) {
   }
   const assignedIds = /* @__PURE__ */ new Set();
   const canonicalGroups = groups.map((group, index) => {
-    if (!isPlainObject4(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
+    if (!isPlainObject3(group) || !EVIDENCE_POLICIES.includes(group.policy)) {
       throw new WorkflowDiagnosticError(
         "INVALID_EVIDENCE_PLAN",
         `Evidence group ${index + 1} has an invalid policy.`
@@ -10759,8 +10472,8 @@ function catalogOutputDirectory(catalog) {
   if (typeof catalog.catalogPath !== "string") {
     throw new Error("Catalog is missing its immutable storage path.");
   }
-  const catalogPath = resolve10(catalog.catalogPath);
-  return dirname7(catalogPath).endsWith(`${sep2}revisions`) ? dirname7(dirname7(catalogPath)) : dirname7(catalogPath);
+  const catalogPath = resolve9(catalog.catalogPath);
+  return dirname6(catalogPath).endsWith(`${sep2}revisions`) ? dirname6(dirname6(catalogPath)) : dirname6(catalogPath);
 }
 function arrayDifference(left, right) {
   const rightSet = new Set(right);
@@ -10769,7 +10482,7 @@ function arrayDifference(left, right) {
 function persistCatalogRevision(priorCatalog, catalog, addedPackets) {
   const outputDirectory = catalogOutputDirectory(priorCatalog);
   const revisionsDirectory = join8(outputDirectory, "revisions");
-  if (!existsSync10(revisionsDirectory)) {
+  if (!existsSync9(revisionsDirectory)) {
     mkdirSync6(revisionsDirectory);
   }
   catalog.storage = {
@@ -11009,17 +10722,17 @@ function createReviewCatalog({
   evidencePlan
 }) {
   const preMaterialized = manifest.preMaterializedPacketsByGroupId !== void 0;
-  if (existsSync10(outputDirectory) && !preMaterialized) {
+  if (existsSync9(outputDirectory) && !preMaterialized) {
     throw new Error(`Review output already exists: ${outputDirectory}`);
   }
   if (evidencePlan.manifestSha256 !== manifestDigest(manifest)) {
     throw new Error("Evidence plan belongs to a different manifest.");
   }
-  if (!existsSync10(outputDirectory)) {
+  if (!existsSync9(outputDirectory)) {
     mkdirSync6(outputDirectory);
   }
   for (const name of ["packets", "raw"]) {
-    if (!existsSync10(join8(outputDirectory, name))) {
+    if (!existsSync9(join8(outputDirectory, name))) {
       mkdirSync6(join8(outputDirectory, name));
     }
   }
@@ -11046,7 +10759,7 @@ function applyDelta(values, additions, removals) {
   ];
 }
 function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
-  const absolutePath = resolve10(catalogPath);
+  const absolutePath = resolve9(catalogPath);
   if (visited.has(absolutePath)) {
     throw new Error("Catalog revision chain contains a cycle.");
   }
@@ -11059,8 +10772,8 @@ function loadCatalogDocument(catalogPath, visited = /* @__PURE__ */ new Set()) {
     }
     return withCatalogIdentity(document, absolutePath);
   }
-  const outputDirectory = dirname7(dirname7(absolutePath));
-  const priorPath = resolve10(outputDirectory, document.priorCatalogArtifact);
+  const outputDirectory = dirname6(dirname6(absolutePath));
+  const priorPath = resolve9(outputDirectory, document.priorCatalogArtifact);
   const prior = loadCatalogDocument(priorPath, visited);
   if (prior.catalogSha256 !== document.priorCatalogSha256) {
     throw new Error("Catalog revision prior digest does not match.");
@@ -11101,7 +10814,7 @@ function readReviewCatalog(catalogPath) {
   return loadCatalogDocument(catalogPath);
 }
 function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
-  let currentPath = resolve10(catalogPath);
+  let currentPath = resolve9(catalogPath);
   const visited = /* @__PURE__ */ new Set();
   while (true) {
     if (visited.has(currentPath)) {
@@ -11116,8 +10829,8 @@ function findReviewCatalogRevisionPath(catalogPath, catalogSha256) {
     if (document.revisionRecordVersion !== 1) {
       return null;
     }
-    const outputDirectory = dirname7(dirname7(currentPath));
-    currentPath = resolve10(outputDirectory, document.priorCatalogArtifact);
+    const outputDirectory = dirname6(dirname6(currentPath));
+    currentPath = resolve9(outputDirectory, document.priorCatalogArtifact);
   }
 }
 function requiredReviewPacketIds(catalog) {
@@ -11180,9 +10893,9 @@ function failPacket(code, message) {
   });
 }
 function readVerifiedPacket(outputDirectory, packet) {
-  const path = resolve10(outputDirectory, packet.artifact);
+  const path = resolve9(outputDirectory, packet.artifact);
   const contained = relative4(outputDirectory, path);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute7(contained)) {
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep2}`) || isAbsolute8(contained)) {
     failPacket(
       "REVIEW_PACKET_ESCAPES_CATALOG",
       `Review packet ${packet.id} escapes its catalog directory.`
@@ -11237,7 +10950,7 @@ function assertReceipt(receipt, catalog) {
     "requiredPacketsReviewed",
     "additionalPacketIds"
   ].sort();
-  if (!isPlainObject4(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
+  if (!isPlainObject3(receipt) || JSON.stringify(Object.keys(receipt).sort()) !== JSON.stringify(expectedKeys) || receipt.schemaVersion !== 1 || receipt.catalogSha256 !== catalog.catalogSha256 || receipt.evidencePlanSha256 !== catalog.evidencePlanSha256 || receipt.requiredPacketsReviewed !== true || !Array.isArray(receipt.additionalPacketIds) || new Set(receipt.additionalPacketIds).size !== receipt.additionalPacketIds.length) {
     throw new Error(
       "Review receipt does not bind the current catalog and evidence plan."
     );
@@ -11398,7 +11111,7 @@ function writeReviewPacketQueue({
     publicArtifactPrefix
   );
   const queuesDirectory = join8(outputDirectory, "queues");
-  if (!existsSync10(queuesDirectory)) {
+  if (!existsSync9(queuesDirectory)) {
     mkdirSync6(queuesDirectory);
   }
   const pages2 = new Array(partitions.length);
@@ -11444,7 +11157,7 @@ function writeReviewPacketQueue({
 }
 function queuePagesForCatalog(outputDirectory, catalogSha256) {
   const queuesDirectory = join8(outputDirectory, "queues");
-  if (!existsSync10(queuesDirectory)) {
+  if (!existsSync9(queuesDirectory)) {
     return [];
   }
   return readdirSync2(queuesDirectory).filter(
@@ -11498,7 +11211,7 @@ function supersedePriorQueue({
   const markerArtifact = `queues/superseded-${markerSha256}.json`;
   writeImmutableSmallFile(join8(outputDirectory, markerArtifact), markerBytes);
   for (const { path } of pages2) {
-    unlinkSync4(path);
+    unlinkSync3(path);
   }
   return {
     catalogSha256: priorCatalog.catalogSha256,
@@ -11670,6 +11383,547 @@ var init_reviewCatalog = __esm({
       "text-patch": "P",
       "deleted-content": "D"
     });
+  }
+});
+
+// src/committing-to-git/workflow/commitProposal.js
+import { TextDecoder as TextDecoder5 } from "node:util";
+function invalid2(message) {
+  throw new WorkflowDiagnosticError("INVALID_PROPOSAL", message, {
+    recovery: {
+      kind: "correct-input",
+      requiredInputs: ["the exact proposal returned by workflow prepare"],
+      commands: [],
+      automatic: false
+    }
+  });
+}
+function hasExactKeys(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+function validHeadAnchor(anchor) {
+  if (!hasExactKeys(anchor, ["headKind", "targetRef", "expectedParentOids"])) {
+    return false;
+  }
+  const parents = anchor.expectedParentOids;
+  if (!Array.isArray(parents) || !parents.every((oid) => FULL_OBJECT_ID2.test(oid))) {
+    return false;
+  }
+  switch (anchor.headKind) {
+    case "attached":
+      return typeof anchor.targetRef === "string" && parents.length === 1;
+    case "unborn":
+      return typeof anchor.targetRef === "string" && parents.length === 0;
+    case "detached":
+      return anchor.targetRef === null && parents.length === 1;
+    default:
+      return false;
+  }
+}
+function validateCommitProposal(proposal) {
+  if (!hasExactKeys(proposal, PROPOSAL_FIELDS) || proposal.schema !== COMMIT_PROPOSAL_SCHEMA || typeof proposal.repositoryRoot !== "string" || proposal.repositoryRoot.length === 0 || !(/* @__PURE__ */ new Set(["actual", "draft"])).has(proposal.mode) || !(/* @__PURE__ */ new Set(["staged", "full"])).has(proposal.scope) || !validHeadAnchor(proposal.headAnchor) || !SHA256.test(proposal.changeSetSha256) || !Number.isSafeInteger(proposal.changeUnitCount) || proposal.changeUnitCount < 1 || !Array.isArray(proposal.allowedTypes) || !proposal.allowedTypes.every((type) => typeof type === "string") || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    proposal.verificationPolicy
+  )) {
+    invalid2(`The proposal is not a valid ${COMMIT_PROPOSAL_SCHEMA} value.`);
+  }
+  return proposal;
+}
+function encodeCommitProposal(proposal) {
+  const { headAnchor } = validateCommitProposal(proposal);
+  const ordered = Object.fromEntries(
+    PROPOSAL_FIELDS.map((field) => [
+      field,
+      field === "headAnchor" ? {
+        headKind: headAnchor.headKind,
+        targetRef: headAnchor.targetRef,
+        expectedParentOids: [...headAnchor.expectedParentOids]
+      } : proposal[field]
+    ])
+  );
+  const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;
+  if (Buffer.byteLength(encoded) > MAXIMUM_PROPOSAL_BYTES) {
+    throw new WorkflowDiagnosticError(
+      "PROPOSAL_TOO_LARGE",
+      `The proposal exceeds ${MAXIMUM_PROPOSAL_BYTES} bytes; use --state-storage disk.`,
+      { disposition: "rejected" }
+    );
+  }
+  return encoded;
+}
+function decodeCommitProposal(text) {
+  if (typeof text !== "string" || Buffer.byteLength(text) > MAXIMUM_PROPOSAL_BYTES || !text.startsWith(PROPOSAL_PREFIX) || !/^[A-Za-z0-9_-]+$/u.test(text.slice(PROPOSAL_PREFIX.length))) {
+    invalid2("The proposal is not an encoded commit proposal.");
+  }
+  const bytes = Buffer.from(text.slice(PROPOSAL_PREFIX.length), "base64url");
+  let proposal;
+  try {
+    proposal = JSON.parse(STRICT_UTF8_DECODER4.decode(bytes));
+  } catch {
+    invalid2("The proposal does not contain strict UTF-8 JSON.");
+  }
+  if (encodeCommitProposal(validateCommitProposal(proposal)) !== text) {
+    invalid2("The proposal is not in its canonical encoding.");
+  }
+  return proposal;
+}
+var COMMIT_PROPOSAL_SCHEMA, MAXIMUM_PROPOSAL_BYTES, PROPOSAL_PREFIX, PROPOSAL_FIELDS, FULL_OBJECT_ID2, SHA256, STRICT_UTF8_DECODER4;
+var init_commitProposal = __esm({
+  "src/committing-to-git/workflow/commitProposal.js"() {
+    init_workflowDiagnosticError();
+    COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
+    MAXIMUM_PROPOSAL_BYTES = 4096;
+    PROPOSAL_PREFIX = "ctg1.";
+    PROPOSAL_FIELDS = [
+      "schema",
+      "repositoryRoot",
+      "mode",
+      "scope",
+      "headAnchor",
+      "changeSetSha256",
+      "changeUnitCount",
+      "allowedTypes",
+      "verificationPolicy"
+    ];
+    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    SHA256 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/workflow/preparationInputs.js
+function fail4(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function isPlainObject4(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function assertExactKeys4(value, keys, label, code) {
+  if (!isPlainObject4(value)) {
+    fail4(code, `${label} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail4(code, `${label} contains missing or unknown members.`);
+  }
+}
+function canonicalJsonBytes2(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function validateRepositoryRelativePath(path, { prefix, label }) {
+  if (typeof path !== "string" || path.length === 0) {
+    fail4("INVALID_SCOPE_SELECTOR", `${label} must be a non-empty string.`);
+  }
+  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) {
+    fail4(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} must be a slash-separated repository-relative path.`
+    );
+  }
+  if (prefix !== path.endsWith("/")) {
+    fail4(
+      "INVALID_SCOPE_SELECTOR",
+      prefix ? `${label} must end with a slash.` : `${label} must not end with a slash.`
+    );
+  }
+  const components = path.split("/");
+  const meaningfulComponents = prefix ? components.slice(0, -1) : components;
+  if (meaningfulComponents.some(
+    (component) => component.length === 0 || component === "." || component === ".."
+  )) {
+    fail4(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} contains an invalid path component.`
+    );
+  }
+  return Buffer.from(path, "utf8");
+}
+function decodeCanonicalBase64Path(value, label) {
+  if (typeof value !== "string" || value.length === 0) {
+    fail4("INVALID_SCOPE_SELECTOR", `${label} must be non-empty base64.`);
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.length === 0 || bytes.toString("base64") !== value || bytes.includes(0) || bytes.includes(92) || bytes[0] === 47 || bytes[bytes.length - 1] === 47) {
+    fail4(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} must encode one canonical repository-relative exact path.`
+    );
+  }
+  const components = [];
+  let start = 0;
+  for (let index = 0; index <= bytes.length; index += 1) {
+    if (index === bytes.length || bytes[index] === 47) {
+      components.push(bytes.subarray(start, index));
+      start = index + 1;
+    }
+  }
+  if (components.some(
+    (component) => component.length === 0 || component.equals(Buffer.from(".")) || component.equals(Buffer.from(".."))
+  )) {
+    fail4(
+      "INVALID_SCOPE_SELECTOR",
+      `${label} contains an invalid path component.`
+    );
+  }
+  return bytes;
+}
+function compareBuffers(left, right) {
+  return Buffer.compare(left, right);
+}
+function pathStartsWith(path, prefix) {
+  return path.length >= prefix.length && path.subarray(0, prefix.length).equals(prefix);
+}
+function selectorContains(include, exclude) {
+  if (include.kind === "exact") {
+    return exclude.kind === "exact" && include.bytes.equals(exclude.bytes);
+  }
+  return pathStartsWith(exclude.bytes, include.bytes);
+}
+function selectorMatches(selector, path) {
+  return selector.kind === "exact" ? selector.bytes.equals(path) : pathStartsWith(path, selector.bytes);
+}
+function normalizeScopePayload(payload) {
+  assertExactKeys4(payload, SCOPE_KEYS, "Scope file", "INVALID_SCOPE_FILE");
+  if (payload.schemaVersion !== 2) {
+    fail4("INVALID_SCOPE_FILE", "Scope file schemaVersion must be 2.");
+  }
+  for (const key of SCOPE_KEYS.slice(1)) {
+    if (!Array.isArray(payload[key])) {
+      fail4("INVALID_SCOPE_FILE", `Scope file ${key} must be an array.`);
+    }
+    if (payload[key].length > 4096) {
+      fail4("INVALID_SCOPE_FILE", `Scope file ${key} exceeds 4096 selectors.`);
+    }
+  }
+  const descriptors = [];
+  function addUtf8(values, direction, kind, label) {
+    for (const value of values) {
+      descriptors.push({
+        direction,
+        kind,
+        bytes: validateRepositoryRelativePath(value, {
+          prefix: kind === "prefix",
+          label
+        })
+      });
+    }
+  }
+  addUtf8(payload.includePaths, "include", "exact", "includePaths entry");
+  addUtf8(
+    payload.includePathPrefixes,
+    "include",
+    "prefix",
+    "includePathPrefixes entry"
+  );
+  addUtf8(payload.excludePaths, "exclude", "exact", "excludePaths entry");
+  addUtf8(
+    payload.excludePathPrefixes,
+    "exclude",
+    "prefix",
+    "excludePathPrefixes entry"
+  );
+  for (const value of payload.includePathBytesBase64) {
+    descriptors.push({
+      direction: "include",
+      kind: "exact",
+      bytes: decodeCanonicalBase64Path(value, "includePathBytesBase64 entry")
+    });
+  }
+  for (const value of payload.excludePathBytesBase64) {
+    descriptors.push({
+      direction: "exclude",
+      kind: "exact",
+      bytes: decodeCanonicalBase64Path(value, "excludePathBytesBase64 entry")
+    });
+  }
+  const includes = descriptors.filter(
+    ({ direction }) => direction === "include"
+  );
+  const excludes = descriptors.filter(
+    ({ direction }) => direction === "exclude"
+  );
+  if (includes.length === 0) {
+    fail4("INVALID_SCOPE_SELECTOR", "Path scope requires inclusion data.");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const selector of descriptors) {
+    const key = `${selector.direction}:${selector.kind}:${selector.bytes.toString("base64")}`;
+    if (seen.has(key)) {
+      fail4("DUPLICATE_SCOPE_SELECTOR", "Scope selectors must be byte-unique.");
+    }
+    seen.add(key);
+  }
+  for (const exclusion of excludes) {
+    if (!includes.some((inclusion) => selectorContains(inclusion, exclusion))) {
+      fail4(
+        "UNCONTAINED_SCOPE_EXCLUSION",
+        "Every exclusion must be contained by at least one inclusion."
+      );
+    }
+  }
+  const canonicalPayload = {
+    schemaVersion: 2,
+    includePaths: [...payload.includePaths],
+    includePathPrefixes: [...payload.includePathPrefixes],
+    excludePaths: [...payload.excludePaths],
+    excludePathPrefixes: [...payload.excludePathPrefixes],
+    includePathBytesBase64: [...payload.includePathBytesBase64],
+    excludePathBytesBase64: [...payload.excludePathBytesBase64]
+  };
+  return {
+    canonicalPayload,
+    canonicalBytes: canonicalJsonBytes2(canonicalPayload),
+    includes,
+    excludes,
+    descriptors
+  };
+}
+function normalizeEvidenceSelection(selection) {
+  normalizeSelection(selection);
+  if ("all" in selection && selection.all !== true) {
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence selection all must be true.");
+  }
+  if ("remaining" in selection && selection.remaining !== true) {
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence selection remaining must be true.");
+  }
+  for (const [key, value] of Object.entries(selection)) {
+    if ((/* @__PURE__ */ new Set(["all", "remaining"])).has(key)) {
+      continue;
+    }
+    if (value.length === 0) {
+      fail4(
+        "INVALID_EVIDENCE_PLAN",
+        `Evidence selection ${key} must be a non-empty string array.`
+      );
+    }
+  }
+  return structuredClone(selection);
+}
+function normalizeEvidencePlan(payload) {
+  assertExactKeys4(
+    payload,
+    EVIDENCE_PLAN_KEYS,
+    "Evidence plan",
+    "INVALID_EVIDENCE_PLAN"
+  );
+  if (payload.schemaVersion !== 1) {
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan schemaVersion must be 1.");
+  }
+  if (!Array.isArray(payload.groups) || payload.groups.length === 0) {
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan groups must be non-empty.");
+  }
+  if (payload.groups.length > 4096) {
+    fail4("INVALID_EVIDENCE_PLAN", "Evidence plan exceeds 4096 groups.");
+  }
+  const groups = payload.groups.map((group, index) => {
+    assertExactKeys4(
+      group,
+      GROUP_KEYS,
+      `Evidence group ${index + 1}`,
+      "INVALID_EVIDENCE_PLAN"
+    );
+    assertExactKeys4(
+      group.basis,
+      BASIS_KEYS,
+      `Evidence group ${index + 1} basis`,
+      "INVALID_EVIDENCE_PLAN"
+    );
+    return {
+      selection: normalizeEvidenceSelection(group.selection),
+      policy: group.policy,
+      basis: validateEvidenceBasis(group.policy, group.basis)
+    };
+  });
+  const canonicalPlan = { schemaVersion: 1, groups };
+  return {
+    plan: canonicalPlan,
+    canonicalBytes: canonicalJsonBytes2(canonicalPlan)
+  };
+}
+var SCOPE_KEYS, EVIDENCE_PLAN_KEYS, GROUP_KEYS, BASIS_KEYS;
+var init_preparationInputs = __esm({
+  "src/committing-to-git/workflow/preparationInputs.js"() {
+    init_workflowDiagnosticError();
+    init_changeSelection();
+    init_evidenceVocabulary();
+    SCOPE_KEYS = [
+      "schemaVersion",
+      "includePaths",
+      "includePathPrefixes",
+      "excludePaths",
+      "excludePathPrefixes",
+      "includePathBytesBase64",
+      "excludePathBytesBase64"
+    ];
+    EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
+    GROUP_KEYS = ["selection", "policy", "basis"];
+    BASIS_KEYS = ["kind", "note"];
+  }
+});
+
+// src/committing-to-git/git/projectedIndex.js
+import { randomUUID as randomUUID4 } from "node:crypto";
+import {
+  chmodSync as chmodSync3,
+  closeSync as closeSync8,
+  constants as fsConstants4,
+  existsSync as existsSync10,
+  lstatSync as lstatSync6,
+  openSync as openSync8,
+  unlinkSync as unlinkSync4
+} from "node:fs";
+import { dirname as dirname7, resolve as resolve10 } from "node:path";
+function validatedPathBytes(pathBytes) {
+  if (!Buffer.isBuffer(pathBytes) || pathBytes.length === 0 || pathBytes.includes(0)) {
+    throw new Error(
+      "Projected-index entries require a nonempty raw path Buffer without NUL bytes."
+    );
+  }
+  return pathBytes;
+}
+function validatedEntry(entry) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !INDEX_MODES.has(entry.mode) || !FULL_OBJECT_ID3.test(entry.oid)) {
+    throw new Error(
+      "Projected-index entries require a supported Git mode and full object ID."
+    );
+  }
+  return {
+    mode: entry.mode,
+    oid: entry.oid,
+    pathBytes: validatedPathBytes(entry.pathBytes)
+  };
+}
+function encodeIndexInfoRecords(entries) {
+  if (!Array.isArray(entries)) {
+    throw new Error("Projected-index entries must be an array.");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const records = [];
+  for (const candidate of entries) {
+    const entry = validatedEntry(candidate);
+    const identity = entry.pathBytes.toString("base64");
+    if (seen.has(identity)) {
+      throw new Error(
+        "Projected-index entries contain a duplicate raw path identity."
+      );
+    }
+    seen.add(identity);
+    records.push(
+      Buffer.from(`${entry.mode} ${entry.oid}	`, "ascii"),
+      entry.pathBytes,
+      NUL
+    );
+  }
+  return Buffer.concat(records);
+}
+function allocateProjectedIndexPath(temporaryDirectory, purpose) {
+  const canonicalDirectory = resolve10(temporaryDirectory);
+  const directoryStat = lstatSync6(canonicalDirectory);
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+    throw new Error(
+      "Projected indexes require a real helper-owned temporary directory."
+    );
+  }
+  const indexPath = resolve10(
+    canonicalDirectory,
+    `.projected-index-${purpose}-${randomUUID4()}.tmp`
+  );
+  if (dirname7(indexPath) !== canonicalDirectory) {
+    throw new Error("Projected index escaped its temporary directory.");
+  }
+  const reservation = openSync8(
+    indexPath,
+    fsConstants4.O_WRONLY + fsConstants4.O_CREAT + fsConstants4.O_EXCL,
+    384
+  );
+  closeSync8(reservation);
+  unlinkSync4(indexPath);
+  return indexPath;
+}
+function removeExactArtifact(path) {
+  if (existsSync10(path)) {
+    unlinkSync4(path);
+  }
+}
+async function withProjectedIndex({
+  root,
+  baselineTreeOid = null,
+  entries,
+  temporaryDirectory,
+  environment = {},
+  purpose = "projection",
+  launchers = {}
+}, useIndex) {
+  if (typeof root !== "string" || root.length === 0 || typeof temporaryDirectory !== "string" || temporaryDirectory.length === 0 || !PURPOSE.test(purpose) || baselineTreeOid !== null && !FULL_OBJECT_ID3.test(baselineTreeOid) || typeof useIndex !== "function" || launchers === null || typeof launchers !== "object" || Array.isArray(launchers) || launchers.synchronous !== void 0 && typeof launchers.synchronous !== "function") {
+    throw new Error("Projected-index invocation is invalid.");
+  }
+  const encodedEntries = encodeIndexInfoRecords(entries);
+  const indexPath = allocateProjectedIndexPath(temporaryDirectory, purpose);
+  const lockPath = `${indexPath}.lock`;
+  const projectedEnvironment = {
+    ...environment,
+    GIT_INDEX_FILE: indexPath,
+    GIT_OPTIONAL_LOCKS: "0"
+  };
+  const gitOptions = {
+    env: projectedEnvironment,
+    launcher: launchers.synchronous
+  };
+  let primaryError = null;
+  let result;
+  try {
+    runIndexMutationGit(
+      root,
+      "read-index-tree",
+      [baselineTreeOid ?? "--empty"],
+      gitOptions
+    );
+    if (encodedEntries.length > 0) {
+      runIndexMutationGit(root, "update-index-info", [], {
+        ...gitOptions,
+        input: encodedEntries
+      });
+    }
+    if (process.platform !== "win32") {
+      chmodSync3(indexPath, 384);
+    }
+    result = await useIndex({
+      environment: projectedEnvironment,
+      indexPath
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  let cleanupError = null;
+  try {
+    removeExactArtifact(lockPath);
+    removeExactArtifact(indexPath);
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (primaryError !== null && cleanupError !== null) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      "Projected-index operation and exact cleanup both failed."
+    );
+  }
+  if (primaryError !== null) {
+    throw primaryError;
+  }
+  if (cleanupError !== null) {
+    throw cleanupError;
+  }
+  return result;
+}
+var FULL_OBJECT_ID3, INDEX_MODES, PURPOSE, NUL;
+var init_projectedIndex = __esm({
+  "src/committing-to-git/git/projectedIndex.js"() {
+    init_gitRepository();
+    FULL_OBJECT_ID3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    INDEX_MODES = /* @__PURE__ */ new Set(["000000", "100644", "100755", "120000", "160000"]);
+    PURPOSE = /^[a-z][a-z0-9-]{0,63}$/u;
+    NUL = Buffer.from([0]);
   }
 });
 
@@ -12509,8 +12763,8 @@ var init_transactionDiagnosticState = __esm({
 
 // src/committing-to-git/report/commitReport.js
 import { createHash as createHash11 } from "node:crypto";
-import { TextDecoder as TextDecoder5 } from "node:util";
-function hasExactKeys(value, keys) {
+import { TextDecoder as TextDecoder6 } from "node:util";
+function hasExactKeys2(value, keys) {
   return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
 function signatureIdentityMatchesBackend(attempt) {
@@ -12518,10 +12772,10 @@ function signatureIdentityMatchesBackend(attempt) {
     return attempt.identity === null && (attempt.status !== "skipped" || attempt.backend === null);
   }
   if (attempt.backend === "ssh") {
-    return hasExactKeys(attempt.identity, ["principal", "keyFingerprint"]) && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN2.test(attempt.identity.keyFingerprint);
+    return hasExactKeys2(attempt.identity, ["principal", "keyFingerprint"]) && typeof attempt.identity.principal === "string" && attempt.identity.principal.length > 0 && typeof attempt.identity.keyFingerprint === "string" && SSH_FINGERPRINT_PATTERN2.test(attempt.identity.keyFingerprint);
   }
   if (attempt.backend === "openpgp") {
-    return hasExactKeys(attempt.identity, [
+    return hasExactKeys2(attempt.identity, [
       "signer",
       "primaryKeyFingerprint",
       "signingSubkeyFingerprint"
@@ -12534,19 +12788,19 @@ function signatureIdentityMatchesBackend(attempt) {
   return false;
 }
 function validateReportOutputChannel(channel, label) {
-  if (!hasExactKeys(channel, ["totalByteCount", "sha256", "truncated"]) || !Number.isSafeInteger(channel.totalByteCount) || channel.totalByteCount < 0 || typeof channel.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(channel.sha256) || typeof channel.truncated !== "boolean") {
+  if (!hasExactKeys2(channel, ["totalByteCount", "sha256", "truncated"]) || !Number.isSafeInteger(channel.totalByteCount) || channel.totalByteCount < 0 || typeof channel.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(channel.sha256) || typeof channel.truncated !== "boolean") {
     throw new Error(`${label} is invalid.`);
   }
 }
 function validateCheckEvidence(checks) {
-  if (!hasExactKeys(checks, ["schemaVersion", "attemptCount", "receipts"]) || checks.schemaVersion !== 2 || !Number.isSafeInteger(checks.attemptCount) || checks.attemptCount < 0 || !Array.isArray(checks.receipts) || checks.receipts.length > checks.attemptCount) {
+  if (!hasExactKeys2(checks, ["schemaVersion", "attemptCount", "receipts"]) || checks.schemaVersion !== 2 || !Number.isSafeInteger(checks.attemptCount) || checks.attemptCount < 0 || !Array.isArray(checks.receipts) || checks.receipts.length > checks.attemptCount) {
     throw new Error(
       "Check evidence must use schema version 2 with bounded witnessed receipts."
     );
   }
   let priorOrdinal = 0;
   for (const receipt of checks.receipts) {
-    if (!hasExactKeys(receipt, [
+    if (!hasExactKeys2(receipt, [
       "receiptId",
       "label",
       "command",
@@ -12558,7 +12812,7 @@ function validateCheckEvidence(checks) {
       "selectedScopeStable",
       "failureAcknowledged",
       "output"
-    ]) || typeof receipt.receiptId !== "string" || !/^C[0-9]{6}$/u.test(receipt.receiptId) || Number(receipt.receiptId.slice(1)) <= priorOrdinal || Number(receipt.receiptId.slice(1)) > checks.attemptCount || typeof receipt.label !== "string" || receipt.label.trim() !== receipt.label || receipt.label.length === 0 || !CHECK_OUTCOMES.has(receipt.outcome) || !Number.isSafeInteger(receipt.durationMilliseconds) || receipt.durationMilliseconds < 0 || receipt.selectedScopeStable !== true || !hasExactKeys(receipt.output, ["stdout", "stderr"])) {
+    ]) || typeof receipt.receiptId !== "string" || !/^C[0-9]{6}$/u.test(receipt.receiptId) || Number(receipt.receiptId.slice(1)) <= priorOrdinal || Number(receipt.receiptId.slice(1)) > checks.attemptCount || typeof receipt.label !== "string" || receipt.label.trim() !== receipt.label || receipt.label.length === 0 || !CHECK_OUTCOMES.has(receipt.outcome) || !Number.isSafeInteger(receipt.durationMilliseconds) || receipt.durationMilliseconds < 0 || receipt.selectedScopeStable !== true || !hasExactKeys2(receipt.output, ["stdout", "stderr"])) {
       throw new Error("A witnessed check receipt is invalid.");
     }
     validateCheckCommand(receipt.command);
@@ -12576,10 +12830,10 @@ function validateCheckEvidence(checks) {
   return checks;
 }
 function validatePublicationArtifact(publication) {
-  if (hasExactKeys(publication, ["status"]) && publication.status === "not-requested") {
+  if (hasExactKeys2(publication, ["status"]) && publication.status === "not-requested") {
     return publication;
   }
-  if (hasExactKeys(publication, ["status", "reason"]) && publication.status === "blocked" && typeof publication.reason === "string" && publication.reason.length > 0) {
+  if (hasExactKeys2(publication, ["status", "reason"]) && publication.status === "blocked" && typeof publication.reason === "string" && publication.reason.length > 0) {
     return publication;
   }
   const workflowKeys = [
@@ -12605,7 +12859,7 @@ function validatePublicationArtifact(publication) {
       "observed-matching",
       "succeeded"
     ])).has(publication.status);
-    if (!hasExactKeys(publication, workflowKeys) || !statusValid || !UUID_V4_PATTERN2.test(publication.attemptId) || publication.retryOf !== null && !UUID_V4_PATTERN2.test(publication.retryOf) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote.length === 0 || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || publication.exitCode !== null && !Number.isInteger(publication.exitCode) || publication.transcript !== null && (typeof publication.transcript !== "object" || Array.isArray(publication.transcript)) || publication.observation !== null && (typeof publication.observation !== "object" || Array.isArray(publication.observation)) || publication.resolution !== null && (typeof publication.resolution !== "object" || Array.isArray(publication.resolution)) || typeof publication.retryPermitted !== "boolean" || publication.reason !== null && typeof publication.reason !== "string" || publication.status === "succeeded" && (publication.exitCode !== 0 || publication.transcript === null) || publication.status === "observed-matching" && (publication.observation?.status !== "observed" || publication.observation.observedOid !== publication.commitOid || publication.retryPermitted) || publication.retryPermitted && (publication.status !== "unknown" || publication.observation === null || publication.resolution === null)) {
+    if (!hasExactKeys2(publication, workflowKeys) || !statusValid || !UUID_V4_PATTERN2.test(publication.attemptId) || publication.retryOf !== null && !UUID_V4_PATTERN2.test(publication.retryOf) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote.length === 0 || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || publication.exitCode !== null && !Number.isInteger(publication.exitCode) || publication.transcript !== null && (typeof publication.transcript !== "object" || Array.isArray(publication.transcript)) || publication.observation !== null && (typeof publication.observation !== "object" || Array.isArray(publication.observation)) || publication.resolution !== null && (typeof publication.resolution !== "object" || Array.isArray(publication.resolution)) || typeof publication.retryPermitted !== "boolean" || publication.reason !== null && typeof publication.reason !== "string" || publication.status === "succeeded" && (publication.exitCode !== 0 || publication.transcript === null) || publication.status === "observed-matching" && (publication.observation?.status !== "observed" || publication.observation.observedOid !== publication.commitOid || publication.retryPermitted) || publication.retryPermitted && (publication.status !== "unknown" || publication.observation === null || publication.resolution === null)) {
       throw new Error(
         "Publication artifact does not match the workflow contract."
       );
@@ -12625,7 +12879,7 @@ function validatePublicationArtifact(publication) {
   ];
   const validStatus = publication?.status === "pushed" || publication?.status === "failed";
   const validExit = publication?.status === "pushed" && publication?.exitCode === 0 || publication?.status === "failed" && publication?.exitCode > 0;
-  if (!hasExactKeys(publication, keys) || publication.schemaVersion !== 1 || !validStatus || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote === "" || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || !validExit || typeof publication.stdout !== "string" || typeof publication.stderr !== "string") {
+  if (!hasExactKeys2(publication, keys) || publication.schemaVersion !== 1 || !validStatus || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(publication.commitOid) || typeof publication.remote !== "string" || publication.remote === "" || typeof publication.destination !== "string" || !publication.destination.startsWith("refs/heads/") || publication.refspec !== `${publication.commitOid}:${publication.destination}` || !validExit || typeof publication.stdout !== "string" || typeof publication.stderr !== "string") {
     throw new Error(
       "Publication artifact does not match the workflow contract."
     );
@@ -12643,7 +12897,7 @@ function validateVerificationArtifact(verification, commitOid) {
     "blocksPush"
   ];
   const attemptsValid = Array.isArray(verification?.attempts) && verification.attempts.length > 0 && verification.attempts.every(
-    (attempt) => hasExactKeys(attempt, [
+    (attempt) => hasExactKeys2(attempt, [
       "status",
       "reason",
       "backend",
@@ -12652,7 +12906,7 @@ function validateVerificationArtifact(verification, commitOid) {
     ]) && SIGNATURE_STATUSES.has(attempt.status) && (/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) && (attempt.reason === null || typeof attempt.reason === "string") && (attempt.identity === null || typeof attempt.identity === "object" && !Array.isArray(attempt.identity)) && typeof attempt.timestamp === "string" && Number.isFinite(Date.parse(attempt.timestamp)) && signatureIdentityMatchesBackend(attempt)
   );
   const effective = attemptsValid ? verification.attempts[verification.effectiveAttempt] : null;
-  if (!hasExactKeys(verification, topLevelKeys) || verification.schemaVersion !== 2 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(verification.commitOid) || !VERIFICATION_POLICIES.has(verification.initialPolicy) || !VERIFICATION_POLICIES.has(verification.finalPolicy) || !attemptsValid || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || verification.blocksPush !== (verification.finalPolicy === "required" && effective?.status !== "verified") || verification.finalPolicy === "skipped" && effective?.status !== "skipped") {
+  if (!hasExactKeys2(verification, topLevelKeys) || verification.schemaVersion !== 2 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(verification.commitOid) || !VERIFICATION_POLICIES.has(verification.initialPolicy) || !VERIFICATION_POLICIES.has(verification.finalPolicy) || !attemptsValid || !Number.isSafeInteger(verification.effectiveAttempt) || verification.effectiveAttempt < 0 || verification.effectiveAttempt >= verification.attempts.length || verification.blocksPush !== (verification.finalPolicy === "required" && effective?.status !== "verified") || verification.finalPolicy === "skipped" && effective?.status !== "skipped") {
     throw new Error(
       "Verification artifact does not match the workflow contract."
     );
@@ -12892,7 +13146,7 @@ function bytesAfterSpaces(field, count) {
 }
 function safeByteDisplay(bytes) {
   try {
-    const decoded = STRICT_UTF8_DECODER4.decode(bytes);
+    const decoded = STRICT_UTF8_DECODER5.decode(bytes);
     if (SAFE_TERMINAL_TEXT.test(decoded)) {
       return decoded;
     }
@@ -13395,7 +13649,7 @@ function renderCommitReport(report) {
   lines.push("");
   return lines.join("\n");
 }
-var CHECK_OUTCOMES, VERIFICATION_POLICIES, SIGNATURE_STATUSES, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER4, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
+var CHECK_OUTCOMES, VERIFICATION_POLICIES, SIGNATURE_STATUSES, SSH_FINGERPRINT_PATTERN2, OPENPGP_FINGERPRINT_PATTERN2, UUID_V4_PATTERN2, STRICT_UTF8_DECODER5, SAFE_TERMINAL_TEXT, MAXIMUM_INLINE_WORKSPACE_BYTES, MAXIMUM_COMPACT_DIRECTORY_SAMPLES, MAXIMUM_REPORT_RESULT_BYTES;
 var init_commitReport = __esm({
   "src/committing-to-git/report/commitReport.js"() {
     init_byteOrdering();
@@ -13413,7 +13667,7 @@ var init_commitReport = __esm({
     SSH_FINGERPRINT_PATTERN2 = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
     OPENPGP_FINGERPRINT_PATTERN2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
     UUID_V4_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER5 = new TextDecoder6("utf-8", { fatal: true });
     SAFE_TERMINAL_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
     MAXIMUM_INLINE_WORKSPACE_BYTES = 48 * 1024;
     MAXIMUM_COMPACT_DIRECTORY_SAMPLES = 16;
@@ -13437,7 +13691,7 @@ import {
   unlinkSync as unlinkSync5,
   writeFileSync as writeFileSync8
 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute8, join as join9, relative as relative5, resolve as resolve14 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute9, join as join9, relative as relative5, resolve as resolve14 } from "node:path";
 function sha2562(bytes) {
   return createHash12("sha256").update(bytes).digest("hex");
 }
@@ -13448,7 +13702,7 @@ function samePath2(left, right) {
 }
 function assertContained2(parent, child, { allowSame = false } = {}) {
   const path = relative5(parent, child);
-  if (!allowSame && path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute8(path)) {
+  if (!allowSame && path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute9(path)) {
     throw new Error(`Recovery target escapes its transaction: ${child}`);
   }
 }
@@ -14095,7 +14349,7 @@ var init_transactionRecovery = __esm({
 import { createHash as createHash13 } from "node:crypto";
 import { closeSync as closeSync10, openSync as openSync10, readSync as readSync4, realpathSync as realpathSync6 } from "node:fs";
 import { join as join10, resolve as resolve15 } from "node:path";
-function invalid() {
+function invalid3() {
   throw new WorkflowDiagnosticError(
     "PROCESS_DIAGNOSTICS_INVALID",
     "Retained process evidence is missing, replaced or corrupt. Preserve known mutation state; do not replay the operation."
@@ -14103,7 +14357,7 @@ function invalid() {
 }
 function previewTranscript(evidence, expectedPath) {
   if (resolve15(evidence.path) !== expectedPath || realpathSync6(expectedPath) !== expectedPath)
-    invalid();
+    invalid3();
   const fd = openSync10(expectedPath, "r");
   const hash = createHash13("sha256");
   const channels = {
@@ -14117,7 +14371,7 @@ function previewTranscript(evidence, expectedPath) {
       const n = readSync4(fd, bytes, count, size - count, null);
       if (n === 0) {
         if (allowEnd && count === 0) return null;
-        invalid();
+        invalid3();
       }
       count += n;
     }
@@ -14125,12 +14379,12 @@ function previewTranscript(evidence, expectedPath) {
     return bytes;
   }
   try {
-    if (!read(MAGIC.length).equals(MAGIC)) invalid();
+    if (!read(MAGIC.length).equals(MAGIC)) invalid3();
     let sequence = 0n;
     for (let header = read(13, true); header; header = read(13, true)) {
-      if (header.readBigUInt64BE(0) !== sequence++) invalid();
+      if (header.readBigUInt64BE(0) !== sequence++) invalid3();
       const channel = channels[{ 1: "stdout", 2: "stderr" }[header[8]]];
-      if (!channel) invalid();
+      if (!channel) invalid3();
       let remaining = header.readUInt32BE(9);
       channel.total += remaining;
       while (remaining > 0) {
@@ -14145,7 +14399,7 @@ function previewTranscript(evidence, expectedPath) {
       }
     }
     if (hash.digest("hex") !== evidence.sha256 || channels.stdout.total !== evidence.stdoutByteCount || channels.stderr.total !== evidence.stderrByteCount)
-      invalid();
+      invalid3();
     const summary = ({ bytes, total }) => ({
       text: bytes.toString("utf8"),
       totalByteCount: total,
@@ -14198,7 +14452,7 @@ function readProcessDiagnostics({
           latest.attemptId
         );
     } catch {
-      invalid();
+      invalid3();
     }
     return createWorkflowResult({
       disposition: "succeeded",
@@ -14282,19 +14536,6 @@ var init_preparationDiagnostics = __esm({
 });
 
 // src/committing-to-git/workflow/prepareWorkflow.js
-var prepareWorkflow_exports = {};
-__export(prepareWorkflow_exports, {
-  acquireEvidence: () => acquireEvidence,
-  assertNoGitStorageOverrides: () => assertNoGitStorageOverrides,
-  cleanupEvidenceSpools: () => cleanupEvidenceSpools,
-  manifestEnvironment: () => manifestEnvironment,
-  parsePrepareArguments: () => parsePrepareArguments,
-  preMaterializePatchPackets: () => preMaterializePatchPackets,
-  preflightVerificationPolicy: () => preflightVerificationPolicy,
-  prepareWorkflow: () => prepareWorkflow,
-  routePreparedEvidence: () => routePreparedEvidence,
-  runPrepareWorkflowCommand: () => runPrepareWorkflowCommand
-});
 import { createHash as createHash14, randomUUID as randomUUID6 } from "node:crypto";
 import {
   closeSync as closeSync11,
@@ -14310,7 +14551,7 @@ import {
   writeFileSync as writeFileSync9
 } from "node:fs";
 import { dirname as dirname8, resolve as resolve16 } from "node:path";
-import { TextDecoder as TextDecoder6 } from "node:util";
+import { TextDecoder as TextDecoder7 } from "node:util";
 function fail5(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
@@ -14365,7 +14606,7 @@ function readBoundedJson(path, label) {
   {
     let text;
     try {
-      text = STRICT_UTF8_DECODER5.decode(bytes);
+      text = STRICT_UTF8_DECODER6.decode(bytes);
     } catch {
       fail5("INVALID_JSON_UTF8", `${label} is not strict UTF-8.`);
     }
@@ -14377,125 +14618,6 @@ function readBoundedJson(path, label) {
       });
     }
   }
-}
-function inlineScopePayload(values) {
-  return {
-    schemaVersion: 2,
-    includePaths: values.get("path") ?? [],
-    includePathPrefixes: values.get("path-prefix") ?? [],
-    excludePaths: values.get("exclude-path") ?? [],
-    excludePathPrefixes: values.get("exclude-path-prefix") ?? [],
-    includePathBytesBase64: [],
-    excludePathBytesBase64: []
-  };
-}
-function parsePrepareArguments(argv) {
-  const { values } = parseCommandArguments("workflow prepare", argv);
-  const mode = values.get("mode");
-  const scope = values.get("scope");
-  const verificationPolicy = values.get("verification") ?? "required";
-  const format = values.get("format") ?? "json";
-  const messageFormat = values.get("message-format") ?? null;
-  if (messageFormat !== null && messageFormat !== "detailed") {
-    fail5(
-      "INVALID_MESSAGE_FORMAT",
-      "--message-format must be detailed when supplied."
-    );
-  }
-  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
-    fail5("INVALID_MODE", "--mode must be actual or draft.");
-  }
-  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
-    fail5("INVALID_SCOPE", "--scope must be staged, full, or paths.");
-  }
-  if (!VERIFICATION_POLICIES2.has(verificationPolicy)) {
-    fail5(
-      "INVALID_VERIFICATION_POLICY",
-      "--verification must be required, advisory, or skipped."
-    );
-  }
-  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail5("INVALID_FORMAT", "--format must be json or text.");
-  }
-  const evidencePlanPath = values.get("evidence-plan") ?? null;
-  const evidence = values.get("evidence") ?? null;
-  const basis = values.get("basis") ?? null;
-  if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
-    fail5(
-      "CONFLICTING_EVIDENCE_INPUT",
-      "--evidence-plan is an alternative to --evidence and --basis."
-    );
-  }
-  if (evidencePlanPath === null && (evidence === null || basis === null)) {
-    fail5(
-      "MISSING_EVIDENCE_INPUT",
-      "Supply --evidence and --basis together, or supply --evidence-plan."
-    );
-  }
-  if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
-    fail5(
-      "INVALID_EVIDENCE_POLICY",
-      "--evidence must be reuse, message, or review."
-    );
-  }
-  if (basis !== null && !BASIS_KINDS.includes(basis)) {
-    fail5(
-      "INVALID_EVIDENCE_BASIS",
-      "--basis is not a supported provenance kind."
-    );
-  }
-  if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
-    fail5(
-      "INVALID_EVIDENCE_BASIS",
-      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
-    );
-  }
-  const allowedTypes = values.get("allowed-type") ?? [];
-  if (allowedTypes.length > 64) {
-    fail5(
-      "INVALID_ALLOWED_TYPE",
-      "At most 64 allowed commit types may be supplied."
-    );
-  }
-  if (allowedTypes.some((type) => !TYPE_TOKEN_PATTERN2.test(type)) || new Set(allowedTypes).size !== allowedTypes.length) {
-    fail5(
-      "INVALID_ALLOWED_TYPE",
-      "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters."
-    );
-  }
-  const hasInlineSelectors = INLINE_SELECTOR_FLAGS.some(
-    (name) => values.has(name)
-  );
-  const scopeFilePath = values.get("scope-file") ?? null;
-  if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
-    fail5(
-      "SELECTOR_OUTSIDE_PATH_SCOPE",
-      "Path selectors and --scope-file are valid only with --scope paths."
-    );
-  }
-  if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
-    fail5(
-      "CONFLICTING_SCOPE_INPUT",
-      "Inline selectors and --scope-file cannot be combined."
-    );
-  }
-  if (scope === "paths" && scopeFilePath === null && !(values.has("path") || values.has("path-prefix"))) {
-    fail5("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
-  }
-  return {
-    mode,
-    correctionFromPath: values.get("correction-from") ?? null,
-    scope,
-    evidencePlanPath,
-    evidence,
-    basis,
-    allowedTypes: allowedTypes.length === 0 ? null : allowedTypes,
-    scopeFilePath,
-    inlineScope: scope === "paths" && scopeFilePath === null ? inlineScopePayload(values) : null,
-    verificationPolicy,
-    messageFormat,
-    format
-  };
 }
 function assertNoGitStorageOverrides(environment) {
   for (const name of STORAGE_OVERRIDE_NAMES) {
@@ -14618,7 +14740,7 @@ function exactUnstagedRenamePairs(root, unstaged, untracked, environment) {
     const path = record.paths[0];
     let text;
     try {
-      text = STRICT_UTF8_DECODER5.decode(path);
+      text = STRICT_UTF8_DECODER6.decode(path);
     } catch {
       continue;
     }
@@ -14745,7 +14867,7 @@ function safePathDisplay(bytes) {
   const digest3 = sha2563(bytes);
   let text;
   try {
-    text = STRICT_UTF8_DECODER5.decode(bytes);
+    text = STRICT_UTF8_DECODER6.decode(bytes);
   } catch {
     text = null;
   }
@@ -15460,7 +15582,7 @@ async function prepareWorkflow({
   options,
   cwd = process.cwd(),
   environment = process.env,
-  temporaryRoot,
+  stateDirectory,
   indexFailureInjector,
   preparationFailureInjector
 }) {
@@ -15556,7 +15678,7 @@ async function prepareWorkflow({
   const summary = scopeSummary(parsed.scope, normalizedScope, selectedPaths);
   const workspace = createTransactionWorkspace({
     repositoryRoot: root,
-    ...temporaryRoot ? { temporaryRoot } : {}
+    stateDirectory
   });
   const evidenceSha256 = sha2563(normalizedEvidence.canonicalBytes);
   if (parsed.evidencePlanPath) {
@@ -15709,33 +15831,15 @@ async function prepareWorkflow({
   }
   return successEnvelope(completed, summary);
 }
-async function runPrepareWorkflowCommand(argv, {
-  cwd = process.cwd(),
-  environment = process.env,
-  stdout = process.stdout
-} = {}) {
-  return executeCommand(argv, {
-    parse: parsePrepareArguments,
-    execute: (options) => prepareWorkflow({ options, cwd, environment }),
-    failureState: () => ({
-      commitState: "absent",
-      publicationState: "not-requested"
-    }),
-    stdout
-  });
-}
-var STORAGE_OVERRIDE_NAMES, VERIFICATION_POLICIES2, TYPE_TOKEN_PATTERN2, INLINE_SELECTOR_FLAGS, STRICT_UTF8_DECODER5;
+var STORAGE_OVERRIDE_NAMES, VERIFICATION_POLICIES2, TYPE_TOKEN_PATTERN2, INLINE_SELECTOR_FLAGS, STRICT_UTF8_DECODER6;
 var init_prepareWorkflow = __esm({
   "src/committing-to-git/workflow/prepareWorkflow.js"() {
     init_preparationInputs();
     init_stableFile();
-    init_commandExecution();
     init_recordedSnapshot();
     init_workflowDiagnosticError();
     init_preparationFailureRecord();
     init_diagnosticContract();
-    init_evidenceVocabulary();
-    init_commandArguments();
     init_gitRepository();
     init_gitPath();
     init_projectedIndex();
@@ -15763,7 +15867,11 @@ var init_prepareWorkflow = __esm({
       "GIT_QUARANTINE_PATH",
       "GIT_NAMESPACE"
     ];
-    VERIFICATION_POLICIES2 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    VERIFICATION_POLICIES2 = /* @__PURE__ */ new Set([
+      "required",
+      "advisory",
+      "skipped"
+    ]);
     TYPE_TOKEN_PATTERN2 = /^[a-z][a-z0-9-]{0,31}$/u;
     INLINE_SELECTOR_FLAGS = [
       "path",
@@ -15771,21 +15879,997 @@ var init_prepareWorkflow = __esm({
       "exclude-path",
       "exclude-path-prefix"
     ];
-    STRICT_UTF8_DECODER5 = new TextDecoder6("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/snapshot/workingTreeSnapshot.js
+import { lstatSync as lstatSync9, readFileSync as readFileSync6, readlinkSync } from "node:fs";
+import { join as join11 } from "node:path";
+function unsupported(reason, message) {
+  throw new UnsupportedWorkingTreeObservation(reason, message);
+}
+function textPath(pathBytes) {
+  const text = pathBytes.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(pathBytes) || /[\r\n]/u.test(text)) {
+    unsupported(
+      "path-encoding",
+      "A changed path is not line-safe UTF-8 and cannot be observed without an index."
+    );
+  }
+  return text;
+}
+function emptyTreeObjectId(root) {
+  return runReadOnlyGit(root, "empty-tree-object-id", [], {
+    input: Buffer.alloc(0)
+  }).stdout.toString("ascii").trim();
+}
+function untrackedPathArgument(pathBytes) {
+  const path = textPath(pathBytes);
+  if (pathBytes.length > MAXIMUM_NO_INDEX_PATH_BYTES) {
+    unsupported(
+      "untracked-path-length",
+      `An untracked path exceeds ${MAXIMUM_NO_INDEX_PATH_BYTES} bytes; disk preparation stages it through an index instead.`
+    );
+  }
+  return path;
+}
+async function mapConcurrently(items, limit, map) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await map(items[index]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
+  return results;
+}
+function nulField(buffer, offset) {
+  const end = buffer.indexOf(0, offset);
+  if (end < 0) {
+    throw new Error("git diff --no-index returned an unterminated record.");
+  }
+  return [buffer.subarray(offset, end), end + 1];
+}
+function parseNoIndexObservation(output, withPatch) {
+  const [rawHeader, afterRawHeader] = nulField(output, 0);
+  const [, afterRawPath] = nulField(output, afterRawHeader);
+  const [numstatHeader, afterNumstatHeader] = nulField(output, afterRawPath);
+  const rawFields = rawHeader.toString("ascii").slice(1).split(" ");
+  const numstatFields = numstatHeader.toString("ascii").split("	");
+  let offset = afterNumstatHeader;
+  if (!rawHeader.toString("ascii").startsWith(":") || rawFields.length !== 5 || numstatFields.length !== 3) {
+    throw new Error("git diff --no-index returned an unexpected record.");
+  }
+  if (numstatFields[2] === "") {
+    [, offset] = nulField(output, offset);
+    [, offset] = nulField(output, offset);
+  }
+  let patch = null;
+  if (withPatch) {
+    patch = output.subarray(offset + 1);
+    if (output[offset] !== 0 || !patch.toString("utf8", 0, 11).startsWith("diff --git")) {
+      throw new Error("git diff --no-index returned an unexpected patch.");
+    }
+  }
+  return {
+    mode: rawFields[1],
+    added: numstatFields[0],
+    deleted: numstatFields[1],
+    patch
+  };
+}
+async function observeUntrackedPath(root, pathBytes, zeroObjectId, withPatch) {
+  const path = untrackedPathArgument(pathBytes);
+  const chunks = [];
+  const result = await streamGit(
+    "diff-no-index",
+    [withPatch ? "--raw-numstat-patch" : "--raw-numstat", "--", path],
+    { cwd: root, allowFailure: true, onStdout: (chunk) => chunks.push(chunk) }
+  );
+  if (result.aborted || result.timedOut || result.status !== 1) {
+    throw new Error(
+      `git diff --no-index could not observe an untracked path (status ${result.status}).`
+    );
+  }
+  const observation = parseNoIndexObservation(Buffer.concat(chunks), withPatch);
+  const binary = observation.added === "-" || observation.deleted === "-";
+  return {
+    patch: observation.patch,
+    record: {
+      oldMode: "000000",
+      newMode: observation.mode,
+      oldOid: zeroObjectId,
+      newOid: zeroObjectId,
+      status: "A",
+      kind: "added",
+      similarity: null,
+      sourceBytes: pathBytes,
+      destinationBytes: pathBytes
+    },
+    statistics: {
+      additions: binary ? null : Number(observation.added),
+      deletions: binary ? null : Number(observation.deleted),
+      binary
+    }
+  };
+}
+function symbolicLinkTarget(root, path) {
+  const absolutePath = join11(root, path);
+  try {
+    return readlinkSync(absolutePath, { encoding: "buffer" });
+  } catch (error) {
+    if (!(/* @__PURE__ */ new Set(["EINVAL", "UNKNOWN"])).has(error.code)) {
+      throw error;
+    }
+    return readFileSync6(absolutePath);
+  }
+}
+function hashWorkingTreeObjects(root, records) {
+  const pending = records.filter(
+    (record) => record.newMode !== "000000" && ZERO_OBJECT_ID.test(record.newOid)
+  );
+  const files = pending.filter(({ newMode }) => newMode !== "120000");
+  if (files.length > 0) {
+    const objectIds = runReadOnlyGit(root, "hash-object-paths", [], {
+      input: Buffer.from(
+        files.map(({ destinationBytes }) => `${textPath(destinationBytes)}
+`).join(""),
+        "utf8"
+      )
+    }).stdout.toString("ascii").trim().split(/\r?\n/u);
+    if (objectIds.length !== files.length) {
+      throw new Error("git hash-object returned an incomplete identity list.");
+    }
+    files.forEach((record, index) => {
+      record.newOid = objectIds[index];
+    });
+  }
+  for (const record of pending.filter(({ newMode }) => newMode === "120000")) {
+    record.newOid = runReadOnlyGit(root, "hash-object-unfiltered-input", [], {
+      input: symbolicLinkTarget(root, textPath(record.destinationBytes))
+    }).stdout.toString("ascii").trim();
+  }
+}
+function eligibleBlobBytes(root, records) {
+  const { eligibleBlobBytes: storedBytes } = inspectObjectSizes(
+    root,
+    void 0,
+    records
+  );
+  let workingTreeBytes = 0n;
+  for (const record of records) {
+    if (record.newMode !== "000000" && ZERO_OBJECT_ID.test(record.newOid)) {
+      workingTreeBytes += BigInt(
+        lstatSync9(join11(root, textPath(record.destinationBytes))).size
+      );
+    }
+  }
+  return storedBytes + workingTreeBytes;
+}
+async function observeUntrackedPaths(root, untrackedPaths, zeroObjectId, maximumPatchBytes) {
+  let reservedPatchBytes = 0;
+  let patchesComplete = maximumPatchBytes !== null;
+  const untracked = await mapConcurrently(
+    untrackedPaths,
+    MAXIMUM_CONCURRENT_OBSERVATIONS,
+    (pathBytes) => {
+      const minimumPatchBytes = patchesComplete ? lstatSync9(join11(root, untrackedPathArgument(pathBytes))).size + 2 * pathBytes.length + MINIMUM_PATCH_FRAMING_BYTES : 0;
+      const withPatch = patchesComplete && reservedPatchBytes + minimumPatchBytes <= maximumPatchBytes;
+      if (withPatch) {
+        reservedPatchBytes += minimumPatchBytes;
+      } else {
+        patchesComplete = false;
+      }
+      return observeUntrackedPath(root, pathBytes, zeroObjectId, withPatch);
+    }
+  );
+  const patchBytes = untracked.reduce(
+    (total, { patch }) => total + (patch?.length ?? 0),
+    0
+  );
+  return {
+    untracked,
+    untrackedPatches: patchesComplete && patchBytes <= maximumPatchBytes ? new Map(
+      untracked.map(({ record, patch }) => [
+        record.destinationBytes.toString("base64"),
+        patch
+      ])
+    ) : null
+  };
+}
+async function buildWorkingTreeSnapshot({
+  root,
+  workflowMode,
+  headOid,
+  withLineStatistics = true,
+  maximumPatchBytes = null,
+  maximumUntrackedObservations = MAXIMUM_UNTRACKED_OBSERVATIONS,
+  maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
+}) {
+  const baseTreeish = headOid ?? emptyTreeObjectId(root);
+  const zeroObjectId = "0".repeat(baseTreeish.length);
+  const tracked = parseRawDiff(
+    runReadOnlyGit(root, "diff", [
+      "-z",
+      "--raw",
+      "--no-abbrev",
+      "--no-renames",
+      baseTreeish,
+      "--"
+    ]).stdout
+  );
+  const untrackedPaths = splitNul(
+    runReadOnlyGit(root, "ls-files", [
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "--"
+    ]).stdout
+  );
+  if (untrackedPaths.length > maximumUntrackedObservations) {
+    unsupported(
+      "untracked-path-limit",
+      `Full scope has ${untrackedPaths.length} untracked paths; memory preparation observes at most ${maximumUntrackedObservations}.`
+    );
+  }
+  if (untrackedPaths.some((path) => path.at(-1) === 47)) {
+    unsupported(
+      "untracked-repository",
+      "Full scope contains an untracked embedded repository."
+    );
+  }
+  if (tracked.some(
+    ({ oldMode, newMode }) => oldMode === "160000" || newMode === "160000"
+  )) {
+    unsupported("submodule-change", "Full scope contains a submodule change.");
+  }
+  const trackedPaths = new Set(
+    tracked.map(({ destinationBytes }) => destinationBytes.toString("base64"))
+  );
+  if (untrackedPaths.some((path) => trackedPaths.has(path.toString("base64")))) {
+    unsupported(
+      "untracked-replaces-tracked",
+      "An untracked path replaces a path that the index no longer tracks."
+    );
+  }
+  const statistics = withLineStatistics ? parseNumstat(
+    runReadOnlyGit(root, "diff", [
+      "-z",
+      "--numstat",
+      "--no-renames",
+      baseTreeish,
+      "--"
+    ]).stdout
+  ) : /* @__PURE__ */ new Map();
+  const { untracked, untrackedPatches } = await observeUntrackedPaths(
+    root,
+    untrackedPaths,
+    zeroObjectId,
+    maximumPatchBytes
+  );
+  for (const { record, statistics: pathStatistics } of untracked) {
+    statistics.set(record.destinationBytes.toString("base64"), pathStatistics);
+  }
+  const records = [...tracked, ...untracked.map(({ record }) => record)];
+  const lineStatistics = withLineStatistics ? selectLineStatisticsPolicy({
+    eligibleBlobBytes: eligibleBlobBytes(root, records),
+    maximumEagerBytes: maximumEagerLineStatInputBytes
+  }) : { mode: "deferred", eligibleBlobBytes: 0 };
+  hashWorkingTreeObjects(root, records);
+  const initialUnits = records.map(normalizedChangeUnit);
+  let changeUnits = pairExactObjectRenames(initialUnits);
+  if (lineStatistics.mode === "eager") {
+    changeUnits = changeUnits.map((unit) => ({
+      ...unit,
+      ...statisticsForUnit(unit, statistics),
+      lineStatistics: "eager"
+    }));
+  }
+  const addedCandidates = initialUnits.filter(
+    ({ oldMode }) => oldMode === "000000"
+  ).length;
+  const deletedCandidates = initialUnits.filter(
+    ({ newMode }) => newMode === "000000"
+  ).length;
+  const renameSelection = selectRenamePolicy({
+    addedCandidates,
+    deletedCandidates
+  });
+  const similarityDeferred = addedCandidates > 0 && deletedCandidates > 0;
+  const snapshot = assembleSnapshot({
+    root,
+    workflowMode,
+    scopeKind: "full",
+    sourceIndex: "working-tree",
+    headOid,
+    indexTreeOid: null,
+    rename: {
+      mode: similarityDeferred ? "deferred" : "eager",
+      maximumCandidatePairs: MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
+      addedCandidates,
+      deletedCandidates,
+      candidatePairs: renameSelection.candidatePairs
+    },
+    lineStatistics: {
+      mode: lineStatistics.mode,
+      maximumEagerBytes: maximumEagerLineStatInputBytes,
+      eligibleBlobBytes: lineStatistics.eligibleBlobBytes
+    },
+    changeUnits,
+    warnings: []
+  });
+  return { snapshot, untrackedPatches };
+}
+var MAXIMUM_UNTRACKED_OBSERVATIONS, MAXIMUM_CONCURRENT_OBSERVATIONS, MINIMUM_PATCH_FRAMING_BYTES, UnsupportedWorkingTreeObservation;
+var init_workingTreeSnapshot = __esm({
+  "src/committing-to-git/snapshot/workingTreeSnapshot.js"() {
+    init_gitRepository();
+    init_gitPath();
+    init_commitSnapshot();
+    MAXIMUM_UNTRACKED_OBSERVATIONS = 128;
+    MAXIMUM_CONCURRENT_OBSERVATIONS = 8;
+    MINIMUM_PATCH_FRAMING_BYTES = 64;
+    UnsupportedWorkingTreeObservation = class extends Error {
+      constructor(reason, message) {
+        super(message);
+        this.name = "UnsupportedWorkingTreeObservation";
+        this.reason = reason;
+      }
+    };
+  }
+});
+
+// src/committing-to-git/snapshot/changeSet.js
+import { createHash as createHash15 } from "node:crypto";
+function changeSetEntries(records) {
+  return records.map((record) => ({
+    pathBytes: Buffer.from(record.destinationBytes),
+    state: record.newMode === "000000" ? "deleted" : `${record.newMode} ${record.newOid}`
+  })).sort((left, right) => comparePathBytes(left.pathBytes, right.pathBytes));
+}
+function changeSetFromChangeUnits(changeUnits) {
+  return changeSetEntries(
+    changeUnits.flatMap((unit) => [
+      ...unit.sourcePathBytesBase64 ? [
+        {
+          newMode: "000000",
+          newOid: unit.oldOid,
+          destinationBytes: Buffer.from(
+            unit.sourcePathBytesBase64,
+            "base64"
+          )
+        }
+      ] : [],
+      {
+        newMode: unit.newMode,
+        newOid: unit.newOid,
+        destinationBytes: Buffer.from(
+          unit.destinationPathBytesBase64,
+          "base64"
+        )
+      }
+    ])
+  );
+}
+function changeSetSha256(entries) {
+  const hash = createHash15("sha256").update(CHANGE_SET_VERSION);
+  for (const { pathBytes, state } of entries) {
+    hash.update(`${pathBytes.toString("base64")}\0${state}
+`);
+  }
+  return hash.digest("hex");
+}
+function observeStagedChangeSet(root, headOid) {
+  const records = parseRawDiff(
+    runReadOnlyGit(root, "diff", [
+      "--cached",
+      "-z",
+      "--raw",
+      "--no-abbrev",
+      "--no-renames",
+      ...headOid ? [headOid] : ["--root"],
+      "--"
+    ]).stdout
+  );
+  return changeSetEntries(records);
+}
+function observeCommitChangeSet(root, commitOid) {
+  const records = parseRawDiff(
+    runReadOnlyGit(root, "diff-tree", [
+      "--root",
+      "--no-commit-id",
+      "-r",
+      "-z",
+      "--no-renames",
+      "--raw",
+      commitOid
+    ]).stdout
+  );
+  return changeSetEntries(records);
+}
+var CHANGE_SET_VERSION;
+var init_changeSet = __esm({
+  "src/committing-to-git/snapshot/changeSet.js"() {
+    init_gitRepository();
+    init_gitPath();
+    init_commitSnapshot();
+    CHANGE_SET_VERSION = "committing-to-git-change-set/v1\n";
+  }
+});
+
+// src/committing-to-git/workflow/proposalObservation.js
+function memoryStorageUnsupported(reason, message, details = {}) {
+  return new WorkflowDiagnosticError("STATE_STORAGE_REQUIRES_DISK", message, {
+    details: { reason, ...details },
+    state: { commitState: "absent", publicationState: "not-requested" },
+    recovery: {
+      kind: "correct-input",
+      requiredInputs: [
+        "--state-storage disk",
+        "--state-directory <absolute directory named by the user or repository instructions>"
+      ],
+      commands: [],
+      automatic: false
+    }
+  });
+}
+function proposalStale(changed) {
+  return new WorkflowDiagnosticError(
+    "PROPOSAL_STALE",
+    "The repository no longer matches the approved proposal; nothing was changed. Prepare again and approve the new proposal.",
+    {
+      disposition: "rejected",
+      details: { changed },
+      state: { commitState: "absent", publicationState: "not-requested" },
+      recovery: {
+        kind: "correct-input",
+        requiredInputs: [
+          "a fresh workflow prepare result and approval of its message"
+        ],
+        commands: [],
+        automatic: false
+      }
+    }
+  );
+}
+function sameHeadAnchor(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+async function observeProposalScope({
+  root,
+  scope,
+  mode,
+  withLineStatistics = true,
+  maximumUntrackedPatchBytes = null
+}) {
+  const headAnchor = captureHeadAnchor(root);
+  const headOid = headAnchor.expectedParentOids[0] ?? null;
+  let snapshot;
+  let untrackedPatches = /* @__PURE__ */ new Map();
+  try {
+    if (scope === "staged") {
+      snapshot = buildSnapshot({
+        root,
+        workflowMode: mode,
+        scopeKind: "staged",
+        sourceIndex: "real",
+        headOid,
+        writeTree: false,
+        ...withLineStatistics ? {} : { maximumEagerLineStatInputBytes: 0 }
+      });
+    } else {
+      ({ snapshot, untrackedPatches } = await buildWorkingTreeSnapshot({
+        root,
+        workflowMode: mode,
+        headOid,
+        withLineStatistics,
+        maximumPatchBytes: maximumUntrackedPatchBytes
+      }));
+    }
+  } catch (error) {
+    if (error instanceof UnsupportedWorkingTreeObservation) {
+      throw memoryStorageUnsupported(error.reason, error.message);
+    }
+    throw error;
+  }
+  if (!sameHeadAnchor(captureHeadAnchor(root), headAnchor)) {
+    throw new WorkflowDiagnosticError(
+      "REPOSITORY_CHANGED_DURING_OBSERVATION",
+      "HEAD moved while the scope was observed; prepare again.",
+      { disposition: "rejected" }
+    );
+  }
+  const manifest = { ...snapshot, manifestSha256: manifestDigest(snapshot) };
+  return {
+    headAnchor,
+    manifest,
+    untrackedPatches,
+    changeSetSha256: changeSetSha256(
+      changeSetFromChangeUnits(manifest.changeUnits)
+    )
+  };
+}
+async function observeCurrentProposal({ proposal, cwd }) {
+  const root = repositoryRoot(cwd);
+  if (root !== proposal.repositoryRoot) {
+    throw new WorkflowDiagnosticError(
+      "PROPOSAL_REPOSITORY_MISMATCH",
+      "The proposal belongs to a different repository working tree."
+    );
+  }
+  const observation = await observeProposalScope({
+    root,
+    scope: proposal.scope,
+    mode: proposal.mode,
+    withLineStatistics: false
+  });
+  const changed = [
+    ...sameHeadAnchor(observation.headAnchor, proposal.headAnchor) ? [] : ["head"],
+    ...observation.changeSetSha256 === proposal.changeSetSha256 && observation.manifest.changeUnitCount === proposal.changeUnitCount ? [] : [proposal.scope === "staged" ? "index" : "working-tree"]
+  ];
+  if (changed.length > 0) {
+    throw proposalStale(changed);
+  }
+  return { root, ...observation };
+}
+var init_proposalObservation = __esm({
+  "src/committing-to-git/workflow/proposalObservation.js"() {
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_inlineEvidenceCapsule();
+    init_changeSet();
+    init_commitSnapshot();
+    init_workingTreeSnapshot();
+    init_indexInstallation();
+  }
+});
+
+// src/committing-to-git/workflow/proposalEvidence.js
+async function boundedScopeDiff(root, args, maximumBytes) {
+  const controller = new AbortController();
+  const chunks = [];
+  let byteCount = 0;
+  const result = await streamGit("diff", args, {
+    cwd: root,
+    signal: controller.signal,
+    allowFailure: true,
+    onStdout(chunk) {
+      byteCount += chunk.length;
+      if (byteCount > maximumBytes) {
+        controller.abort();
+      } else {
+        chunks.push(chunk);
+      }
+    }
+  });
+  if (byteCount > maximumBytes) {
+    return null;
+  }
+  if (result.aborted || result.timedOut || result.status !== 0) {
+    throw new Error(
+      `Scope evidence diff did not complete (status ${result.status}).`
+    );
+  }
+  return Buffer.concat(chunks);
+}
+async function captureProposalEvidence({
+  root,
+  scope,
+  manifest,
+  evidencePlan,
+  untrackedPatches,
+  maximumBytes = MAXIMUM_CONCISE_RESULT_BYTES
+}) {
+  const messageGroups = evidencePlan.groups.filter(
+    ({ policy }) => policy === "message"
+  );
+  if (messageGroups.length === 0) {
+    return {};
+  }
+  if (messageGroups.length > 1 || messageGroups[0].changeUnitIds.length !== manifest.changeUnitCount) {
+    throw memoryStorageUnsupported(
+      "evidence-group-projection",
+      "Message evidence for part of a scope needs a projected index; use one uniform message group or disk storage."
+    );
+  }
+  if (untrackedPatches === null) {
+    return null;
+  }
+  const untrackedEvidence = [...untrackedPatches].sort(
+    ([left], [right]) => Buffer.compare(Buffer.from(left, "base64"), Buffer.from(right, "base64"))
+  ).map(([, patch]) => patch);
+  const untrackedBytes = untrackedEvidence.reduce(
+    (total, patch) => total + patch.length,
+    0
+  );
+  const comparison = manifest.headOid ?? (scope === "staged" ? "--root" : emptyTreeObjectId(root));
+  const tracked = untrackedBytes > maximumBytes ? null : await boundedScopeDiff(
+    root,
+    [
+      ...scope === "staged" ? ["--cached"] : [],
+      "--no-renames",
+      "--diff-filter=d",
+      comparison,
+      "--"
+    ],
+    maximumBytes - untrackedBytes
+  );
+  return tracked === null ? null : { [messageGroups[0].id]: Buffer.concat([tracked, ...untrackedEvidence]) };
+}
+var init_proposalEvidence = __esm({
+  "src/committing-to-git/workflow/proposalEvidence.js"() {
+    init_gitRepository();
+    init_inlineEvidenceCapsule();
+    init_workingTreeSnapshot();
+    init_proposalObservation();
+  }
+});
+
+// src/committing-to-git/workflow/prepareProposalWorkflow.js
+import { resolve as resolve17 } from "node:path";
+function initialEvidencePlan(options, cwd) {
+  return normalizeEvidencePlan(
+    options.evidencePlanPath ? readBoundedJson(resolve17(cwd, options.evidencePlanPath), "Evidence plan") : {
+      schemaVersion: 1,
+      groups: [
+        {
+          selection: { all: true },
+          policy: options.evidence,
+          basis: { kind: options.basis, note: null }
+        }
+      ]
+    }
+  );
+}
+function assertMemoryRoute(options) {
+  if (options.scope === "paths") {
+    throw memoryStorageUnsupported(
+      "paths-scope",
+      "Path scope still stages through a transaction-owned index."
+    );
+  }
+  if (options.messageFormat === "detailed") {
+    throw memoryStorageUnsupported(
+      "detailed-message-format",
+      "Detailed structured authoring still uses transaction-owned content files."
+    );
+  }
+  if (options.correctionFromPath !== null) {
+    throw memoryStorageUnsupported(
+      "transaction-correction",
+      "Correction reads a retained transaction; memory preparation is simply repeated."
+    );
+  }
+}
+function preparedResult({
+  proposal,
+  options,
+  headAnchor,
+  manifest,
+  changeSetSha256: changeSetSha2562,
+  evidencePlan,
+  capsule
+}) {
+  return createWorkflowResult({
+    disposition: "succeeded",
+    status: "prepared",
+    phase: "evidence-ready",
+    route: "concise",
+    commitState: "absent",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    data: {
+      terminalDisposition: null,
+      stateStorage: "memory",
+      proposal,
+      mode: options.mode,
+      scope: scopeSummary(options.scope, null, []),
+      headAnchor,
+      changeUnitCount: manifest.changeUnitCount,
+      changeSetSha256: changeSetSha2562,
+      evidencePlanSha256: evidencePlan.evidencePlanSha256,
+      capsule,
+      checkedAuthoring: {
+        input: "stdin",
+        arguments: ["message", "check", "--proposal", proposal]
+      },
+      ...options.mode === "actual" ? {
+        commit: {
+          arguments: ["workflow", "commit", "--proposal", proposal]
+        }
+      } : {}
+    }
+  });
+}
+async function prepareProposalWorkflow({
+  options,
+  cwd = process.cwd(),
+  environment = process.env
+}) {
+  assertMemoryRoute(options);
+  const normalizedEvidence = initialEvidencePlan(options, cwd);
+  if (normalizedEvidence.plan.groups.some(({ policy }) => policy === "review")) {
+    throw memoryStorageUnsupported(
+      "review-evidence",
+      "Review packets and their cursor state still live in a transaction."
+    );
+  }
+  assertNoGitStorageOverrides(environment);
+  const root = repositoryRoot(cwd);
+  assertPreallocationRepositoryState(root);
+  if (options.mode === "actual") {
+    preflightVerificationPolicy({
+      root,
+      verificationPolicy: options.verificationPolicy
+    });
+  }
+  const needsMessageEvidence = normalizedEvidence.plan.groups.some(
+    ({ policy }) => policy === "message"
+  );
+  const { headAnchor, manifest, changeSetSha256: changeSetSha2562, untrackedPatches } = await observeProposalScope({
+    root,
+    scope: options.scope,
+    mode: options.mode,
+    // Untracked patches ride on the observation process while they fit.
+    maximumUntrackedPatchBytes: needsMessageEvidence ? MAXIMUM_CONCISE_RESULT_BYTES : null
+  });
+  if (manifest.changeUnitCount === 0) {
+    throw new WorkflowDiagnosticError(
+      "EMPTY_SCOPE",
+      options.scope === "staged" ? "The staged scope is empty." : "The full workspace scope is empty."
+    );
+  }
+  const evidencePlan = canonicalizeEvidencePlan({
+    manifest,
+    groups: normalizedEvidence.plan.groups
+  });
+  const evidenceByGroupId = await captureProposalEvidence({
+    root,
+    scope: options.scope,
+    manifest,
+    evidencePlan,
+    untrackedPatches
+  });
+  const routing = evidenceByGroupId === null ? { route: "extended", extendedReason: "required-evidence-over-budget" } : createInlineEvidenceCapsule({
+    manifest: { ...manifest, evidenceByGroupId },
+    evidencePlan
+  });
+  if (routing.route !== "concise") {
+    throw memoryStorageUnsupported(
+      routing.extendedReason,
+      "The evidence needs review packets, which still live in a transaction."
+    );
+  }
+  const proposal = encodeCommitProposal({
+    schema: COMMIT_PROPOSAL_SCHEMA,
+    repositoryRoot: root,
+    mode: options.mode,
+    scope: options.scope,
+    headAnchor,
+    changeSetSha256: changeSetSha2562,
+    changeUnitCount: manifest.changeUnitCount,
+    allowedTypes: options.allowedTypes ?? [],
+    verificationPolicy: options.verificationPolicy
+  });
+  const facts = {
+    proposal,
+    options,
+    headAnchor,
+    manifest,
+    changeSetSha256: changeSetSha2562,
+    evidencePlan,
+    capsule: routing.capsule
+  };
+  let measuredByteCount = routing.capsule.byteCount;
+  let result;
+  for (; ; ) {
+    routing.capsule.byteCount = measuredByteCount;
+    result = preparedResult(facts);
+    const nextByteCount = Buffer.byteLength(JSON.stringify(result), "utf8");
+    if (nextByteCount === measuredByteCount) {
+      break;
+    }
+    measuredByteCount = nextByteCount;
+  }
+  if (measuredByteCount > MAXIMUM_CONCISE_RESULT_BYTES) {
+    throw memoryStorageUnsupported(
+      "scope-synopsis-over-budget",
+      "The concise result exceeds its budget; review packets still live in a transaction."
+    );
+  }
+  return result;
+}
+var init_prepareProposalWorkflow = __esm({
+  "src/committing-to-git/workflow/prepareProposalWorkflow.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_inlineEvidenceCapsule();
+    init_reviewCatalog();
+    init_commitProposal();
+    init_preparationInputs();
+    init_prepareWorkflow();
+    init_proposalEvidence();
+    init_proposalObservation();
+  }
+});
+
+// src/committing-to-git/cli/prepareCommand.js
+var prepareCommand_exports = {};
+__export(prepareCommand_exports, {
+  parsePrepareArguments: () => parsePrepareArguments,
+  runPrepareWorkflowCommand: () => runPrepareWorkflowCommand
+});
+function fail6(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function inlineScopePayload(values) {
+  return {
+    schemaVersion: 2,
+    includePaths: values.get("path") ?? [],
+    includePathPrefixes: values.get("path-prefix") ?? [],
+    excludePaths: values.get("exclude-path") ?? [],
+    excludePathPrefixes: values.get("exclude-path-prefix") ?? [],
+    includePathBytesBase64: [],
+    excludePathBytesBase64: []
+  };
+}
+function parsePrepareArguments(argv) {
+  const { values } = parseCommandArguments("workflow prepare", argv);
+  const mode = values.get("mode");
+  const scope = values.get("scope");
+  const verificationPolicy = values.get("verification") ?? "required";
+  const format = values.get("format") ?? "json";
+  const messageFormat = values.get("message-format") ?? null;
+  if (messageFormat !== null && messageFormat !== "detailed") {
+    fail6(
+      "INVALID_MESSAGE_FORMAT",
+      "--message-format must be detailed when supplied."
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["actual", "draft"])).has(mode)) {
+    fail6("INVALID_MODE", "--mode must be actual or draft.");
+  }
+  if (!(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(scope)) {
+    fail6("INVALID_SCOPE", "--scope must be staged, full, or paths.");
+  }
+  if (!VERIFICATION_POLICIES2.has(verificationPolicy)) {
+    fail6(
+      "INVALID_VERIFICATION_POLICY",
+      "--verification must be required, advisory, or skipped."
+    );
+  }
+  if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
+    fail6("INVALID_FORMAT", "--format must be json or text.");
+  }
+  const evidencePlanPath = values.get("evidence-plan") ?? null;
+  const evidence = values.get("evidence") ?? null;
+  const basis = values.get("basis") ?? null;
+  if (evidencePlanPath !== null && (evidence !== null || basis !== null)) {
+    fail6(
+      "CONFLICTING_EVIDENCE_INPUT",
+      "--evidence-plan is an alternative to --evidence and --basis."
+    );
+  }
+  if (evidencePlanPath === null && (evidence === null || basis === null)) {
+    fail6(
+      "MISSING_EVIDENCE_INPUT",
+      "Supply --evidence and --basis together, or supply --evidence-plan."
+    );
+  }
+  if (evidence !== null && !EVIDENCE_POLICIES.includes(evidence)) {
+    fail6(
+      "INVALID_EVIDENCE_POLICY",
+      "--evidence must be reuse, message, or review."
+    );
+  }
+  if (basis !== null && !BASIS_KINDS.includes(basis)) {
+    fail6(
+      "INVALID_EVIDENCE_BASIS",
+      "--basis is not a supported provenance kind."
+    );
+  }
+  if (evidence === "reuse" && !REUSE_BASIS_KINDS.includes(basis)) {
+    fail6(
+      "INVALID_EVIDENCE_BASIS",
+      "Reuse evidence requires authored, read, generated, or specific task-lineage basis."
+    );
+  }
+  const allowedTypes = values.get("allowed-type") ?? [];
+  if (allowedTypes.length > 64) {
+    fail6(
+      "INVALID_ALLOWED_TYPE",
+      "At most 64 allowed commit types may be supplied."
+    );
+  }
+  if (allowedTypes.some((type) => !TYPE_TOKEN_PATTERN2.test(type)) || new Set(allowedTypes).size !== allowedTypes.length) {
+    fail6(
+      "INVALID_ALLOWED_TYPE",
+      "Allowed commit types must be unique lowercase tokens of at most 32 ASCII characters."
+    );
+  }
+  const hasInlineSelectors = INLINE_SELECTOR_FLAGS.some(
+    (name) => values.has(name)
+  );
+  const scopeFilePath = values.get("scope-file") ?? null;
+  if (scope !== "paths" && (hasInlineSelectors || scopeFilePath !== null)) {
+    fail6(
+      "SELECTOR_OUTSIDE_PATH_SCOPE",
+      "Path selectors and --scope-file are valid only with --scope paths."
+    );
+  }
+  if (scope === "paths" && hasInlineSelectors && scopeFilePath !== null) {
+    fail6(
+      "CONFLICTING_SCOPE_INPUT",
+      "Inline selectors and --scope-file cannot be combined."
+    );
+  }
+  if (scope === "paths" && scopeFilePath === null && !(values.has("path") || values.has("path-prefix"))) {
+    fail6("MISSING_SCOPE_INCLUSION", "Path scope requires inclusion data.");
+  }
+  return {
+    mode,
+    correctionFromPath: values.get("correction-from") ?? null,
+    scope,
+    evidencePlanPath,
+    evidence,
+    basis,
+    allowedTypes: allowedTypes.length === 0 ? null : allowedTypes,
+    scopeFilePath,
+    inlineScope: scope === "paths" && scopeFilePath === null ? inlineScopePayload(values) : null,
+    verificationPolicy,
+    messageFormat,
+    format,
+    workflowState: selectWorkflowStateStorage({
+      storage: values.get("state-storage") ?? null,
+      directory: values.get("state-directory") ?? null
+    })
+  };
+}
+async function runPrepareWorkflowCommand(argv, {
+  cwd = process.cwd(),
+  environment = process.env,
+  stdout = process.stdout
+} = {}) {
+  return executeCommand(argv, {
+    parse: parsePrepareArguments,
+    execute: (options) => options.workflowState.storage === "memory" ? prepareProposalWorkflow({ options, cwd, environment }) : prepareWorkflow({
+      options,
+      cwd,
+      environment,
+      stateDirectory: options.workflowState.directory
+    }),
+    failureState: () => ({
+      commitState: "absent",
+      publicationState: "not-requested"
+    }),
+    stdout
+  });
+}
+var init_prepareCommand = __esm({
+  "src/committing-to-git/cli/prepareCommand.js"() {
+    init_commandArguments();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_evidenceVocabulary();
+    init_workflowStateStorage();
+    init_prepareProposalWorkflow();
+    init_prepareWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/extendReviewWorkflow.js
-var extendReviewWorkflow_exports = {};
-__export(extendReviewWorkflow_exports, {
-  extendReviewWorkflow: () => extendReviewWorkflow,
-  parseExtendReviewArguments: () => parseExtendReviewArguments,
-  runExtendReviewCommand: () => runExtendReviewCommand
-});
 import { existsSync as existsSync13, mkdirSync as mkdirSync8, unlinkSync as unlinkSync7 } from "node:fs";
-import { resolve as resolve17 } from "node:path";
-import { TextDecoder as TextDecoder7 } from "node:util";
-function fail6(code, message, options) {
+import { resolve as resolve18 } from "node:path";
+import { TextDecoder as TextDecoder8 } from "node:util";
+function fail7(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function readFixedEvidencePlan(path) {
@@ -15793,7 +16877,7 @@ function readFixedEvidencePlan(path) {
   try {
     bytes = readStableFile(path, MAXIMUM_INITIAL_JSON_INPUT_BYTES).bytes;
   } catch (error) {
-    fail6(
+    fail7(
       error.code === "FILE_CHANGED" ? "EVIDENCE_PLAN_INPUT_CHANGED" : "INVALID_EVIDENCE_PLAN_INPUT",
       "The fixed evidence-plan input must be a bounded stable non-symbolic regular file.",
       { cause: error }
@@ -15802,9 +16886,9 @@ function readFixedEvidencePlan(path) {
   {
     let text;
     try {
-      text = STRICT_UTF8_DECODER6.decode(bytes);
+      text = STRICT_UTF8_DECODER7.decode(bytes);
     } catch {
-      fail6(
+      fail7(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input is not strict UTF-8."
       );
@@ -15813,14 +16897,14 @@ function readFixedEvidencePlan(path) {
     try {
       payload = JSON.parse(text);
     } catch (error) {
-      fail6(
+      fail7(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input is invalid JSON.",
         { cause: error }
       );
     }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.groups) || JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(["groups", "schemaVersion"])) {
-      fail6(
+      fail7(
         "INVALID_EVIDENCE_PLAN_INPUT",
         "The fixed evidence-plan input must contain only schemaVersion and groups."
       );
@@ -15830,16 +16914,16 @@ function readFixedEvidencePlan(path) {
 }
 function readExactSnapshot(transaction) {
   const { bytes } = readRecordedSnapshotFile(
-    resolve17(transaction.attemptDirectory, "transaction.json")
+    resolve18(transaction.attemptDirectory, "transaction.json")
   );
   if (sha256Bytes(bytes) !== transaction.snapshot.sha256) {
-    fail6(
+    fail7(
       "SNAPSHOT_CHANGED",
       "The transaction snapshot changed after preparation.",
       {
         disposition: "rejected",
         details: {
-          transaction: resolve17(
+          transaction: resolve18(
             transaction.snapshot.path,
             "..",
             "transaction.json"
@@ -15848,9 +16932,9 @@ function readExactSnapshot(transaction) {
       }
     );
   }
-  const manifest = JSON.parse(STRICT_UTF8_DECODER6.decode(bytes));
+  const manifest = JSON.parse(STRICT_UTF8_DECODER7.decode(bytes));
   if (manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount) {
-    fail6("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
+    fail7("SNAPSHOT_CHANGED", "The transaction snapshot anchors do not match.", {
       disposition: "rejected"
     });
   }
@@ -15858,13 +16942,13 @@ function readExactSnapshot(transaction) {
 }
 function assertUnchangedAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail6("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
+    fail7("HEAD_DRIFT", "HEAD changed after concise evidence preparation.", {
       disposition: "rejected"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail6(
+    fail7(
       "ACTIVE_GIT_OPERATION",
       `Review cannot be extended during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected" }
@@ -15875,7 +16959,7 @@ function assertUnchangedAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail6(
+    fail7(
       "INDEX_DRIFT",
       "The prepared index tree changed before review extension.",
       {
@@ -15890,14 +16974,14 @@ function initialGroups(transaction) {
   );
 }
 function writeEvidencePlanRevision(transaction, evidencePlan) {
-  const path = resolve17(
+  const path = resolve18(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   try {
     createOrVerifyFile(path, stableJsonBytes(evidencePlan));
   } catch (error) {
-    fail6(
+    fail7(
       "EVIDENCE_PLAN_COLLISION",
       "An immutable evidence-plan revision has conflicting or unsafe bytes.",
       { cause: error }
@@ -15910,7 +16994,7 @@ function extensionResult(transaction) {
     disposition: "succeeded",
     status: transaction.status,
     phase: transaction.phase,
-    transaction: resolve17(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve18(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -15933,35 +17017,35 @@ function extensionResult(transaction) {
 }
 async function extendReviewWorkflow({ transactionPath, reason }) {
   if (!EXTENSION_REASONS.has(reason)) {
-    fail6(
+    fail7(
       "INVALID_EXTENSION_REASON",
       "Review extension reason must be evidence-uncertainty or semantic-structure-required."
     );
   }
   const transaction = readTransaction(transactionPath);
   if (transaction.phase !== "evidence-ready" || transaction.route !== "concise") {
-    fail6(
+    fail7(
       "EXTENSION_NOT_ALLOWED",
       `Review extension requires a concise evidence-ready transaction, not ${transaction.phase}.`,
       {
         disposition: "rejected",
-        details: { transaction: resolve17(transactionPath) }
+        details: { transaction: resolve18(transactionPath) }
       }
     );
   }
   const inputPath = getEvidencePlanInputPath(transactionPath);
   if (reason === "semantic-structure-required" && existsSync13(inputPath)) {
-    fail6(
+    fail7(
       "UNEXPECTED_EVIDENCE_PLAN_INPUT",
       "Semantic-structure extension forbids an evidence-plan input.",
-      { details: { transaction: resolve17(transactionPath) } }
+      { details: { transaction: resolve18(transactionPath) } }
     );
   }
   if (reason === "evidence-uncertainty" && !existsSync13(inputPath)) {
-    fail6(
+    fail7(
       "MISSING_EVIDENCE_PLAN_INPUT",
       "Evidence uncertainty requires the fixed transaction-local evidence-plan input.",
-      { details: { transaction: resolve17(transactionPath) } }
+      { details: { transaction: resolve18(transactionPath) } }
     );
   }
   const manifest = readExactSnapshot(transaction);
@@ -15969,7 +17053,7 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
   const groups = reason === "evidence-uncertainty" ? readFixedEvidencePlan(inputPath) : initialGroups(transaction);
   const evidencePlan = canonicalizeEvidencePlan({ manifest, groups });
   const evidencePlanPath = writeEvidencePlanRevision(transaction, evidencePlan);
-  const reviewDirectory = resolve17(transaction.attemptDirectory, "review");
+  const reviewDirectory = resolve18(transaction.attemptDirectory, "review");
   let records = [];
   try {
     if (reason === "evidence-uncertainty") {
@@ -16056,17 +17140,50 @@ async function extendReviewWorkflow({ transactionPath, reason }) {
     cleanupEvidenceSpools(records);
   }
 }
+var STRICT_UTF8_DECODER7, EXTENSION_REASONS;
+var init_extendReviewWorkflow = __esm({
+  "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
+    init_stableFile();
+    init_recordedSnapshot();
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_reviewCatalog();
+    init_inlineEvidenceCapsule();
+    init_commitMessageRenderer();
+    init_canonicalMessageState();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+    init_authoringProgress();
+    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    EXTENSION_REASONS = /* @__PURE__ */ new Set([
+      "evidence-uncertainty",
+      "semantic-structure-required"
+    ]);
+  }
+});
+
+// src/committing-to-git/cli/extendReviewCommand.js
+var extendReviewCommand_exports = {};
+__export(extendReviewCommand_exports, {
+  parseExtendReviewArguments: () => parseExtendReviewArguments,
+  runExtendReviewCommand: () => runExtendReviewCommand
+});
+function fail8(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseExtendReviewArguments(argv) {
   const { values } = parseCommandArguments("workflow extend", argv);
   if (!values.has("transaction") || !values.has("reason")) {
-    fail6(
+    fail8(
       "MISSING_ARGUMENT",
       "--transaction and --reason are required for workflow extend."
     );
   }
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail6("INVALID_FORMAT", "--format must be json or text.");
+    fail8("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
     transactionPath: values.get("transaction"),
@@ -16082,76 +17199,53 @@ async function runExtendReviewCommand(argv, { stdout = process.stdout } = {}) {
     stdout
   });
 }
-var STRICT_UTF8_DECODER6, EXTENSION_REASONS;
-var init_extendReviewWorkflow = __esm({
-  "src/committing-to-git/workflow/extendReviewWorkflow.js"() {
-    init_stableFile();
-    init_transactionDiagnosticState();
-    init_recordedSnapshot();
-    init_diagnosticContract();
+var init_extendReviewCommand = __esm({
+  "src/committing-to-git/cli/extendReviewCommand.js"() {
+    init_commandArguments();
     init_commandExecution();
     init_workflowDiagnosticError();
-    init_commandArguments();
-    init_gitRepository();
-    init_reviewCatalog();
-    init_inlineEvidenceCapsule();
-    init_commitMessageRenderer();
-    init_canonicalMessageState();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    init_prepareWorkflow();
-    init_authoringProgress();
-    STRICT_UTF8_DECODER6 = new TextDecoder7("utf-8", { fatal: true });
-    EXTENSION_REASONS = /* @__PURE__ */ new Set([
-      "evidence-uncertainty",
-      "semantic-structure-required"
-    ]);
+    init_transactionDiagnosticState();
+    init_extendReviewWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/reviewNextWorkflow.js
-var reviewNextWorkflow_exports = {};
-__export(reviewNextWorkflow_exports, {
-  parseReviewNextArguments: () => parseReviewNextArguments,
-  reviewNextWorkflow: () => reviewNextWorkflow,
-  runReviewNextCommand: () => runReviewNextCommand
-});
-import { createHash as createHash15 } from "node:crypto";
-import { lstatSync as lstatSync9, realpathSync as realpathSync7 } from "node:fs";
-import { isAbsolute as isAbsolute9, relative as relative6, resolve as resolve18, sep as sep3 } from "node:path";
-import { TextDecoder as TextDecoder8 } from "node:util";
-function fail7(code, message, options) {
+import { createHash as createHash16 } from "node:crypto";
+import { lstatSync as lstatSync10, realpathSync as realpathSync7 } from "node:fs";
+import { isAbsolute as isAbsolute10, relative as relative6, resolve as resolve19, sep as sep3 } from "node:path";
+import { TextDecoder as TextDecoder9 } from "node:util";
+function fail9(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function isContained(parent, candidate) {
   const contained = relative6(parent, candidate);
-  return contained !== "" && contained !== ".." && !contained.startsWith(`..${sep3}`) && !isAbsolute9(contained);
+  return contained !== "" && contained !== ".." && !contained.startsWith(`..${sep3}`) && !isAbsolute10(contained);
 }
 function readCurrentCatalog(transaction) {
   if (transaction.review === null) {
-    fail7(
+    fail9(
       "REVIEW_STATE_REQUIRED",
       "The transaction has no extended review state."
     );
   }
-  const reviewDirectory = resolve18(transaction.attemptDirectory, "review");
-  const catalogPath = resolve18(transaction.review.catalogPath);
+  const reviewDirectory = resolve19(transaction.attemptDirectory, "review");
+  const catalogPath = resolve19(transaction.review.catalogPath);
   if (!isContained(transaction.attemptDirectory, catalogPath) || !isContained(reviewDirectory, catalogPath)) {
-    fail7(
+    fail9(
       "REVIEW_CATALOG_ESCAPES_TRANSACTION",
       "The current review catalog is outside the fixed review directory."
     );
   }
-  const stat = lstatSync9(catalogPath);
+  const stat = lstatSync10(catalogPath);
   if (stat.isSymbolicLink() || !stat.isFile() || realpathSync7(catalogPath) !== catalogPath) {
-    fail7(
+    fail9(
       "REVIEW_CATALOG_REPLACED",
       "The current review catalog must remain a non-link regular file."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail7(
+    fail9(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -16162,12 +17256,12 @@ function assertReviewNextTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended" || !(/* @__PURE__ */ new Set(["review-pending", "authoring-pending", "message-ready"])).has(
     transaction.phase
   ) || transaction.commit !== null) {
-    fail7(
+    fail9(
       "REVIEW_NEXT_NOT_ALLOWED",
       `Packet review or replay requires a precommit extended review state, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       {
         disposition: "unmet-prerequisite",
-        details: { transaction: resolve18(transactionPath) }
+        details: { transaction: resolve19(transactionPath) }
       }
     );
   }
@@ -16179,7 +17273,7 @@ function cursorFor({ catalogSha256, nextIndex, priorPacketSha256 }) {
     nextIndex,
     priorPacketSha256
   });
-  const digest3 = createHash15("sha256").update(identity).digest("hex");
+  const digest3 = createHash16("sha256").update(identity).digest("hex");
   return `review-v1-${digest3}`;
 }
 function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
@@ -16188,7 +17282,7 @@ function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
     (id) => deliverySet.has(id)
   );
   if (canonicalDeliveryOrder.length !== deliveryPacketIds.length || canonicalDeliveryOrder.some((id, index) => id !== deliveryPacketIds[index])) {
-    fail7(
+    fail9(
       "REVIEW_DELIVERY_MISMATCH",
       "The stored delivery packet set is not an ordered subset of the current catalog requirements."
     );
@@ -16199,7 +17293,7 @@ function assertTraversal(traversal, catalog, deliveryPacketIds) {
     return;
   }
   if (traversal.catalogSha256 !== catalog.catalogSha256 || traversal.deliveredPacketCount > deliveryPacketIds.length || traversal.complete !== (traversal.deliveredPacketCount === deliveryPacketIds.length)) {
-    fail7(
+    fail9(
       "REVIEW_TRAVERSAL_MISMATCH",
       "The stored review traversal does not match the current catalog."
     );
@@ -16207,14 +17301,14 @@ function assertTraversal(traversal, catalog, deliveryPacketIds) {
 }
 function deliverySelection({ traversal, cursor, requiredPacketIds: requiredPacketIds2 }) {
   if (requiredPacketIds2.length === 0) {
-    fail7(
+    fail9(
       "REVIEW_PACKETS_EMPTY",
       "The current review has no packets to deliver."
     );
   }
   if (traversal === null) {
     if (cursor !== null) {
-      fail7(
+      fail9(
         "REVIEW_CURSOR_INVALID",
         "The first review packet must be requested without a cursor."
       );
@@ -16233,7 +17327,7 @@ function deliverySelection({ traversal, cursor, requiredPacketIds: requiredPacke
       replay: false
     };
   }
-  fail7(
+  fail9(
     "REVIEW_CURSOR_INVALID",
     "The review cursor is stale, unknown, or does not belong to the next packet."
   );
@@ -16242,7 +17336,7 @@ function assertResultBudget(result) {
   const byteCount = Buffer.byteLength(`${JSON.stringify(result)}
 `, "utf8");
   if (byteCount > MAXIMUM_REVIEW_RESULT_BYTES) {
-    fail7(
+    fail9(
       "REVIEW_RESULT_BUDGET_EXCEEDED",
       `Review result is ${byteCount} bytes; maximum is ${MAXIMUM_REVIEW_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_REVIEW_RESULT_BYTES } }
@@ -16256,7 +17350,7 @@ function reviewResult({ transaction, transactionPath, packet, content }) {
       disposition: "succeeded",
       status: transaction.status,
       phase: transaction.phase,
-      transaction: resolve18(transactionPath),
+      transaction: resolve19(transactionPath),
       route: transaction.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -16278,7 +17372,7 @@ function reviewResult({ transaction, transactionPath, packet, content }) {
 }
 function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail7(
+    fail9(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next."
     );
@@ -16293,7 +17387,7 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   assertTraversal(traversal, catalog, deliveryPacketIds);
   if (deliveryPacketIds.length === 0) {
     if (cursor !== null) {
-      fail7(
+      fail9(
         "REVIEW_CURSOR_INVALID",
         "A completed zero-packet review must be requested without a cursor."
       );
@@ -16314,9 +17408,9 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
   const { packet, bytes } = readVerifiedReviewPacket(catalog, packetId);
   let content;
   try {
-    content = STRICT_UTF8_DECODER7.decode(bytes);
+    content = STRICT_UTF8_DECODER8.decode(bytes);
   } catch {
-    fail7(
+    fail9(
       "REVIEW_PACKET_ENCODING_INVALID",
       `Review packet ${packet.id} is not strict UTF-8.`
     );
@@ -16362,17 +17456,40 @@ function reviewNextWorkflow({ transactionPath, cursor = null } = {}) {
     content
   });
 }
+var FORMATS, MAXIMUM_REVIEW_RESULT_BYTES, STRICT_UTF8_DECODER8;
+var init_reviewNextWorkflow = __esm({
+  "src/committing-to-git/workflow/reviewNextWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_reviewCatalog();
+    init_transactionWorkspace();
+    init_authoringProgress();
+    FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
+    MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
+    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/cli/reviewNextCommand.js
+var reviewNextCommand_exports = {};
+__export(reviewNextCommand_exports, {
+  parseReviewNextArguments: () => parseReviewNextArguments,
+  runReviewNextCommand: () => runReviewNextCommand
+});
+function fail10(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseReviewNextArguments(argv) {
   const { values } = parseCommandArguments("workflow review-next", argv);
   if (!values.has("transaction")) {
-    fail7(
+    fail10(
       "MISSING_ARGUMENT",
       "--transaction is required for workflow review-next."
     );
   }
   const format = values.get("format") ?? "json";
   if (!FORMATS.has(format)) {
-    fail7("INVALID_FORMAT", "--format must be json or text.");
+    fail10("INVALID_FORMAT", "--format must be json or text.");
   }
   return {
     transactionPath: values.get("transaction"),
@@ -16388,51 +17505,38 @@ async function runReviewNextCommand(argv, { stdout = process.stdout } = {}) {
     stdout
   });
 }
-var FORMATS, MAXIMUM_REVIEW_RESULT_BYTES, STRICT_UTF8_DECODER7;
-var init_reviewNextWorkflow = __esm({
-  "src/committing-to-git/workflow/reviewNextWorkflow.js"() {
-    init_transactionDiagnosticState();
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_commandExecution();
+var init_reviewNextCommand = __esm({
+  "src/committing-to-git/cli/reviewNextCommand.js"() {
     init_commandArguments();
-    init_reviewCatalog();
-    init_transactionWorkspace();
-    init_authoringProgress();
-    FORMATS = /* @__PURE__ */ new Set(["json", "text"]);
-    MAXIMUM_REVIEW_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER7 = new TextDecoder8("utf-8", { fatal: true });
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_reviewNextWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/resumePreparationWorkflow.js
-var resumePreparationWorkflow_exports = {};
-__export(resumePreparationWorkflow_exports, {
-  parseResumeArguments: () => parseResumeArguments,
-  resumePreparationWorkflow: () => resumePreparationWorkflow,
-  runResumePreparationCommand: () => runResumePreparationCommand
-});
-import { createHash as createHash16 } from "node:crypto";
-import { existsSync as existsSync14, lstatSync as lstatSync10, unlinkSync as unlinkSync8 } from "node:fs";
-import { join as join11, relative as relative7, resolve as resolve19 } from "node:path";
-function fail8(code, message, options) {
+import { createHash as createHash17 } from "node:crypto";
+import { existsSync as existsSync14, lstatSync as lstatSync11, unlinkSync as unlinkSync8 } from "node:fs";
+import { join as join12, relative as relative7, resolve as resolve20 } from "node:path";
+function fail11(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2564(bytes) {
-  return createHash16("sha256").update(bytes).digest("hex");
+  return createHash17("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
-  const expected = resolve19(attemptDirectory, name);
+  const expected = resolve20(attemptDirectory, name);
   const relation = relative7(attemptDirectory, path);
-  if (resolve19(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
-    fail8(
+  if (resolve20(path) !== expected || relation.length === 0 || relation.startsWith("..")) {
+    fail11(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} has an invalid recorded path.`
     );
   }
-  const stat = lstatSync10(path);
+  const stat = lstatSync11(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail8(
+    fail11(
       "INVALID_TRANSACTION_ARTIFACT",
       `${name} was replaced or is not a file.`
     );
@@ -16441,7 +17545,7 @@ function assertContainedExactPath(attemptDirectory, path, name) {
 function validatePersistedSnapshot(transaction) {
   const snapshot = transaction.snapshot;
   if (snapshot === null || typeof snapshot.path !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.sha256) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(snapshot.indexTreeOid) || !Number.isSafeInteger(snapshot.changeUnitCount) || snapshot.changeUnitCount < 1 || typeof snapshot.indexInstallationRequired !== "boolean") {
-    fail8(
+    fail11(
       "INVALID_TRANSACTION_ARTIFACT",
       "Transaction snapshot facts are invalid."
     );
@@ -16452,10 +17556,10 @@ function validatePersistedSnapshot(transaction) {
     "snapshot.json"
   );
   const { bytes } = readRecordedSnapshotFile(
-    resolve19(transaction.attemptDirectory, "transaction.json")
+    resolve20(transaction.attemptDirectory, "transaction.json")
   );
   if (sha2564(bytes) !== snapshot.sha256) {
-    fail8(
+    fail11(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json digest does not match."
     );
@@ -16464,12 +17568,12 @@ function validatePersistedSnapshot(transaction) {
   try {
     manifest = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    fail8("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
+    fail11("INVALID_TRANSACTION_ARTIFACT", "snapshot.json is invalid JSON.", {
       cause: error
     });
   }
   if (manifest.indexTreeOid !== snapshot.indexTreeOid || manifest.changeUnitCount !== snapshot.changeUnitCount || manifest.workflowMode !== transaction.mode || manifest.scopeKind !== transaction.scope?.kind) {
-    fail8(
+    fail11(
       "INVALID_TRANSACTION_ARTIFACT",
       "snapshot.json does not match the persisted transaction facts."
     );
@@ -16479,7 +17583,7 @@ function validatePersistedSnapshot(transaction) {
 function assertRepositoryResumePreconditions(transaction) {
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail8(
+    fail11(
       "ACTIVE_GIT_OPERATION",
       `Preparation cannot resume during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected" }
@@ -16494,7 +17598,7 @@ function assertRepositoryResumePreconditions(transaction) {
     }
   ).stdout;
   if (conflicts.length > 0) {
-    fail8(
+    fail11(
       "UNRESOLVED_CONFLICTS",
       "Preparation cannot resume while unresolved conflicts remain.",
       { disposition: "rejected" }
@@ -16502,7 +17606,7 @@ function assertRepositoryResumePreconditions(transaction) {
   }
   const currentHeadAnchor = captureHeadAnchor(transaction.repositoryRoot);
   if (JSON.stringify(currentHeadAnchor) !== JSON.stringify(transaction.headAnchor)) {
-    fail8("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
+    fail11("HEAD_DRIFT", "HEAD changed after snapshot creation.", {
       disposition: "rejected"
     });
   }
@@ -16512,7 +17616,7 @@ function resultEnvelope(transaction) {
     disposition: "succeeded",
     status: transaction.status ?? "prepared",
     phase: transaction.phase,
-    transaction: resolve19(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve20(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -16540,7 +17644,7 @@ function assertSnapshotIndexState(transaction, manifest) {
   if (snapshot.preparedIndexPath) {
     const preparedIdentity = readIndexIdentity(snapshot.preparedIndexPath);
     if (!indexIdentitiesMatch(preparedIdentity, snapshot.preparedIndexIdentity)) {
-      fail8(
+      fail11(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index changed before resume.",
         { disposition: "rejected" }
@@ -16551,7 +17655,7 @@ function assertSnapshotIndexState(transaction, manifest) {
       snapshot.indexTreeOid,
       manifestEnvironment(manifest)
     )) {
-      fail8(
+      fail11(
         "PREPARED_INDEX_DRIFT",
         "The transaction-local prepared index no longer matches the snapshot tree.",
         { disposition: "rejected" }
@@ -16559,7 +17663,7 @@ function assertSnapshotIndexState(transaction, manifest) {
     }
   }
   if ((snapshot.indexInstallationRequired || !snapshot.preparedIndexPath) && !indexMatchesTree(transaction.repositoryRoot, snapshot.indexTreeOid)) {
-    fail8("INDEX_DRIFT", "The real index changed after snapshot creation.", {
+    fail11("INDEX_DRIFT", "The real index changed after snapshot creation.", {
       disposition: "rejected"
     });
   }
@@ -16586,7 +17690,7 @@ async function finishEvidenceRouting({
 }
 async function resumePreparationWorkflow({ transactionPath }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0 || Buffer.byteLength(transactionPath, "utf8") > MAXIMUM_TRANSACTION_PATH_BYTES) {
-    fail8(
+    fail11(
       "INVALID_TRANSACTION_PATH",
       `Transaction path must be at most ${MAXIMUM_TRANSACTION_PATH_BYTES} UTF-8 bytes.`
     );
@@ -16606,7 +17710,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
     return finishEvidenceRouting({ transactionPath, transaction, manifest: manifest2 });
   }
   if (transaction.phase !== "allocated") {
-    fail8(
+    fail11(
       "RESUME_NOT_ALLOWED",
       `Preparation cannot resume from phase ${transaction.phase}.`,
       {
@@ -16617,7 +17721,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
           )
         } : {},
         details: {
-          transaction: resolve19(transactionPath),
+          transaction: resolve20(transactionPath),
           resumeAllowed: false,
           ...transaction.phase === "stopped" ? { preparationDiagnostics: preparationDiagnostics(transaction) } : {}
         }
@@ -16630,7 +17734,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
   if (snapshot.indexInstallationRequired) {
     let installation;
     try {
-      const journalPath = join11(
+      const journalPath = join12(
         transaction.attemptDirectory,
         "index-installation.json"
       );
@@ -16649,14 +17753,14 @@ async function resumePreparationWorkflow({ transactionPath }) {
         });
       }
     } catch (error) {
-      fail8(
+      fail11(
         "INDEX_INSTALLATION_INTERRUPTED",
         "Prepared index installation resume failed. Inspect the retained transaction before another installation.",
         {
           disposition: "rejected",
           cause: error,
           state: {
-            transaction: resolve19(transactionPath),
+            transaction: resolve20(transactionPath),
             phase: "allocated",
             commitState: "absent",
             publicationState: "not-requested",
@@ -16666,7 +17770,7 @@ async function resumePreparationWorkflow({ transactionPath }) {
       );
     }
     if (installation.status !== "installed" || installation.preparedIndexTreeOid !== snapshot.indexTreeOid) {
-      fail8(
+      fail11(
         "INDEX_INSTALLATION_MISMATCH",
         "Resumed index installation does not match the persisted snapshot.",
         { disposition: "rejected" }
@@ -16680,14 +17784,37 @@ async function resumePreparationWorkflow({ transactionPath }) {
   });
   return finishEvidenceRouting({ transactionPath, transaction, manifest });
 }
+var init_resumePreparationWorkflow = __esm({
+  "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
+    init_recordedSnapshot();
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+    init_authoringProgress();
+    init_preparationDiagnostics();
+  }
+});
+
+// src/committing-to-git/cli/resumePreparationCommand.js
+var resumePreparationCommand_exports = {};
+__export(resumePreparationCommand_exports, {
+  parseResumeArguments: () => parseResumeArguments,
+  runResumePreparationCommand: () => runResumePreparationCommand
+});
+function fail12(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseResumeArguments(argv) {
   const { values } = parseCommandArguments("workflow resume", argv);
   if (!values.has("transaction")) {
-    fail8("MISSING_TRANSACTION", "--transaction is required.");
+    fail12("MISSING_TRANSACTION", "--transaction is required.");
   }
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail8("INVALID_FORMAT", "--format must be json or text.");
+    fail12("INVALID_FORMAT", "--format must be json or text.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -16699,43 +17826,30 @@ async function runResumePreparationCommand(argv, { stdout = process.stdout } = {
     stdout
   });
 }
-var init_resumePreparationWorkflow = __esm({
-  "src/committing-to-git/workflow/resumePreparationWorkflow.js"() {
-    init_transactionDiagnosticState();
-    init_recordedSnapshot();
-    init_diagnosticContract();
+var init_resumePreparationCommand = __esm({
+  "src/committing-to-git/cli/resumePreparationCommand.js"() {
+    init_commandArguments();
     init_commandExecution();
     init_workflowDiagnosticError();
-    init_commandArguments();
-    init_gitRepository();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    init_prepareWorkflow();
-    init_authoringProgress();
-    init_preparationDiagnostics();
+    init_transactionDiagnosticState();
+    init_resumePreparationWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/promoteDraftWorkflow.js
-var promoteDraftWorkflow_exports = {};
-__export(promoteDraftWorkflow_exports, {
-  promoteDraftWorkflow: () => promoteDraftWorkflow,
-  recoverDraftPromotion: () => recoverDraftPromotion,
-  runPromoteDraftCommand: () => runPromoteDraftCommand
-});
-import { createHash as createHash17 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 import { existsSync as existsSync15 } from "node:fs";
-import { isAbsolute as isAbsolute10, join as join12, resolve as resolve20 } from "node:path";
-import { TextDecoder as TextDecoder9 } from "node:util";
-function fail9(code, message, options) {
+import { isAbsolute as isAbsolute11, join as join13, resolve as resolve21 } from "node:path";
+import { TextDecoder as TextDecoder10 } from "node:util";
+function fail13(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2565(bytes) {
-  return createHash17("sha256").update(bytes).digest("hex");
+  return createHash18("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
-  const normalizedLeft = resolve20(left);
-  const normalizedRight = resolve20(right);
+  const normalizedLeft = resolve21(left);
+  const normalizedRight = resolve21(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function sameValue(left, right) {
@@ -16743,21 +17857,21 @@ function sameValue(left, right) {
 }
 function realIndexPath(root) {
   const gitPath = readOnlyGitText(root, "git-path", ["index"]).trim();
-  return resolve20(isAbsolute10(gitPath) ? gitPath : join12(root, gitPath));
+  return resolve21(isAbsolute11(gitPath) ? gitPath : join13(root, gitPath));
 }
 function readDraftManifest(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
   if (!samePath3(input.path, transaction.snapshot?.path ?? "") || sha2565(input.bytes) !== transaction.snapshot?.sha256) {
-    fail9(
+    fail13(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The draft snapshot no longer matches its transaction identity."
     );
   }
   let manifest;
   try {
-    manifest = JSON.parse(STRICT_UTF8_DECODER8.decode(input.bytes));
+    manifest = JSON.parse(STRICT_UTF8_DECODER9.decode(input.bytes));
   } catch (error) {
-    fail9(
+    fail13(
       "SNAPSHOT_ARTIFACT_INVALID",
       "The draft snapshot is not canonical UTF-8 JSON.",
       { cause: error }
@@ -16770,7 +17884,7 @@ function readDraftManifest(transactionPath, transaction) {
     manifest.temporaryObjectDirectory ?? "",
     transaction.snapshot.temporaryObjectDirectory
   )) {
-    fail9(
+    fail13(
       "DRAFT_SNAPSHOT_INVALID",
       "The transaction and its draft snapshot do not describe one promotable scope and tree."
     );
@@ -16786,7 +17900,7 @@ function portableIdentityMatches(portable, identity) {
 function recordedPaths(transaction) {
   const encoded = transaction.scope?.expandedPathBytesBase64;
   if (!Array.isArray(encoded)) {
-    fail9(
+    fail13(
       "DRAFT_SCOPE_INVALID",
       "The draft transaction does not contain its normalized literal path scope."
     );
@@ -16800,7 +17914,7 @@ function recordedPaths(transaction) {
       return bytes;
     });
   } catch (error) {
-    fail9("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
+    fail13("DRAFT_SCOPE_INVALID", "The recorded literal path scope is invalid.", {
       cause: error
     });
   }
@@ -16829,7 +17943,7 @@ function assertDraftArtifacts(transaction, manifest) {
     matches = false;
   }
   if (!matches) {
-    fail9(
+    fail13(
       "DRAFT_SNAPSHOT_DRIFT",
       "The attempt-local draft index or object tree no longer matches the reviewed snapshot.",
       { disposition: "rejected" }
@@ -16841,7 +17955,7 @@ function assertReviewedState(transactionPath, transaction) {
   if (transaction.route === "concise") {
     const inlineEvidence = transaction.inlineEvidence;
     if (inlineEvidence.manifestSha256 !== reviewedManifestSha256 || inlineEvidence.evidencePlanSha256 !== transaction.initialEvidencePlan.sha256 || inlineEvidence.capsuleSha256 !== sha256Bytes(stableJsonBytes(inlineEvidence.capsule))) {
-      fail9(
+      fail13(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The concise evidence capsule no longer matches its recorded hashes.",
         {
@@ -16863,14 +17977,14 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       catalog = readReviewCatalog(transaction.review.catalogPath);
     } catch (error) {
-      fail9(
+      fail13(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The extended review catalog cannot be reused.",
         { cause: error }
       );
     }
     if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.manifestSha256 !== reviewedManifestSha256) {
-      fail9(
+      fail13(
         "PROMOTION_EVIDENCE_ARTIFACT_INVALID",
         "The extended review catalog no longer matches the draft manifest.",
         {
@@ -16889,14 +18003,14 @@ function assertReviewedState(transactionPath, transaction) {
     try {
       message = readCanonicalMessage(transactionPath);
     } catch (error) {
-      fail9(
+      fail13(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         "The canonical message cannot be reused.",
         { cause: error }
       );
     }
     if (!sameValue(message.transactionState, transaction.message)) {
-      fail9(
+      fail13(
         "PROMOTION_MESSAGE_ARTIFACT_INVALID",
         "The canonical message no longer matches its transaction hashes."
       );
@@ -16907,7 +18021,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   const root = transaction.repositoryRoot;
   const currentHeadAnchor = captureHeadAnchor(root);
   if (!sameValue(currentHeadAnchor, transaction.headAnchor)) {
-    fail9(
+    fail13(
       "PROMOTION_HEAD_DRIFT",
       "HEAD no longer matches the complete draft anchor.",
       {
@@ -16921,7 +18035,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const conflicts = runReadOnlyGit(root, "ls-files", ["-u", "-z"]).stdout;
   if (conflicts.length > 0) {
-    fail9(
+    fail13(
       "PROMOTION_UNRESOLVED_CONFLICTS",
       "Draft promotion is blocked while unresolved conflicts remain.",
       { disposition: "rejected" }
@@ -16929,7 +18043,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
   }
   const operations = activeGitOperations(root);
   if (operations.length > 0) {
-    fail9(
+    fail13(
       "PROMOTION_ACTIVE_GIT_OPERATION",
       `Draft promotion is blocked during an active ${operations.join(", ")} operation.`,
       { disposition: "rejected", details: { activeOperations: operations } }
@@ -16942,7 +18056,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     transaction.snapshot.promotion.preparedIndexIdentity
   );
   if (manifest.scopeKind === "paths" && stagedStatePresent(root) && !installedPromotionIndexObserved) {
-    fail9(
+    fail13(
       "PROMOTION_BLOCKED_STAGED_STATE",
       "Path draft promotion requires the unrelated real staged state to be absent.",
       {
@@ -16954,7 +18068,7 @@ function assertRepositoryPreconditions2(transaction, manifest) {
     );
   }
   if (manifest.scopeKind === "staged" && !portableIdentityMatches(manifest.sourceIndexIdentity, stagedSourceIdentity)) {
-    fail9(
+    fail13(
       "PROMOTION_STAGED_SOURCE_DRIFT",
       "The real staged index no longer has the draft's recorded source digest.",
       {
@@ -17016,7 +18130,7 @@ function finalizePromotion({
   const actualHeadAnchor = captureHeadAnchor(current.repositoryRoot);
   const actualTreeOid = writeIndexTree(current.repositoryRoot);
   if (actualTreeOid !== current.snapshot.indexTreeOid || !sameValue(actualHeadAnchor, current.headAnchor) || installation.preparedIndexTreeOid !== current.snapshot.indexTreeOid || !sameValue(installation.headAnchor, current.headAnchor)) {
-    fail9(
+    fail13(
       "PROMOTION_INSTALLATION_DRIFT",
       "The installed real index does not match the draft tree and head anchor.",
       { disposition: "rejected", state: { recoveryRequired: true } }
@@ -17043,7 +18157,7 @@ function successEnvelope2(transaction) {
     disposition: "succeeded",
     status: "promoted",
     phase: transaction.phase,
-    transaction: resolve20(transaction.attemptDirectory, "transaction.json"),
+    transaction: resolve21(transaction.attemptDirectory, "transaction.json"),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -17067,7 +18181,7 @@ function assertPromotableTransaction(transaction) {
   if (transaction.mode !== "draft" || !PROMOTABLE_STATES.has(
     JSON.stringify([transaction.phase, transaction.status])
   )) {
-    fail9(
+    fail13(
       "PROMOTION_STATE_INVALID",
       "Only an active evidence-ready, authoring-pending, or message-ready draft can be promoted.",
       { disposition: "rejected" }
@@ -17087,11 +18201,11 @@ function persistRecoveryObservation({
   return updatePromotionRecord(transactionPath, transaction, { promotion });
 }
 function recoverDraftPromotion({ transactionPath }) {
-  const canonicalTransactionPath = resolve20(transactionPath);
+  const canonicalTransactionPath = resolve21(transactionPath);
   const transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   if (transaction.snapshot?.promotion === void 0 || transaction.snapshot.promotion === null) {
-    fail9(
+    fail13(
       "PROMOTION_RECOVERY_NOT_REQUIRED",
       "The draft transaction has no journaled promotion to recover.",
       { disposition: "rejected" }
@@ -17142,21 +18256,21 @@ function continuePreparedPromotion({
   const promotion = transaction.snapshot.promotion;
   if (promotion.indexTreeOid !== manifest.indexTreeOid || !sameValue(promotion.headAnchor, transaction.headAnchor) || !samePath3(
     promotion.preparedIndexPath ?? "",
-    join12(transaction.attemptDirectory, "promotion-index")
+    join13(transaction.attemptDirectory, "promotion-index")
   ) || !indexIdentitiesMatch(
     readIndexIdentity(promotion.preparedIndexPath),
     promotion.preparedIndexIdentity
   ) || !indexMatchesTree(transaction.repositoryRoot, promotion.indexTreeOid, {
     GIT_INDEX_FILE: promotion.preparedIndexPath
   })) {
-    fail9(
+    fail13(
       "PROMOTION_PREPARED_STATE_DRIFT",
       "The prepared promotion index no longer matches its recorded identity and tree.",
       { disposition: "rejected", state: { recoveryRequired: true } }
     );
   }
   const journalExists = existsSync15(
-    join12(transaction.attemptDirectory, "index-installation.json")
+    join13(transaction.attemptDirectory, "index-installation.json")
   );
   if (journalExists && promotion.recoveryObservation === null) {
     const recovery = recoverIndexInstallation({
@@ -17164,7 +18278,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     persistRecoveryObservation({ transactionPath, transaction, recovery });
-    fail9(
+    fail13(
       "PROMOTION_RECOVERY_OBSERVED",
       "The interrupted index installation was observed without replay; retry promotion only from this recorded result.",
       {
@@ -17185,7 +18299,7 @@ function continuePreparedPromotion({
       transactionPath
     });
     if (recovery.status === "ambiguous" || recovery.resumeAllowed !== true) {
-      fail9(
+      fail13(
         "PROMOTION_INDEX_STATE_AMBIGUOUS",
         "The real index matches neither recorded side of the promotion installation.",
         { disposition: "rejected", state: { recoveryRequired: true } }
@@ -17239,7 +18353,7 @@ function continuePreparedPromotion({
     }
   }
   if (installation.status !== "installed") {
-    fail9(
+    fail13(
       "PROMOTION_INDEX_INSTALLATION_INCOMPLETE",
       "The journaled real-index installation is not complete.",
       { disposition: "rejected", state: { recoveryRequired: true } }
@@ -17257,9 +18371,9 @@ function promoteDraftWorkflow({
   indexFailureInjector
 }) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail9("TRANSACTION_REQUIRED", "A transaction path is required.");
+    fail13("TRANSACTION_REQUIRED", "A transaction path is required.");
   }
-  const canonicalTransactionPath = resolve20(transactionPath);
+  const canonicalTransactionPath = resolve21(transactionPath);
   let transaction = readTransaction(canonicalTransactionPath);
   assertPromotableTransaction(transaction);
   const manifest = readDraftManifest(canonicalTransactionPath, transaction);
@@ -17285,7 +18399,7 @@ function promoteDraftWorkflow({
   if (manifest.scopeKind === "staged") {
     const actualTreeOid = writeIndexTree(transaction.repositoryRoot);
     if (actualTreeOid !== manifest.indexTreeOid) {
-      fail9(
+      fail13(
         "PROMOTION_STAGED_SOURCE_DRIFT",
         "The real staged tree no longer equals the draft tree.",
         { disposition: "rejected" }
@@ -17319,7 +18433,7 @@ function promoteDraftWorkflow({
     );
     return successEnvelope2(installed);
   }
-  const preparedIndexPath = join12(
+  const preparedIndexPath = join13(
     transaction.attemptDirectory,
     "promotion-index"
   );
@@ -17341,7 +18455,7 @@ function promoteDraftWorkflow({
     throw drift;
   }
   if (prepared.indexTreeOid !== manifest.indexTreeOid) {
-    fail9(
+    fail13(
       "PROMOTION_TREE_DRIFT",
       "The current selected content no longer recreates the reviewed draft tree.",
       {
@@ -17358,7 +18472,7 @@ function promoteDraftWorkflow({
     checked.currentIndexIdentity,
     afterPreparation.currentIndexIdentity
   )) {
-    fail9(
+    fail13(
       "PROMOTION_INDEX_DRIFT",
       "The real index changed while the promotion tree was prepared.",
       { disposition: "rejected" }
@@ -17385,14 +18499,48 @@ function promoteDraftWorkflow({
   });
   return successEnvelope2(promoted);
 }
+var STRICT_UTF8_DECODER9, FULL_OID_PATTERN6, PROMOTABLE_STATES;
+var init_promoteDraftWorkflow = __esm({
+  "src/committing-to-git/workflow/promoteDraftWorkflow.js"() {
+    init_transactionDiagnosticState();
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_recordedSnapshot();
+    init_gitRepository();
+    init_inlineEvidenceCapsule();
+    init_reviewCatalog();
+    init_canonicalMessageState();
+    init_commitSnapshot();
+    init_indexInstallation();
+    init_transactionWorkspace();
+    init_prepareWorkflow();
+    init_authoringProgress();
+    STRICT_UTF8_DECODER9 = new TextDecoder10("utf-8", { fatal: true });
+    FULL_OID_PATTERN6 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    PROMOTABLE_STATES = /* @__PURE__ */ new Set([
+      JSON.stringify(["evidence-ready", "prepared"]),
+      JSON.stringify(["authoring-pending", "authoring-pending"]),
+      JSON.stringify(["message-ready", "message-ready"])
+    ]);
+  }
+});
+
+// src/committing-to-git/cli/promoteDraftCommand.js
+var promoteDraftCommand_exports = {};
+__export(promoteDraftCommand_exports, {
+  runPromoteDraftCommand: () => runPromoteDraftCommand
+});
+function fail14(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseArguments(argv) {
   const { values } = parseCommandArguments("workflow promote", argv);
   const format = values.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail9("INVALID_FORMAT", "--format must be json or text.");
+    fail14("INVALID_FORMAT", "--format must be json or text.");
   }
   if (!values.get("transaction")) {
-    fail9("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail14("TRANSACTION_REQUIRED", "--transaction is required.");
   }
   return { transactionPath: values.get("transaction"), format };
 }
@@ -17404,31 +18552,13 @@ async function runPromoteDraftCommand(argv, { stdout = process.stdout } = {}) {
     stdout
   });
 }
-var STRICT_UTF8_DECODER8, FULL_OID_PATTERN6, PROMOTABLE_STATES;
-var init_promoteDraftWorkflow = __esm({
-  "src/committing-to-git/workflow/promoteDraftWorkflow.js"() {
-    init_transactionDiagnosticState();
-    init_diagnosticContract();
+var init_promoteDraftCommand = __esm({
+  "src/committing-to-git/cli/promoteDraftCommand.js"() {
+    init_commandArguments();
     init_commandExecution();
     init_workflowDiagnosticError();
-    init_commandArguments();
-    init_recordedSnapshot();
-    init_gitRepository();
-    init_inlineEvidenceCapsule();
-    init_reviewCatalog();
-    init_canonicalMessageState();
-    init_commitSnapshot();
-    init_indexInstallation();
-    init_transactionWorkspace();
-    init_prepareWorkflow();
-    init_authoringProgress();
-    STRICT_UTF8_DECODER8 = new TextDecoder9("utf-8", { fatal: true });
-    FULL_OID_PATTERN6 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    PROMOTABLE_STATES = /* @__PURE__ */ new Set([
-      JSON.stringify(["evidence-ready", "prepared"]),
-      JSON.stringify(["authoring-pending", "authoring-pending"]),
-      JSON.stringify(["message-ready", "message-ready"])
-    ]);
+    init_transactionDiagnosticState();
+    init_promoteDraftWorkflow();
   }
 });
 
@@ -17526,12 +18656,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve33, reject) {
+        return new Promise(function(resolve34, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve33(is);
+              resolve34(is);
             }
           });
         });
@@ -17597,27 +18727,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve33, reject) => {
+      const step = (i) => new Promise((resolve34, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve33(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve34(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve33(subStep(p, i, 0));
+        resolve34(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve33, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve34, reject) => {
         if (ii === pathExt.length)
-          return resolve33(step(i + 1));
+          return resolve34(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve33(p + ext);
+              return resolve34(p + ext);
           }
-          return resolve33(subStep(p, i, ii + 1));
+          return resolve34(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -17909,7 +19039,7 @@ var require_cross_spawn = __commonJS({
     var cp = __require("child_process");
     var parse = require_parse();
     var enoent = require_enoent();
-    function spawn4(command, args, options) {
+    function spawn5(command, args, options) {
       const parsed = parse(command, args, options);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -17921,8 +19051,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module.exports = spawn4;
-    module.exports.spawn = spawn4;
+    module.exports = spawn5;
+    module.exports.spawn = spawn5;
     module.exports.sync = spawnSync6;
     module.exports._parse = parse;
     module.exports._enoent = enoent;
@@ -17930,18 +19060,18 @@ var require_cross_spawn = __commonJS({
 });
 
 // src/committing-to-git/checks/checkOutputCapture.js
-import { createHash as createHash18 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 import {
   closeSync as closeSync12,
   existsSync as existsSync16,
   fsyncSync as fsyncSync8,
-  lstatSync as lstatSync11,
+  lstatSync as lstatSync12,
   mkdirSync as mkdirSync9,
   openSync as openSync12,
   realpathSync as realpathSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { join as join13, relative as relative8, resolve as resolve21 } from "node:path";
+import { join as join14, relative as relative8, resolve as resolve22 } from "node:path";
 function assertContained3(parent, child) {
   const path = relative8(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -17949,18 +19079,18 @@ function assertContained3(parent, child) {
   }
 }
 function ensureDirectory3(path, label) {
-  const stat = lstatSync11(path);
+  const stat = lstatSync12(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync8(path) !== resolve21(path)) {
+  if (realpathSync8(path) !== resolve22(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function processLogDirectory(attemptDirectory) {
-  const normalizedAttempt = resolve21(attemptDirectory);
+  const normalizedAttempt = resolve22(attemptDirectory);
   ensureDirectory3(normalizedAttempt, "Transaction attempt directory");
-  const directory = join13(normalizedAttempt, "process-logs");
+  const directory = join14(normalizedAttempt, "process-logs");
   assertContained3(normalizedAttempt, directory);
   if (!existsSync16(directory)) {
     mkdirSync9(directory, { mode: 448 });
@@ -17972,7 +19102,7 @@ function writeSegment(directory, receiptId, channel, segment, bytes) {
   if (bytes.length === 0) {
     return null;
   }
-  const path = join13(directory, `check-${receiptId}-${channel}-${segment}.bin`);
+  const path = join14(directory, `check-${receiptId}-${channel}-${segment}.bin`);
   assertContained3(directory, path);
   const descriptor = openSync12(path, "wx", 384);
   try {
@@ -17992,7 +19122,7 @@ function appendTail(current, chunk, maximumBytes) {
 }
 function channelCapture() {
   return {
-    hash: createHash18("sha256"),
+    hash: createHash19("sha256"),
     totalByteCount: 0,
     head: Buffer.alloc(0),
     rollingTail: Buffer.alloc(0)
@@ -18040,10 +19170,10 @@ function finalizeChannel(directory, receiptId, channel, capture) {
       sha256: capture.hash.digest("hex"),
       headPath,
       headByteCount: capture.head.length,
-      headSha256: headPath === null ? null : createHash18("sha256").update(capture.head).digest("hex"),
+      headSha256: headPath === null ? null : createHash19("sha256").update(capture.head).digest("hex"),
       tailPath,
       tailByteCount: tail.length,
-      tailSha256: tailPath === null ? null : createHash18("sha256").update(tail).digest("hex"),
+      tailSha256: tailPath === null ? null : createHash19("sha256").update(tail).digest("hex"),
       truncated: capture.totalByteCount > capture.head.length + tail.length
     },
     head: capture.head,
@@ -18174,8 +19304,8 @@ var init_checkOutputCapture = __esm({
 });
 
 // src/committing-to-git/checks/checkWorkspace.js
-import { lstatSync as lstatSync12 } from "node:fs";
-import { resolve as resolve22, sep as sep4 } from "node:path";
+import { lstatSync as lstatSync13 } from "node:fs";
+import { resolve as resolve23, sep as sep4 } from "node:path";
 function rawPath(value, label) {
   if (typeof value !== "string") {
     throw new Error(`${label} must be a base64-encoded raw Git path.`);
@@ -18191,7 +19321,7 @@ function rawPath(value, label) {
   return bytes;
 }
 function selectedSubject(manifest) {
-  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest) || !FULL_OBJECT_ID3.test(manifest.indexTreeOid) || !Array.isArray(manifest.changeUnits)) {
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest) || !FULL_OBJECT_ID4.test(manifest.indexTreeOid) || !Array.isArray(manifest.changeUnits)) {
     throw new Error(
       "Selected-worktree comparison requires a validated snapshot manifest."
     );
@@ -18219,7 +19349,7 @@ function selectedSubject(manifest) {
     if (change.newMode === "000000") {
       continue;
     }
-    if (!INDEX_MODES2.has(change.newMode) || !FULL_OBJECT_ID3.test(change.newOid)) {
+    if (!INDEX_MODES2.has(change.newMode) || !FULL_OBJECT_ID4.test(change.newOid)) {
       throw new Error(
         "Selected-worktree comparison found an invalid prepared index entry."
       );
@@ -18256,12 +19386,12 @@ function objectEnvironment(manifest) {
   };
 }
 function rawFilesystemPath(root, pathBytes) {
-  const rootPrefix = Buffer.from(`${resolve22(root)}${sep4}`, "utf8");
+  const rootPrefix = Buffer.from(`${resolve23(root)}${sep4}`, "utf8");
   return Buffer.concat([rootPrefix, pathBytes]);
 }
 function pathIsAbsent(root, pathBytes) {
   try {
-    lstatSync12(rawFilesystemPath(root, pathBytes));
+    lstatSync13(rawFilesystemPath(root, pathBytes));
     return false;
   } catch (error) {
     if (ABSENCE_ERRORS.has(error?.code)) {
@@ -18362,46 +19492,40 @@ async function selectedWorktreeMatchesPreparedTree({
     observedAt
   };
 }
-var FULL_OBJECT_ID3, INDEX_MODES2, ABSENCE_ERRORS;
+var FULL_OBJECT_ID4, INDEX_MODES2, ABSENCE_ERRORS;
 var init_checkWorkspace = __esm({
   "src/committing-to-git/checks/checkWorkspace.js"() {
     init_gitRepository();
     init_projectedIndex();
     init_createSnapshot();
-    FULL_OBJECT_ID3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    FULL_OBJECT_ID4 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
     INDEX_MODES2 = /* @__PURE__ */ new Set(["100644", "100755", "120000", "160000"]);
     ABSENCE_ERRORS = /* @__PURE__ */ new Set(["ENOENT", "ENOTDIR"]);
   }
 });
 
 // src/committing-to-git/workflow/runCheckWorkflow.js
-var runCheckWorkflow_exports = {};
-__export(runCheckWorkflow_exports, {
-  recoverCheckAttempt: () => recoverCheckAttempt,
-  runCheckWorkflow: () => runCheckWorkflow,
-  runCheckWorkflowCommand: () => runCheckWorkflowCommand
-});
-import { createHash as createHash19 } from "node:crypto";
-import { lstatSync as lstatSync13, realpathSync as realpathSync9 } from "node:fs";
-import { isAbsolute as isAbsolute11, relative as relative9, resolve as resolve23 } from "node:path";
-function fail10(code, message, options) {
+import { createHash as createHash20 } from "node:crypto";
+import { lstatSync as lstatSync14, realpathSync as realpathSync9 } from "node:fs";
+import { isAbsolute as isAbsolute12, relative as relative9, resolve as resolve24 } from "node:path";
+function fail15(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2566(bytes) {
-  return createHash19("sha256").update(bytes).digest("hex");
+  return createHash20("sha256").update(bytes).digest("hex");
 }
 function readSnapshot(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
-  if (resolve23(input.path) !== resolve23(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
-    fail10(
+  if (resolve24(input.path) !== resolve24(transaction.snapshot.path) || sha2566(input.bytes) !== transaction.snapshot.sha256) {
+    fail15(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
   }
   try {
-    return JSON.parse(STRICT_UTF8_DECODER9.decode(input.bytes));
+    return JSON.parse(STRICT_UTF8_DECODER10.decode(input.bytes));
   } catch (error) {
-    fail10("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+    fail15("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
       cause: error
     });
   }
@@ -18414,16 +19538,16 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   try {
     validateCheckContext(context);
   } catch (error) {
-    fail10(
+    fail15(
       "CHECK_CONTEXT_INVALID",
       "The check working directory must be a repository-relative directory.",
       { cause: error }
     );
   }
-  const candidate = resolve23(repositoryRoot2, requestedDirectory);
-  const stat = lstatSync13(candidate);
+  const candidate = resolve24(repositoryRoot2, requestedDirectory);
+  const stat = lstatSync14(candidate);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail10(
+    fail15(
       "CHECK_CONTEXT_INVALID",
       "Check working directory must be a real directory within the repository."
     );
@@ -18432,8 +19556,8 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
   const repositoryRelative = relative9(repositoryRoot2, actual);
   if (repositoryRelative === ".." || repositoryRelative.startsWith(
     `..${process.platform === "win32" ? "\\" : "/"}`
-  ) || isAbsolute11(repositoryRelative)) {
-    fail10(
+  ) || isAbsolute12(repositoryRelative)) {
+    fail15(
       "CHECK_CONTEXT_INVALID",
       "Check working directory resolves outside the repository."
     );
@@ -18449,7 +19573,7 @@ function normalizeWorkingDirectory(repositoryRoot2, requestedDirectory) {
 function nextReceiptId(transaction) {
   const ordinal = transaction.checkAttempts.length + 1;
   if (ordinal > 999999) {
-    fail10(
+    fail15(
       "CHECK_ATTEMPT_LIMIT_REACHED",
       "A transaction cannot record more than 999,999 check attempts."
     );
@@ -18462,7 +19586,7 @@ function replaceAttempt(transactionPath, receiptId, transform) {
     (attempt) => attempt.receiptId === receiptId
   );
   if (index < 0) {
-    fail10(
+    fail15(
       "CHECK_RECEIPT_NOT_FOUND",
       `Check receipt ${receiptId} is not part of this transaction.`
     );
@@ -18483,7 +19607,7 @@ function appendAttempt(transactionPath, transaction, attempt) {
 function assertRetryContract(transaction, retryAfterAttempt) {
   const latest = transaction.checkAttempts.at(-1) ?? null;
   if (latest !== null && latest.launchState !== "completed") {
-    fail10(
+    fail15(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${latest.receiptId} has no durable outcome; confirm no child remains live before retrying.`,
       {
@@ -18494,7 +19618,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
   }
   if (retryAfterAttempt === null) {
     if (latest?.completion?.outcome === "unknown" && latest.resolution !== null) {
-      fail10(
+      fail15(
         "CHECK_RETRY_LINK_REQUIRED",
         `A retry must name the resolved unknown receipt ${latest.receiptId}.`
       );
@@ -18502,7 +19626,7 @@ function assertRetryContract(transaction, retryAfterAttempt) {
     return;
   }
   if (latest === null || latest.receiptId !== retryAfterAttempt || latest.completion?.outcome !== "unknown" || latest.resolution === null) {
-    fail10(
+    fail15(
       "CHECK_RETRY_INVALID",
       "A retry may name only the latest explicitly resolved unknown check."
     );
@@ -18521,7 +19645,7 @@ function checkRecoveryResult({
     disposition,
     status,
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -18566,7 +19690,7 @@ function recoverCheckAttempt({
     });
   }
   if (resolution !== "confirmed-no-live-child") {
-    fail10(
+    fail15(
       "CHECK_RECOVERY_RESOLUTION_INVALID",
       "An interrupted check accepts only confirmed-no-live-child resolution."
     );
@@ -18579,7 +19703,7 @@ function recoverCheckAttempt({
       indexLockInspector
     });
   } catch (error) {
-    fail10(
+    fail15(
       "CHECK_CHILD_STILL_LIVE",
       "The interrupted check cannot be resolved until the child is confirmed stopped.",
       {
@@ -18591,7 +19715,7 @@ function recoverCheckAttempt({
   }
   const finishedAt = now();
   if (typeof finishedAt !== "string" || !Number.isFinite(Date.parse(finishedAt))) {
-    fail10(
+    fail15(
       "CHECK_CLOCK_INVALID",
       "Check recovery clock returned an invalid time."
     );
@@ -18662,7 +19786,7 @@ function resultFor({
     disposition,
     status: code === null ? "check-passed" : code === "CHECK_SCOPE_DRIFT" ? "stopped" : "check-failed",
     phase: transaction.phase,
-    transaction: resolve23(transactionPath),
+    transaction: resolve24(transactionPath),
     route: transaction.route,
     commitState: "absent",
     publicationState: "not-requested",
@@ -18690,7 +19814,7 @@ async function runCheckWorkflow({
   try {
     validateCheckCommand(command);
   } catch (error) {
-    fail10(
+    fail15(
       "CHECK_COMMAND_INVALID",
       "Supply one executable and an array of literal arguments, without a shell command string.",
       { cause: error }
@@ -18698,7 +19822,7 @@ async function runCheckWorkflow({
   }
   let transaction = readTransaction(transactionPath);
   if (!ACTIVE_CHECK_PHASES.has(transaction.phase)) {
-    fail10(
+    fail15(
       "CHECK_PHASE_INVALID",
       `Transaction phase ${transaction.phase} cannot run a precommit check.`
     );
@@ -18724,7 +19848,7 @@ async function runCheckWorkflow({
     return createWorkflowResult({
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve23(transactionPath),
+      transaction: resolve24(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -18739,7 +19863,7 @@ async function runCheckWorkflow({
   const receiptId = nextReceiptId(transaction);
   const started = now();
   if (!(started instanceof Date) || !Number.isFinite(started.getTime())) {
-    fail10(
+    fail15(
       "CHECK_CLOCK_INVALID",
       "Check workflow clock returned an invalid time."
     );
@@ -18851,14 +19975,14 @@ async function runCheckWorkflow({
       output: capture.output
     }));
   } catch (error) {
-    fail10(
+    fail15(
       "CHECK_OUTCOME_UNKNOWN",
       "The check child may have run, but its terminal receipt could not be recorded. Inspect its journal before considering another execution.",
       {
         disposition: "outcome-unknown",
         cause: error,
         state: {
-          transaction: resolve23(transactionPath),
+          transaction: resolve24(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -18875,7 +19999,7 @@ async function runCheckWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve23(transactionPath)
+                resolve24(transactionPath)
               ]
             }
           ]
@@ -18929,16 +20053,47 @@ async function runCheckWorkflow({
     disposition: "succeeded"
   });
 }
+var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER10;
+var init_runCheckWorkflow = __esm({
+  "src/committing-to-git/workflow/runCheckWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    import_cross_spawn = __toESM(require_cross_spawn(), 1);
+    init_checkOutputCapture();
+    init_checkWorkspace();
+    init_checkReceipt();
+    init_recordedSnapshot();
+    init_transactionWorkspace();
+    init_transactionRecovery();
+    ACTIVE_CHECK_PHASES = /* @__PURE__ */ new Set([
+      "evidence-ready",
+      "review-pending",
+      "authoring-pending",
+      "message-ready"
+    ]);
+    MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1e3;
+    STRICT_UTF8_DECODER10 = new TextDecoder("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/cli/runCheckCommand.js
+var runCheckCommand_exports = {};
+__export(runCheckCommand_exports, {
+  runCheckWorkflowCommand: () => runCheckWorkflowCommand
+});
+function fail16(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseArguments2(argv) {
   const { values: flags, childArguments: commandArguments } = parseCommandArguments("workflow check", argv);
   if (!flags.has("transaction")) {
-    fail10(
+    fail16(
       "CHECK_TRANSACTION_REQUIRED",
       "workflow check requires --transaction <transaction.json>."
     );
   }
   if (commandArguments.length === 0 || commandArguments[0] === "") {
-    fail10(
+    fail16(
       "CHECK_COMMAND_REQUIRED",
       "workflow check requires -- followed by an executable and argument vector."
     );
@@ -18946,14 +20101,14 @@ function parseArguments2(argv) {
   const timeoutText = flags.get("timeout-ms") ?? null;
   const timeoutMilliseconds = timeoutText === null ? null : Number(timeoutText);
   if (timeoutMilliseconds !== null && (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds < 1 || timeoutMilliseconds > MAXIMUM_CHECK_TIMEOUT_MILLISECONDS)) {
-    fail10(
+    fail16(
       "CHECK_TIMEOUT_INVALID",
       "Check timeout must be an integer from 1 through 86,400,000 milliseconds."
     );
   }
   const format = flags.get("format") ?? "json";
   if (!(/* @__PURE__ */ new Set(["json", "text"])).has(format)) {
-    fail10("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
+    fail16("CHECK_FORMAT_INVALID", "Check output format must be json or text.");
   }
   return {
     transactionPath: flags.get("transaction") ?? null,
@@ -18979,52 +20134,30 @@ async function runCheckWorkflowCommand(argv, { stdout = process.stdout, stderr =
     stdout
   });
 }
-var import_cross_spawn, ACTIVE_CHECK_PHASES, MAXIMUM_CHECK_TIMEOUT_MILLISECONDS, STRICT_UTF8_DECODER9;
-var init_runCheckWorkflow = __esm({
-  "src/committing-to-git/workflow/runCheckWorkflow.js"() {
-    init_transactionDiagnosticState();
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_commandExecution();
+var init_runCheckCommand = __esm({
+  "src/committing-to-git/cli/runCheckCommand.js"() {
     init_commandArguments();
-    import_cross_spawn = __toESM(require_cross_spawn(), 1);
-    init_checkOutputCapture();
-    init_checkWorkspace();
-    init_checkReceipt();
-    init_recordedSnapshot();
-    init_transactionWorkspace();
-    init_transactionRecovery();
-    ACTIVE_CHECK_PHASES = /* @__PURE__ */ new Set([
-      "evidence-ready",
-      "review-pending",
-      "authoring-pending",
-      "message-ready"
-    ]);
-    MAXIMUM_CHECK_TIMEOUT_MILLISECONDS = 24 * 60 * 60 * 1e3;
-    STRICT_UTF8_DECODER9 = new TextDecoder("utf-8", { fatal: true });
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_runCheckWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/checkDetailWorkflow.js
-var checkDetailWorkflow_exports = {};
-__export(checkDetailWorkflow_exports, {
-  CHECK_DETAIL_PAGE_BYTES: () => CHECK_DETAIL_PAGE_BYTES,
-  checkDetailWorkflow: () => checkDetailWorkflow,
-  runCheckDetailCommand: () => runCheckDetailCommand
-});
-import { createHash as createHash20 } from "node:crypto";
-import { join as join14, resolve as resolve24 } from "node:path";
-function fail11(code, message, options) {
+import { createHash as createHash21 } from "node:crypto";
+import { join as join15, resolve as resolve25 } from "node:path";
+function fail17(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2567(bytes) {
-  return createHash20("sha256").update(bytes).digest("hex");
+  return createHash21("sha256").update(bytes).digest("hex");
 }
 function contentFor(bytes) {
   try {
     return {
       encoding: "utf8",
-      value: STRICT_UTF8_DECODER10.decode(bytes)
+      value: STRICT_UTF8_DECODER11.decode(bytes)
     };
   } catch {
     return {
@@ -19074,7 +20207,7 @@ function detailResult({
     disposition: "succeeded",
     status: "check-detail",
     phase: transaction.phase,
-    transaction: resolve24(transactionPath),
+    transaction: resolve25(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "absent",
     publicationState: "not-requested",
@@ -19104,13 +20237,13 @@ function readBoundSegment({
   recordedByteCount,
   recordedSha256
 }) {
-  const expectedPath = join14(
-    resolve24(transaction.attemptDirectory),
+  const expectedPath = join15(
+    resolve25(transaction.attemptDirectory),
     "process-logs",
     `check-${receiptId}-${stream}-${segment}.bin`
   );
-  if (resolve24(recordedPath) !== expectedPath) {
-    fail11(
+  if (resolve25(recordedPath) !== expectedPath) {
+    fail17(
       "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output path is not the helper-owned path for this receipt.",
       { disposition: "rejected" }
@@ -19121,7 +20254,7 @@ function readBoundSegment({
       rejectLinkedAncestors: true
     }).bytes;
     if (bytes.length !== recordedByteCount || sha2567(bytes) !== recordedSha256) {
-      fail11(
+      fail17(
         "CHECK_DETAIL_ARTIFACT_CHANGED",
         "The retained output segment no longer matches its witnessed receipt.",
         { disposition: "rejected" }
@@ -19130,7 +20263,7 @@ function readBoundSegment({
     return bytes;
   } catch (error) {
     if (error instanceof WorkflowDiagnosticError) throw error;
-    fail11(
+    fail17(
       ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(error.code) ? "CHECK_DETAIL_UNAVAILABLE" : "CHECK_DETAIL_ARTIFACT_CHANGED",
       "The retained output segment is unavailable or changed while it was read.",
       { disposition: "rejected", cause: error }
@@ -19145,25 +20278,25 @@ function checkDetailWorkflow({
   offset = 0
 }) {
   if (typeof receiptId !== "string" || !RECEIPT_ID_PATTERN2.test(receiptId)) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_RECEIPT_INVALID",
       "Check detail requires a canonical receipt ID such as C000001."
     );
   }
   if (!(/* @__PURE__ */ new Set(["stdout", "stderr"])).has(stream)) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_STREAM_INVALID",
       "Check detail stream must be stdout or stderr."
     );
   }
   if (!(/* @__PURE__ */ new Set(["head", "tail"])).has(segment)) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_SEGMENT_INVALID",
       "Check detail segment must be head or tail."
     );
   }
   if (!Number.isSafeInteger(offset) || offset < 0) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset must be a non-negative safe integer."
     );
@@ -19173,14 +20306,14 @@ function checkDetailWorkflow({
     (candidate) => candidate.receiptId === receiptId
   );
   if (attempt === void 0) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_RECEIPT_NOT_FOUND",
       `Receipt ${receiptId} is not part of this transaction.`,
       { disposition: "rejected" }
     );
   }
   if (attempt.output === null) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_UNAVAILABLE",
       `Receipt ${receiptId} has no retained process output.`,
       { disposition: "rejected" }
@@ -19192,7 +20325,7 @@ function checkDetailWorkflow({
   const recordedSha256 = channel[`${segment}Sha256`];
   if (recordedByteCount === 0) {
     if (offset !== 0) {
-      fail11(
+      fail17(
         "CHECK_DETAIL_OFFSET_INVALID",
         "Check detail offset exceeds the empty retained segment."
       );
@@ -19215,7 +20348,7 @@ function checkDetailWorkflow({
     recordedSha256
   });
   if (offset > bytes.length) {
-    fail11(
+    fail17(
       "CHECK_DETAIL_OFFSET_INVALID",
       "Check detail offset exceeds the retained segment."
     );
@@ -19237,17 +20370,38 @@ function checkDetailWorkflow({
     content: contentFor(page)
   });
 }
+var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER11, RECEIPT_ID_PATTERN2;
+var init_checkDetailWorkflow = __esm({
+  "src/committing-to-git/workflow/checkDetailWorkflow.js"() {
+    init_stableFile();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_transactionWorkspace();
+    CHECK_DETAIL_PAGE_BYTES = 16 * 1024;
+    STRICT_UTF8_DECODER11 = new TextDecoder("utf-8", { fatal: true });
+    RECEIPT_ID_PATTERN2 = /^C[0-9]{6}$/u;
+  }
+});
+
+// src/committing-to-git/cli/checkDetailCommand.js
+var checkDetailCommand_exports = {};
+__export(checkDetailCommand_exports, {
+  runCheckDetailCommand: () => runCheckDetailCommand
+});
+function fail18(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseArguments3(argv) {
   const flags = parseCommandArguments("workflow check-detail", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail11(
+    fail18(
       "CHECK_DETAIL_FORMAT_INVALID",
       "Check detail output format must be json or text."
     );
   const transactionPath = flags.get("transaction");
   if (typeof transactionPath !== "string")
-    fail11(
+    fail18(
       "CHECK_DETAIL_TRANSACTION_REQUIRED",
       "workflow check-detail requires --transaction <transaction.json>."
     );
@@ -19268,27 +20422,232 @@ async function runCheckDetailCommand(argv, { stdout = process.stdout } = {}) {
     stdout
   });
 }
-var CHECK_DETAIL_PAGE_BYTES, STRICT_UTF8_DECODER10, RECEIPT_ID_PATTERN2;
-var init_checkDetailWorkflow = __esm({
-  "src/committing-to-git/workflow/checkDetailWorkflow.js"() {
-    init_stableFile();
-    init_transactionDiagnosticState();
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_commandExecution();
+var init_checkDetailCommand = __esm({
+  "src/committing-to-git/cli/checkDetailCommand.js"() {
     init_commandArguments();
-    init_transactionWorkspace();
-    CHECK_DETAIL_PAGE_BYTES = 16 * 1024;
-    STRICT_UTF8_DECODER10 = new TextDecoder("utf-8", { fatal: true });
-    RECEIPT_ID_PATTERN2 = /^C[0-9]{6}$/u;
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_checkDetailWorkflow();
+  }
+});
+
+// src/committing-to-git/cli/standardInput.js
+async function readMessageInput(stdin, maximumBytes) {
+  if (stdin.isTTY) {
+    throw new WorkflowDiagnosticError(
+      "MESSAGE_STDIN_REQUIRED",
+      "Pipe the exact message bytes to standard input."
+    );
+  }
+  const chunks = [];
+  let byteCount = 0;
+  for await (const chunk of stdin) {
+    byteCount += chunk.length;
+    if (byteCount > maximumBytes) {
+      throw new WorkflowDiagnosticError(
+        "MESSAGE_INPUT_TOO_LARGE",
+        `The message on standard input exceeds ${maximumBytes} bytes.`
+      );
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+var init_standardInput = __esm({
+  "src/committing-to-git/cli/standardInput.js"() {
+    init_workflowDiagnosticError();
+  }
+});
+
+// src/committing-to-git/signature/commitSignature.js
+function assertPolicy(policy, label) {
+  if (!POLICIES.has(policy)) {
+    throw new Error(`${label} must be required, advisory, or skipped.`);
+  }
+}
+function sshIdentity(output) {
+  const match = /Good "git" signature for (?<principal>.+?) with \S+ key (?<keyFingerprint>SHA256:\S+)/u.exec(
+    output
+  );
+  return match ? {
+    principal: match.groups.principal,
+    keyFingerprint: match.groups.keyFingerprint
+  } : null;
+}
+function openPgpIdentity(output) {
+  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output);
+  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output);
+  if (!goodSignature || !validSignature) {
+    return null;
+  }
+  const fields = validSignature.groups.fields.trim().split(/\s+/u);
+  const signingFingerprint = fields[0] ?? null;
+  const reportedPrimary = fields.length >= 10 ? fields.at(-1) : null;
+  const primaryKeyFingerprint = reportedPrimary && FULL_OPENPGP_FINGERPRINT.test(reportedPrimary) ? reportedPrimary : signingFingerprint;
+  if (!primaryKeyFingerprint || !FULL_OPENPGP_FINGERPRINT.test(primaryKeyFingerprint)) {
+    return null;
+  }
+  return {
+    signer: goodSignature.groups.signer,
+    primaryKeyFingerprint,
+    signingSubkeyFingerprint: signingFingerprint && FULL_OPENPGP_FINGERPRINT.test(signingFingerprint) && signingFingerprint.toLowerCase() !== primaryKeyFingerprint.toLowerCase() ? signingFingerprint : null
+  };
+}
+function hasExactKeys3(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+function identityMatchesBackend(backend, identity) {
+  if (backend === "ssh") {
+    return hasExactKeys3(identity, ["principal", "keyFingerprint"]) && typeof identity.principal === "string" && identity.principal.length > 0 && typeof identity.keyFingerprint === "string" && FULL_SSH_FINGERPRINT.test(identity.keyFingerprint);
+  }
+  if (backend === "openpgp") {
+    return hasExactKeys3(identity, [
+      "signer",
+      "primaryKeyFingerprint",
+      "signingSubkeyFingerprint"
+    ]) && typeof identity.signer === "string" && identity.signer.length > 0 && typeof identity.primaryKeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.primaryKeyFingerprint) && (identity.signingSubkeyFingerprint === null || typeof identity.signingSubkeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.signingSubkeyFingerprint));
+  }
+  return false;
+}
+function trustStoreIsUnreadable(output) {
+  return /allowed[ -]?(?:signers|keys)|allowedSignersFile/iu.test(output) && /permission denied|access is denied|could not open|cannot open|unable to open|no such file|not found/iu.test(
+    output
+  );
+}
+function classifySignatureVerification(result, { backend = null, timestamp = (/* @__PURE__ */ new Date()).toISOString() } = {}) {
+  const stdout = Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8");
+  const stderr = Buffer.from(result.stderr ?? Buffer.alloc(0)).toString("utf8");
+  const output = `${stdout}
+${stderr}`.trim();
+  const observedSshIdentity = sshIdentity(output);
+  const observedOpenPgpIdentity = openPgpIdentity(output);
+  const observedBackend = observedSshIdentity ? "ssh" : observedOpenPgpIdentity ? "openpgp" : backend;
+  const identity = observedSshIdentity ?? observedOpenPgpIdentity;
+  if (result.status === 0 && identity !== null) {
+    return {
+      status: "verified",
+      reason: null,
+      backend: observedBackend,
+      identity,
+      timestamp
+    };
+  }
+  const unavailable = trustStoreIsUnreadable(output);
+  return {
+    status: unavailable ? "unavailable" : "failed",
+    reason: unavailable ? "trust-store-unreadable" : "verification-failed",
+    backend: unavailable ? "ssh" : observedBackend,
+    identity: null,
+    timestamp
+  };
+}
+function validateAttempt(attempt) {
+  if (attempt === null || typeof attempt !== "object" || Array.isArray(attempt) || !STATUSES2.has(attempt.status) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || attempt.identity !== null && (typeof attempt.identity !== "object" || Array.isArray(attempt.identity)) || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
+    throw new Error("Signature verification attempt is invalid.");
+  }
+  if (attempt.status === "verified" && !identityMatchesBackend(attempt.backend, attempt.identity)) {
+    throw new Error(
+      "Verified signature attempts require a backend-specific identity."
+    );
+  }
+  if (attempt.status !== "verified" && attempt.identity !== null) {
+    throw new Error("Unverified signature attempts cannot retain an identity.");
+  }
+  if (attempt.status === "skipped" && (attempt.backend !== null || attempt.identity !== null)) {
+    throw new Error("Skipped signature attempts cannot name a backend.");
+  }
+  return {
+    status: attempt.status,
+    reason: attempt.reason,
+    backend: attempt.backend,
+    identity: attempt.identity === null ? null : structuredClone(attempt.identity),
+    timestamp: attempt.timestamp
+  };
+}
+function applyVerificationPolicy({
+  commitOid,
+  initialPolicy,
+  finalPolicy,
+  verificationAttempt: verificationAttempt2,
+  previousVerification = null,
+  timestamp = (/* @__PURE__ */ new Date()).toISOString()
+}) {
+  if (!FULL_OID_PATTERN7.test(commitOid)) {
+    throw new Error("Verified commit must be a full 40- or 64-hex object ID.");
+  }
+  assertPolicy(initialPolicy, "Initial verification policy");
+  assertPolicy(finalPolicy, "Final verification policy");
+  let attempts = [];
+  if (previousVerification !== null) {
+    if (previousVerification.schemaVersion !== 2 || previousVerification.commitOid.toLowerCase() !== commitOid.toLowerCase() || previousVerification.initialPolicy !== initialPolicy || !Array.isArray(previousVerification.attempts)) {
+      throw new Error(
+        "Previous verification does not belong to this commit policy."
+      );
+    }
+    attempts = previousVerification.attempts.map(validateAttempt);
+  }
+  const selectedAttempt = finalPolicy === "skipped" ? {
+    status: "skipped",
+    reason: "user-policy",
+    backend: null,
+    identity: null,
+    timestamp
+  } : verificationAttempt2;
+  if (selectedAttempt?.commitOid !== void 0 && (typeof selectedAttempt.commitOid !== "string" || selectedAttempt.commitOid.toLowerCase() !== commitOid.toLowerCase())) {
+    throw new Error("Verifier result belongs to a different commit.");
+  }
+  const attemptWithoutBinding = selectedAttempt?.commitOid === void 0 ? selectedAttempt : Object.fromEntries(
+    Object.entries(selectedAttempt).filter(
+      ([key]) => key !== "commitOid"
+    )
+  );
+  attempts.push(validateAttempt(attemptWithoutBinding));
+  const effectiveAttempt = attempts.length - 1;
+  const effective = attempts[effectiveAttempt];
+  return {
+    schemaVersion: 2,
+    commitOid,
+    initialPolicy,
+    finalPolicy,
+    attempts,
+    effectiveAttempt,
+    blocksPush: finalPolicy === "required" && effective.status !== "verified"
+  };
+}
+function verifyCommitSignature(root, commitOid, {
+  backend = null,
+  timestamp = (/* @__PURE__ */ new Date()).toISOString(),
+  invoke = runGit
+} = {}) {
+  if (!FULL_OID_PATTERN7.test(commitOid)) {
+    throw new Error(
+      "Signature verification requires an exact full commit OID."
+    );
+  }
+  const result = invoke(["verify-commit", "--raw", commitOid], {
+    cwd: root,
+    allowFailure: true
+  });
+  return classifySignatureVerification(result, { backend, timestamp });
+}
+var POLICIES, STATUSES2, FULL_OID_PATTERN7, FULL_OPENPGP_FINGERPRINT, FULL_SSH_FINGERPRINT;
+var init_commitSignature = __esm({
+  "src/committing-to-git/signature/commitSignature.js"() {
+    init_gitRepository();
+    POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    STATUSES2 = /* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"]);
+    FULL_OID_PATTERN7 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    FULL_OPENPGP_FINGERPRINT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+    FULL_SSH_FINGERPRINT = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
   }
 });
 
 // src/committing-to-git/snapshot/verifySnapshot.js
-import { resolve as resolve25 } from "node:path";
+import { resolve as resolve26 } from "node:path";
 function samePath4(left, right) {
-  const normalizedLeft = resolve25(left);
-  const normalizedRight = resolve25(right);
+  const normalizedLeft = resolve26(left);
+  const normalizedRight = resolve26(right);
   return process.platform === "win32" ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight;
 }
 function manifestEnvironment2(manifest) {
@@ -19374,19 +20733,19 @@ var init_verifySnapshot = __esm({
 });
 
 // src/committing-to-git/git/gitProcessTranscript.js
-import { createHash as createHash21 } from "node:crypto";
+import { createHash as createHash22 } from "node:crypto";
 import {
   closeSync as closeSync13,
   existsSync as existsSync17,
   fsyncSync as fsyncSync9,
-  lstatSync as lstatSync14,
+  lstatSync as lstatSync15,
   mkdirSync as mkdirSync10,
   openSync as openSync13,
-  readFileSync as readFileSync6,
+  readFileSync as readFileSync7,
   realpathSync as realpathSync10,
   writeSync
 } from "node:fs";
-import { dirname as dirname9, join as join15, relative as relative10, resolve as resolve26 } from "node:path";
+import { dirname as dirname9, join as join16, relative as relative10, resolve as resolve27 } from "node:path";
 function assertContained4(parent, child) {
   const path = relative10(parent, child);
   if (path === "" || path === ".." || path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
@@ -19396,18 +20755,18 @@ function assertContained4(parent, child) {
   }
 }
 function ensureDirectory4(path, label) {
-  const stat = lstatSync14(path);
+  const stat = lstatSync15(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} is replaced or is not a directory: ${path}`);
   }
-  if (realpathSync10(path) !== resolve26(path)) {
+  if (realpathSync10(path) !== resolve27(path)) {
     throw new Error(`${label} does not resolve to its recorded path: ${path}`);
   }
 }
 function openTranscript(attemptDirectory, operation, instanceId) {
-  const normalizedAttempt = resolve26(attemptDirectory);
+  const normalizedAttempt = resolve27(attemptDirectory);
   ensureDirectory4(normalizedAttempt, "Transaction attempt directory");
-  const directory = join15(normalizedAttempt, "process-logs");
+  const directory = join16(normalizedAttempt, "process-logs");
   assertContained4(normalizedAttempt, directory);
   if (!existsSync17(directory)) {
     mkdirSync10(directory, { mode: 448 });
@@ -19421,7 +20780,7 @@ function openTranscript(attemptDirectory, operation, instanceId) {
   )) {
     throw new Error("Transcript instance must be a UUIDv4 when supplied.");
   }
-  const path = join15(
+  const path = join16(
     directory,
     `${operation}${instanceId === null ? "" : `-${instanceId}`}.transcript.bin`
   );
@@ -19444,12 +20803,12 @@ function appendTail2(current, chunk, maximumBytes) {
   return combined.length <= maximumBytes ? combined : combined.subarray(combined.length - maximumBytes);
 }
 function completionDigest(value) {
-  return createHash21("sha256").update(`${JSON.stringify(value)}
+  return createHash22("sha256").update(`${JSON.stringify(value)}
 `, "utf8").digest("hex");
 }
 function captureGitProcessTranscript({
   transactionPath,
-  attemptDirectory = dirname9(resolve26(transactionPath)),
+  attemptDirectory = dirname9(resolve27(transactionPath)),
   operation,
   instanceId = null,
   child,
@@ -19472,8 +20831,8 @@ function captureGitProcessTranscript({
       "Git transcript capture requires one streaming child process."
     );
   }
-  const normalizedAttempt = resolve26(attemptDirectory);
-  const normalizedTransactionPath = resolve26(transactionPath);
+  const normalizedAttempt = resolve27(attemptDirectory);
+  const normalizedTransactionPath = resolve27(transactionPath);
   if (dirname9(normalizedTransactionPath) !== normalizedAttempt) {
     throw new Error("Transaction handle and attempt directory do not match.");
   }
@@ -19482,10 +20841,10 @@ function captureGitProcessTranscript({
     operation,
     instanceId
   );
-  const transcriptHash = createHash21("sha256");
+  const transcriptHash = createHash22("sha256");
   const channelHashes = {
-    stdout: createHash21("sha256"),
-    stderr: createHash21("sha256")
+    stdout: createHash22("sha256"),
+    stderr: createHash22("sha256")
   };
   const channelByteCounts = { stdout: 0, stderr: 0 };
   const headLimit = Math.min(16 * 1024, diagnosticBudget);
@@ -19617,219 +20976,26 @@ var init_gitProcessTranscript = __esm({
   }
 });
 
-// src/committing-to-git/signature/commitSignature.js
-function assertPolicy(policy, label) {
-  if (!POLICIES.has(policy)) {
-    throw new Error(`${label} must be required, advisory, or skipped.`);
-  }
-}
-function sshIdentity(output) {
-  const match = /Good "git" signature for (?<principal>.+?) with \S+ key (?<keyFingerprint>SHA256:\S+)/u.exec(
-    output
-  );
-  return match ? {
-    principal: match.groups.principal,
-    keyFingerprint: match.groups.keyFingerprint
-  } : null;
-}
-function openPgpIdentity(output) {
-  const goodSignature = /\[GNUPG:\] GOODSIG \S+ (?<signer>.+)$/mu.exec(output);
-  const validSignature = /\[GNUPG:\] VALIDSIG (?<fields>.+)$/mu.exec(output);
-  if (!goodSignature || !validSignature) {
-    return null;
-  }
-  const fields = validSignature.groups.fields.trim().split(/\s+/u);
-  const signingFingerprint = fields[0] ?? null;
-  const reportedPrimary = fields.length >= 10 ? fields.at(-1) : null;
-  const primaryKeyFingerprint = reportedPrimary && FULL_OPENPGP_FINGERPRINT.test(reportedPrimary) ? reportedPrimary : signingFingerprint;
-  if (!primaryKeyFingerprint || !FULL_OPENPGP_FINGERPRINT.test(primaryKeyFingerprint)) {
-    return null;
-  }
-  return {
-    signer: goodSignature.groups.signer,
-    primaryKeyFingerprint,
-    signingSubkeyFingerprint: signingFingerprint && FULL_OPENPGP_FINGERPRINT.test(signingFingerprint) && signingFingerprint.toLowerCase() !== primaryKeyFingerprint.toLowerCase() ? signingFingerprint : null
-  };
-}
-function hasExactKeys2(value, keys) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
-}
-function identityMatchesBackend(backend, identity) {
-  if (backend === "ssh") {
-    return hasExactKeys2(identity, ["principal", "keyFingerprint"]) && typeof identity.principal === "string" && identity.principal.length > 0 && typeof identity.keyFingerprint === "string" && FULL_SSH_FINGERPRINT.test(identity.keyFingerprint);
-  }
-  if (backend === "openpgp") {
-    return hasExactKeys2(identity, [
-      "signer",
-      "primaryKeyFingerprint",
-      "signingSubkeyFingerprint"
-    ]) && typeof identity.signer === "string" && identity.signer.length > 0 && typeof identity.primaryKeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.primaryKeyFingerprint) && (identity.signingSubkeyFingerprint === null || typeof identity.signingSubkeyFingerprint === "string" && FULL_OPENPGP_FINGERPRINT.test(identity.signingSubkeyFingerprint));
-  }
-  return false;
-}
-function trustStoreIsUnreadable(output) {
-  return /allowed[ -]?(?:signers|keys)|allowedSignersFile/iu.test(output) && /permission denied|access is denied|could not open|cannot open|unable to open|no such file|not found/iu.test(
-    output
-  );
-}
-function classifySignatureVerification(result, { backend = null, timestamp = (/* @__PURE__ */ new Date()).toISOString() } = {}) {
-  const stdout = Buffer.from(result.stdout ?? Buffer.alloc(0)).toString("utf8");
-  const stderr = Buffer.from(result.stderr ?? Buffer.alloc(0)).toString("utf8");
-  const output = `${stdout}
-${stderr}`.trim();
-  const observedSshIdentity = sshIdentity(output);
-  const observedOpenPgpIdentity = openPgpIdentity(output);
-  const observedBackend = observedSshIdentity ? "ssh" : observedOpenPgpIdentity ? "openpgp" : backend;
-  const identity = observedSshIdentity ?? observedOpenPgpIdentity;
-  if (result.status === 0 && identity !== null) {
-    return {
-      status: "verified",
-      reason: null,
-      backend: observedBackend,
-      identity,
-      timestamp
-    };
-  }
-  const unavailable = trustStoreIsUnreadable(output);
-  return {
-    status: unavailable ? "unavailable" : "failed",
-    reason: unavailable ? "trust-store-unreadable" : "verification-failed",
-    backend: unavailable ? "ssh" : observedBackend,
-    identity: null,
-    timestamp
-  };
-}
-function validateAttempt(attempt) {
-  if (attempt === null || typeof attempt !== "object" || Array.isArray(attempt) || !STATUSES2.has(attempt.status) || !(/* @__PURE__ */ new Set(["ssh", "openpgp", null])).has(attempt.backend) || attempt.reason !== null && typeof attempt.reason !== "string" || attempt.identity !== null && (typeof attempt.identity !== "object" || Array.isArray(attempt.identity)) || typeof attempt.timestamp !== "string" || !Number.isFinite(Date.parse(attempt.timestamp))) {
-    throw new Error("Signature verification attempt is invalid.");
-  }
-  if (attempt.status === "verified" && !identityMatchesBackend(attempt.backend, attempt.identity)) {
-    throw new Error(
-      "Verified signature attempts require a backend-specific identity."
-    );
-  }
-  if (attempt.status !== "verified" && attempt.identity !== null) {
-    throw new Error("Unverified signature attempts cannot retain an identity.");
-  }
-  if (attempt.status === "skipped" && (attempt.backend !== null || attempt.identity !== null)) {
-    throw new Error("Skipped signature attempts cannot name a backend.");
-  }
-  return {
-    status: attempt.status,
-    reason: attempt.reason,
-    backend: attempt.backend,
-    identity: attempt.identity === null ? null : structuredClone(attempt.identity),
-    timestamp: attempt.timestamp
-  };
-}
-function applyVerificationPolicy({
-  commitOid,
-  initialPolicy,
-  finalPolicy,
-  verificationAttempt,
-  previousVerification = null,
-  timestamp = (/* @__PURE__ */ new Date()).toISOString()
-}) {
-  if (!FULL_OID_PATTERN7.test(commitOid)) {
-    throw new Error("Verified commit must be a full 40- or 64-hex object ID.");
-  }
-  assertPolicy(initialPolicy, "Initial verification policy");
-  assertPolicy(finalPolicy, "Final verification policy");
-  let attempts = [];
-  if (previousVerification !== null) {
-    if (previousVerification.schemaVersion !== 2 || previousVerification.commitOid.toLowerCase() !== commitOid.toLowerCase() || previousVerification.initialPolicy !== initialPolicy || !Array.isArray(previousVerification.attempts)) {
-      throw new Error(
-        "Previous verification does not belong to this commit policy."
-      );
-    }
-    attempts = previousVerification.attempts.map(validateAttempt);
-  }
-  const selectedAttempt = finalPolicy === "skipped" ? {
-    status: "skipped",
-    reason: "user-policy",
-    backend: null,
-    identity: null,
-    timestamp
-  } : verificationAttempt;
-  if (selectedAttempt?.commitOid !== void 0 && (typeof selectedAttempt.commitOid !== "string" || selectedAttempt.commitOid.toLowerCase() !== commitOid.toLowerCase())) {
-    throw new Error("Verifier result belongs to a different commit.");
-  }
-  const attemptWithoutBinding = selectedAttempt?.commitOid === void 0 ? selectedAttempt : Object.fromEntries(
-    Object.entries(selectedAttempt).filter(
-      ([key]) => key !== "commitOid"
-    )
-  );
-  attempts.push(validateAttempt(attemptWithoutBinding));
-  const effectiveAttempt = attempts.length - 1;
-  const effective = attempts[effectiveAttempt];
-  return {
-    schemaVersion: 2,
-    commitOid,
-    initialPolicy,
-    finalPolicy,
-    attempts,
-    effectiveAttempt,
-    blocksPush: finalPolicy === "required" && effective.status !== "verified"
-  };
-}
-function verifyCommitSignature(root, commitOid, {
-  backend = null,
-  timestamp = (/* @__PURE__ */ new Date()).toISOString(),
-  invoke = runGit
-} = {}) {
-  if (!FULL_OID_PATTERN7.test(commitOid)) {
-    throw new Error(
-      "Signature verification requires an exact full commit OID."
-    );
-  }
-  const result = invoke(["verify-commit", "--raw", commitOid], {
-    cwd: root,
-    allowFailure: true
-  });
-  return classifySignatureVerification(result, { backend, timestamp });
-}
-var POLICIES, STATUSES2, FULL_OID_PATTERN7, FULL_OPENPGP_FINGERPRINT, FULL_SSH_FINGERPRINT;
-var init_commitSignature = __esm({
-  "src/committing-to-git/signature/commitSignature.js"() {
-    init_gitRepository();
-    POLICIES = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
-    STATUSES2 = /* @__PURE__ */ new Set(["verified", "failed", "unavailable", "skipped"]);
-    FULL_OID_PATTERN7 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
-    FULL_OPENPGP_FINGERPRINT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
-    FULL_SSH_FINGERPRINT = /^SHA256:[A-Za-z0-9+/=_-]+$/u;
-  }
-});
-
 // src/committing-to-git/workflow/createCommitWorkflow.js
-var createCommitWorkflow_exports = {};
-__export(createCommitWorkflow_exports, {
-  MAXIMUM_COMMIT_RESULT_BYTES: () => MAXIMUM_COMMIT_RESULT_BYTES,
-  completeRecordedCommit: () => completeRecordedCommit,
-  createCommitWorkflow: () => createCommitWorkflow,
-  readRecordedReport: () => readRecordedReport,
-  retrySignatureVerificationWorkflow: () => retrySignatureVerificationWorkflow,
-  runCreateCommitCommand: () => runCreateCommitCommand,
-  runRetryVerificationCommand: () => runRetryVerificationCommand
-});
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash22, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash23, randomUUID as randomUUID7 } from "node:crypto";
 import {
   closeSync as closeSync14,
   constants as fsConstants7,
   fsyncSync as fsyncSync10,
-  lstatSync as lstatSync15,
+  lstatSync as lstatSync16,
   openSync as openSync14,
-  readFileSync as readFileSync7,
+  readFileSync as readFileSync8,
   renameSync as renameSync5,
   writeFileSync as writeFileSync11
 } from "node:fs";
-import { dirname as dirname10, join as join16, resolve as resolve27 } from "node:path";
-import { TextDecoder as TextDecoder10 } from "node:util";
-function fail12(code, message, options) {
+import { dirname as dirname10, join as join17, resolve as resolve28 } from "node:path";
+import { TextDecoder as TextDecoder11 } from "node:util";
+function fail19(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2568(bytes) {
-  return createHash22("sha256").update(bytes).digest("hex");
+  return createHash23("sha256").update(bytes).digest("hex");
 }
 function canonicalJsonBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -19840,7 +21006,7 @@ function assertNoGitStorageOverrides2(environment) {
     (name) => environment[name] !== void 0 && environment[name] !== ""
   );
   if (active.length > 0) {
-    fail12(
+    fail19(
       "GIT_STORAGE_OVERRIDE_REJECTED",
       `Commit refuses Git storage overrides: ${active.join(", ")}.`
     );
@@ -19848,28 +21014,28 @@ function assertNoGitStorageOverrides2(environment) {
 }
 function readSnapshot2(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
-  if (resolve27(input.path) !== resolve27(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
-    fail12(
+  if (resolve28(input.path) !== resolve28(transaction.snapshot.path) || sha2568(input.bytes) !== transaction.snapshot.sha256) {
+    fail19(
       "SNAPSHOT_ARTIFACT_MISMATCH",
       "The fixed snapshot no longer matches its transaction identity."
     );
   }
   try {
-    return JSON.parse(STRICT_UTF8_DECODER11.decode(input.bytes));
+    return JSON.parse(STRICT_UTF8_DECODER12.decode(input.bytes));
   } catch (error) {
-    fail12("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
+    fail19("SNAPSHOT_ARTIFACT_INVALID", "Snapshot JSON is invalid.", {
       cause: error
     });
   }
 }
 function directMessage(transactionPath, transaction, manifest, approvedSubject) {
   if (typeof approvedSubject !== "string" || !canUseDirectSubjectTransport(approvedSubject)) {
-    fail12(
+    fail19(
       "MESSAGE_REQUIRES_CHECKED_FILE",
       "This message must be supplied through the fixed message-input.txt check route.",
       {
         state: {
-          transaction: resolve27(transactionPath),
+          transaction: resolve28(transactionPath),
           phase: transaction.phase,
           route: transaction.route,
           commitState: "absent",
@@ -19913,18 +21079,18 @@ function selectCanonicalMessage({
   }
   if (transaction.phase === "message-ready") {
     if (approvedSubject !== null && approvedSubject !== void 0) {
-      fail12(
+      fail19(
         "MESSAGE_ALREADY_RECORDED",
         "A message-ready transaction must use its recorded canonical bytes."
       );
     }
     const message = readCanonicalMessage(transactionPath);
     if (message === null) {
-      fail12("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
+      fail19("CANONICAL_MESSAGE_MISSING", "The canonical message slot is empty.");
     }
     return message;
   }
-  fail12(
+  fail19(
     "COMMIT_PHASE_INVALID",
     `Transaction phase ${transaction.phase} cannot create a commit.`,
     {
@@ -19966,7 +21132,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     acknowledgedFailedCheckIds
   );
   if (readiness.activeAttemptIds.length > 0) {
-    fail12(
+    fail19(
       "CHECK_RECOVERY_REQUIRED",
       `Check ${readiness.activeAttemptIds.at(-1)} has no durable outcome; recover it before committing.`,
       {
@@ -19979,7 +21145,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.retryRequiredIds.length > 0) {
-    fail12(
+    fail19(
       "CHECK_RETRY_REQUIRED",
       `Recovered check ${readiness.retryRequiredIds.at(-1)} has an unknown outcome and requires a linked retry before committing.`,
       {
@@ -19989,7 +21155,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.invalidAcknowledgementIds.length > 0 || readiness.duplicateAcknowledgementIds.length > 0) {
-    fail12(
+    fail19(
       "FAILED_CHECK_ACKNOWLEDGEMENT_INVALID",
       "Failed-check acknowledgements must name each current non-passing witnessed receipt exactly once.",
       {
@@ -20002,7 +21168,7 @@ function authorizeCheckReceipts(transactionPath, transaction, acknowledgedFailed
     );
   }
   if (readiness.missingAcknowledgementIds.length > 0) {
-    fail12(
+    fail19(
       "FAILED_CHECK_ACKNOWLEDGEMENT_REQUIRED",
       "Exact commit authorization must acknowledge every non-passing receipt. Review the listed receipt IDs; retain explicitly approved acknowledgement arguments to reveal any remaining IDs on the next invocation.",
       {
@@ -20063,7 +21229,7 @@ function updateCommitJournal(transactionPath, transform) {
   });
 }
 function atomicWrite(path, bytes) {
-  const candidate = join16(dirname10(path), `.report-${randomUUID7()}.tmp`);
+  const candidate = join17(dirname10(path), `.report-${randomUUID7()}.tmp`);
   const descriptor = openSync14(
     candidate,
     fsConstants7.O_WRONLY + fsConstants7.O_CREAT + fsConstants7.O_EXCL,
@@ -20076,7 +21242,7 @@ function atomicWrite(path, bytes) {
     closeSync14(descriptor);
   }
   if (lstatSafe(path)?.isSymbolicLink()) {
-    fail12(
+    fail19(
       "REPORT_PATH_REPLACED",
       `Report output was replaced by a link: ${path}`
     );
@@ -20085,7 +21251,7 @@ function atomicWrite(path, bytes) {
 }
 function lstatSafe(path) {
   try {
-    return lstatSync15(path);
+    return lstatSync16(path);
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
@@ -20142,7 +21308,7 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
     message: exitCode === 0 ? null : "The commit exists, but comparison or signature policy blocks publication.",
     status: exitCode === 0 ? "reported" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: report.publication.status === "blocked" ? "blocked" : "not-requested",
@@ -20170,13 +21336,13 @@ function reportResult(transactionPath, transaction, report, displayText, exitCod
 function readRecordedReport(transactionPath) {
   const transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.report === null) {
-    fail12(
+    fail19(
       "REPORT_NOT_RECORDED",
       "Transaction does not contain a final local report."
     );
   }
-  const report = JSON.parse(readFileSync7(transaction.report.jsonPath, "utf8"));
-  const displayText = readFileSync7(transaction.report.textPath, "utf8");
+  const report = JSON.parse(readFileSync8(transaction.report.jsonPath, "utf8"));
+  const displayText = readFileSync8(transaction.report.textPath, "utf8");
   const exitCode = transaction.status === "reported" ? 0 : 3;
   return reportResult(
     transactionPath,
@@ -20198,7 +21364,7 @@ async function completeRecordedCommit({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "commit-pending" || transaction.commit?.commitOid === null || transaction.commit?.comparison === null) {
-    fail12(
+    fail19(
       "COMMIT_NOT_READY_FOR_REPORT",
       "A matching recorded commit is required before verification and reporting.",
       {
@@ -20209,7 +21375,7 @@ async function completeRecordedCommit({
   }
   const finalPolicy = verificationPolicyOverride ?? transaction.verification?.finalPolicy ?? transaction.verificationPolicy;
   if (!VERIFICATION_POLICIES3.has(finalPolicy)) {
-    fail12(
+    fail19(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -20256,7 +21422,7 @@ async function completeRecordedCommit({
   let displayText = renderCommitReport(report);
   if (Buffer.byteLength(
     JSON.stringify({
-      transaction: resolve27(transactionPath),
+      transaction: resolve28(transactionPath),
       report,
       displayText
     })
@@ -20270,7 +21436,7 @@ async function completeRecordedCommit({
   const reportBytes = canonicalJsonBytes3(report);
   const textBytes = Buffer.from(displayText, "utf8");
   if (reportBytes.length + textBytes.length > MAXIMUM_COMMIT_RESULT_BYTES) {
-    fail12(
+    fail19(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The commit exists, but its final result exceeds the bounded report budget.",
       {
@@ -20280,10 +21446,10 @@ async function completeRecordedCommit({
     );
   }
   failureInjector("during-report-writing");
-  const jsonPath = join16(transaction.attemptDirectory, "report.json");
-  const textPath = join16(transaction.attemptDirectory, "report.txt");
+  const jsonPath = join17(transaction.attemptDirectory, "report.json");
+  const textPath2 = join17(transaction.attemptDirectory, "report.txt");
   atomicWrite(jsonPath, reportBytes);
-  atomicWrite(textPath, textBytes);
+  atomicWrite(textPath2, textBytes);
   const comparisonMatches = report.commit.parentMatches && report.commit.treeMatches && report.commit.messageMatches && report.commit.signed;
   const publicationAllowed = comparisonMatches && !verification.blocksPush;
   const blocked = !publicationAllowed;
@@ -20296,7 +21462,7 @@ async function completeRecordedCommit({
       schemaVersion: 1,
       jsonPath,
       jsonSha256: sha2568(reportBytes),
-      textPath,
+      textPath: textPath2,
       textSha256: sha2568(textBytes),
       comparisonMatches,
       publicationAllowed
@@ -20344,7 +21510,7 @@ async function completeRecordedCommit({
     const compactReportBytes = canonicalJsonBytes3(report);
     const compactTextBytes = Buffer.from(displayText, "utf8");
     atomicWrite(jsonPath, compactReportBytes);
-    atomicWrite(textPath, compactTextBytes);
+    atomicWrite(textPath2, compactTextBytes);
     transaction = updateTransaction(transactionPath, "reported", {
       ...transaction,
       report: {
@@ -20363,7 +21529,7 @@ async function completeRecordedCommit({
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail12(
+    fail19(
       "REPORT_RESULT_BUDGET_EXCEEDED",
       "The complete serialized commit result exceeds the bounded report budget.",
       { disposition: "completed-with-failure" }
@@ -20377,7 +21543,7 @@ function incompleteKnownCommitResult(transactionPath, recovery) {
     disposition: "completed-with-failure",
     status: "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: "not-requested",
@@ -20407,7 +21573,7 @@ function uncertainCommitResult(transactionPath, transaction) {
     disposition: knownCommit ? "completed-with-failure" : "outcome-unknown",
     status: knownCommit ? "commit-blocked" : "outcome-unknown",
     phase: transaction.phase,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     route: transaction.route,
     commitState: transaction.commit?.commitOid ? "created" : "unknown",
     publicationState: "not-requested",
@@ -20447,7 +21613,7 @@ async function createCommitWorkflow({
   }
 }) {
   if (!["auto", "native"].includes(execution)) {
-    fail12(
+    fail19(
       "INVALID_COMMIT_EXECUTION",
       "--execution must be auto or native; both retain normal checks, hooks, signing and outcome recovery."
     );
@@ -20455,7 +21621,7 @@ async function createCommitWorkflow({
   assertNoGitStorageOverrides2(environment);
   let transaction = readTransaction(transactionPath);
   if (transaction.mode !== "actual") {
-    fail12(
+    fail19(
       "DRAFT_REQUIRES_PROMOTION",
       "A draft transaction must be promoted before commit creation."
     );
@@ -20466,7 +21632,7 @@ async function createCommitWorkflow({
     acknowledgedFailedCheckIds
   );
   if (verificationPolicyOverride !== null && !VERIFICATION_POLICIES3.has(verificationPolicyOverride)) {
-    fail12(
+    fail19(
       "INVALID_VERIFICATION_POLICY",
       "Verification override must be required, advisory, or skipped."
     );
@@ -20504,7 +21670,7 @@ async function createCommitWorkflow({
       disposition: "rejected",
       status: "stopped",
       phase: stopped.phase,
-      transaction: resolve27(transactionPath),
+      transaction: resolve28(transactionPath),
       route: stopped.route,
       commitState: "absent",
       publicationState: "not-requested",
@@ -20669,7 +21835,7 @@ function retrySignatureVerificationWorkflow({
 }) {
   let transaction = readTransaction(transactionPath);
   if (transaction.phase !== "reported" || transaction.commit?.commitOid === null) {
-    fail12(
+    fail19(
       "VERIFICATION_RETRY_NOT_ALLOWED",
       "Verification retry requires one already reported commit.",
       { disposition: "unmet-prerequisite" }
@@ -20690,7 +21856,7 @@ function retrySignatureVerificationWorkflow({
     previousVerification: previous
   });
   const priorReport = JSON.parse(
-    readFileSync7(transaction.report.jsonPath, "utf8")
+    readFileSync8(transaction.report.jsonPath, "utf8")
   );
   const report = { ...priorReport, verification };
   const displayText = renderCommitReport(report);
@@ -20717,7 +21883,7 @@ function retrySignatureVerificationWorkflow({
     message: publicationAllowed ? null : "Signature verification policy blocks publication of the recorded commit.",
     status: publicationAllowed ? "verified" : "commit-blocked",
     phase: transaction.phase,
-    transaction: resolve27(transactionPath),
+    transaction: resolve28(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState: transactionDiagnosticState(transaction, transactionPath).publicationState,
@@ -20739,53 +21905,10 @@ function retrySignatureVerificationWorkflow({
     }
   });
 }
-function parseArguments4(argv, command) {
-  const flags = parseCommandArguments(command, argv).values;
-  const format = flags.get("format") ?? "json";
-  if (!["json", "text"].includes(format))
-    fail12("INVALID_FORMAT", "--format must be json or text.");
-  const transactionPath = flags.get("transaction");
-  if (!transactionPath)
-    fail12("TRANSACTION_REQUIRED", "--transaction is required.");
-  return {
-    transactionPath,
-    format,
-    execution: flags.get("execution") ?? "auto",
-    approvedSubject: flags.get("message") ?? null,
-    acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
-    retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
-    retainProcessLogs: flags.get("retain-process-logs") === true,
-    verificationPolicyOverride: flags.get("verification") ?? null
-  };
-}
-async function runCreateCommitCommand(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments4(arguments_, "workflow commit"),
-    includeProcessDiagnostics: true,
-    execute: (options) => createCommitWorkflow({
-      ...options,
-      retainProcessLogs: options.format !== "text" || options.retainProcessLogs,
-      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
-    }),
-    failureState: observeTransactionFailure,
-    stdout
-  });
-}
-async function runRetryVerificationCommand(argv, { stdout = process.stdout } = {}) {
-  return executeCommand(argv, {
-    parse: (arguments_) => parseArguments4(arguments_, "workflow verify"),
-    includeProcessDiagnostics: true,
-    execute: retrySignatureVerificationWorkflow,
-    failureState: observeTransactionFailure,
-    stdout
-  });
-}
-var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER11, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2;
+var MAXIMUM_COMMIT_RESULT_BYTES, STRICT_UTF8_DECODER12, VERIFICATION_POLICIES3, STORAGE_OVERRIDE_NAMES2;
 var init_createCommitWorkflow = __esm({
   "src/committing-to-git/workflow/createCommitWorkflow.js"() {
-    init_commandExecution();
     init_authoringProgress();
-    init_commandArguments();
     init_workflowDiagnosticError();
     init_diagnosticContract();
     init_transactionDiagnosticState();
@@ -20801,7 +21924,7 @@ var init_createCommitWorkflow = __esm({
     init_transactionRecovery();
     init_transactionWorkspace();
     MAXIMUM_COMMIT_RESULT_BYTES = MAXIMUM_REPORT_RESULT_BYTES;
-    STRICT_UTF8_DECODER11 = new TextDecoder10("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER12 = new TextDecoder11("utf-8", { fatal: true });
     VERIFICATION_POLICIES3 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
     STORAGE_OVERRIDE_NAMES2 = [
       "GIT_DIR",
@@ -20816,35 +21939,411 @@ var init_createCommitWorkflow = __esm({
   }
 });
 
-// src/committing-to-git/workflow/reportDetailWorkflow.js
-var reportDetailWorkflow_exports = {};
-__export(reportDetailWorkflow_exports, {
-  readWorkspaceDetailPage: () => readWorkspaceDetailPage,
-  reportDetailWorkflow: () => reportDetailWorkflow,
-  runReportDetailCommand: () => runReportDetailCommand
+// src/committing-to-git/workflow/commitProposalWorkflow.js
+import { spawn as spawn3 } from "node:child_process";
+function fail20(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function runNativeCommit({ root, messageBytes, environment, processLauncher }) {
+  return new Promise((resolvePromise, reject) => {
+    const child = processLauncher(
+      "git",
+      ["commit", "--cleanup=verbatim", "-S", "-F", "-"],
+      {
+        cwd: root,
+        env: { ...environment, GIT_PAGER: "cat", PAGER: "cat", NO_COLOR: "1" },
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"]
+      }
+    );
+    let stderr = Buffer.alloc(0);
+    child.stdout.resume();
+    child.stderr.on("data", (chunk) => {
+      stderr = Buffer.concat([stderr, chunk]);
+      if (stderr.length > MAXIMUM_CAPTURED_STDERR_BYTES) {
+        stderr = stderr.subarray(stderr.length - MAXIMUM_CAPTURED_STDERR_BYTES);
+      }
+    });
+    child.once("error", reject);
+    child.once(
+      "close",
+      (exitCode, signal) => resolvePromise({ exitCode, signal, stderr: stderr.toString("utf8") })
+    );
+    child.stdin.once("error", () => {
+    });
+    child.stdin.end(messageBytes);
+  });
+}
+function verificationAttempt({
+  root,
+  commitOid,
+  finalPolicy,
+  signaturePreflight,
+  signatureVerifier
+}) {
+  if (finalPolicy === "skipped") {
+    return null;
+  }
+  if (finalPolicy === "advisory" && signaturePreflight.backend === "ssh" && signaturePreflight.trustSource?.state !== "readable") {
+    return {
+      status: "unavailable",
+      reason: "trust-store-unreadable",
+      backend: "ssh",
+      identity: null,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  return signatureVerifier(root, commitOid, {
+    backend: signaturePreflight.backend ?? null
+  });
+}
+function committedResult({ commitOid, commit, verification, displayText }) {
+  const comparisonMatches = commit.parentMatches && commit.treeMatches && commit.messageMatches && commit.signed;
+  const blocked = !comparisonMatches || verification.blocksPush;
+  return createWorkflowResult({
+    disposition: blocked ? "completed-with-failure" : "succeeded",
+    code: blocked ? "COMMIT_POLICY_BLOCKED" : null,
+    message: blocked ? "The commit exists, but its comparison or signature policy failed." : null,
+    status: blocked ? "commit-blocked" : "reported",
+    phase: "reported",
+    route: "concise",
+    commitState: "created",
+    publicationState: "not-requested",
+    publicationAllowed: false,
+    recoveryRequired: false,
+    warnings: verificationDiagnostics(verification),
+    recovery: {
+      kind: blocked ? "inspect-state" : "none",
+      automatic: false,
+      requiredInputs: [],
+      commands: []
+    },
+    data: {
+      terminalDisposition: "local-commit-recorded",
+      stateStorage: "memory",
+      commitOid,
+      commit,
+      verification,
+      displayText
+    }
+  });
+}
+async function commitProposalWorkflow({
+  proposal: encodedProposal,
+  approvedSubject = null,
+  messageBytes = null,
+  expectedMessageSha256 = null,
+  verificationPolicyOverride = null,
+  cwd = process.cwd(),
+  environment = process.env,
+  processLauncher = spawn3,
+  signatureVerifier = verifyCommitSignature,
+  signaturePreflightInspector = inspectSignatureRequirements
+}) {
+  const proposal = decodeCommitProposal(encodedProposal);
+  if (proposal.mode !== "actual") {
+    fail20(
+      "DRAFT_PROPOSAL_NOT_COMMITTABLE",
+      "A draft proposal is never committed; prepare again with --mode actual.",
+      { disposition: "rejected" }
+    );
+  }
+  if (approvedSubject === null === (messageBytes === null)) {
+    fail20(
+      "MESSAGE_INPUT_REQUIRED",
+      "Supply exactly one of --message or --message-stdin."
+    );
+  }
+  if (verificationPolicyOverride !== null && !VERIFICATION_POLICIES4.has(verificationPolicyOverride)) {
+    fail20(
+      "INVALID_VERIFICATION_POLICY",
+      "Verification override must be required, advisory, or skipped."
+    );
+  }
+  assertNoGitStorageOverrides(environment);
+  const finalPolicy = verificationPolicyOverride ?? proposal.verificationPolicy;
+  const { root, manifest } = await observeCurrentProposal({ proposal, cwd });
+  assertPreallocationRepositoryState(root);
+  const signaturePreflight = preflightVerificationPolicy({
+    root,
+    verificationPolicy: finalPolicy,
+    signaturePreflightInspector
+  });
+  const bytes = approvedSubject === null ? messageBytes : Buffer.from(`${approvedSubject}
+`, "utf8");
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "concise",
+    bytes,
+    repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
+    messageSource: approvedSubject === null ? "checked-input" : "approved-subject"
+  });
+  if (expectedMessageSha256 !== null && validation.messageSha256 !== expectedMessageSha256) {
+    fail20(
+      "MESSAGE_DIGEST_MISMATCH",
+      "The supplied message bytes differ from the checked message digest.",
+      { disposition: "rejected" }
+    );
+  }
+  const headOid = proposal.headAnchor.expectedParentOids[0] ?? null;
+  if (proposal.scope === "full") {
+    runIndexMutationGit(root, "add-all", []);
+    if (changeSetSha256(observeStagedChangeSet(root, headOid)) !== proposal.changeSetSha256) {
+      const stale = proposalStale(["working-tree"]);
+      stale.message = "The working tree changed while it was staged. The index now holds the current working tree; nothing was committed. Prepare again.";
+      throw stale;
+    }
+  }
+  const outcome = await runNativeCommit({
+    root,
+    messageBytes: Buffer.from(validation.displayText, "utf8"),
+    environment,
+    processLauncher
+  });
+  const headAfter = captureHeadAnchor(root);
+  if (outcome.exitCode !== 0) {
+    if (JSON.stringify(headAfter) === JSON.stringify(proposal.headAnchor)) {
+      fail20("GIT_COMMIT_FAILED", "git commit did not create a commit.", {
+        disposition: "rejected",
+        state: { commitState: "absent", publicationState: "not-requested" },
+        details: {
+          exitCode: outcome.exitCode,
+          signal: outcome.signal,
+          stderrTail: outcome.stderr,
+          indexUpdated: proposal.scope === "full"
+        }
+      });
+    }
+    fail20(
+      "COMMIT_OUTCOME_UNKNOWN",
+      "git commit failed but HEAD moved; inspect HEAD before another commit.",
+      {
+        disposition: "internal-failure",
+        state: {
+          commitState: "unknown",
+          publicationState: "not-requested",
+          recoveryRequired: true
+        },
+        details: { exitCode: outcome.exitCode, headAfter }
+      }
+    );
+  }
+  const commitOid = headAfter.expectedParentOids[0];
+  try {
+    const object = inspectCommitObject(root, commitOid);
+    const verification = applyVerificationPolicy({
+      commitOid,
+      initialPolicy: proposal.verificationPolicy,
+      finalPolicy,
+      verificationAttempt: verificationAttempt({
+        root,
+        commitOid,
+        finalPolicy,
+        signaturePreflight,
+        signatureVerifier
+      })
+    });
+    return committedResult({
+      commitOid,
+      commit: {
+        oid: commitOid,
+        parentOids: object.parents,
+        treeOid: object.treeOid,
+        parentMatches: JSON.stringify(object.parents) === JSON.stringify(proposal.headAnchor.expectedParentOids),
+        treeMatches: changeSetSha256(observeCommitChangeSet(root, commitOid)) === proposal.changeSetSha256,
+        messageMatches: object.messageBytes.equals(
+          Buffer.from(validation.displayText, "utf8")
+        ),
+        signed: object.signed
+      },
+      verification,
+      displayText: validation.displayText
+    });
+  } catch (error) {
+    fail20(
+      "POST_COMMIT_OBSERVATION_FAILED",
+      "The commit exists, but its comparison or verification could not complete.",
+      {
+        disposition: "internal-failure",
+        cause: error,
+        state: {
+          commitState: "created",
+          commitOid,
+          publicationState: "not-requested"
+        }
+      }
+    );
+  }
+}
+var VERIFICATION_POLICIES4, MAXIMUM_CAPTURED_STDERR_BYTES;
+var init_commitProposalWorkflow = __esm({
+  "src/committing-to-git/workflow/commitProposalWorkflow.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_approvedMessage();
+    init_commitProposal();
+    init_commitReport();
+    init_commitSignature();
+    init_signaturePreflight();
+    init_changeSet();
+    init_indexInstallation();
+    init_createCommitWorkflow();
+    init_prepareWorkflow();
+    init_proposalObservation();
+    VERIFICATION_POLICIES4 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    MAXIMUM_CAPTURED_STDERR_BYTES = 16 * 1024;
+  }
 });
-import { createHash as createHash23, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
+
+// src/committing-to-git/cli/createCommitCommand.js
+var createCommitCommand_exports = {};
+__export(createCommitCommand_exports, {
+  runCreateCommitCommand: () => runCreateCommitCommand,
+  runRetryVerificationCommand: () => runRetryVerificationCommand
+});
+function fail21(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function parseProposalArguments(flags, format) {
+  if (flags.has("transaction")) {
+    fail21(
+      "CONFLICTING_ARGUMENT",
+      "--proposal and --transaction are alternatives."
+    );
+  }
+  const unsupported2 = TRANSACTION_ONLY_FLAGS.find((name) => flags.has(name));
+  if (unsupported2) {
+    fail21(
+      "TRANSACTION_ARGUMENT_WITH_PROPOSAL",
+      `--${unsupported2} applies only to a disk-storage transaction.`
+    );
+  }
+  const messageSha256 = flags.get("message-sha256") ?? null;
+  if (flags.has("message") === flags.has("message-stdin")) {
+    fail21(
+      "MESSAGE_INPUT_REQUIRED",
+      "A proposal commit takes exactly one of --message or --message-stdin."
+    );
+  }
+  if (messageSha256 !== null && !/^[0-9a-f]{64}$/u.test(messageSha256)) {
+    fail21(
+      "INVALID_MESSAGE_SHA256",
+      "--message-sha256 must be 64 lowercase hex."
+    );
+  }
+  return {
+    proposal: flags.get("proposal"),
+    format,
+    approvedSubject: flags.get("message") ?? null,
+    messageFromStandardInput: flags.get("message-stdin") === true,
+    expectedMessageSha256: messageSha256,
+    verificationPolicyOverride: flags.get("verification") ?? null
+  };
+}
+function parseArguments4(argv, command) {
+  const flags = parseCommandArguments(command, argv).values;
+  const format = flags.get("format") ?? "json";
+  if (!["json", "text"].includes(format))
+    fail21("INVALID_FORMAT", "--format must be json or text.");
+  if (flags.has("proposal")) return parseProposalArguments(flags, format);
+  if (flags.has("message-stdin") || flags.has("message-sha256"))
+    fail21(
+      "PROPOSAL_ARGUMENT_WITH_TRANSACTION",
+      "--message-stdin and --message-sha256 apply only to --proposal."
+    );
+  const transactionPath = flags.get("transaction");
+  if (!transactionPath)
+    fail21("TRANSACTION_REQUIRED", "--transaction is required.");
+  return {
+    transactionPath,
+    format,
+    execution: flags.get("execution") ?? "auto",
+    approvedSubject: flags.get("message") ?? null,
+    acknowledgedFailedCheckIds: flags.get("acknowledge-failed-check") ?? [],
+    retainReviewArtifacts: flags.get("retain-review-artifacts") === true,
+    retainProcessLogs: flags.get("retain-process-logs") === true,
+    verificationPolicyOverride: flags.get("verification") ?? null
+  };
+}
+async function commitProposal(options, { cwd, stdin }) {
+  const { messageFromStandardInput, ...proposalOptions } = options;
+  return commitProposalWorkflow({
+    ...proposalOptions,
+    messageBytes: messageFromStandardInput ? await readMessageInput(stdin, MAXIMUM_CANONICAL_MESSAGE_BYTES) : null,
+    cwd
+  });
+}
+async function runCreateCommitCommand(argv, {
+  cwd = process.cwd(),
+  stdin = process.stdin,
+  stdout = process.stdout,
+  stderr = process.stderr
+} = {}) {
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments4(arguments_, "workflow commit"),
+    includeProcessDiagnostics: true,
+    execute: (options) => options.proposal !== void 0 ? commitProposal(options, { cwd, stdin }) : createCommitWorkflow({
+      ...options,
+      retainProcessLogs: options.format !== "text" || options.retainProcessLogs,
+      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
+    }),
+    failureState: (options) => options?.proposal === void 0 ? observeTransactionFailure(options) : { commitState: "absent", publicationState: "not-requested" },
+    stdout
+  });
+}
+async function runRetryVerificationCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    parse: (arguments_) => parseArguments4(arguments_, "workflow verify"),
+    includeProcessDiagnostics: true,
+    execute: retrySignatureVerificationWorkflow,
+    failureState: observeTransactionFailure,
+    stdout
+  });
+}
+var TRANSACTION_ONLY_FLAGS;
+var init_createCommitCommand = __esm({
+  "src/committing-to-git/cli/createCommitCommand.js"() {
+    init_commandArguments();
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_standardInput();
+    init_approvedMessage();
+    init_transactionDiagnosticState();
+    init_commitProposalWorkflow();
+    init_createCommitWorkflow();
+    TRANSACTION_ONLY_FLAGS = [
+      "execution",
+      "acknowledge-failed-check",
+      "retain-review-artifacts",
+      "retain-process-logs"
+    ];
+  }
+});
+
+// src/committing-to-git/workflow/reportDetailWorkflow.js
+import { createHash as createHash24, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
 import {
   closeSync as closeSync15,
   constants as fsConstants8,
   existsSync as existsSync18,
   fsyncSync as fsyncSync11,
-  lstatSync as lstatSync16,
+  lstatSync as lstatSync17,
   mkdirSync as mkdirSync11,
   openSync as openSync15,
-  readFileSync as readFileSync8,
+  readFileSync as readFileSync9,
   renameSync as renameSync6,
   rmSync as rmSync5,
   unlinkSync as unlinkSync9,
   writeFileSync as writeFileSync12
 } from "node:fs";
-import { basename as basename3, join as join17, resolve as resolve28 } from "node:path";
-import { TextDecoder as TextDecoder11 } from "node:util";
-function fail13(code, message, disposition = "invalid-input", cause) {
+import { basename as basename3, join as join18, resolve as resolve29 } from "node:path";
+import { TextDecoder as TextDecoder12 } from "node:util";
+function fail22(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 function sha2569(value) {
-  return createHash23("sha256").update(value).digest("hex");
+  return createHash24("sha256").update(value).digest("hex");
 }
 function canonicalBytes2(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -20852,7 +22351,7 @@ function canonicalBytes2(value) {
 }
 function safeDisplay(bytes) {
   try {
-    const decoded = STRICT_UTF8_DECODER12.decode(bytes);
+    const decoded = STRICT_UTF8_DECODER13.decode(bytes);
     if (SAFE_TERMINAL_TEXT2.test(decoded)) {
       return decoded;
     }
@@ -20876,9 +22375,9 @@ function detailEntry(entry, ordinal) {
   };
 }
 function directoryIdentity(path) {
-  const stat = lstatSync16(path, { bigint: true });
+  const stat = lstatSync17(path, { bigint: true });
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    fail13(
+    fail22(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -20895,17 +22394,17 @@ function validDirectoryIdentity(identity) {
   );
 }
 function assertRegularFile(path, label) {
-  const stat = lstatSync16(path);
+  const stat = lstatSync17(path);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail13("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
+    fail22("DETAIL_STATE_REPLACED", `${label} was replaced or is not regular.`);
   }
 }
 function readJson(path, label) {
   assertRegularFile(path, label);
   try {
-    return JSON.parse(readFileSync8(path, "utf8"));
+    return JSON.parse(readFileSync9(path, "utf8"));
   } catch (error) {
-    fail13(
+    fail22(
       "DETAIL_STATE_INVALID",
       `${label} is invalid.`,
       "invalid-input",
@@ -20940,8 +22439,8 @@ function validateReadyActive(transactionPath, active) {
     const cursorKeyBytes = Buffer.from(active.cursorKey, "base64url");
     cursorKeyValid = cursorKeyBytes.length === 32 && cursorKeyBytes.toString("base64url") === active.cursorKey;
   }
-  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve28(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
-    fail13("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
+  if (JSON.stringify(Object.keys(active ?? {}).sort()) !== JSON.stringify(expectedKeys) || active.schemaVersion !== 1 || active.state !== "ready" || active.transactionDigest !== sha2569(Buffer.from(resolve29(transactionPath))) || !SHA256_PATTERN4.test(active.startingReportDigest) || !UUID_V4_PATTERN3.test(active.observationId) || !validDirectoryIdentity(active.observationDirectoryIdentity) || !cursorKeyValid || typeof active.observedAt !== "string" || !Number.isFinite(Date.parse(active.observedAt)) || !SHA256_PATTERN4.test(active.observationDigest) || !Number.isSafeInteger(active.observedEntryCount) || active.observedEntryCount < 0 || !pagesContiguous) {
+    fail22("DETAIL_STATE_INVALID", "Active workspace detail journal is invalid.");
   }
   return active;
 }
@@ -20989,23 +22488,23 @@ function encodeCursor(active, nextOrdinal) {
     "utf8"
   ).toString("base64url");
   if (Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail13("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
+    fail22("DETAIL_CURSOR_BUDGET_EXCEEDED", "Generated cursor is too large.");
   }
   return cursor;
 }
 function decodeCursor(cursor, active) {
   if (typeof cursor !== "string" || cursor.length === 0 || Buffer.byteLength(cursor) > MAXIMUM_CURSOR_BYTES) {
-    fail13("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail22("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   let decoded;
   try {
     const bytes = Buffer.from(cursor, "base64url");
     if (bytes.toString("base64url") !== cursor) {
-      fail13("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+      fail22("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
     }
     decoded = JSON.parse(bytes.toString("utf8"));
   } catch {
-    fail13("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
+    fail22("DETAIL_CURSOR_INVALID", "Report-detail cursor is malformed.");
   }
   const keys = Object.keys(decoded).sort();
   const expectedKeys = [
@@ -21024,7 +22523,7 @@ function decodeCursor(cursor, active) {
     ])
   );
   if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || decoded.schemaVersion !== 1 || decoded.transactionDigest !== active.transactionDigest || decoded.startingReportDigest !== active.startingReportDigest || decoded.observationDigest !== active.observationDigest || !Number.isSafeInteger(decoded.nextOrdinal) || decoded.nextOrdinal < 1 || decoded.signature !== expectedSignature) {
-    fail13(
+    fail22(
       "DETAIL_CURSOR_INVALID",
       "Report-detail cursor is stale, tampered, or belongs to another transaction."
     );
@@ -21033,15 +22532,15 @@ function decodeCursor(cursor, active) {
 }
 function observationDirectory(transaction, active) {
   if (!UUID_V4_PATTERN3.test(active.observationId)) {
-    fail13("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
+    fail22("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
   }
-  return join17(
+  return join18(
     transaction.attemptDirectory,
     `report-detail-${active.observationId}`
   );
 }
 function pagePath(transaction, active, index) {
-  return join17(
+  return join18(
     observationDirectory(transaction, active),
     `page-${String(index).padStart(6, "0")}.json`
   );
@@ -21050,7 +22549,7 @@ function assertObservationDirectory(transaction, active) {
   const path = observationDirectory(transaction, active);
   const observedIdentity = directoryIdentity(path);
   if (!validDirectoryIdentity(active.observationDirectoryIdentity) || JSON.stringify(observedIdentity) !== JSON.stringify(active.observationDirectoryIdentity)) {
-    fail13(
+    fail22(
       "DETAIL_STATE_REPLACED",
       "Workspace observation directory was replaced."
     );
@@ -21125,7 +22624,7 @@ async function materializeObservation(transaction, active) {
     observedEntryCount: observation.observedEntries,
     pages: pages2
   };
-  replaceJson2(join17(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
+  replaceJson2(join18(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
   return completedActive;
 }
 function boundedPageResult(transactionPath, transaction, active, page, requestCursor) {
@@ -21134,7 +22633,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     disposition: "succeeded",
     ...transactionDiagnosticState(transaction, transactionPath),
     status: nextPage === null ? "detail-complete" : "detail-page",
-    transaction: resolve28(transactionPath),
+    transaction: resolve29(transactionPath),
     data: {
       commitOid: transaction.commit?.commitOid ?? null,
       startingReportDigest: active.startingReportDigest,
@@ -21153,7 +22652,7 @@ function boundedPageResult(transactionPath, transaction, active, page, requestCu
     }
   });
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail13(
+    fail22(
       "DETAIL_RESULT_BUDGET_EXCEEDED",
       "Workspace detail page exceeds the serialized result budget."
     );
@@ -21169,22 +22668,22 @@ function readPageForRequest(transaction, active, cursor) {
   const ordinal = cursor === null ? 0 : decodeCursor(cursor, active);
   const descriptor = active.pages.find((page2) => page2.startOrdinal === ordinal);
   if (!descriptor) {
-    fail13("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
+    fail22("DETAIL_CURSOR_INVALID", "Report-detail cursor does not name a page.");
   }
   const page = readJson(
     pagePath(transaction, active, descriptor.index),
     "Workspace detail page"
   );
   if (sha2569(canonicalBytes2(page)) !== descriptor.sha256) {
-    fail13("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
+    fail22("DETAIL_STATE_INVALID", "Workspace detail page digest changed.");
   }
   return { ...page, index: descriptor.index };
 }
-function hasExactKeys3(value, expectedKeys) {
+function hasExactKeys4(value, expectedKeys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
 }
 function validReplayPath(path) {
-  if (!hasExactKeys3(path, ["display", "bytesBase64", "byteCount", "sha256"]) || typeof path.display !== "string" || typeof path.bytesBase64 !== "string" || !Number.isSafeInteger(path.byteCount) || path.byteCount < 0 || !SHA256_PATTERN4.test(path.sha256)) {
+  if (!hasExactKeys4(path, ["display", "bytesBase64", "byteCount", "sha256"]) || typeof path.display !== "string" || typeof path.bytesBase64 !== "string" || !Number.isSafeInteger(path.byteCount) || path.byteCount < 0 || !SHA256_PATTERN4.test(path.sha256)) {
     return false;
   }
   const bytes = Buffer.from(path.bytesBase64, "base64");
@@ -21199,31 +22698,31 @@ function validateCompletedResult(result, transactionPath) {
     "page",
     "nextCursor"
   ];
-  const observationValid = hasExactKeys3(result?.observation, [
+  const observationValid = hasExactKeys4(result?.observation, [
     "observedAt",
     "digest",
     "observedEntryCount",
     "exactAtReportTime"
   ]) && typeof result.observation.observedAt === "string" && Number.isFinite(Date.parse(result.observation.observedAt)) && SHA256_PATTERN4.test(result.observation.digest) && Number.isSafeInteger(result.observation.observedEntryCount) && result.observation.observedEntryCount >= 0 && result.observation.exactAtReportTime === false;
-  const pageValid = hasExactKeys3(result?.page, ["startOrdinal", "endOrdinal", "entries"]) && Number.isSafeInteger(result.page.startOrdinal) && result.page.startOrdinal >= 0 && Number.isSafeInteger(result.page.endOrdinal) && result.page.endOrdinal >= -1 && Array.isArray(result.page.entries) && result.page.entries.every(
-    (entry, index) => hasExactKeys3(entry, ["ordinal", "category", "status", "path"]) && entry.ordinal === result.page.startOrdinal + index && (/* @__PURE__ */ new Set(["staged", "unstaged", "untracked", "conflicted"])).has(
+  const pageValid = hasExactKeys4(result?.page, ["startOrdinal", "endOrdinal", "entries"]) && Number.isSafeInteger(result.page.startOrdinal) && result.page.startOrdinal >= 0 && Number.isSafeInteger(result.page.endOrdinal) && result.page.endOrdinal >= -1 && Array.isArray(result.page.entries) && result.page.entries.every(
+    (entry, index) => hasExactKeys4(entry, ["ordinal", "category", "status", "path"]) && entry.ordinal === result.page.startOrdinal + index && (/* @__PURE__ */ new Set(["staged", "unstaged", "untracked", "conflicted"])).has(
       entry.category
     ) && typeof entry.status === "string" && entry.status.length > 0 && SAFE_TERMINAL_TEXT2.test(entry.status) && validReplayPath(entry.path)
   );
   const pageBoundsValid = pageValid && observationValid && (result.observation.observedEntryCount === 0 ? result.page.startOrdinal === 0 && result.page.endOrdinal === -1 && result.page.entries.length === 0 : result.page.entries.length > 0 && result.page.endOrdinal === result.page.entries.at(-1).ordinal && result.page.endOrdinal + 1 === result.observation.observedEntryCount);
-  if (!hasExactKeys3(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve28(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
-    fail13("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+  if (!hasExactKeys4(result, resultKeys) || validateWorkflowResult(result).length !== 0 || result.status !== "detail-complete" || result.transaction !== resolve29(transactionPath) || !SHA256_PATTERN4.test(result.startingReportDigest) || !observationValid || !pageBoundsValid || result.nextCursor !== null || result.exitCode !== 0) {
+    fail22("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
 }
 function replayCompletion(completed, cursor, transactionPath) {
   if (JSON.stringify(Object.keys(completed ?? {}).sort()) !== JSON.stringify(
     ["schemaVersion", "requestCursorDigest", "result"].sort()
   ) || completed.schemaVersion !== 1 || !SHA256_PATTERN4.test(completed.requestCursorDigest) || canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail13("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
+    fail22("DETAIL_STATE_INVALID", "Completed detail replay is invalid.");
   }
   validateCompletedResult(completed.result, transactionPath);
   if (completed.requestCursorDigest !== cursorRequestDigest(cursor)) {
-    fail13(
+    fail22(
       "DETAIL_STATE_CONFLICT",
       "A completed detail observation is retained; use its final cursor or request --refresh.",
       "rejected"
@@ -21239,7 +22738,7 @@ async function readWorkspaceDetailPage({
   }
 }) {
   if (refresh && cursor !== null) {
-    fail13(
+    fail22(
       "DETAIL_ARGUMENT_CONFLICT",
       "--cursor and --refresh are mutually exclusive."
     );
@@ -21252,7 +22751,7 @@ async function readWorkspaceDetailPage({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail13(
+      fail22(
         "DETAIL_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         "rejected",
@@ -21264,14 +22763,14 @@ async function readWorkspaceDetailPage({
   try {
     const transaction = readTransaction(transactionPath);
     if (!(/* @__PURE__ */ new Set(["reported", "published"])).has(transaction.phase)) {
-      fail13(
+      fail22(
         "DETAIL_PHASE_INVALID",
         "Workspace detail requires a reported or published transaction.",
         "rejected"
       );
     }
-    const activePath = join17(transaction.attemptDirectory, ACTIVE_NAME);
-    const completedPath = join17(transaction.attemptDirectory, COMPLETED_NAME);
+    const activePath = join18(transaction.attemptDirectory, ACTIVE_NAME);
+    const completedPath = join18(transaction.attemptDirectory, COMPLETED_NAME);
     if (existsSync18(completedPath) && !refresh) {
       const completed = readJson(
         completedPath,
@@ -21301,7 +22800,7 @@ async function readWorkspaceDetailPage({
     let active;
     if (existsSync18(activePath)) {
       if (cursor === null || refresh) {
-        fail13(
+        fail22(
           "DETAIL_STATE_CONFLICT",
           "A workspace detail observation is already active.",
           "rejected"
@@ -21309,7 +22808,7 @@ async function readWorkspaceDetailPage({
       }
       active = readJson(activePath, "Active workspace detail journal");
       if (active.state !== "ready") {
-        fail13(
+        fail22(
           "DETAIL_STATE_CONFLICT",
           "The workspace detail observation was interrupted before paging.",
           "rejected"
@@ -21318,7 +22817,7 @@ async function readWorkspaceDetailPage({
       active = validateReadyActive(transactionPath, active);
     } else {
       if (cursor !== null) {
-        fail13(
+        fail22(
           "DETAIL_CURSOR_INVALID",
           "No active workspace detail observation accepts this cursor."
         );
@@ -21327,7 +22826,7 @@ async function readWorkspaceDetailPage({
       active = {
         schemaVersion: 1,
         state: "observing",
-        transactionDigest: sha2569(Buffer.from(resolve28(transactionPath))),
+        transactionDigest: sha2569(Buffer.from(resolve29(transactionPath))),
         startingReportDigest: transaction.report.jsonSha256,
         observationId,
         observationDirectoryIdentity: null,
@@ -21359,7 +22858,7 @@ async function readWorkspaceDetailPage({
         result: bounded.result
       };
       if (canonicalBytes2(completed).length > MAXIMUM_REPORT_RESULT_BYTES) {
-        fail13(
+        fail22(
           "DETAIL_RESULT_BUDGET_EXCEEDED",
           "Completed detail replay exceeds the serialized result budget."
         );
@@ -21395,7 +22894,7 @@ function readRetainedReport({
   refresh = false
 }) {
   if (cursor !== null || refresh)
-    fail13(
+    fail22(
       "DETAIL_ARGUMENT_CONFLICT",
       "Report detail accepts neither --cursor nor --refresh."
     );
@@ -21406,7 +22905,7 @@ function readRetainedReport({
   try {
     const transaction = readTransaction(transactionPath);
     if (!["reported", "published"].includes(transaction.phase) || !transaction.report) {
-      fail13(
+      fail22(
         "DETAIL_PHASE_INVALID",
         "Retained report requires a reported or published transaction.",
         "rejected"
@@ -21417,12 +22916,12 @@ function readRetainedReport({
     )?.[1];
     const suffix = revision && UUID_V4_PATTERN3.test(revision) ? `-publication-${revision}` : "";
     const retained = (path, digest3, name) => {
-      if (resolve28(path) !== resolve28(transaction.attemptDirectory, name))
-        fail13("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
+      if (resolve29(path) !== resolve29(transaction.attemptDirectory, name))
+        fail22("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
       assertRegularFile(path, name);
-      const bytes = readFileSync8(path);
+      const bytes = readFileSync9(path);
       if (sha2569(bytes) !== digest3)
-        fail13("DETAIL_STATE_INVALID", "Retained report digest does not match.");
+        fail22("DETAIL_STATE_INVALID", "Retained report digest does not match.");
       return bytes.toString("utf8");
     };
     const report = JSON.parse(
@@ -21447,17 +22946,46 @@ function readRetainedReport({
     releaseTransactionStateLock(lock);
   }
 }
+var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER13, SAFE_TERMINAL_TEXT2;
+var init_reportDetailWorkflow = __esm({
+  "src/committing-to-git/workflow/reportDetailWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_transactionDiagnosticState();
+    init_commitReport();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    init_preparationDiagnostics();
+    ACTIVE_NAME = "report-detail.active.json";
+    COMPLETED_NAME = "report-detail.completed.json";
+    MAXIMUM_CURSOR_BYTES = 512;
+    MAXIMUM_PAGE_MODEL_BYTES = 40 * 1024;
+    UUID_V4_PATTERN3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    SHA256_PATTERN4 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER13 = new TextDecoder12("utf-8", { fatal: true });
+    SAFE_TERMINAL_TEXT2 = /^[^\p{Cc}\p{Cf}]*$/u;
+  }
+});
+
+// src/committing-to-git/cli/reportDetailCommand.js
+var reportDetailCommand_exports = {};
+__export(reportDetailCommand_exports, {
+  runReportDetailCommand: () => runReportDetailCommand
+});
+function fail23(code, message, disposition = "invalid-input", cause) {
+  throw new WorkflowDiagnosticError(code, message, { disposition, cause });
+}
 function parseArguments5(argv) {
   const flags = parseCommandArguments("workflow report-detail", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail13("INVALID_FORMAT", "--format must be json or text.");
+    fail23("INVALID_FORMAT", "--format must be json or text.");
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
-    fail13("TRANSACTION_REQUIRED", "--transaction is required.");
+    fail23("TRANSACTION_REQUIRED", "--transaction is required.");
   const section = flags.get("section") ?? "workspace";
   if (!["workspace", "report", "diagnostics"].includes(section))
-    fail13(
+    fail23(
       "INVALID_DETAIL_SECTION",
       "--section must be workspace, report or diagnostics."
     );
@@ -21477,54 +23005,34 @@ async function runReportDetailCommand(argv, { stdout = process.stdout } = {}) {
     stdout
   });
 }
-var ACTIVE_NAME, COMPLETED_NAME, MAXIMUM_CURSOR_BYTES, MAXIMUM_PAGE_MODEL_BYTES, UUID_V4_PATTERN3, SHA256_PATTERN4, STRICT_UTF8_DECODER12, SAFE_TERMINAL_TEXT2;
-var init_reportDetailWorkflow = __esm({
-  "src/committing-to-git/workflow/reportDetailWorkflow.js"() {
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_commandExecution();
-    init_transactionDiagnosticState();
+var init_reportDetailCommand = __esm({
+  "src/committing-to-git/cli/reportDetailCommand.js"() {
     init_commandArguments();
-    init_commitReport();
-    init_transactionRecovery();
-    init_transactionWorkspace();
-    init_preparationDiagnostics();
-    ACTIVE_NAME = "report-detail.active.json";
-    COMPLETED_NAME = "report-detail.completed.json";
-    MAXIMUM_CURSOR_BYTES = 512;
-    MAXIMUM_PAGE_MODEL_BYTES = 40 * 1024;
-    UUID_V4_PATTERN3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-    SHA256_PATTERN4 = /^[0-9a-f]{64}$/u;
-    STRICT_UTF8_DECODER12 = new TextDecoder11("utf-8", { fatal: true });
-    SAFE_TERMINAL_TEXT2 = /^[^\p{Cc}\p{Cf}]*$/u;
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_reportDetailWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/publishWorkflow.js
-var publishWorkflow_exports = {};
-__export(publishWorkflow_exports, {
-  observePublicationDestination: () => observePublicationDestination,
-  publishWorkflow: () => publishWorkflow,
-  recoverPublicationOutcome: () => recoverPublicationOutcome,
-  runPublishCommand: () => runPublishCommand
-});
-import { spawn as spawn3 } from "node:child_process";
-import { createHash as createHash24, randomUUID as randomUUID9 } from "node:crypto";
+import { spawn as spawn4 } from "node:child_process";
+import { createHash as createHash25, randomUUID as randomUUID9 } from "node:crypto";
 import {
   closeSync as closeSync16,
   constants as fsConstants9,
   fsyncSync as fsyncSync12,
-  lstatSync as lstatSync17,
+  lstatSync as lstatSync18,
   openSync as openSync16,
   renameSync as renameSync7,
   writeFileSync as writeFileSync13
 } from "node:fs";
-import { dirname as dirname11, join as join18, resolve as resolve29 } from "node:path";
-function fail14(code, message, options) {
+import { dirname as dirname11, join as join19, resolve as resolve30 } from "node:path";
+function fail24(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25610(bytes) {
-  return createHash24("sha256").update(bytes).digest("hex");
+  return createHash25("sha256").update(bytes).digest("hex");
 }
 function canonicalBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -21537,7 +23045,7 @@ function containsControlCharacter2(value) {
   });
 }
 function atomicWrite2(path, bytes) {
-  const candidate = join18(dirname11(path), `.publication-${randomUUID9()}.tmp`);
+  const candidate = join19(dirname11(path), `.publication-${randomUUID9()}.tmp`);
   const descriptor = openSync16(
     candidate,
     fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL,
@@ -21550,9 +23058,9 @@ function atomicWrite2(path, bytes) {
     closeSync16(descriptor);
   }
   try {
-    const current = lstatSync17(path);
+    const current = lstatSync18(path);
     if (current.isSymbolicLink() || !current.isFile()) {
-      fail14("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
+      fail24("REPORT_PATH_REPLACED", "Persisted report path was replaced.");
     }
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -21596,7 +23104,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
     (attempt) => attempt.attemptId === attemptId
   );
   if (index < 0 || index !== transaction.publicationAttempts.length - 1) {
-    fail14(
+    fail24(
       "PUBLICATION_ATTEMPT_STALE",
       "Only the latest publication attempt may acquire new journal facts.",
       { disposition: "outcome-unknown" }
@@ -21612,20 +23120,20 @@ function updateAttempt(transactionPath, attemptId, transform) {
 }
 function validateDestination(root, remote, destination, readOnlyRunner = runReadOnlyGit) {
   if (typeof remote !== "string" || !REMOTE_NAME_PATTERN.test(remote) || containsControlCharacter2(remote)) {
-    fail14(
+    fail24(
       "PUBLICATION_REMOTE_INVALID",
       "--remote must name one configured non-option Git remote."
     );
   }
   if (typeof destination !== "string" || !destination.startsWith("refs/heads/") || containsControlCharacter2(destination)) {
-    fail14(
+    fail24(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination must be a full refs/heads/... branch ref."
     );
   }
   const remotes = readOnlyRunner(root, "remote-names").stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
   if (!remotes.includes(remote)) {
-    fail14(
+    fail24(
       "PUBLICATION_REMOTE_UNKNOWN",
       `Configured Git remote ${JSON.stringify(remote)} does not exist.`
     );
@@ -21634,7 +23142,7 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
     allowFailure: true
   });
   if (refCheck.status !== 0) {
-    fail14(
+    fail24(
       "PUBLICATION_DESTINATION_INVALID",
       "--destination is not a valid full branch ref."
     );
@@ -21642,14 +23150,14 @@ function validateDestination(root, remote, destination, readOnlyRunner = runRead
 }
 function assertPublicationAllowed(transaction) {
   if (transaction.commit?.commitOid === null || transaction.commit?.commitOid === void 0 || !FULL_OID_PATTERN8.test(transaction.commit.commitOid) || transaction.commit.comparison === null || !transaction.commit.comparison.parentMatches || !transaction.commit.comparison.treeMatches || !transaction.commit.comparison.messageMatches || !transaction.commit.comparison.signatureHeaderPresent || transaction.verification?.blocksPush !== false || transaction.report?.publicationAllowed !== true) {
-    fail14(
+    fail24(
       "PUBLICATION_BLOCKED",
       "The recorded commit comparison, signature header, verification policy, or report blocks publication.",
       {
         disposition: transaction.commit?.commitOid ? "completed-with-failure" : "unmet-prerequisite",
         state: transactionDiagnosticState(
           transaction,
-          resolve29(transaction.attemptDirectory, "transaction.json")
+          resolve30(transaction.attemptDirectory, "transaction.json")
         )
       }
     );
@@ -21663,14 +23171,14 @@ function readPersistedReport(transaction) {
       MAXIMUM_INITIAL_JSON_INPUT_BYTES
     ).bytes;
   } catch (error) {
-    fail14(
+    fail24(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report cannot be read as a stable bounded regular file.",
       { disposition: "unmet-prerequisite", cause: error }
     );
   }
   if (sha25610(bytes) !== transaction.report.jsonSha256) {
-    fail14(
+    fail24(
       "REPORT_ARTIFACT_MISMATCH",
       "The persisted report no longer matches its transaction digest.",
       { disposition: "unmet-prerequisite" }
@@ -21727,7 +23235,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
     status: publicationState === "unknown" ? "outcome-unknown" : publicationState,
     code: disposition === "succeeded" ? null : publicationState === "unknown" ? "PUBLICATION_OUTCOME_UNKNOWN" : publicationState === "blocked" ? "PUBLICATION_BLOCKED" : "PUBLICATION_REJECTED",
     phase: transaction.phase,
-    transaction: resolve29(transactionPath),
+    transaction: resolve30(transactionPath),
     route: transaction.route,
     commitState: "created",
     publicationState,
@@ -21743,7 +23251,7 @@ function resultModel(transactionPath, transaction, publication, report, text) {
             "workflow",
             "recover",
             "--transaction",
-            resolve29(transactionPath)
+            resolve30(transactionPath)
           ]
         }
       ] : []
@@ -21783,7 +23291,7 @@ function boundedAugmentedModel(transactionPath, transaction, publication) {
     );
   }
   if (Buffer.byteLength(JSON.stringify(result)) > MAXIMUM_REPORT_RESULT_BYTES) {
-    fail14(
+    fail24(
       "PUBLICATION_RESULT_BUDGET_EXCEEDED",
       "Publication result exceeds the serialized report budget.",
       {
@@ -21816,20 +23324,20 @@ function persistPublicationReport({
   const reportBytes = canonicalBytes3(bounded.report);
   const textBytes = Buffer.from(bounded.displayText, "utf8");
   let jsonPath = transaction.report.jsonPath;
-  let textPath = transaction.report.textPath;
+  let textPath2 = transaction.report.textPath;
   if (!currentReportFilesMatch(transaction, reportBytes, textBytes)) {
     const reportRevision = randomUUID9();
     const reportDirectory = dirname11(transaction.report.jsonPath);
-    jsonPath = join18(
+    jsonPath = join19(
       reportDirectory,
       `report-publication-${reportRevision}.json`
     );
-    textPath = join18(
+    textPath2 = join19(
       reportDirectory,
       `report-publication-${reportRevision}.txt`
     );
     atomicWrite2(jsonPath, reportBytes);
-    atomicWrite2(textPath, textBytes);
+    atomicWrite2(textPath2, textBytes);
   }
   const next = {
     ...projectedTransaction,
@@ -21837,7 +23345,7 @@ function persistPublicationReport({
       ...transaction.report,
       jsonPath,
       jsonSha256: sha25610(reportBytes),
-      textPath,
+      textPath: textPath2,
       textSha256: sha25610(textBytes)
     }
   };
@@ -21931,7 +23439,7 @@ function appendAttempt2(transactionPath, transaction, attempt) {
 function validateRetry(transaction, retryAfterAttempt, remote, destination) {
   const prior = latestAttempt(transaction);
   if (transaction.phase !== "publication-pending" || prior === null || prior.attemptId !== retryAfterAttempt || prior.retryPermitted !== true || prior.resolution?.kind !== "confirmed-no-live-child" || prior.remote !== remote || prior.destination !== destination || prior.commitOid !== transaction.commit.commitOid) {
-    fail14(
+    fail24(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The retry token does not bind the latest resolved unknown publication attempt.",
       { disposition: "outcome-unknown" }
@@ -21943,7 +23451,7 @@ function validateRetry(transaction, retryAfterAttempt, remote, destination) {
       childIdentity: prior.childIdentity
     });
   } catch (error) {
-    fail14(
+    fail24(
       "PUBLICATION_RETRY_NOT_PERMITTED",
       "The resolved publication child state no longer permits retry. Inspect its liveness before continuing.",
       { disposition: "outcome-unknown", cause: error }
@@ -21957,7 +23465,7 @@ async function publishWorkflow({
   destination,
   retryAfterAttempt = null,
   environment = process.env,
-  processLauncher = spawn3,
+  processLauncher = spawn4,
   diagnosticWriter = process.stderr,
   readOnlyRunner = runReadOnlyGit,
   failureInjector = () => {
@@ -21971,7 +23479,7 @@ async function publishWorkflow({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail14(
+      fail24(
         "PUBLICATION_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         {
@@ -21989,7 +23497,7 @@ async function publishWorkflow({
     transaction = readTransaction(transactionPath);
     if (transaction.phase === "published") {
       if (retryAfterAttempt !== null) {
-        fail14(
+        fail24(
           "PUBLICATION_RETRY_NOT_PERMITTED",
           "A historical retry token cannot be reused after publication completed.",
           { disposition: "outcome-unknown" }
@@ -22007,20 +23515,20 @@ async function publishWorkflow({
       );
     }
     if (retryAfterAttempt !== null && !UUID_V4_PATTERN4.test(retryAfterAttempt)) {
-      fail14(
+      fail24(
         "PUBLICATION_RETRY_INVALID",
         "--retry-after-attempt must be the exact helper UUID."
       );
     }
     if (retryAfterAttempt === null && transaction.phase !== "reported") {
-      fail14(
+      fail24(
         "PUBLICATION_RECOVERY_REQUIRED",
         "A pending publication must be recovered and explicitly resolved before retry.",
         { disposition: "outcome-unknown" }
       );
     }
     if (retryAfterAttempt !== null && transaction.phase === "reported") {
-      fail14(
+      fail24(
         "PUBLICATION_RETRY_UNEXPECTED",
         "--retry-after-attempt is not accepted for an ordinary reported transaction."
       );
@@ -22183,7 +23691,7 @@ async function publishWorkflow({
         status: "publication-report-incomplete",
         code: "PUBLICATION_RESULT_UNAVAILABLE",
         message: "Publication evidence could not be finalized. Preserve the known local commit and inspect the retained publication evidence before another push.",
-        transaction: resolve29(transactionPath),
+        transaction: resolve30(transactionPath),
         phase: "publication-pending",
         route: transaction.route,
         commitState: "created",
@@ -22308,7 +23816,7 @@ async function recoverPublicationOutcome({
   indexLockInspector
 }) {
   if (resolution !== null && resolution !== "confirmed-no-live-child") {
-    fail14(
+    fail24(
       "PUBLICATION_RESOLUTION_INVALID",
       "Publication recovery accepts only confirmed-no-live-child.",
       { disposition: "outcome-unknown" }
@@ -22322,7 +23830,7 @@ async function recoverPublicationOutcome({
     });
   } catch (error) {
     if (error.code === "TRANSACTION_STATE_CONFLICT") {
-      fail14(
+      fail24(
         "PUBLICATION_STATE_CONFLICT",
         "Another operation owns the transaction-state lock.",
         {
@@ -22336,7 +23844,7 @@ async function recoverPublicationOutcome({
   try {
     let transaction = readTransaction(transactionPath);
     if (transaction.phase !== "publication-pending") {
-      fail14(
+      fail24(
         "PUBLICATION_RECOVERY_NOT_REQUIRED",
         "Publication recovery requires the pending publication phase.",
         { disposition: "rejected" }
@@ -22425,7 +23933,7 @@ async function recoverPublicationOutcome({
           ...indexLockInspector ? { indexLockInspector } : {}
         });
       } catch (error) {
-        fail14(
+        fail24(
           "PUBLICATION_RESOLUTION_CONTRADICTED",
           "The child may still be live; the no-live-child confirmation cannot resolve this attempt.",
           { disposition: "outcome-unknown", cause: error }
@@ -22455,14 +23963,42 @@ async function recoverPublicationOutcome({
     releaseTransactionStateLock(lock);
   }
 }
+var FULL_OID_PATTERN8, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES;
+var init_publishWorkflow = __esm({
+  "src/committing-to-git/workflow/publishWorkflow.js"() {
+    init_stableFile();
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_transactionDiagnosticState();
+    init_gitProcessTranscript();
+    init_gitRepository();
+    init_commitReport();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    FULL_OID_PATTERN8 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    UUID_V4_PATTERN4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+    MAXIMUM_REMOTE_OBSERVATION_BYTES = 64 * 1024;
+    MAXIMUM_PUSH_CLASSIFICATION_BYTES = 64 * 1024;
+  }
+});
+
+// src/committing-to-git/cli/publishCommand.js
+var publishCommand_exports = {};
+__export(publishCommand_exports, {
+  runPublishCommand: () => runPublishCommand
+});
+function fail25(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
 function parseArguments6(argv) {
   const flags = parseCommandArguments("workflow publish", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail14("INVALID_FORMAT", "--format must be json or text.");
+    fail25("INVALID_FORMAT", "--format must be json or text.");
   for (const required of ["transaction", "remote", "destination"]) {
     if (!flags.get(required))
-      fail14("INVALID_ARGUMENT", `--${required} is required.`);
+      fail25("INVALID_ARGUMENT", `--${required} is required.`);
   }
   return {
     transactionPath: flags.get("transaction"),
@@ -22484,37 +24020,19 @@ async function runPublishCommand(argv, { stdout = process.stdout, stderr = proce
     stdout
   });
 }
-var FULL_OID_PATTERN8, UUID_V4_PATTERN4, REMOTE_NAME_PATTERN, MAXIMUM_REMOTE_OBSERVATION_BYTES, MAXIMUM_PUSH_CLASSIFICATION_BYTES;
-var init_publishWorkflow = __esm({
-  "src/committing-to-git/workflow/publishWorkflow.js"() {
-    init_stableFile();
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
-    init_commandExecution();
-    init_transactionDiagnosticState();
+var init_publishCommand = __esm({
+  "src/committing-to-git/cli/publishCommand.js"() {
     init_commandArguments();
-    init_gitProcessTranscript();
-    init_gitRepository();
-    init_commitReport();
-    init_transactionRecovery();
-    init_transactionWorkspace();
-    FULL_OID_PATTERN8 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    UUID_V4_PATTERN4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-    REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
-    MAXIMUM_REMOTE_OBSERVATION_BYTES = 64 * 1024;
-    MAXIMUM_PUSH_CLASSIFICATION_BYTES = 64 * 1024;
+    init_commandExecution();
+    init_workflowDiagnosticError();
+    init_transactionDiagnosticState();
+    init_publishWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/recoverTransactionWorkflow.js
-var recoverTransactionWorkflow_exports = {};
-__export(recoverTransactionWorkflow_exports, {
-  recoverTransactionWorkflow: () => recoverTransactionWorkflow,
-  runCleanupTransactionCommand: () => runCleanupTransactionCommand,
-  runRecoverTransactionCommand: () => runRecoverTransactionCommand
-});
-import { resolve as resolve30 } from "node:path";
-function invalid2(code, message) {
+import { resolve as resolve31 } from "node:path";
+function invalid4(code, message) {
   throw new WorkflowDiagnosticError(code, message);
 }
 async function recoverTransactionWorkflow({
@@ -22528,7 +24046,7 @@ async function recoverTransactionWorkflow({
   now = () => (/* @__PURE__ */ new Date()).toISOString()
 }) {
   if (!RESOLUTIONS.has(resolution)) {
-    invalid2(
+    invalid4(
       "INVALID_RECOVERY_RESOLUTION",
       "Recovery resolution must be confirmed-no-live-child when supplied."
     );
@@ -22566,7 +24084,7 @@ async function recoverTransactionWorkflow({
         disposition: "completed-with-failure",
         status: "commit-blocked",
         phase: current.phase,
-        transaction: resolve30(transactionPath),
+        transaction: resolve31(transactionPath),
         route: current.route,
         commitState: "created",
         publicationState: "not-requested",
@@ -22584,7 +24102,7 @@ async function recoverTransactionWorkflow({
                 "workflow",
                 "recover",
                 "--transaction",
-                resolve30(transactionPath)
+                resolve31(transactionPath)
               ]
             }
           ]
@@ -22638,14 +24156,41 @@ async function recoverTransactionWorkflow({
     }
   );
 }
+var RESOLUTIONS;
+var init_recoverTransactionWorkflow = __esm({
+  "src/committing-to-git/workflow/recoverTransactionWorkflow.js"() {
+    init_workflowDiagnosticError();
+    init_diagnosticContract();
+    init_transactionDiagnosticState();
+    init_canonicalMessageState();
+    init_transactionRecovery();
+    init_transactionWorkspace();
+    init_createCommitWorkflow();
+    init_promoteDraftWorkflow();
+    init_publishWorkflow();
+    init_runCheckWorkflow();
+    init_preparationDiagnostics();
+    RESOLUTIONS = /* @__PURE__ */ new Set([null, "confirmed-no-live-child"]);
+  }
+});
+
+// src/committing-to-git/cli/recoverTransactionCommand.js
+var recoverTransactionCommand_exports = {};
+__export(recoverTransactionCommand_exports, {
+  runCleanupTransactionCommand: () => runCleanupTransactionCommand,
+  runRecoverTransactionCommand: () => runRecoverTransactionCommand
+});
+function invalid5(code, message) {
+  throw new WorkflowDiagnosticError(code, message);
+}
 function parseArguments7(argv, command) {
   const flags = parseCommandArguments(command, argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    invalid2("INVALID_FORMAT", "--format must be json or text.");
+    invalid5("INVALID_FORMAT", "--format must be json or text.");
   const transactionPath = flags.get("transaction");
   if (!transactionPath)
-    invalid2("TRANSACTION_REQUIRED", "--transaction is required.");
+    invalid5("TRANSACTION_REQUIRED", "--transaction is required.");
   return {
     transactionPath,
     format,
@@ -22671,59 +24216,41 @@ async function runCleanupTransactionCommand(argv, { stdout = process.stdout } = 
     stdout
   });
 }
-var RESOLUTIONS;
-var init_recoverTransactionWorkflow = __esm({
-  "src/committing-to-git/workflow/recoverTransactionWorkflow.js"() {
+var init_recoverTransactionCommand = __esm({
+  "src/committing-to-git/cli/recoverTransactionCommand.js"() {
     init_commandArguments();
-    init_workflowDiagnosticError();
-    init_diagnosticContract();
     init_commandExecution();
+    init_workflowDiagnosticError();
     init_transactionDiagnosticState();
-    init_canonicalMessageState();
     init_transactionRecovery();
-    init_transactionWorkspace();
-    init_createCommitWorkflow();
-    init_promoteDraftWorkflow();
-    init_publishWorkflow();
-    init_runCheckWorkflow();
-    init_preparationDiagnostics();
-    RESOLUTIONS = /* @__PURE__ */ new Set([null, "confirmed-no-live-child"]);
+    init_recoverTransactionWorkflow();
   }
 });
 
 // src/committing-to-git/workflow/checkMessageWorkflow.js
-var checkMessageWorkflow_exports = {};
-__export(checkMessageWorkflow_exports, {
-  MAXIMUM_MESSAGE_RESULT_BYTES: () => MAXIMUM_MESSAGE_RESULT_BYTES,
-  assertMessageResultBudget: () => assertMessageResultBudget,
-  checkMessageWorkflow: () => checkMessageWorkflow,
-  parseMessageWorkflowArguments: () => parseMessageWorkflowArguments,
-  readExactRecordedSnapshot: () => readExactRecordedSnapshot,
-  runCheckMessageCommand: () => runCheckMessageCommand
-});
-import { createHash as createHash25 } from "node:crypto";
-import { resolve as resolve31 } from "node:path";
-import { TextDecoder as TextDecoder12 } from "node:util";
-function fail15(code, message, options) {
+import { createHash as createHash26 } from "node:crypto";
+import { resolve as resolve32 } from "node:path";
+import { TextDecoder as TextDecoder13 } from "node:util";
+function fail26(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
-  return createHash25("sha256").update(bytes).digest("hex");
+  return createHash26("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER13.decode(bytes);
+    text = STRICT_UTF8_DECODER14.decode(bytes);
   } catch {
-    fail15("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail26("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail15("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
+    fail26("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
   }
 }
-function sameHeadAnchor(manifest, headAnchor) {
+function sameHeadAnchor2(manifest, headAnchor) {
   if (headAnchor.headKind === "unborn") {
     return manifest.headOid === null && headAnchor.expectedParentOids.length === 0;
   }
@@ -22732,22 +24259,22 @@ function sameHeadAnchor(manifest, headAnchor) {
 function readExactRecordedSnapshot(transactionPath) {
   const opened = readRecordedSnapshotFile(transactionPath);
   const { transaction, bytes } = opened;
-  const expectedPath = resolve31(transaction.attemptDirectory, SNAPSHOT_NAME);
-  if (resolve31(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail15(
+  const expectedPath = resolve32(transaction.attemptDirectory, SNAPSHOT_NAME);
+  if (resolve32(transaction.snapshot?.path ?? "") !== expectedPath) {
+    fail26(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
   if (sha25611(bytes) !== transaction.snapshot.sha256) {
-    fail15(
+    fail26(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
-  if (resolve31(manifest.repositoryRoot) !== resolve31(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor(manifest, transaction.headAnchor)) {
-    fail15(
+  if (resolve32(manifest.repositoryRoot) !== resolve32(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor2(manifest, transaction.headAnchor)) {
+    fail26(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -22765,7 +24292,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail15(
+    fail26(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -22785,7 +24312,7 @@ function checkedResult({
     status: "message-ready",
     phase: "message-ready",
     route,
-    transaction: resolve31(transactionPath),
+    transaction: resolve32(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     warnings: [
@@ -22833,10 +24360,10 @@ function assertCheckTransaction(transaction, transactionPath) {
   const receipt = transaction.review?.receipt;
   const extendedAllowed = transaction.route === "extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) && transaction.review.semanticStructureRequired === false && receipt?.requiredPacketsReviewed === true && receipt.catalogSha256 === transaction.review.catalogSha256 && receipt.evidencePlanSha256 === transaction.review.evidencePlanSha256;
   if (!conciseAllowed && !extendedAllowed || transaction.commit !== null) {
-    fail15(
+    fail26(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
-      { details: { transaction: resolve31(transactionPath) } }
+      { details: { transaction: resolve32(transactionPath) } }
     );
   }
 }
@@ -22846,7 +24373,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail15("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail26("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -22911,51 +24438,145 @@ function checkMessageWorkflow({
   });
   return assertMessageResultBudget(result);
 }
-function parseMessageWorkflowArguments(argv, command) {
-  const { values } = parseCommandArguments(`message ${command}`, argv);
-  if (!values.has("transaction")) {
-    fail15(
-      "MISSING_ARGUMENT",
-      `--transaction is required for message ${command}.`
-    );
-  }
-  const format = values.get("format") ?? "json";
-  if (!FORMATS2.has(format)) {
-    fail15("INVALID_FORMAT", "--format must be json or text.");
-  }
-  return { transactionPath: values.get("transaction"), format };
-}
-async function runCheckMessageCommand(argv, { stdout = process.stdout } = {}) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "check"),
-    execute: checkMessageWorkflow,
-    stdout
-  });
-}
-var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER13, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS2;
+var MAXIMUM_MESSAGE_RESULT_BYTES, STRICT_UTF8_DECODER14, MESSAGE_INPUT_NAME, SNAPSHOT_NAME, FORMATS2;
 var init_checkMessageWorkflow = __esm({
   "src/committing-to-git/workflow/checkMessageWorkflow.js"() {
-    init_transactionDiagnosticState();
     init_workflowDiagnosticError();
     init_approvedMessage();
     init_authoringProgress();
-    init_commandArguments();
-    init_commandExecution();
     init_diagnosticContract();
     init_approvedMessage();
     init_canonicalMessageState();
     init_recordedSnapshot();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER13 = new TextDecoder12("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER14 = new TextDecoder13("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
     FORMATS2 = /* @__PURE__ */ new Set(["json", "text"]);
   }
 });
 
+// src/committing-to-git/workflow/checkProposalMessageWorkflow.js
+async function checkProposalMessageWorkflow({
+  proposal: encodedProposal,
+  messageBytes,
+  cwd = process.cwd()
+}) {
+  const proposal = decodeCommitProposal(encodedProposal);
+  const { manifest } = await observeCurrentProposal({ proposal, cwd });
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "concise",
+    bytes: messageBytes,
+    repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
+    messageSource: "checked-input"
+  });
+  return assertMessageResultBudget(
+    createWorkflowResult({
+      disposition: "succeeded",
+      status: "message-ready",
+      phase: "message-ready",
+      route: "concise",
+      commitState: "absent",
+      publicationState: "not-requested",
+      warnings: presentationDiagnostics(validation.presentationWarnings),
+      data: {
+        terminalDisposition: null,
+        stateStorage: "memory",
+        messageSource: "checked-input",
+        messageSha256: validation.messageSha256,
+        presentationWarnings: validation.presentationWarnings,
+        displayText: validation.displayText,
+        ...proposal.mode === "actual" ? {
+          commit: {
+            input: "stdin",
+            arguments: [
+              "workflow",
+              "commit",
+              "--proposal",
+              encodedProposal,
+              "--message-stdin",
+              "--message-sha256",
+              validation.messageSha256
+            ]
+          }
+        } : {}
+      }
+    })
+  );
+}
+var init_checkProposalMessageWorkflow = __esm({
+  "src/committing-to-git/workflow/checkProposalMessageWorkflow.js"() {
+    init_diagnosticContract();
+    init_approvedMessage();
+    init_commitProposal();
+    init_checkMessageWorkflow();
+    init_proposalObservation();
+  }
+});
+
+// src/committing-to-git/cli/checkMessageCommand.js
+var checkMessageCommand_exports = {};
+__export(checkMessageCommand_exports, {
+  parseMessageWorkflowArguments: () => parseMessageWorkflowArguments,
+  runCheckMessageCommand: () => runCheckMessageCommand
+});
+function fail27(code, message, options) {
+  throw new WorkflowDiagnosticError(code, message, options);
+}
+function parseMessageWorkflowArguments(argv, command) {
+  const { values } = parseCommandArguments(`message ${command}`, argv);
+  const format = values.get("format") ?? "json";
+  if (!FORMATS2.has(format)) {
+    fail27("INVALID_FORMAT", "--format must be json or text.");
+  }
+  if (values.has("proposal")) {
+    if (values.has("transaction")) {
+      fail27(
+        "CONFLICTING_ARGUMENT",
+        "--proposal and --transaction are alternatives."
+      );
+    }
+    return { proposal: values.get("proposal"), format };
+  }
+  if (!values.has("transaction")) {
+    fail27(
+      "MISSING_ARGUMENT",
+      `--transaction is required for message ${command}.`
+    );
+  }
+  return { transactionPath: values.get("transaction"), format };
+}
+async function runCheckMessageCommand(argv, { cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: (options) => options?.proposal === void 0 ? observeTransactionFailure(options) : { commitState: "absent", publicationState: "not-requested" },
+    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "check"),
+    execute: async (options) => options.proposal === void 0 ? checkMessageWorkflow(options) : checkProposalMessageWorkflow({
+      proposal: options.proposal,
+      messageBytes: await readMessageInput(
+        stdin,
+        MAXIMUM_CANONICAL_MESSAGE_BYTES
+      ),
+      cwd
+    }),
+    stdout
+  });
+}
+var init_checkMessageCommand = __esm({
+  "src/committing-to-git/cli/checkMessageCommand.js"() {
+    init_commandArguments();
+    init_commandExecution();
+    init_standardInput();
+    init_workflowDiagnosticError();
+    init_approvedMessage();
+    init_transactionDiagnosticState();
+    init_checkMessageWorkflow();
+    init_checkProposalMessageWorkflow();
+  }
+});
+
 // src/committing-to-git/message/semanticContentValidation.js
-import { createHash as createHash26 } from "node:crypto";
+import { createHash as createHash27 } from "node:crypto";
 function isPlainObject5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -22964,7 +24585,7 @@ function boundedPointerToken(token) {
   if (Buffer.byteLength(value, "utf8") <= MAXIMUM_POINTER_TOKEN_BYTES) {
     return value;
   }
-  const digest3 = createHash26("sha256").update(value).digest("hex");
+  const digest3 = createHash27("sha256").update(value).digest("hex");
   return `field-sha256:${digest3}`;
 }
 function childPointer(parent, token) {
@@ -22972,7 +24593,7 @@ function childPointer(parent, token) {
   return `${parent}/${escaped}`;
 }
 function diagnosticCollector() {
-  const digest3 = createHash26("sha256");
+  const digest3 = createHash27("sha256");
   const samples = [];
   let count = 0;
   return {
@@ -22983,7 +24604,7 @@ function diagnosticCollector() {
         ...pointerByteLength <= 4096 ? {} : {
           pointerOmitted: true,
           pointerByteLength,
-          pointerSha256: createHash26("sha256").update(pointer).digest("hex")
+          pointerSha256: createHash27("sha256").update(pointer).digest("hex")
         },
         code,
         message
@@ -23431,37 +25052,32 @@ var init_semanticContentValidation = __esm({
 });
 
 // src/committing-to-git/workflow/finalizeMessageWorkflow.js
-var finalizeMessageWorkflow_exports = {};
-__export(finalizeMessageWorkflow_exports, {
-  finalizeMessageWorkflow: () => finalizeMessageWorkflow,
-  runFinalizeMessageCommand: () => runFinalizeMessageCommand
-});
-import { lstatSync as lstatSync18, readFileSync as readFileSync9, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename4, isAbsolute as isAbsolute12, join as join19, relative as relative11, resolve as resolve32, sep as sep5 } from "node:path";
-import { TextDecoder as TextDecoder13 } from "node:util";
-function fail16(code, message, options) {
+import { lstatSync as lstatSync19, readFileSync as readFileSync10, realpathSync as realpathSync11 } from "node:fs";
+import { basename as basename4, isAbsolute as isAbsolute13, join as join20, relative as relative11, resolve as resolve33, sep as sep5 } from "node:path";
+import { TextDecoder as TextDecoder14 } from "node:util";
+function fail28(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function decodeContent(bytes) {
   let text;
   try {
-    text = STRICT_UTF8_DECODER14.decode(bytes);
+    text = STRICT_UTF8_DECODER15.decode(bytes);
   } catch {
-    fail16("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail28("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail16("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
+    fail28("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
       cause: error
     });
   }
 }
 function containedPath(attemptDirectory, path, label) {
-  const absolute = resolve32(path);
+  const absolute = resolve33(path);
   const contained = relative11(attemptDirectory, absolute);
-  if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute12(contained)) {
-    fail16(
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute13(contained)) {
+    fail28(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -23470,15 +25086,15 @@ function containedPath(attemptDirectory, path, label) {
 }
 function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
-  const stat = lstatSync18(absolute);
+  const stat = lstatSync19(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail16(
+    fail28(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
   if (realpathSync11(absolute) !== absolute) {
-    fail16(
+    fail28(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -23487,24 +25103,24 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail16(
+    fail28(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
         details: {
-          transaction: resolve32(transactionPath),
+          transaction: resolve33(transactionPath),
           route: transaction.route
         }
       }
     );
   }
   if (!(/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail16(
+    fail28(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
         details: {
-          transaction: resolve32(transactionPath),
+          transaction: resolve33(transactionPath),
           route: transaction.route
         }
       }
@@ -23512,7 +25128,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
   }
 }
 function readCurrentCatalog2(transaction) {
-  const expectedReviewDirectory = resolve32(
+  const expectedReviewDirectory = resolve33(
     transaction.attemptDirectory,
     "review"
   );
@@ -23521,15 +25137,15 @@ function readCurrentCatalog2(transaction) {
     transaction.review.catalogPath,
     "Current review catalog"
   );
-  if (relative11(expectedReviewDirectory, catalogPath).startsWith(`..${sep5}`) || isAbsolute12(relative11(expectedReviewDirectory, catalogPath))) {
-    fail16(
+  if (relative11(expectedReviewDirectory, catalogPath).startsWith(`..${sep5}`) || isAbsolute13(relative11(expectedReviewDirectory, catalogPath))) {
+    fail28(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail16(
+    fail28(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -23552,9 +25168,9 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   });
   let stored;
   try {
-    stored = JSON.parse(STRICT_UTF8_DECODER14.decode(opened.bytes));
+    stored = JSON.parse(STRICT_UTF8_DECODER15.decode(opened.bytes));
   } catch (error) {
-    fail16("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
+    fail28("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
       cause: error
     });
   }
@@ -23563,7 +25179,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail16(
+    fail28(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
@@ -23585,20 +25201,20 @@ function receiptCoverage(transaction, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail16("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+    fail28("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
       cause: error
     });
   }
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail16("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail28("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       disposition: "unmet-prerequisite"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail16(
+    fail28(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { disposition: "unmet-prerequisite" }
@@ -23609,7 +25225,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail16(
+    fail28(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -23619,14 +25235,14 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join19(
+  const path = join20(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
   try {
     createOrVerifyFile(path, stableJsonBytes(evidencePlan));
   } catch (error) {
-    fail16(
+    fail28(
       "EVIDENCE_PLAN_COLLISION",
       "An immutable evidence-plan revision has conflicting or unsafe bytes.",
       { cause: error }
@@ -23700,7 +25316,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
     status: "evidence-required",
     phase: "review-pending",
     route: "extended",
-    transaction: resolve32(transactionPath),
+    transaction: resolve33(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -23715,7 +25331,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
             "workflow",
             "review-next",
             "--transaction",
-            resolve32(transactionPath)
+            resolve33(transactionPath)
           ]
         }
       ]
@@ -23725,7 +25341,7 @@ function requireEvidence(transactionPath, transaction, review, content, opened, 
       canonical: false,
       evidenceDelta: {
         newlyRequiredPacketCount: evidenceDelta.requiredPacketCount,
-        firstQueuePage: firstPage === null ? null : resolve32(transaction.attemptDirectory, firstPage.artifact),
+        firstQueuePage: firstPage === null ? null : resolve33(transaction.attemptDirectory, firstPage.artifact),
         firstQueuePageSha256: firstPage?.sha256 ?? null
       },
       displayText: null
@@ -23748,7 +25364,7 @@ function finalizedResult({ transactionPath, rendered, canonical }) {
     phase: "message-ready",
     route: "extended",
     warnings: presentationDiagnostics(rendered.presentationWarnings),
-    transaction: resolve32(transactionPath),
+    transaction: resolve33(transactionPath),
     commitState: "absent",
     publicationState: "not-requested",
     publicationAllowed: false,
@@ -23770,7 +25386,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail16("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail28("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -23785,7 +25401,7 @@ async function finalizeMessageWorkflow({
   const content = decodeContent(opened.bytes);
   const structural = validateCompleteSemanticContent(content);
   if (!structural.valid) {
-    fail16(
+    fail28(
       "INVALID_MESSAGE_CONTENT",
       `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
       {
@@ -23797,14 +25413,14 @@ async function finalizeMessageWorkflow({
         recovery: {
           kind: "correct-input",
           automatic: false,
-          requiredInputs: [resolve32(transaction.attemptDirectory, CONTENT_NAME)],
+          requiredInputs: [resolve33(transaction.attemptDirectory, CONTENT_NAME)],
           commands: [
             {
               arguments: [
                 "message",
                 "finalize",
                 "--transaction",
-                resolve32(transactionPath)
+                resolve33(transactionPath)
               ]
             }
           ]
@@ -23813,7 +25429,7 @@ async function finalizeMessageWorkflow({
     );
   }
   if (content.mode !== transaction.review.structuredMessageMode) {
-    fail16(
+    fail28(
       "MESSAGE_PRESENTATION_MODE_MISMATCH",
       `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`
     );
@@ -23855,7 +25471,7 @@ async function finalizeMessageWorkflow({
         evidenceByGroupId: Object.fromEntries(
           records.map(({ group, empty, path }) => [
             group.id,
-            empty ? Buffer.alloc(0) : readFileSync9(path)
+            empty ? Buffer.alloc(0) : readFileSync10(path)
           ])
         )
       };
@@ -23906,7 +25522,7 @@ async function finalizeMessageWorkflow({
     }
   } else {
     if (receipt?.requiredPacketsReviewed !== true || receipt.catalogSha256 !== currentCatalog.catalogSha256 || receipt.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail16(
+      fail28(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -23917,7 +25533,7 @@ async function finalizeMessageWorkflow({
         receipt
       });
     } catch (error) {
-      fail16("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+      fail28("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
         cause: error
       });
     }
@@ -23964,20 +25580,11 @@ async function finalizeMessageWorkflow({
     finalizedResult({ transactionPath, rendered, canonical })
   );
 }
-async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {}) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "finalize"),
-    execute: finalizeMessageWorkflow,
-    stdout
-  });
-}
-var CONTENT_NAME, STRICT_UTF8_DECODER14;
+var CONTENT_NAME, STRICT_UTF8_DECODER15;
 var init_finalizeMessageWorkflow = __esm({
   "src/committing-to-git/workflow/finalizeMessageWorkflow.js"() {
     init_stableFile();
     init_byteOrdering();
-    init_transactionDiagnosticState();
     init_gitRepository();
     init_reviewCatalog();
     init_inlineEvidenceCapsule();
@@ -23991,10 +25598,31 @@ var init_finalizeMessageWorkflow = __esm({
     init_workflowDiagnosticError();
     init_approvedMessage();
     init_diagnosticContract();
-    init_commandExecution();
     init_authoringProgress();
     CONTENT_NAME = "content.json";
-    STRICT_UTF8_DECODER14 = new TextDecoder13("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER15 = new TextDecoder14("utf-8", { fatal: true });
+  }
+});
+
+// src/committing-to-git/cli/finalizeMessageCommand.js
+var finalizeMessageCommand_exports = {};
+__export(finalizeMessageCommand_exports, {
+  runFinalizeMessageCommand: () => runFinalizeMessageCommand
+});
+async function runFinalizeMessageCommand(argv, { stdout = process.stdout } = {}) {
+  return executeCommand(argv, {
+    failureState: observeTransactionFailure,
+    parse: (arguments_) => parseMessageWorkflowArguments(arguments_, "finalize"),
+    execute: finalizeMessageWorkflow,
+    stdout
+  });
+}
+var init_finalizeMessageCommand = __esm({
+  "src/committing-to-git/cli/finalizeMessageCommand.js"() {
+    init_commandExecution();
+    init_transactionDiagnosticState();
+    init_checkMessageCommand();
+    init_finalizeMessageWorkflow();
   }
 });
 
@@ -24003,114 +25631,84 @@ init_commandArguments();
 init_commandExecution();
 init_diagnosticContract();
 import { fileURLToPath } from "node:url";
-import { createHash as createHash27 } from "node:crypto";
-import { readFileSync as readFileSync10, realpathSync as realpathSync12 } from "node:fs";
+import { createHash as createHash28 } from "node:crypto";
+import { readFileSync as readFileSync11, realpathSync as realpathSync12 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
     "workflow preflight",
     [
-      () => Promise.resolve().then(() => (init_publicationPreflightWorkflow(), publicationPreflightWorkflow_exports)),
+      () => Promise.resolve().then(() => (init_publicationPreflightCommand(), publicationPreflightCommand_exports)),
       "runPublicationPreflightCommand"
     ]
   ],
   [
     "workflow prepare",
-    [
-      () => Promise.resolve().then(() => (init_prepareWorkflow(), prepareWorkflow_exports)),
-      "runPrepareWorkflowCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_prepareCommand(), prepareCommand_exports)), "runPrepareWorkflowCommand"]
   ],
   [
     "workflow extend",
-    [
-      () => Promise.resolve().then(() => (init_extendReviewWorkflow(), extendReviewWorkflow_exports)),
-      "runExtendReviewCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_extendReviewCommand(), extendReviewCommand_exports)), "runExtendReviewCommand"]
   ],
   [
     "workflow review-next",
-    [() => Promise.resolve().then(() => (init_reviewNextWorkflow(), reviewNextWorkflow_exports)), "runReviewNextCommand"]
+    [() => Promise.resolve().then(() => (init_reviewNextCommand(), reviewNextCommand_exports)), "runReviewNextCommand"]
   ],
   [
     "workflow resume",
     [
-      () => Promise.resolve().then(() => (init_resumePreparationWorkflow(), resumePreparationWorkflow_exports)),
+      () => Promise.resolve().then(() => (init_resumePreparationCommand(), resumePreparationCommand_exports)),
       "runResumePreparationCommand"
     ]
   ],
   [
     "workflow promote",
-    [
-      () => Promise.resolve().then(() => (init_promoteDraftWorkflow(), promoteDraftWorkflow_exports)),
-      "runPromoteDraftCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_promoteDraftCommand(), promoteDraftCommand_exports)), "runPromoteDraftCommand"]
   ],
   [
     "workflow check",
-    [
-      () => Promise.resolve().then(() => (init_runCheckWorkflow(), runCheckWorkflow_exports)),
-      "runCheckWorkflowCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_runCheckCommand(), runCheckCommand_exports)), "runCheckWorkflowCommand"]
   ],
   [
     "workflow check-detail",
-    [
-      () => Promise.resolve().then(() => (init_checkDetailWorkflow(), checkDetailWorkflow_exports)),
-      "runCheckDetailCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_checkDetailCommand(), checkDetailCommand_exports)), "runCheckDetailCommand"]
   ],
   [
     "workflow commit",
-    [
-      () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
-      "runCreateCommitCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_createCommitCommand(), createCommitCommand_exports)), "runCreateCommitCommand"]
   ],
   [
     "workflow verify",
-    [
-      () => Promise.resolve().then(() => (init_createCommitWorkflow(), createCommitWorkflow_exports)),
-      "runRetryVerificationCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_createCommitCommand(), createCommitCommand_exports)), "runRetryVerificationCommand"]
   ],
   [
     "workflow report-detail",
-    [
-      () => Promise.resolve().then(() => (init_reportDetailWorkflow(), reportDetailWorkflow_exports)),
-      "runReportDetailCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_reportDetailCommand(), reportDetailCommand_exports)), "runReportDetailCommand"]
   ],
   [
     "workflow publish",
-    [() => Promise.resolve().then(() => (init_publishWorkflow(), publishWorkflow_exports)), "runPublishCommand"]
+    [() => Promise.resolve().then(() => (init_publishCommand(), publishCommand_exports)), "runPublishCommand"]
   ],
   [
     "workflow recover",
     [
-      () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
+      () => Promise.resolve().then(() => (init_recoverTransactionCommand(), recoverTransactionCommand_exports)),
       "runRecoverTransactionCommand"
     ]
   ],
   [
     "workflow cleanup",
     [
-      () => Promise.resolve().then(() => (init_recoverTransactionWorkflow(), recoverTransactionWorkflow_exports)),
+      () => Promise.resolve().then(() => (init_recoverTransactionCommand(), recoverTransactionCommand_exports)),
       "runCleanupTransactionCommand"
     ]
   ],
   [
     "message check",
-    [
-      () => Promise.resolve().then(() => (init_checkMessageWorkflow(), checkMessageWorkflow_exports)),
-      "runCheckMessageCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_checkMessageCommand(), checkMessageCommand_exports)), "runCheckMessageCommand"]
   ],
   [
     "message finalize",
-    [
-      () => Promise.resolve().then(() => (init_finalizeMessageWorkflow(), finalizeMessageWorkflow_exports)),
-      "runFinalizeMessageCommand"
-    ]
+    [() => Promise.resolve().then(() => (init_finalizeMessageCommand(), finalizeMessageCommand_exports)), "runFinalizeMessageCommand"]
   ]
 ]);
 var COMMAND_HELP = /* @__PURE__ */ new Map([
@@ -24123,9 +25721,11 @@ Unsupported or inaccessible policy is unknown, never permission to push.
   ],
   [
     "workflow prepare",
-    `Allocates one helper-owned transaction, validates literal scope and evidence
-policy, and records the exact snapshot. Path scope accepts literal repeatable
-selectors or one --scope-file. JSON is the default output format.
+    `Validates literal scope and evidence policy. Default memory storage reads Git
+only, writes nothing, and returns a proposal for message check and commit.
+Disk storage allocates one transaction beneath --state-directory and records
+the exact snapshot. Path scope accepts literal repeatable selectors or one
+--scope-file. JSON is the default output format.
 `
   ],
   [
@@ -24166,7 +25766,8 @@ unchanged bytes as the latest canonical message revision. With nextAction:
 author-message, accepts a concise subject or extended multi-section message
 when semanticStructureRequired is false. With nextAction: author-content,
 use message finalize instead. The input is consumed only after durable success.
-Arbitrary message-file paths are rejected.
+Arbitrary message-file paths are rejected. With --proposal, validates the
+message on standard input against the recomputed scope and writes nothing.
 `
   ],
   [
@@ -24201,6 +25802,8 @@ requires recovery and is never replayed.
 Auto uses that same executor, receipts and guards, including above 8 MiB.
 Snapshots have a separate 64 MiB bound; message input limits are unchanged.
 See references/native-execution.md for existing-transaction continuation.
+With --proposal, recomputes the scope, rejects any drift before mutation,
+stages full scope with git add -A, and returns the comparison without files.
 `
   ],
   [
@@ -24286,7 +25889,7 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest3 = createHash27("sha256").update(readFileSync10(new URL(import.meta.url))).digest("hex");
+    const digest3 = createHash28("sha256").update(readFileSync11(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({

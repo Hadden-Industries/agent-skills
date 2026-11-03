@@ -1,9 +1,6 @@
-import { observeTransactionFailure } from "../transaction/transactionDiagnosticState.js";
 import { readRecordedSnapshotFile } from "../snapshot/recordedSnapshot.js";
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
-import { executeCommand } from "../cli/commandExecution.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
-import { parseCommandArguments } from "../cli/commandArguments.js";
 
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, unlinkSync } from "node:fs";
@@ -387,32 +384,4 @@ export async function resumePreparationWorkflow({ transactionPath }) {
   });
 
   return finishEvidenceRouting({ transactionPath, transaction, manifest });
-}
-
-export function parseResumeArguments(argv) {
-  const { values } = parseCommandArguments("workflow resume", argv);
-
-  if (!values.has("transaction")) {
-    fail("MISSING_TRANSACTION", "--transaction is required.");
-  }
-
-  const format = values.get("format") ?? "json";
-
-  if (!new Set(["json", "text"]).has(format)) {
-    fail("INVALID_FORMAT", "--format must be json or text.");
-  }
-
-  return { transactionPath: values.get("transaction"), format };
-}
-
-export async function runResumePreparationCommand(
-  argv,
-  { stdout = process.stdout } = {},
-) {
-  return executeCommand(argv, {
-    failureState: observeTransactionFailure,
-    parse: parseResumeArguments,
-    execute: resumePreparationWorkflow,
-    stdout,
-  });
 }
