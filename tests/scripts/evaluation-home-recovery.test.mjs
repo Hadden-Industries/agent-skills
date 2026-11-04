@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   writeFile,
   link,
@@ -39,8 +40,11 @@ import { runEvaluationHomesCli } from "../../scripts/evaluation/manage-evaluatio
 const windows = process.platform === "win32";
 const json = (file) => JSON.parse(readFileSync(file, "utf8"));
 const write = (file, value) => writeFileSync(file, canonicalJsonBytes(value));
+// Evaluation homes refuse non-canonical roots, including 8.3 temp spellings.
 const suiteRoot = windows
-  ? await mkdtemp(join(tmpdir(), "evaluation-recovery-contract-"))
+  ? await realpath(
+      await mkdtemp(join(tmpdir(), "evaluation-recovery-contract-")),
+    )
   : null;
 if (suiteRoot)
   process.stdout.write(

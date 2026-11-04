@@ -588,9 +588,10 @@ test("compact commit results retain exact display and expose the recorded full r
     git(["rev-parse", "HEAD"], fixture.repo).stdout.trim(),
     committed.commitOid,
   );
+  // Compare the report forms: whole results embed temporary paths unequally.
   assert.ok(
-    Buffer.byteLength(JSON.stringify(committed)) <
-      Buffer.byteLength(JSON.stringify(detail)),
+    Buffer.byteLength(JSON.stringify(committed.reportSummary)) <
+      Buffer.byteLength(JSON.stringify(detail.report)),
   );
   assert.equal(detail.report.checks.receipts.length, 0);
   const retained = JSON.parse(readFileSync(prepared.transaction, "utf8"));

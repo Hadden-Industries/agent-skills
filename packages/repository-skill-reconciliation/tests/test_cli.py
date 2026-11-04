@@ -24,7 +24,8 @@ class RepositoryFixture(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="repository-skills-test-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Resolved like the package's own roots, so 8.3 temp spellings cannot differ.
+        self.root = Path(self.temporary.name).resolve()
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
         (self.root / ".gitignore").write_text(
             ".agents/skills/\n.claude/skills/\n.agent-tools/\n", encoding="utf-8"

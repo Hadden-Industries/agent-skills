@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -56,7 +57,8 @@ export function git(args, cwd, options = {}) {
 }
 
 export function createRepositoryFixture(t, prefix = "committing-to-git-") {
-  const base = mkdtempSync(join(tmpdir(), prefix));
+  // Git reports long paths; hosted Windows temp roots can use 8.3 spellings.
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   const repo = join(base, "repo");
   const scratch = join(base, "scratch");
 

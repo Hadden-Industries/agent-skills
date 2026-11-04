@@ -32,7 +32,8 @@ class NpmLauncherTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="repository-skills-npm-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Resolved like the package's own paths, so 8.3 temp spellings cannot differ.
+        self.root = Path(self.temporary.name).resolve()
         self.node = self.root / "Node installation & tools" / "node.exe"
         self.node.parent.mkdir()
         self.node.write_bytes(b"fixture: discovery only")
