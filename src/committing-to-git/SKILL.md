@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.14"
+  version: "0.1.1-dev.15"
 ---
 
 # Committing to Git
@@ -21,24 +21,27 @@ Use policy, task evidence and Git facts to correct type and scope, sharpen the o
 
 Default memory storage writes nothing before the authorized commit; `workflow prepare` returns a `proposal`.
 After interruption or `PROPOSAL_STALE` (nothing mutated), prepare again and reapprove.
-Use `--state-storage disk --state-directory <absolute-path>` only where [state storage](references/state-storage.md) requires it, in a directory the user or repository instructions name, never OS temp; otherwise ask.
+Use supported memory routes and corrections; detail never requires disk.
+Propose disk only for verified requirements without equivalent memory routes; explain storage effects and await the user's choice.
+After disk selection, use a user/repository-named absolute directory; ask if missing, never default to OS temp.
+See [state storage](references/state-storage.md).
 
 ## Already-reviewed changes
 
 Reuse applicable scope, evidence, format, authority and destination.
 Read missing facts; reuse successful checks without inventing helper receipts.
 
-| Requested message           | Preparation and completion                                                                                                                         |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls           |
-| Body text                   | Pipe it to `checkedAuthoring.arguments`, show `displayText`, approve, pipe the same bytes to `commit.arguments`                                    |
-| Eligible per-file inventory | Disk: `--message-format detailed`, follow `nextAction`, author, `message finalize` -> exact approval and commit authorization -> `workflow commit` |
+| Requested message           | Preparation and completion                                                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport-safe subject      | The route is `workflow prepare` -> exact approval and commit authorization -> `workflow commit`; no artifact access between helper calls |
+| Body text                   | Pipe it to `checkedAuthoring.arguments`, show `displayText`, approve, pipe the same bytes to `commit.arguments`                          |
+| Eligible per-file inventory | Memory: `--message-format detailed`, then the body-text route; disk: follow `nextAction`                                                 |
 
-Disk storage writes bodies to `checkedAuthoring.messagePath`.
+Disk bodies use `checkedAuthoring.messagePath`.
 `--message-format detailed` requires exhaustive inventory, fewer than 50 units, and at most 32 KiB projected UTF-8 bytes.
-For larger inventories, omit that flag; use [bulk/recovery](references/message-format.md#large-inventory-and-rejected-preparation) via concise extension or extended `structuredAuthoring`, preserving sections.
+For larger inventories, preserve requested meaning; [bulk/recovery](references/message-format.md#large-inventory-and-rejected-preparation) requires disk structured authoring and the user's storage choice.
 
-Use [message format](references/message-format.md) and returned `contentContract`; fill an unedited `contentPath` from `contentTemplate`, reading the worksheet if the template is null.
+For disk structured authoring, follow [message format](references/message-format.md), `contentContract`, `contentPath` and `contentTemplate`; read the worksheet when the template is null.
 Preserve requested sections; finish required evidence first.
 Reuse exact-message/effect authorization; drafts authorize neither staging nor committing, and pushing needs separate authority.
 

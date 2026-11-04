@@ -1,7 +1,7 @@
 import { streamGit } from "../git/gitRepository.js";
 import { MAXIMUM_CONCISE_RESULT_BYTES } from "../inspection/inlineEvidenceCapsule.js";
 import { emptyTreeObjectId } from "../snapshot/workingTreeSnapshot.js";
-import { memoryStorageUnsupported } from "./proposalObservation.js";
+import { memoryStorageUnsupported } from "./workflowStateStorage.js";
 
 /** Stream one scope-wide diff, stopping as soon as it exceeds the budget. */
 async function boundedScopeDiff(root, args, maximumBytes) {
@@ -65,7 +65,7 @@ export async function captureProposalEvidence({
   ) {
     throw memoryStorageUnsupported(
       "evidence-group-projection",
-      "Message evidence for part of a scope needs a projected index; use one uniform message group or disk storage.",
+      "The selected partial-scope message evidence needs a projected index. A uniform message group is a memory alternative only when whole-scope message evidence meets the required provenance.",
     );
   }
 

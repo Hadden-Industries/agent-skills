@@ -61,7 +61,7 @@ export const COMMAND_ARGUMENTS = {
     "message-format": {
       ...stringOption,
       description:
-        "<detailed>  Structured inventory below 50 units and at most 32,768 projected UTF-8 bytes; evidence remains independent. For larger scopes omit this flag, then extend concise evidence or choose extended structuredAuthoring after review. Body-only text uses checkedAuthoring.messagePath and its message check arguments.",
+        "<detailed>  Exhaustive inventory below 50 units and at most 32,768 projected UTF-8 bytes. Memory returns checkedAuthoring stdin and exact message check arguments; disk uses structured authoring. Larger inventories require resolving presentation limits without silently switching storage.",
     },
     mode: {
       ...stringOption,

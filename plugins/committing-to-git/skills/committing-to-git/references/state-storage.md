@@ -10,7 +10,15 @@ The choice is made once, at preparation; later commands follow the returned hand
 
 Disk storage never falls back to the operating system's temporary directory.
 `--state-directory` with memory storage, a relative directory, or disk storage without a directory is `invalid-input`.
-Use a directory the user or repository instructions name; otherwise ask.
+Retain memory storage when correcting invalid arguments; a stray directory does not authorize switching to disk.
+Ask for a directory only after the user selects disk and neither the user nor repository instructions names one.
+
+Message presentation and storage are separate choices.
+Use the supported memory continuation when it meets the request; never allocate disk state to discover an alternative.
+Only a verified required capability with no equivalent memory route permits proposing a storage switch.
+Explain the blocker and proposed effects, then wait for the user's decision; an agent-supplied approval flag is not human consent.
+Disk preparation creates a recoverable transaction, authoring and evidence files under the selected directory, may write Git objects, and may update the index for actual full/path scope.
+An unrelated execution failure does not justify recommending disk.
 
 ## Memory storage
 
@@ -19,6 +27,9 @@ Before the authorized commit it creates no file or directory, writes no Git obje
 Interrupted work needs no recovery: prepare again.
 
 It supports `staged` and `full` scope, uniform `message` or `reuse` evidence (or an evidence plan whose single `message` group covers the whole scope), and the concise route.
+`--message-format detailed` uses the same checked stdin route, with exhaustive per-file validation, fewer than 50 units and the existing 32 KiB presentation limits.
+The proposal retains that intent: both checking and committing reject a missing `File Changes:` inventory.
+Execute `checkedAuthoring.arguments`, present exact `displayText`, and after approval use the returned commit arguments with the same bytes.
 Full scope observes at most 128 untracked paths of at most 512 bytes each and rejects submodule changes and untracked embedded repositories.
 
 The `proposal` is an opaque, self-contained value that binds approval to the head anchor and the exact final state of every changed path.
@@ -40,18 +51,22 @@ Witnessed checks, review packets, report detail, resume, recovery and helper pub
 
 ## Diagnostics
 
-| Code                             | Meaning and remedy                                                                                  |
-| -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `STATE_STORAGE_REQUIRES_DISK`    | The route needs durable state; `details.reason` names it. Prepare again with disk storage.          |
-| `PROPOSAL_STALE`                 | HEAD, index or working tree changed; nothing was mutated. Prepare again and approve the new result. |
-| `INVALID_PROPOSAL`               | The value is not an unmodified proposal from `workflow prepare`.                                    |
-| `PROPOSAL_REPOSITORY_MISMATCH`   | The proposal belongs to another working tree.                                                       |
-| `MESSAGE_DIGEST_MISMATCH`        | Piped bytes differ from the checked `messageSha256`; pipe the approved bytes.                       |
-| `DRAFT_PROPOSAL_NOT_COMMITTABLE` | Prepare again with `--mode actual`.                                                                 |
-| `GIT_COMMIT_FAILED`              | `git commit` failed and HEAD is unchanged; `details.stderrTail` and `indexUpdated` explain it.      |
-| `COMMIT_OUTCOME_UNKNOWN`         | `git commit` failed but HEAD moved; inspect HEAD before another commit.                             |
-| `POST_COMMIT_OBSERVATION_FAILED` | The commit exists but its comparison or verification did not finish; inspect it.                    |
-| `STATE_DIRECTORY_REQUIRED`       | Disk storage needs an absolute `--state-directory`.                                                 |
+| Code                                   | Meaning and remedy                                                                                                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STATE_STORAGE_REQUIRES_DISK`          | A verified capability has no equivalent memory route; `details[0].reason` and `storageEffects` explain it. `human-decision` has no retry commands; wait for the user's storage choice. |
+| `PROPOSAL_TOO_LARGE`                   | The proposal exceeds its transport budget; use the same human storage decision, without an automatic disk retry.                                                                       |
+| `CORRECTION_FROM_REQUIRES_TRANSACTION` | Remove `--correction-from` and prepare again in memory; no retained transaction is needed.                                                                                             |
+| `DETAILED_MESSAGE_LIMIT_EXCEEDED`      | The per-file presentation exceeds a storage-independent limit; preserve requested meaning and resolve the presentation requirement.                                                    |
+| `DETAILED_INVENTORY_REQUIRED`          | Include the complete requested `File Changes:` inventory and check the message again.                                                                                                  |
+| `PROPOSAL_STALE`                       | HEAD, index or working tree changed; nothing was mutated. Prepare again and approve the new result.                                                                                    |
+| `INVALID_PROPOSAL`                     | The value is not an unmodified proposal from `workflow prepare`.                                                                                                                       |
+| `PROPOSAL_REPOSITORY_MISMATCH`         | The proposal belongs to another working tree.                                                                                                                                          |
+| `MESSAGE_DIGEST_MISMATCH`              | Piped bytes differ from the checked `messageSha256`; pipe the approved bytes.                                                                                                          |
+| `DRAFT_PROPOSAL_NOT_COMMITTABLE`       | Prepare again with `--mode actual`.                                                                                                                                                    |
+| `GIT_COMMIT_FAILED`                    | `git commit` failed and HEAD is unchanged; `details.stderrTail` and `indexUpdated` explain it.                                                                                         |
+| `COMMIT_OUTCOME_UNKNOWN`               | `git commit` failed but HEAD moved; inspect HEAD before another commit.                                                                                                                |
+| `POST_COMMIT_OBSERVATION_FAILED`       | The commit exists but its comparison or verification did not finish; inspect it.                                                                                                       |
+| `STATE_DIRECTORY_REQUIRED`             | Disk storage needs an absolute `--state-directory`.                                                                                                                                    |
 
 ## Disk authoring
 

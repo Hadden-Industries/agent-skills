@@ -29,14 +29,15 @@ Ask the user only when correcting the error requires a new semantic choice or wo
 
 Evidence depth and presentation depth are independent.
 A packet-reviewed change may still use checked subject-only text after `workflow review-next` reports complete.
-A body without `File Changes:` uses checked text: retain concise preparation, write the requested sections to `checkedAuthoring.messagePath`, and execute its literal `arguments` for `message check`.
+A body uses checked text: retain concise preparation and execute `checkedAuthoring.arguments` for `message check`; memory takes stdin, while disk uses `checkedAuthoring.messagePath`.
 This alternative leaves the direct subject-only route available without an additional check or input file.
 Present that result's exact `displayText`; a handwritten shortened version is not the helper-validated message.
-Choose semantic extension when the requested inventory requires structured rendering.
+Eligible per-file inventories also use checked text in memory; bulk rendering requires disk structured authoring and an explicit storage choice.
 
 ## Returned authoring contract
 
-Treat `reviewRequired`, `reviewProgress`, and `nextAction` as the public state machine.
+For memory proposals, `checkedAuthoring.input: stdin` and its literal arguments are the authoring contract; no content file or finalizer is needed.
+For disk transactions, treat `reviewRequired`, `reviewProgress`, and `nextAction` as the public state machine.
 If `reviewRequired` is false, do not call packet traversal merely because `reviewQueue` is null or a prior response mentioned review.
 `nextAction: author-message` identifies fixed `messagePath` for checked text.
 `nextAction: author-content` identifies fixed `contentPath` and includes `contentContract`; edit that transaction-local worksheet and no other path.
@@ -69,13 +70,19 @@ Do not choose a finalizer from the route label alone.
 
 When a per-file `File Changes:` inventory is known before preparation, use `workflow prepare --message-format detailed` only below 50 change units and within the 32,768-byte projected inventory limit.
 A meaningful multi-section body alone does not require this flag.
-Preparation preserves that intent through interruption/resumption, returns required evidence or `nextAction: author-content`, and supplies a fresh `contentTemplate` plus `contentContract`.
+Memory preparation returns `checkedAuthoring.input: stdin` and exact `message check --proposal <proposal>` arguments.
+Pipe complete canonical text including every selected path, show the checked `displayText`, then after approval pipe the same bytes through the returned commit arguments.
+The proposal enforces the requested inventory at both check and commit; incomplete, duplicate, unknown or incorrectly ordered paths fail the same exhaustive validator used by disk authoring.
+Memory has no authoring files, `contentTemplate`, finalizer or resume state; after interruption prepare again.
+
+Disk preparation preserves the intent through interruption/resumption, returns required evidence or `nextAction: author-content`, and supplies a fresh `contentTemplate` plus `contentContract`.
 Copy the returned template to `contentPath`, fill its semantic fields and set `authoringState` to `complete`; preserve `schemaVersion`, `evidenceGroups` and `mode`.
 A template larger than 16 KiB is explicitly omitted: read the fixed `contentPath` once instead.
 Evidence routing is independent of format; finish all returned review packets first.
-The detailed size limit is checked before installing an actual index; a larger inventory requires the existing bulk route, not silently changed formatting.
+The detailed size limit is checked before installing an actual index; a larger inventory requires resolving the presentation requirement, without silently changing formatting or storage.
 
-For an inventory first requested after concise preparation, extend `route: concise`, `phase: evidence-ready` with `semantic-structure-required`.
+For an inventory first requested after memory preparation, prepare again with `--message-format detailed` and follow its checked stdin route.
+For an inventory first requested after disk concise preparation, extend `route: concise`, `phase: evidence-ready` with `semantic-structure-required`.
 For body-only text, keep the returned checked-message route; structured finalization adds an exhaustive inventory.
 For an already-extended transaction, follow its authoring action without calling `workflow extend`: `author-message` permits full multi-section text at `messagePath` followed by `message check`; a null default `contentPath` is expected.
 After evidence completion, the named `structuredAuthoring` alternative supplies its own fixed `contentPath`, `contentContract`, helper-selected `mode`, template availability and literal finalizer arguments.
@@ -203,6 +210,10 @@ Before evidence completion or in a terminal phase, satisfy the actual returned p
 
 ## Large inventory and rejected preparation
 
+These bulk and retained-transaction steps require disk storage.
+When memory cannot meet the required bulk presentation, explain that capability limit and the storage effects, then wait for the user's storage choice before using the example.
+Memory rejection creates no stopped handle; correct the presentation requirement and prepare again in memory if the revised request is supported.
+
 For 64 staged units with specific surviving task-lineage evidence, write an evidence plan using the public schema and a truthful note:
 
 ```json
@@ -220,7 +231,7 @@ Preserve any existing mixed-policy groups and selectors instead of replacing the
 Prepare without forcing detailed presentation:
 
 ```console
-node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode actual --scope staged --evidence-plan <evidence.json>
+node <skill>/scripts/commitWorkflow.mjs workflow prepare --mode actual --scope staged --evidence-plan <evidence.json> --state-storage disk --state-directory <user-selected-absolute-directory>
 ```
 
 If the response is concise/evidence-ready, request the semantic inventory:

@@ -8,6 +8,7 @@ import {
   createInlineEvidenceCapsule,
 } from "../inspection/inlineEvidenceCapsule.js";
 import { canonicalizeEvidencePlan } from "../inspection/reviewCatalog.js";
+import { assessMessagePresentation } from "../message/commitMessageRenderer.js";
 import {
   COMMIT_PROPOSAL_SCHEMA,
   encodeCommitProposal,
@@ -21,10 +22,8 @@ import {
   scopeSummary,
 } from "./prepareWorkflow.js";
 import { captureProposalEvidence } from "./proposalEvidence.js";
-import {
-  memoryStorageUnsupported,
-  observeProposalScope,
-} from "./proposalObservation.js";
+import { observeProposalScope } from "./proposalObservation.js";
+import { memoryStorageUnsupported } from "./workflowStateStorage.js";
 
 function initialEvidencePlan(options, cwd) {
   return normalizeEvidencePlan(
@@ -52,17 +51,20 @@ function assertMemoryRoute(options) {
     );
   }
 
-  if (options.messageFormat === "detailed") {
-    throw memoryStorageUnsupported(
-      "detailed-message-format",
-      "Detailed structured authoring still uses transaction-owned content files.",
-    );
-  }
-
   if (options.correctionFromPath !== null) {
-    throw memoryStorageUnsupported(
-      "transaction-correction",
-      "Correction reads a retained transaction; memory preparation is simply repeated.",
+    throw new WorkflowDiagnosticError(
+      "CORRECTION_FROM_REQUIRES_TRANSACTION",
+      "Memory preparation has no retained transaction to correct; prepare again without --correction-from.",
+      {
+        recovery: {
+          kind: "correct-input",
+          requiredInputs: [
+            "Remove --correction-from and retain memory storage.",
+          ],
+          commands: [],
+          automatic: false,
+        },
+      },
     );
   }
 }
@@ -90,6 +92,7 @@ function preparedResult({
       stateStorage: "memory",
       proposal,
       mode: options.mode,
+      messageFormat: options.messageFormat,
       scope: scopeSummary(options.scope, null, []),
       headAnchor,
       changeUnitCount: manifest.changeUnitCount,
@@ -166,6 +169,32 @@ export async function prepareProposalWorkflow({
     );
   }
 
+  if (options.messageFormat === "detailed") {
+    const presentation = assessMessagePresentation(manifest);
+
+    if (presentation.mode !== "detailed") {
+      throw new WorkflowDiagnosticError(
+        "DETAILED_MESSAGE_LIMIT_EXCEEDED",
+        "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB, regardless of storage. Preserve the requested meaning and revise the presentation requirement before preparing again.",
+        {
+          details: {
+            ...presentation,
+            requestedMode: "detailed",
+            stateStorage: "memory",
+          },
+          recovery: {
+            kind: "correct-input",
+            requiredInputs: [
+              "Retain memory storage; omit --message-format detailed only if an exhaustive per-file inventory is no longer required.",
+            ],
+            commands: [],
+            automatic: false,
+          },
+        },
+      );
+    }
+  }
+
   const evidencePlan = canonicalizeEvidencePlan({
     manifest,
     groups: normalizedEvidence.plan.groups,
@@ -202,6 +231,9 @@ export async function prepareProposalWorkflow({
     changeUnitCount: manifest.changeUnitCount,
     allowedTypes: options.allowedTypes ?? [],
     verificationPolicy: options.verificationPolicy,
+    ...(options.messageFormat === "detailed"
+      ? { messageFormat: "detailed" }
+      : {}),
   });
   const facts = {
     proposal,

@@ -202,6 +202,7 @@ export async function commitProposalWorkflow({
     repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
     messageSource:
       approvedSubject === null ? "checked-input" : "approved-subject",
+    requiredMessageFormat: proposal.messageFormat ?? null,
   });
 
   if (

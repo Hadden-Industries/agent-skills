@@ -52,7 +52,7 @@ function listFiles(root) {
     const stats = statSync(path);
 
     entries.push(
-      `${relative(root, path).replaceAll("\\", "/")}:${stats.isDirectory() ? "dir" : stats.size}`,
+      `${relative(root, path).replaceAll("\\", "/")}:${stats.isDirectory() ? "dir" : `${stats.size}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`}`,
     );
 
     if (stats.isDirectory()) {
@@ -144,6 +144,114 @@ test("memory full preparation describes git add -A without writing", async (t) =
   assert.deepEqual(repositoryState(fixture.repo), before);
 });
 
+test("detailed memory requests check exhaustive 18-file text without any writes", async (t) => {
+  for (const [mode, scope, evidence, storage] of [
+    ["draft", "full", "reuse", []],
+    ["actual", "staged", "message", ["--state-storage", "memory"]],
+  ]) {
+    await t.test(`${mode} ${scope} ${evidence}`, async (st) => {
+      const fixture = sentinelFixture(st);
+      const paths = Array.from(
+        { length: 18 },
+        (_, index) => `file-${String(index + 1).padStart(2, "0")}.txt`,
+      );
+
+      for (const path of paths)
+        writeRepositoryFile(fixture.repo, path, "before\n");
+      commitAll(fixture.repo);
+      for (const path of paths)
+        writeRepositoryFile(fixture.repo, path, "after\n");
+      if (scope === "staged") git(["add", "-A"], fixture.repo);
+      const before = repositoryState(fixture.repo);
+      const filesBefore = listFiles(fixture.base);
+      const prepared = runCommitWorkflow(
+        "workflow prepare",
+        [
+          "--mode",
+          mode,
+          "--scope",
+          scope,
+          "--evidence",
+          evidence,
+          "--basis",
+          "authored-current-task",
+          "--verification",
+          "skipped",
+          "--message-format",
+          "detailed",
+          ...storage,
+        ],
+        fixture.repo,
+        { env: fixture.env },
+      );
+      const preparation = JSON.parse(prepared.stdout);
+
+      assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+      await assertWorkflowResult(preparation, 0);
+      assert.equal(preparation.stateStorage, "memory");
+      assert.equal(preparation.messageFormat, "detailed");
+      assert.equal(preparation.transaction, null);
+      assert.deepEqual(preparation.checkedAuthoring, {
+        input: "stdin",
+        arguments: ["message", "check", "--proposal", preparation.proposal],
+      });
+      const titles = paths.map(
+        (path, index) => `  ${String(index + 1).padStart(2, " ")}. \`${path}\``,
+      );
+      const prefix =
+        "fix: Correct the application files\n\nRationale:\n  - Keep each application file consistent.\n\nUser Experience Changes:\n  - Application text is corrected.\n\nFile Changes:\n";
+      const message = `${prefix}${titles.join("\n")}\n`;
+      const check = (input) =>
+        runCommitWorkflow(
+          "message check",
+          preparation.checkedAuthoring.arguments.slice(2),
+          fixture.repo,
+          { env: fixture.env, input },
+        );
+      const checked = check(message);
+      const result = JSON.parse(checked.stdout);
+
+      assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+      await assertWorkflowResult(result, 0);
+      assert.equal(result.status, "message-ready");
+      assert.equal(result.displayText, message);
+      assert.equal(
+        result.messageSha256,
+        createHash("sha256").update(message).digest("hex"),
+      );
+      for (const [input, code] of [
+        ["fix: Correct the application files\n", "DETAILED_INVENTORY_REQUIRED"],
+        [
+          `${prefix}${titles.slice(0, -1).join("\n")}\n`,
+          "FILE_INVENTORY_INCOMPLETE",
+        ],
+        [
+          `${prefix}${[...titles, titles[0]].join("\n")}\n`,
+          "FILE_INVENTORY_DUPLICATE",
+        ],
+        [
+          message.replace("file-01.txt", "unknown.txt"),
+          "FILE_INVENTORY_UNKNOWN_PATH",
+        ],
+        [
+          `${prefix}${[titles[1], titles[0], ...titles.slice(2)].join("\n")}\n`,
+          "FILE_INVENTORY_ORDER_INVALID",
+        ],
+        [`${prefix}${"a".repeat(33 * 1024)}\n`, "MESSAGE_INPUT_TOO_LARGE"],
+      ]) {
+        const rejected = check(input);
+        assert.equal(rejected.status, 2, rejected.stdout);
+        const failure = JSON.parse(rejected.stdout);
+        assert.equal(failure.code, code);
+        assert.equal(failure.recovery.kind, "correct-input");
+        assert.doesNotMatch(JSON.stringify(failure.recovery), /disk/u);
+      }
+      assert.deepEqual(repositoryState(fixture.repo), before);
+      assert.deepEqual(listFiles(fixture.base), filesBefore);
+    });
+  }
+});
+
 test("memory proposals commit staged and full scope through native Git", async (t) => {
   for (const scope of ["staged", "full"]) {
     await t.test(scope, async (st) => {
@@ -205,9 +313,14 @@ test("checked stdin messages bind their exact bytes to the commit", async (t) =>
   if (!configureSshSigning(t, fixture)) return;
   writeRepositoryFile(fixture.repo, "src/app.txt", "first\nchanged\n");
   git(["add", "src/app.txt"], fixture.repo);
-  const { result: preparation } = prepare(fixture, ["--scope", "staged"]);
+  const { result: preparation } = prepare(fixture, [
+    "--scope",
+    "staged",
+    "--message-format",
+    "detailed",
+  ]);
   const message =
-    "fix: Change the application text\n\nRationale:\n  - The second line was wrong.\n";
+    "fix: Change the application text\n\nRationale:\n  - The second line was wrong.\n\nFile Changes:\n  1. `src/app.txt`\n";
   const checked = runCommitWorkflow(
     "message check",
     ["--proposal", preparation.proposal],
@@ -225,6 +338,25 @@ test("checked stdin messages bind their exact bytes to the commit", async (t) =>
     "--proposal",
     preparation.proposal,
   ]);
+
+  const before = repositoryState(fixture.repo);
+  const missingInventory = runCommitWorkflow(
+    "workflow commit",
+    [
+      "--proposal",
+      preparation.proposal,
+      "--message",
+      "fix: Change the application text",
+    ],
+    fixture.repo,
+    { env: fixture.env },
+  );
+  assert.equal(missingInventory.status, 2, missingInventory.stdout);
+  assert.equal(
+    JSON.parse(missingInventory.stdout).code,
+    "DETAILED_INVENTORY_REQUIRED",
+  );
+  assert.deepEqual(repositoryState(fixture.repo), before);
 
   const mismatched = runCommitWorkflow(
     "workflow commit",
@@ -272,7 +404,12 @@ test("stale proposals are rejected before any mutation", async (t) => {
 
       writeRepositoryFile(fixture.repo, "src/app.txt", "first\nchanged\n");
       if (scope === "staged") git(["add", "src/app.txt"], fixture.repo);
-      const { result: preparation } = prepare(fixture, ["--scope", scope]);
+      const { result: preparation } = prepare(fixture, [
+        "--scope",
+        scope,
+        "--message-format",
+        "detailed",
+      ]);
 
       change(fixture.repo);
       const before = repositoryState(fixture.repo);
@@ -363,10 +500,12 @@ test("memory full scope observes each untracked path with one Git process", (t) 
   );
 });
 
-test("routes needing durable state require explicit disk storage", async (t) => {
+test("verified memory limitations require a human decision without disk commands", async (t) => {
   const fixture = seededRepository(t);
 
   writeRepositoryFile(fixture.repo, "src/app.txt", "first\nchanged\n");
+  const before = repositoryState(fixture.repo);
+  const filesBefore = listFiles(fixture.base);
   for (const args of [
     ["--scope", "paths", "--path", "src/app.txt"],
     [
@@ -395,11 +534,139 @@ test("routes needing durable state require explicit disk storage", async (t) => 
     );
     const result = JSON.parse(prepared.stdout);
 
-    assert.equal(prepared.status, 2, prepared.stdout);
-    await assertWorkflowResult(result, 2);
+    assert.equal(prepared.status, 5, prepared.stdout);
+    await assertWorkflowResult(result, 5);
     assert.equal(result.code, "STATE_STORAGE_REQUIRES_DISK");
+    assert.equal(result.recovery.kind, "human-decision");
+    assert.equal(result.recovery.automatic, false);
+    assert.deepEqual(result.recovery.commands, []);
+    assert.equal(result.details[0].stateStorage, "memory");
+    assert.equal(result.details[0].proposedStorage, "disk");
+    assert.match(result.details[0].storageEffects, /transaction/u);
+    assert.doesNotMatch(
+      JSON.stringify(result.recovery),
+      /--state-storage|--state-directory/u,
+    );
   }
 
+  assert.deepEqual(readdirSync(fixture.sentinel), []);
+  assert.deepEqual(repositoryState(fixture.repo), before);
+  assert.deepEqual(listFiles(fixture.base), filesBefore);
+});
+
+test("invalid memory arguments request corrections without recommending disk", async (t) => {
+  const fixture = seededRepository(t);
+  writeRepositoryFile(fixture.repo, "src/app.txt", "changed\n");
+  const filesBefore = listFiles(fixture.base);
+
+  for (const [args, code, correction] of [
+    [
+      ["--state-directory", join(fixture.base, "unused")],
+      "STATE_DIRECTORY_WITHOUT_DISK_STORAGE",
+      /Remove --state-directory/u,
+    ],
+    [
+      ["--correction-from", join(fixture.base, "nonexistent")],
+      "CORRECTION_FROM_REQUIRES_TRANSACTION",
+      /Remove --correction-from/u,
+    ],
+    [
+      ["--state-storage", "typo"],
+      "INVALID_STATE_STORAGE",
+      /--state-storage memory/u,
+    ],
+  ]) {
+    const { prepared, result } = prepare(fixture, ["--scope", "full", ...args]);
+    assert.equal(prepared.status, 2, prepared.stdout);
+    await assertWorkflowResult(result, 2);
+    assert.equal(result.code, code);
+    assert.equal(result.recovery.kind, "correct-input");
+    assert.match(result.recovery.requiredInputs.join(" "), correction);
+    assert.doesNotMatch(JSON.stringify(result.recovery), /disk/u);
+    assert.deepEqual(result.recovery.commands, []);
+  }
+  assert.deepEqual(listFiles(fixture.base), filesBefore);
+});
+
+test("over-budget memory evidence preserves the limit and requires a human decision", async (t) => {
+  const fixture = seededRepository(t);
+  writeRepositoryFile(
+    fixture.repo,
+    "src/app.txt",
+    "a long changed line\n".repeat(4000),
+  );
+  const before = repositoryState(fixture.repo);
+  const filesBefore = listFiles(fixture.base);
+  const { prepared, result } = prepare(fixture, [
+    "--scope",
+    "full",
+    "--message-format",
+    "detailed",
+  ]);
+
+  assert.equal(prepared.status, 5, prepared.stdout);
+  await assertWorkflowResult(result, 5);
+  assert.equal(result.code, "STATE_STORAGE_REQUIRES_DISK");
+  assert.equal(result.details[0].reason, "required-evidence-over-budget");
+  assert.equal(result.recovery.kind, "human-decision");
+  assert.equal(result.recovery.automatic, false);
+  assert.deepEqual(result.recovery.commands, []);
+  assert.deepEqual(repositoryState(fixture.repo), before);
+  assert.deepEqual(listFiles(fixture.base), filesBefore);
+});
+
+test("unrelated preparation failures never recommend switching storage", async (t) => {
+  const fixture = seededRepository(t);
+  writeRepositoryFile(fixture.repo, "src/app.txt", "changed\n");
+  const filesBefore = listFiles(fixture.base);
+  const prepared = runCommitWorkflow(
+    "workflow prepare",
+    [
+      "--mode",
+      "draft",
+      "--scope",
+      "full",
+      "--message-format",
+      "detailed",
+      "--evidence-plan",
+      join(fixture.base, "missing-evidence.json"),
+    ],
+    fixture.repo,
+    { env: fixture.env },
+  );
+  const result = JSON.parse(prepared.stdout);
+
+  assert.equal(prepared.status, 6, prepared.stdout);
+  await assertWorkflowResult(result, 6);
+  assert.equal(result.code, "INTERNAL_FAILURE");
+  assert.equal(result.recovery.kind, "inspect-state");
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /STATE_STORAGE_REQUIRES_DISK|state-storage disk|proposedStorage|storageEffects/u,
+  );
+  assert.deepEqual(result.recovery.commands, []);
+  assert.deepEqual(listFiles(fixture.base), filesBefore);
+});
+
+test("detailed memory preparation retains the count limit without storage advice", async (t) => {
+  const fixture = seededRepository(t);
+  for (let index = 0; index < 50; index += 1)
+    writeRepositoryFile(fixture.repo, `added-${index}.txt`, "added\n");
+  git(["add", "-A"], fixture.repo);
+  const before = repositoryState(fixture.repo);
+  const { prepared, result } = prepare(fixture, [
+    "--scope",
+    "staged",
+    "--message-format",
+    "detailed",
+  ]);
+
+  assert.equal(prepared.status, 2, prepared.stdout);
+  await assertWorkflowResult(result, 2);
+  assert.equal(result.code, "DETAILED_MESSAGE_LIMIT_EXCEEDED");
+  assert.equal(result.recovery.kind, "correct-input");
+  assert.doesNotMatch(JSON.stringify(result.recovery), /disk/u);
+  assert.deepEqual(repositoryState(fixture.repo), before);
   assert.deepEqual(readdirSync(fixture.sentinel), []);
 });
 

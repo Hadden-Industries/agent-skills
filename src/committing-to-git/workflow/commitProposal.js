@@ -1,6 +1,7 @@
 import { TextDecoder } from "node:util";
 
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
+import { memoryStorageUnsupported } from "./workflowStateStorage.js";
 
 export const COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
 // A proposal travels as one command argument and one recovery operand.
@@ -18,6 +19,12 @@ const PROPOSAL_FIELDS = [
   "allowedTypes",
   "verificationPolicy",
 ];
+// Older proposals have no presentation constraint; detailed intent is explicit.
+function proposalFields(proposal) {
+  return Object.hasOwn(proposal, "messageFormat")
+    ? [...PROPOSAL_FIELDS, "messageFormat"]
+    : PROPOSAL_FIELDS;
+}
 const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -72,7 +79,7 @@ function validHeadAnchor(anchor) {
 /** Facts that bind approval; never authority, always recomputed before use. */
 export function validateCommitProposal(proposal) {
   if (
-    !hasExactKeys(proposal, PROPOSAL_FIELDS) ||
+    !hasExactKeys(proposal, proposalFields(proposal ?? {})) ||
     proposal.schema !== COMMIT_PROPOSAL_SCHEMA ||
     typeof proposal.repositoryRoot !== "string" ||
     proposal.repositoryRoot.length === 0 ||
@@ -82,6 +89,8 @@ export function validateCommitProposal(proposal) {
     !SHA256.test(proposal.changeSetSha256) ||
     !Number.isSafeInteger(proposal.changeUnitCount) ||
     proposal.changeUnitCount < 1 ||
+    (Object.hasOwn(proposal, "messageFormat") &&
+      proposal.messageFormat !== "detailed") ||
     !Array.isArray(proposal.allowedTypes) ||
     !proposal.allowedTypes.every((type) => typeof type === "string") ||
     !new Set(["required", "advisory", "skipped"]).has(
@@ -98,7 +107,7 @@ export function encodeCommitProposal(proposal) {
   const { headAnchor } = validateCommitProposal(proposal);
   // Fixed key order at every level makes the encoding canonical.
   const ordered = Object.fromEntries(
-    PROPOSAL_FIELDS.map((field) => [
+    proposalFields(proposal).map((field) => [
       field,
       field === "headAnchor"
         ? {
@@ -112,10 +121,13 @@ export function encodeCommitProposal(proposal) {
   const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;
 
   if (Buffer.byteLength(encoded) > MAXIMUM_PROPOSAL_BYTES) {
-    throw new WorkflowDiagnosticError(
-      "PROPOSAL_TOO_LARGE",
-      `The proposal exceeds ${MAXIMUM_PROPOSAL_BYTES} bytes; use --state-storage disk.`,
-      { disposition: "rejected" },
+    throw memoryStorageUnsupported(
+      "proposal-size-limit",
+      `The proposal exceeds its ${MAXIMUM_PROPOSAL_BYTES}-byte transport limit; no equivalent memory proposal fits.`,
+      {
+        code: "PROPOSAL_TOO_LARGE",
+        maximumProposalBytes: MAXIMUM_PROPOSAL_BYTES,
+      },
     );
   }
 

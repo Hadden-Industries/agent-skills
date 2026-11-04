@@ -628,6 +628,7 @@ export function validateApprovedMessage({
   repositoryTypePolicy,
   messageSource,
   structuredContent = null,
+  requiredMessageFormat = null,
 }) {
   const sourceAllowed =
     (route === "concise" &&
@@ -654,6 +655,13 @@ export function validateApprovedMessage({
     messageSource,
     structuredContent,
   });
+
+  if (requiredMessageFormat === "detailed" && !sections.fileChanges.present) {
+    fail(
+      "DETAILED_INVENTORY_REQUIRED",
+      "This proposal requires an exhaustive File Changes: inventory; include every selected change unit and check the complete message again.",
+    );
+  }
 
   if (messageSource === "approved-subject") {
     if (lines.length !== 1) {

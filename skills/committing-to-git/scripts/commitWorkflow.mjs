@@ -724,7 +724,7 @@ var init_commandArguments = __esm({
         },
         "message-format": {
           ...stringOption,
-          description: "<detailed>  Structured inventory below 50 units and at most 32,768 projected UTF-8 bytes; evidence remains independent. For larger scopes omit this flag, then extend concise evidence or choose extended structuredAuthoring after review. Body-only text uses checkedAuthoring.messagePath and its message check arguments."
+          description: "<detailed>  Exhaustive inventory below 50 units and at most 32,768 projected UTF-8 bytes. Memory returns checkedAuthoring stdin and exact message check arguments; disk uses structured authoring. Larger inventories require resolving presentation limits without silently switching storage."
         },
         mode: {
           ...stringOption,
@@ -3802,12 +3802,33 @@ var init_publicationPreflightCommand = __esm({
 
 // src/committing-to-git/workflow/workflowStateStorage.js
 import { isAbsolute as isAbsolute2 } from "node:path";
-function invalid(code, message) {
+function invalid(code, message, correction) {
   throw new WorkflowDiagnosticError(code, message, {
     recovery: {
       kind: "correct-input",
+      requiredInputs: [correction],
+      commands: [],
+      automatic: false
+    }
+  });
+}
+function memoryStorageUnsupported(reason, message, { code = "STATE_STORAGE_REQUIRES_DISK", ...details } = {}) {
+  return new WorkflowDiagnosticError(code, message, {
+    disposition: "unmet-prerequisite",
+    documentation: "references/state-storage.md",
+    details: {
+      reason,
+      ...details,
+      stateStorage: "memory",
+      proposedStorage: "disk",
+      storageEffects: "Creates a recoverable transaction and authoring/evidence files beneath a user-selected directory; preparation may write Git objects and actual full/paths preparation may update the index."
+    },
+    state: { commitState: "absent", publicationState: "not-requested" },
+    recovery: {
+      kind: "human-decision",
       requiredInputs: [
-        "--state-storage memory, or --state-storage disk with an absolute --state-directory"
+        "the user's choice to retain memory storage and replan the unmet requirement, or switch to disk storage",
+        "only after the user chooses disk: an absolute state directory named by the user or repository instructions"
       ],
       commands: [],
       automatic: false
@@ -3820,13 +3841,18 @@ function selectWorkflowStateStorage({
 }) {
   const selected = storage ?? "memory";
   if (!(/* @__PURE__ */ new Set(["memory", "disk"])).has(selected)) {
-    invalid("INVALID_STATE_STORAGE", "--state-storage must be memory or disk.");
+    invalid(
+      "INVALID_STATE_STORAGE",
+      "--state-storage must be memory or disk.",
+      "Use --state-storage memory, or omit the flag to retain the default."
+    );
   }
   if (selected === "memory") {
     if (directory !== null) {
       invalid(
         "STATE_DIRECTORY_WITHOUT_DISK_STORAGE",
-        "--state-directory applies only to --state-storage disk."
+        "--state-directory applies only to --state-storage disk.",
+        "Remove --state-directory and retain memory storage."
       );
     }
     return Object.freeze({ storage: "memory", directory: null });
@@ -3834,7 +3860,8 @@ function selectWorkflowStateStorage({
   if (directory === null || !isAbsolute2(directory)) {
     invalid(
       "STATE_DIRECTORY_REQUIRED",
-      "--state-storage disk requires an absolute --state-directory."
+      "--state-storage disk requires an absolute --state-directory.",
+      "Supply an absolute --state-directory for the explicitly selected disk storage."
     );
   }
   return Object.freeze({ storage: "disk", directory });
@@ -5900,7 +5927,8 @@ function validateApprovedMessage({
   bytes: inputBytes,
   repositoryTypePolicy,
   messageSource,
-  structuredContent = null
+  structuredContent = null,
+  requiredMessageFormat = null
 }) {
   const sourceAllowed = route === "concise" && // checked-input is memory-mode text read from standard input.
   (/* @__PURE__ */ new Set(["approved-subject", "checked-file", "checked-input"])).has(
@@ -5921,6 +5949,12 @@ function validateApprovedMessage({
     messageSource,
     structuredContent
   });
+  if (requiredMessageFormat === "detailed" && !sections.fileChanges.present) {
+    fail2(
+      "DETAILED_INVENTORY_REQUIRED",
+      "This proposal requires an exhaustive File Changes: inventory; include every selected change unit and check the complete message again."
+    );
+  }
   if (messageSource === "approved-subject") {
     if (lines.length !== 1) {
       fail2(
@@ -11386,8 +11420,349 @@ var init_reviewCatalog = __esm({
   }
 });
 
+// src/committing-to-git/message/commitMessageRenderer.js
+import { Buffer as Buffer4 } from "node:buffer";
+function isCanonicalNarrative(value) {
+  return typeof value === "string" && value.length > 0 && value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+function wrapNarrative(text, firstPrefix, continuationPrefix) {
+  if (!isCanonicalNarrative(text)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
+      "Structured message narrative must be trimmed, nonempty, and free of control or format characters."
+    );
+  }
+  const words = text.split(/\s+/u);
+  const lines = [];
+  let prefix = firstPrefix;
+  let current = prefix;
+  for (const word of words) {
+    const separator = current === prefix ? "" : " ";
+    const candidate = `${current}${separator}${word}`;
+    if (current !== prefix && [...candidate].length > MAXIMUM_BODY_LINE_SCALARS) {
+      lines.push(current);
+      prefix = continuationPrefix;
+      current = `${prefix}${word}`;
+    } else {
+      current = candidate;
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+function ordinalLayout(index, itemCount) {
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(itemCount) || index < 1 || itemCount < 1 || index > itemCount) {
+    throw new Error("Ordinal layout requires a valid one-based item index.");
+  }
+  const width = String(itemCount).length;
+  return {
+    titlePrefix: `  ${String(index).padStart(width, " ")}. `,
+    bulletPrefix: `${" ".repeat(width + 4)}- `,
+    continuationPrefix: " ".repeat(width + 6)
+  };
+}
+function renderNarrativeSection(heading, entries) {
+  if (entries.length === 0) {
+    return null;
+  }
+  return [
+    heading,
+    ...entries.flatMap((entry) => wrapNarrative(entry, "  - ", "    "))
+  ];
+}
+function uniqueReasons(groups) {
+  const seen = /* @__PURE__ */ new Set();
+  const reasons = [];
+  for (const group of groups) {
+    for (const reason of group.reasons) {
+      if (!seen.has(reason)) {
+        seen.add(reason);
+        reasons.push(reason);
+      }
+    }
+  }
+  return reasons;
+}
+function assertEvidencePlanBinding(content, evidencePlan) {
+  if (!evidencePlan || typeof evidencePlan.evidencePlanSha256 !== "string" || !Array.isArray(evidencePlan.groups)) {
+    throw new Error(
+      "Structured rendering requires the current canonical evidence plan."
+    );
+  }
+  function normalizedGroup({ selection, policy, basis }) {
+    const normalizedSelection2 = Object.fromEntries(
+      sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
+        ([field, value]) => [
+          field,
+          Array.isArray(value) ? sortByUtf8Bytes(value) : value
+        ]
+      )
+    );
+    return {
+      selection: normalizedSelection2,
+      policy,
+      basis: { kind: basis.kind, note: basis.note }
+    };
+  }
+  const authored = content.evidenceGroups.map(normalizedGroup);
+  const current = evidencePlan.groups.map(normalizedGroup);
+  if (JSON.stringify(authored) !== JSON.stringify(current)) {
+    throw new WorkflowDiagnosticError(
+      "EVIDENCE_PLAN_MISMATCH",
+      "Structured content evidence groups do not match the current evidence plan."
+    );
+  }
+}
+function assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt) {
+  if (!content || content.schemaVersion !== 3) {
+    throw new WorkflowDiagnosticError(
+      "INCOMPLETE_SEMANTIC_CONTENT",
+      "Only complete schema-version-3 semantic content can be rendered."
+    );
+  }
+  if (content.authoringState !== "complete") {
+    const missing = [];
+    if (content.subject === null) {
+      missing.push("subject");
+    }
+    if (reviewReceipt?.requiredPacketsReviewed !== true) {
+      missing.push("review receipt");
+    }
+    if (content.mode === "bulk" && (content.domains?.length ?? 0) === 0) {
+      missing.push("bulk domains");
+    }
+    throw new WorkflowDiagnosticError(
+      missing.length > 0 ? "MISSING_SEMANTIC_DECISIONS" : "INCOMPLETE_SEMANTIC_CONTENT",
+      missing.length > 0 ? `Draft semantic content is missing: ${missing.join(", ")}.` : "Set authoringState to complete after reviewing every semantic decision.",
+      { details: { missing } }
+    );
+  }
+  if (content.subject === null || typeof content.subject !== "object") {
+    throw new WorkflowDiagnosticError(
+      "MISSING_SUBJECT_DECISION",
+      "Complete semantic content requires a subject."
+    );
+  }
+  if (!reviewReceipt || reviewReceipt.requiredPacketsReviewed !== true || reviewReceipt.catalogSha256 !== reviewCatalog?.catalogSha256 || reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
+    throw new WorkflowDiagnosticError(
+      "CURRENT_REVIEW_RECEIPT_REQUIRED",
+      "Complete semantic content requires a current reviewed receipt.",
+      { disposition: "unmet-prerequisite" }
+    );
+  }
+  assertEvidencePlanBinding(content, evidencePlan);
+}
+function notesByUnit(coverage, sharedReasonSet) {
+  const notes = /* @__PURE__ */ new Map();
+  for (const group of coverage.fileNotes) {
+    for (const reason of group.reasons) {
+      if (sharedReasonSet.has(reason)) {
+        throw new WorkflowDiagnosticError(
+          "DUPLICATE_MESSAGE_REASON",
+          "A file note duplicates a shared rationale. Remove the repeated reason without changing its meaning."
+        );
+      }
+      for (const unit of group.units) {
+        const values = notes.get(unit.id) ?? [];
+        if (!values.includes(reason)) {
+          values.push(reason);
+        }
+        notes.set(unit.id, values);
+      }
+    }
+  }
+  return notes;
+}
+function renderDetailedV2(manifest, coverage, sharedReasonSet) {
+  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
+    throw new WorkflowDiagnosticError(
+      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
+      "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains."
+    );
+  }
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
+  const notes = notesByUnit(coverage, sharedReasonSet);
+  const lines = ["File Changes:"];
+  units.forEach((unit, index) => {
+    const layout = ordinalLayout(index + 1, units.length);
+    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
+    for (const note of notes.get(unit.id) ?? []) {
+      lines.push(
+        ...wrapNarrative(note, layout.bulletPrefix, layout.continuationPrefix)
+      );
+    }
+  });
+  return lines;
+}
+function renderBulkV2(coverage) {
+  const lines = ["File Changes:"];
+  coverage.domains.forEach((domain, index) => {
+    const layout = ordinalLayout(index + 1, coverage.domains.length);
+    const count = domain.units.length;
+    lines.push(
+      `${layout.titlePrefix}${domain.title} (${count} ${count === 1 ? "file" : "files"})`
+    );
+    for (const reason of domain.reasons) {
+      lines.push(
+        ...wrapNarrative(
+          reason,
+          layout.bulletPrefix,
+          layout.continuationPrefix
+        )
+      );
+    }
+  });
+  return lines;
+}
+function joinSections(sections) {
+  return `${sections.filter(Boolean).map((lines) => lines.join("\n")).join("\n\n")}
+`;
+}
+function renderCommitMessage({
+  manifest,
+  content,
+  reviewCatalog,
+  evidencePlan,
+  reviewReceipt,
+  repositoryTypePolicy = { allowedTypes: null }
+}) {
+  assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt);
+  const coverage = resolveSemanticCoverage(manifest, content);
+  const sharedReasons = uniqueReasons(coverage.sharedRationales);
+  const sharedReasonSet = new Set(sharedReasons);
+  const userExperience = content.userExperienceChanges ?? [];
+  if (!Array.isArray(userExperience)) {
+    throw new WorkflowDiagnosticError(
+      "INVALID_MESSAGE_NARRATIVE",
+      "User experience changes must be an array."
+    );
+  }
+  const subject = `${content.subject.type}${content.subject.scope === null || content.subject.scope === void 0 ? "" : `(${content.subject.scope})`}: ${content.subject.description}`;
+  const sections = [[subject]];
+  const rationaleSection = renderNarrativeSection("Rationale:", sharedReasons);
+  const userExperienceSection = renderNarrativeSection(
+    "User Experience Changes:",
+    userExperience
+  );
+  if (rationaleSection) {
+    sections.push(rationaleSection);
+  }
+  if (userExperienceSection) {
+    sections.push(userExperienceSection);
+  }
+  sections.push(
+    content.mode === "bulk" ? renderBulkV2(coverage) : renderDetailedV2(manifest, coverage, sharedReasonSet)
+  );
+  const displayText = joinSections(sections);
+  const bytes = Buffer4.from(displayText, "utf8");
+  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
+    throw new WorkflowDiagnosticError(
+      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
+      `Rendered message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
+      {
+        detailKind: "limit",
+        details: {
+          byteCount: bytes.length,
+          maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+          remedy: content.mode === "detailed" ? "Shorten prose while preserving every selected unit, requested section and required meaning, then finalize again in the fixed detailed mode. If the meaning cannot fit, report the unmet requirement and replan." : "Shorten prose or combine truthful domains without changing scope."
+        }
+      }
+    );
+  }
+  const validation = validateApprovedMessage({
+    manifest,
+    route: "extended",
+    bytes,
+    repositoryTypePolicy,
+    messageSource: "structured-finalizer",
+    structuredContent: content
+  });
+  return {
+    schemaVersion: 1,
+    mode: content.mode,
+    bytes,
+    byteCount: bytes.length,
+    displayText,
+    validation,
+    presentationWarnings: validation.presentationWarnings,
+    coverage
+  };
+}
+function projectedDetailedInventoryBytes(manifest) {
+  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
+  const lines = ["a: A", "", "File Changes:"];
+  units.forEach((unit, index) => {
+    const layout = ordinalLayout(index + 1, units.length);
+    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
+  });
+  return Buffer4.byteLength(`${lines.join("\n")}
+`, "utf8");
+}
+function assessMessagePresentation(manifest) {
+  const projectedDetailedBytes = projectedDetailedInventoryBytes(manifest);
+  const mode = selectMessagePresentation({
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes
+  });
+  return {
+    mode,
+    changeUnitCount: manifest.changeUnitCount,
+    projectedDetailedBytes,
+    projectionMeaning: "UTF-8 lower bound: minimal a: A subject and inventory titles only; authored prose is excluded.",
+    bulkChangeUnitThreshold: BULK_CHANGE_UNIT_THRESHOLD,
+    maximumDetailedBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
+    reasons: [
+      ...manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD ? ["change-unit-threshold"] : [],
+      ...projectedDetailedBytes > MAXIMUM_CANONICAL_MESSAGE_BYTES ? ["projected-byte-limit"] : []
+    ]
+  };
+}
+function scaffoldEvidenceGroups(evidencePlan) {
+  return evidencePlan.groups.map(({ selection, policy, basis }) => ({
+    selection,
+    policy,
+    basis
+  }));
+}
+function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
+  if (!reviewCatalog || typeof reviewCatalog.catalogSha256 !== "string" || reviewCatalog.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || !Array.isArray(evidencePlan?.groups)) {
+    throw new Error(
+      "Semantic scaffolding requires one matching review catalog and evidence plan."
+    );
+  }
+  return scaffoldMessageContent(
+    assessMessagePresentation(manifest).mode,
+    evidencePlan
+  );
+}
+function scaffoldMessageContent(mode, evidencePlan) {
+  if (!["detailed", "bulk"].includes(mode))
+    throw new Error("Invalid structured message mode.");
+  const common = {
+    schemaVersion: 3,
+    authoringState: "draft",
+    evidenceGroups: scaffoldEvidenceGroups(evidencePlan),
+    subject: null,
+    sharedRationales: [],
+    userExperienceChanges: [],
+    mode
+  };
+  return mode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
+}
+var init_commitMessageRenderer = __esm({
+  "src/committing-to-git/message/commitMessageRenderer.js"() {
+    init_workflowDiagnosticError();
+    init_byteOrdering();
+    init_approvedMessage();
+    init_changeSelection2();
+  }
+});
+
 // src/committing-to-git/workflow/commitProposal.js
 import { TextDecoder as TextDecoder5 } from "node:util";
+function proposalFields(proposal) {
+  return Object.hasOwn(proposal, "messageFormat") ? [...PROPOSAL_FIELDS, "messageFormat"] : PROPOSAL_FIELDS;
+}
 function invalid2(message) {
   throw new WorkflowDiagnosticError("INVALID_PROPOSAL", message, {
     recovery: {
@@ -11421,7 +11796,7 @@ function validHeadAnchor(anchor) {
   }
 }
 function validateCommitProposal(proposal) {
-  if (!hasExactKeys(proposal, PROPOSAL_FIELDS) || proposal.schema !== COMMIT_PROPOSAL_SCHEMA || typeof proposal.repositoryRoot !== "string" || proposal.repositoryRoot.length === 0 || !(/* @__PURE__ */ new Set(["actual", "draft"])).has(proposal.mode) || !(/* @__PURE__ */ new Set(["staged", "full"])).has(proposal.scope) || !validHeadAnchor(proposal.headAnchor) || !SHA256.test(proposal.changeSetSha256) || !Number.isSafeInteger(proposal.changeUnitCount) || proposal.changeUnitCount < 1 || !Array.isArray(proposal.allowedTypes) || !proposal.allowedTypes.every((type) => typeof type === "string") || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+  if (!hasExactKeys(proposal, proposalFields(proposal ?? {})) || proposal.schema !== COMMIT_PROPOSAL_SCHEMA || typeof proposal.repositoryRoot !== "string" || proposal.repositoryRoot.length === 0 || !(/* @__PURE__ */ new Set(["actual", "draft"])).has(proposal.mode) || !(/* @__PURE__ */ new Set(["staged", "full"])).has(proposal.scope) || !validHeadAnchor(proposal.headAnchor) || !SHA256.test(proposal.changeSetSha256) || !Number.isSafeInteger(proposal.changeUnitCount) || proposal.changeUnitCount < 1 || Object.hasOwn(proposal, "messageFormat") && proposal.messageFormat !== "detailed" || !Array.isArray(proposal.allowedTypes) || !proposal.allowedTypes.every((type) => typeof type === "string") || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
     proposal.verificationPolicy
   )) {
     invalid2(`The proposal is not a valid ${COMMIT_PROPOSAL_SCHEMA} value.`);
@@ -11431,7 +11806,7 @@ function validateCommitProposal(proposal) {
 function encodeCommitProposal(proposal) {
   const { headAnchor } = validateCommitProposal(proposal);
   const ordered = Object.fromEntries(
-    PROPOSAL_FIELDS.map((field) => [
+    proposalFields(proposal).map((field) => [
       field,
       field === "headAnchor" ? {
         headKind: headAnchor.headKind,
@@ -11442,10 +11817,13 @@ function encodeCommitProposal(proposal) {
   );
   const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;
   if (Buffer.byteLength(encoded) > MAXIMUM_PROPOSAL_BYTES) {
-    throw new WorkflowDiagnosticError(
-      "PROPOSAL_TOO_LARGE",
-      `The proposal exceeds ${MAXIMUM_PROPOSAL_BYTES} bytes; use --state-storage disk.`,
-      { disposition: "rejected" }
+    throw memoryStorageUnsupported(
+      "proposal-size-limit",
+      `The proposal exceeds its ${MAXIMUM_PROPOSAL_BYTES}-byte transport limit; no equivalent memory proposal fits.`,
+      {
+        code: "PROPOSAL_TOO_LARGE",
+        maximumProposalBytes: MAXIMUM_PROPOSAL_BYTES
+      }
     );
   }
   return encoded;
@@ -11470,6 +11848,7 @@ var COMMIT_PROPOSAL_SCHEMA, MAXIMUM_PROPOSAL_BYTES, PROPOSAL_PREFIX, PROPOSAL_FI
 var init_commitProposal = __esm({
   "src/committing-to-git/workflow/commitProposal.js"() {
     init_workflowDiagnosticError();
+    init_workflowStateStorage();
     COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
     MAXIMUM_PROPOSAL_BYTES = 4096;
     PROPOSAL_PREFIX = "ctg1.";
@@ -11924,344 +12303,6 @@ var init_projectedIndex = __esm({
     INDEX_MODES = /* @__PURE__ */ new Set(["000000", "100644", "100755", "120000", "160000"]);
     PURPOSE = /^[a-z][a-z0-9-]{0,63}$/u;
     NUL = Buffer.from([0]);
-  }
-});
-
-// src/committing-to-git/message/commitMessageRenderer.js
-import { Buffer as Buffer4 } from "node:buffer";
-function isCanonicalNarrative(value) {
-  return typeof value === "string" && value.length > 0 && value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value);
-}
-function wrapNarrative(text, firstPrefix, continuationPrefix) {
-  if (!isCanonicalNarrative(text)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_MESSAGE_NARRATIVE",
-      "Structured message narrative must be trimmed, nonempty, and free of control or format characters."
-    );
-  }
-  const words = text.split(/\s+/u);
-  const lines = [];
-  let prefix = firstPrefix;
-  let current = prefix;
-  for (const word of words) {
-    const separator = current === prefix ? "" : " ";
-    const candidate = `${current}${separator}${word}`;
-    if (current !== prefix && [...candidate].length > MAXIMUM_BODY_LINE_SCALARS) {
-      lines.push(current);
-      prefix = continuationPrefix;
-      current = `${prefix}${word}`;
-    } else {
-      current = candidate;
-    }
-  }
-  lines.push(current);
-  return lines;
-}
-function ordinalLayout(index, itemCount) {
-  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(itemCount) || index < 1 || itemCount < 1 || index > itemCount) {
-    throw new Error("Ordinal layout requires a valid one-based item index.");
-  }
-  const width = String(itemCount).length;
-  return {
-    titlePrefix: `  ${String(index).padStart(width, " ")}. `,
-    bulletPrefix: `${" ".repeat(width + 4)}- `,
-    continuationPrefix: " ".repeat(width + 6)
-  };
-}
-function renderNarrativeSection(heading, entries) {
-  if (entries.length === 0) {
-    return null;
-  }
-  return [
-    heading,
-    ...entries.flatMap((entry) => wrapNarrative(entry, "  - ", "    "))
-  ];
-}
-function uniqueReasons(groups) {
-  const seen = /* @__PURE__ */ new Set();
-  const reasons = [];
-  for (const group of groups) {
-    for (const reason of group.reasons) {
-      if (!seen.has(reason)) {
-        seen.add(reason);
-        reasons.push(reason);
-      }
-    }
-  }
-  return reasons;
-}
-function assertEvidencePlanBinding(content, evidencePlan) {
-  if (!evidencePlan || typeof evidencePlan.evidencePlanSha256 !== "string" || !Array.isArray(evidencePlan.groups)) {
-    throw new Error(
-      "Structured rendering requires the current canonical evidence plan."
-    );
-  }
-  function normalizedGroup({ selection, policy, basis }) {
-    const normalizedSelection2 = Object.fromEntries(
-      sortByUtf8Bytes(Object.entries(selection), ([field]) => field).map(
-        ([field, value]) => [
-          field,
-          Array.isArray(value) ? sortByUtf8Bytes(value) : value
-        ]
-      )
-    );
-    return {
-      selection: normalizedSelection2,
-      policy,
-      basis: { kind: basis.kind, note: basis.note }
-    };
-  }
-  const authored = content.evidenceGroups.map(normalizedGroup);
-  const current = evidencePlan.groups.map(normalizedGroup);
-  if (JSON.stringify(authored) !== JSON.stringify(current)) {
-    throw new WorkflowDiagnosticError(
-      "EVIDENCE_PLAN_MISMATCH",
-      "Structured content evidence groups do not match the current evidence plan."
-    );
-  }
-}
-function assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt) {
-  if (!content || content.schemaVersion !== 3) {
-    throw new WorkflowDiagnosticError(
-      "INCOMPLETE_SEMANTIC_CONTENT",
-      "Only complete schema-version-3 semantic content can be rendered."
-    );
-  }
-  if (content.authoringState !== "complete") {
-    const missing = [];
-    if (content.subject === null) {
-      missing.push("subject");
-    }
-    if (reviewReceipt?.requiredPacketsReviewed !== true) {
-      missing.push("review receipt");
-    }
-    if (content.mode === "bulk" && (content.domains?.length ?? 0) === 0) {
-      missing.push("bulk domains");
-    }
-    throw new WorkflowDiagnosticError(
-      missing.length > 0 ? "MISSING_SEMANTIC_DECISIONS" : "INCOMPLETE_SEMANTIC_CONTENT",
-      missing.length > 0 ? `Draft semantic content is missing: ${missing.join(", ")}.` : "Set authoringState to complete after reviewing every semantic decision.",
-      { details: { missing } }
-    );
-  }
-  if (content.subject === null || typeof content.subject !== "object") {
-    throw new WorkflowDiagnosticError(
-      "MISSING_SUBJECT_DECISION",
-      "Complete semantic content requires a subject."
-    );
-  }
-  if (!reviewReceipt || reviewReceipt.requiredPacketsReviewed !== true || reviewReceipt.catalogSha256 !== reviewCatalog?.catalogSha256 || reviewReceipt.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || reviewCatalog?.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256) {
-    throw new WorkflowDiagnosticError(
-      "CURRENT_REVIEW_RECEIPT_REQUIRED",
-      "Complete semantic content requires a current reviewed receipt.",
-      { disposition: "unmet-prerequisite" }
-    );
-  }
-  assertEvidencePlanBinding(content, evidencePlan);
-}
-function notesByUnit(coverage, sharedReasonSet) {
-  const notes = /* @__PURE__ */ new Map();
-  for (const group of coverage.fileNotes) {
-    for (const reason of group.reasons) {
-      if (sharedReasonSet.has(reason)) {
-        throw new WorkflowDiagnosticError(
-          "DUPLICATE_MESSAGE_REASON",
-          "A file note duplicates a shared rationale. Remove the repeated reason without changing its meaning."
-        );
-      }
-      for (const unit of group.units) {
-        const values = notes.get(unit.id) ?? [];
-        if (!values.includes(reason)) {
-          values.push(reason);
-        }
-        notes.set(unit.id, values);
-      }
-    }
-  }
-  return notes;
-}
-function renderDetailedV2(manifest, coverage, sharedReasonSet) {
-  if (manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD) {
-    throw new WorkflowDiagnosticError(
-      "STRUCTURED_BULK_FINALIZATION_REQUIRED",
-      "Detailed File Changes is unavailable at 50 or more change units; use structured bulk domains."
-    );
-  }
-  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
-  const notes = notesByUnit(coverage, sharedReasonSet);
-  const lines = ["File Changes:"];
-  units.forEach((unit, index) => {
-    const layout = ordinalLayout(index + 1, units.length);
-    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
-    for (const note of notes.get(unit.id) ?? []) {
-      lines.push(
-        ...wrapNarrative(note, layout.bulletPrefix, layout.continuationPrefix)
-      );
-    }
-  });
-  return lines;
-}
-function renderBulkV2(coverage) {
-  const lines = ["File Changes:"];
-  coverage.domains.forEach((domain, index) => {
-    const layout = ordinalLayout(index + 1, coverage.domains.length);
-    const count = domain.units.length;
-    lines.push(
-      `${layout.titlePrefix}${domain.title} (${count} ${count === 1 ? "file" : "files"})`
-    );
-    for (const reason of domain.reasons) {
-      lines.push(
-        ...wrapNarrative(
-          reason,
-          layout.bulletPrefix,
-          layout.continuationPrefix
-        )
-      );
-    }
-  });
-  return lines;
-}
-function joinSections(sections) {
-  return `${sections.filter(Boolean).map((lines) => lines.join("\n")).join("\n\n")}
-`;
-}
-function renderCommitMessage({
-  manifest,
-  content,
-  reviewCatalog,
-  evidencePlan,
-  reviewReceipt,
-  repositoryTypePolicy = { allowedTypes: null }
-}) {
-  assertCompleteContent(content, reviewCatalog, evidencePlan, reviewReceipt);
-  const coverage = resolveSemanticCoverage(manifest, content);
-  const sharedReasons = uniqueReasons(coverage.sharedRationales);
-  const sharedReasonSet = new Set(sharedReasons);
-  const userExperience = content.userExperienceChanges ?? [];
-  if (!Array.isArray(userExperience)) {
-    throw new WorkflowDiagnosticError(
-      "INVALID_MESSAGE_NARRATIVE",
-      "User experience changes must be an array."
-    );
-  }
-  const subject = `${content.subject.type}${content.subject.scope === null || content.subject.scope === void 0 ? "" : `(${content.subject.scope})`}: ${content.subject.description}`;
-  const sections = [[subject]];
-  const rationaleSection = renderNarrativeSection("Rationale:", sharedReasons);
-  const userExperienceSection = renderNarrativeSection(
-    "User Experience Changes:",
-    userExperience
-  );
-  if (rationaleSection) {
-    sections.push(rationaleSection);
-  }
-  if (userExperienceSection) {
-    sections.push(userExperienceSection);
-  }
-  sections.push(
-    content.mode === "bulk" ? renderBulkV2(coverage) : renderDetailedV2(manifest, coverage, sharedReasonSet)
-  );
-  const displayText = joinSections(sections);
-  const bytes = Buffer4.from(displayText, "utf8");
-  if (bytes.length > MAXIMUM_CANONICAL_MESSAGE_BYTES) {
-    throw new WorkflowDiagnosticError(
-      "MESSAGE_DISPLAY_BUDGET_EXCEEDED",
-      `Rendered message is ${bytes.length} bytes; maximum is ${MAXIMUM_CANONICAL_MESSAGE_BYTES}.`,
-      {
-        detailKind: "limit",
-        details: {
-          byteCount: bytes.length,
-          maximumBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-          remedy: content.mode === "detailed" ? "Shorten prose while preserving every selected unit, requested section and required meaning, then finalize again in the fixed detailed mode. If the meaning cannot fit, report the unmet requirement and replan." : "Shorten prose or combine truthful domains without changing scope."
-        }
-      }
-    );
-  }
-  const validation = validateApprovedMessage({
-    manifest,
-    route: "extended",
-    bytes,
-    repositoryTypePolicy,
-    messageSource: "structured-finalizer",
-    structuredContent: content
-  });
-  return {
-    schemaVersion: 1,
-    mode: content.mode,
-    bytes,
-    byteCount: bytes.length,
-    displayText,
-    validation,
-    presentationWarnings: validation.presentationWarnings,
-    coverage
-  };
-}
-function projectedDetailedInventoryBytes(manifest) {
-  const units = sortChangeUnitsByRawPath(manifest.changeUnits);
-  const lines = ["a: A", "", "File Changes:"];
-  units.forEach((unit, index) => {
-    const layout = ordinalLayout(index + 1, units.length);
-    lines.push(`${layout.titlePrefix}${formatChangeUnitPath(unit)}`);
-  });
-  return Buffer4.byteLength(`${lines.join("\n")}
-`, "utf8");
-}
-function assessMessagePresentation(manifest) {
-  const projectedDetailedBytes = projectedDetailedInventoryBytes(manifest);
-  const mode = selectMessagePresentation({
-    changeUnitCount: manifest.changeUnitCount,
-    projectedDetailedBytes
-  });
-  return {
-    mode,
-    changeUnitCount: manifest.changeUnitCount,
-    projectedDetailedBytes,
-    projectionMeaning: "UTF-8 lower bound: minimal a: A subject and inventory titles only; authored prose is excluded.",
-    bulkChangeUnitThreshold: BULK_CHANGE_UNIT_THRESHOLD,
-    maximumDetailedBytes: MAXIMUM_CANONICAL_MESSAGE_BYTES,
-    reasons: [
-      ...manifest.changeUnitCount >= BULK_CHANGE_UNIT_THRESHOLD ? ["change-unit-threshold"] : [],
-      ...projectedDetailedBytes > MAXIMUM_CANONICAL_MESSAGE_BYTES ? ["projected-byte-limit"] : []
-    ]
-  };
-}
-function scaffoldEvidenceGroups(evidencePlan) {
-  return evidencePlan.groups.map(({ selection, policy, basis }) => ({
-    selection,
-    policy,
-    basis
-  }));
-}
-function scaffoldContent(manifest, reviewCatalog, evidencePlan) {
-  if (!reviewCatalog || typeof reviewCatalog.catalogSha256 !== "string" || reviewCatalog.evidencePlanSha256 !== evidencePlan?.evidencePlanSha256 || !Array.isArray(evidencePlan?.groups)) {
-    throw new Error(
-      "Semantic scaffolding requires one matching review catalog and evidence plan."
-    );
-  }
-  return scaffoldMessageContent(
-    assessMessagePresentation(manifest).mode,
-    evidencePlan
-  );
-}
-function scaffoldMessageContent(mode, evidencePlan) {
-  if (!["detailed", "bulk"].includes(mode))
-    throw new Error("Invalid structured message mode.");
-  const common = {
-    schemaVersion: 3,
-    authoringState: "draft",
-    evidenceGroups: scaffoldEvidenceGroups(evidencePlan),
-    subject: null,
-    sharedRationales: [],
-    userExperienceChanges: [],
-    mode
-  };
-  return mode === "bulk" ? { ...common, domains: [] } : { ...common, fileNotes: [] };
-}
-var init_commitMessageRenderer = __esm({
-  "src/committing-to-git/message/commitMessageRenderer.js"() {
-    init_workflowDiagnosticError();
-    init_byteOrdering();
-    init_approvedMessage();
-    init_changeSelection2();
   }
 });
 
@@ -16225,6 +16266,87 @@ var init_workingTreeSnapshot = __esm({
   }
 });
 
+// src/committing-to-git/workflow/proposalEvidence.js
+async function boundedScopeDiff(root, args, maximumBytes) {
+  const controller = new AbortController();
+  const chunks = [];
+  let byteCount = 0;
+  const result = await streamGit("diff", args, {
+    cwd: root,
+    signal: controller.signal,
+    allowFailure: true,
+    onStdout(chunk) {
+      byteCount += chunk.length;
+      if (byteCount > maximumBytes) {
+        controller.abort();
+      } else {
+        chunks.push(chunk);
+      }
+    }
+  });
+  if (byteCount > maximumBytes) {
+    return null;
+  }
+  if (result.aborted || result.timedOut || result.status !== 0) {
+    throw new Error(
+      `Scope evidence diff did not complete (status ${result.status}).`
+    );
+  }
+  return Buffer.concat(chunks);
+}
+async function captureProposalEvidence({
+  root,
+  scope,
+  manifest,
+  evidencePlan,
+  untrackedPatches,
+  maximumBytes = MAXIMUM_CONCISE_RESULT_BYTES
+}) {
+  const messageGroups = evidencePlan.groups.filter(
+    ({ policy }) => policy === "message"
+  );
+  if (messageGroups.length === 0) {
+    return {};
+  }
+  if (messageGroups.length > 1 || messageGroups[0].changeUnitIds.length !== manifest.changeUnitCount) {
+    throw memoryStorageUnsupported(
+      "evidence-group-projection",
+      "The selected partial-scope message evidence needs a projected index. A uniform message group is a memory alternative only when whole-scope message evidence meets the required provenance."
+    );
+  }
+  if (untrackedPatches === null) {
+    return null;
+  }
+  const untrackedEvidence = [...untrackedPatches].sort(
+    ([left], [right]) => Buffer.compare(Buffer.from(left, "base64"), Buffer.from(right, "base64"))
+  ).map(([, patch]) => patch);
+  const untrackedBytes = untrackedEvidence.reduce(
+    (total, patch) => total + patch.length,
+    0
+  );
+  const comparison = manifest.headOid ?? (scope === "staged" ? "--root" : emptyTreeObjectId(root));
+  const tracked = untrackedBytes > maximumBytes ? null : await boundedScopeDiff(
+    root,
+    [
+      ...scope === "staged" ? ["--cached"] : [],
+      "--no-renames",
+      "--diff-filter=d",
+      comparison,
+      "--"
+    ],
+    maximumBytes - untrackedBytes
+  );
+  return tracked === null ? null : { [messageGroups[0].id]: Buffer.concat([tracked, ...untrackedEvidence]) };
+}
+var init_proposalEvidence = __esm({
+  "src/committing-to-git/workflow/proposalEvidence.js"() {
+    init_gitRepository();
+    init_inlineEvidenceCapsule();
+    init_workingTreeSnapshot();
+    init_workflowStateStorage();
+  }
+});
+
 // src/committing-to-git/snapshot/changeSet.js
 import { createHash as createHash15 } from "node:crypto";
 function changeSetEntries(records) {
@@ -16304,21 +16426,6 @@ var init_changeSet = __esm({
 });
 
 // src/committing-to-git/workflow/proposalObservation.js
-function memoryStorageUnsupported(reason, message, details = {}) {
-  return new WorkflowDiagnosticError("STATE_STORAGE_REQUIRES_DISK", message, {
-    details: { reason, ...details },
-    state: { commitState: "absent", publicationState: "not-requested" },
-    recovery: {
-      kind: "correct-input",
-      requiredInputs: [
-        "--state-storage disk",
-        "--state-directory <absolute directory named by the user or repository instructions>"
-      ],
-      commands: [],
-      automatic: false
-    }
-  });
-}
 function proposalStale(changed) {
   return new WorkflowDiagnosticError(
     "PROPOSAL_STALE",
@@ -16427,87 +16534,7 @@ var init_proposalObservation = __esm({
     init_commitSnapshot();
     init_workingTreeSnapshot();
     init_indexInstallation();
-  }
-});
-
-// src/committing-to-git/workflow/proposalEvidence.js
-async function boundedScopeDiff(root, args, maximumBytes) {
-  const controller = new AbortController();
-  const chunks = [];
-  let byteCount = 0;
-  const result = await streamGit("diff", args, {
-    cwd: root,
-    signal: controller.signal,
-    allowFailure: true,
-    onStdout(chunk) {
-      byteCount += chunk.length;
-      if (byteCount > maximumBytes) {
-        controller.abort();
-      } else {
-        chunks.push(chunk);
-      }
-    }
-  });
-  if (byteCount > maximumBytes) {
-    return null;
-  }
-  if (result.aborted || result.timedOut || result.status !== 0) {
-    throw new Error(
-      `Scope evidence diff did not complete (status ${result.status}).`
-    );
-  }
-  return Buffer.concat(chunks);
-}
-async function captureProposalEvidence({
-  root,
-  scope,
-  manifest,
-  evidencePlan,
-  untrackedPatches,
-  maximumBytes = MAXIMUM_CONCISE_RESULT_BYTES
-}) {
-  const messageGroups = evidencePlan.groups.filter(
-    ({ policy }) => policy === "message"
-  );
-  if (messageGroups.length === 0) {
-    return {};
-  }
-  if (messageGroups.length > 1 || messageGroups[0].changeUnitIds.length !== manifest.changeUnitCount) {
-    throw memoryStorageUnsupported(
-      "evidence-group-projection",
-      "Message evidence for part of a scope needs a projected index; use one uniform message group or disk storage."
-    );
-  }
-  if (untrackedPatches === null) {
-    return null;
-  }
-  const untrackedEvidence = [...untrackedPatches].sort(
-    ([left], [right]) => Buffer.compare(Buffer.from(left, "base64"), Buffer.from(right, "base64"))
-  ).map(([, patch]) => patch);
-  const untrackedBytes = untrackedEvidence.reduce(
-    (total, patch) => total + patch.length,
-    0
-  );
-  const comparison = manifest.headOid ?? (scope === "staged" ? "--root" : emptyTreeObjectId(root));
-  const tracked = untrackedBytes > maximumBytes ? null : await boundedScopeDiff(
-    root,
-    [
-      ...scope === "staged" ? ["--cached"] : [],
-      "--no-renames",
-      "--diff-filter=d",
-      comparison,
-      "--"
-    ],
-    maximumBytes - untrackedBytes
-  );
-  return tracked === null ? null : { [messageGroups[0].id]: Buffer.concat([tracked, ...untrackedEvidence]) };
-}
-var init_proposalEvidence = __esm({
-  "src/committing-to-git/workflow/proposalEvidence.js"() {
-    init_gitRepository();
-    init_inlineEvidenceCapsule();
-    init_workingTreeSnapshot();
-    init_proposalObservation();
+    init_workflowStateStorage();
   }
 });
 
@@ -16534,16 +16561,20 @@ function assertMemoryRoute(options) {
       "Path scope still stages through a transaction-owned index."
     );
   }
-  if (options.messageFormat === "detailed") {
-    throw memoryStorageUnsupported(
-      "detailed-message-format",
-      "Detailed structured authoring still uses transaction-owned content files."
-    );
-  }
   if (options.correctionFromPath !== null) {
-    throw memoryStorageUnsupported(
-      "transaction-correction",
-      "Correction reads a retained transaction; memory preparation is simply repeated."
+    throw new WorkflowDiagnosticError(
+      "CORRECTION_FROM_REQUIRES_TRANSACTION",
+      "Memory preparation has no retained transaction to correct; prepare again without --correction-from.",
+      {
+        recovery: {
+          kind: "correct-input",
+          requiredInputs: [
+            "Remove --correction-from and retain memory storage."
+          ],
+          commands: [],
+          automatic: false
+        }
+      }
     );
   }
 }
@@ -16570,6 +16601,7 @@ function preparedResult({
       stateStorage: "memory",
       proposal,
       mode: options.mode,
+      messageFormat: options.messageFormat,
       scope: scopeSummary(options.scope, null, []),
       headAnchor,
       changeUnitCount: manifest.changeUnitCount,
@@ -16626,6 +16658,30 @@ async function prepareProposalWorkflow({
       options.scope === "staged" ? "The staged scope is empty." : "The full workspace scope is empty."
     );
   }
+  if (options.messageFormat === "detailed") {
+    const presentation = assessMessagePresentation(manifest);
+    if (presentation.mode !== "detailed") {
+      throw new WorkflowDiagnosticError(
+        "DETAILED_MESSAGE_LIMIT_EXCEEDED",
+        "Detailed inventory requires fewer than 50 change units and a projected presentation within 32 KiB, regardless of storage. Preserve the requested meaning and revise the presentation requirement before preparing again.",
+        {
+          details: {
+            ...presentation,
+            requestedMode: "detailed",
+            stateStorage: "memory"
+          },
+          recovery: {
+            kind: "correct-input",
+            requiredInputs: [
+              "Retain memory storage; omit --message-format detailed only if an exhaustive per-file inventory is no longer required."
+            ],
+            commands: [],
+            automatic: false
+          }
+        }
+      );
+    }
+  }
   const evidencePlan = canonicalizeEvidencePlan({
     manifest,
     groups: normalizedEvidence.plan.groups
@@ -16656,7 +16712,8 @@ async function prepareProposalWorkflow({
     changeSetSha256: changeSetSha2562,
     changeUnitCount: manifest.changeUnitCount,
     allowedTypes: options.allowedTypes ?? [],
-    verificationPolicy: options.verificationPolicy
+    verificationPolicy: options.verificationPolicy,
+    ...options.messageFormat === "detailed" ? { messageFormat: "detailed" } : {}
   });
   const facts = {
     proposal,
@@ -16693,11 +16750,13 @@ var init_prepareProposalWorkflow = __esm({
     init_gitRepository();
     init_inlineEvidenceCapsule();
     init_reviewCatalog();
+    init_commitMessageRenderer();
     init_commitProposal();
     init_preparationInputs();
     init_prepareWorkflow();
     init_proposalEvidence();
     init_proposalObservation();
+    init_workflowStateStorage();
   }
 });
 
@@ -22076,7 +22135,8 @@ async function commitProposalWorkflow({
     route: "concise",
     bytes,
     repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
-    messageSource: approvedSubject === null ? "checked-input" : "approved-subject"
+    messageSource: approvedSubject === null ? "checked-input" : "approved-subject",
+    requiredMessageFormat: proposal.messageFormat ?? null
   });
   if (expectedMessageSha256 !== null && validation.messageSha256 !== expectedMessageSha256) {
     fail20(
@@ -24469,7 +24529,8 @@ async function checkProposalMessageWorkflow({
     route: "concise",
     bytes: messageBytes,
     repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
-    messageSource: "checked-input"
+    messageSource: "checked-input",
+    requiredMessageFormat: proposal.messageFormat ?? null
   });
   return assertMessageResultBudget(
     createWorkflowResult({

@@ -21,6 +21,7 @@ export async function checkProposalMessageWorkflow({
     bytes: messageBytes,
     repositoryTypePolicy: { allowedTypes: proposal.allowedTypes },
     messageSource: "checked-input",
+    requiredMessageFormat: proposal.messageFormat ?? null,
   });
 
   return assertMessageResultBudget(

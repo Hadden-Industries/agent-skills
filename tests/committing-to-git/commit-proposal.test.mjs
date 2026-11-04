@@ -56,6 +56,39 @@ test("a proposal round-trips through its canonical opaque encoding", () => {
   assert.deepEqual(decodeCommitProposal(encoded), PROPOSAL);
 });
 
+test("a detailed proposal preserves its required presentation", () => {
+  const detailed = { ...PROPOSAL, messageFormat: "detailed" };
+  assert.deepEqual(
+    decodeCommitProposal(encodeCommitProposal(detailed)),
+    detailed,
+  );
+  assert.equal(
+    rejectedCode(() =>
+      encodeCommitProposal({ ...PROPOSAL, messageFormat: "bulk" }),
+    ),
+    "INVALID_PROPOSAL",
+  );
+});
+
+test("proposal transport overflow requires a human storage decision", () => {
+  assert.throws(
+    () =>
+      encodeCommitProposal({ ...PROPOSAL, repositoryRoot: "x".repeat(4096) }),
+    (error) => {
+      assert.equal(error.code, "PROPOSAL_TOO_LARGE");
+      assert.equal(error.disposition, "unmet-prerequisite");
+      assert.equal(error.recovery.kind, "human-decision");
+      assert.equal(error.recovery.automatic, false);
+      assert.deepEqual(error.recovery.commands, []);
+      assert.doesNotMatch(
+        JSON.stringify(error.recovery),
+        /--state-storage|--state-directory/u,
+      );
+      return true;
+    },
+  );
+});
+
 test("tampered, non-canonical and incomplete proposals are invalid input", () => {
   const encoded = encodeCommitProposal({ ...PROPOSAL });
   const payload = JSON.parse(

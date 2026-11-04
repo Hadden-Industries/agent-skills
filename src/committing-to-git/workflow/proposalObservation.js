@@ -11,23 +11,7 @@ import {
   buildWorkingTreeSnapshot,
 } from "../snapshot/workingTreeSnapshot.js";
 import { captureHeadAnchor } from "../transaction/indexInstallation.js";
-
-/** The selected memory storage cannot serve this route; disk storage can. */
-export function memoryStorageUnsupported(reason, message, details = {}) {
-  return new WorkflowDiagnosticError("STATE_STORAGE_REQUIRES_DISK", message, {
-    details: { reason, ...details },
-    state: { commitState: "absent", publicationState: "not-requested" },
-    recovery: {
-      kind: "correct-input",
-      requiredInputs: [
-        "--state-storage disk",
-        "--state-directory <absolute directory named by the user or repository instructions>",
-      ],
-      commands: [],
-      automatic: false,
-    },
-  });
-}
+import { memoryStorageUnsupported } from "./workflowStateStorage.js";
 
 function proposalStale(changed) {
   return new WorkflowDiagnosticError(
