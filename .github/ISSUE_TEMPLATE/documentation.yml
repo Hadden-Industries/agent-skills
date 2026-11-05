@@ -1,0 +1,20 @@
+name: Documentation issue
+description: Report missing, incorrect, or unclear repository or skill documentation.
+body:
+  - type: markdown
+    attributes:
+      value: Use public examples only. Report security or conduct concerns through their private channels.
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the affected page, section, or skill and identify the version or source commit when known.
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: Problem and suggested correction
+      description: Explain what you tried to understand or do, what was missing or misleading, and the correction or supporting source if available.
+    validations:
+      required: true

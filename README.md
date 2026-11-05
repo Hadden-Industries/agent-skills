@@ -6,6 +6,8 @@ This repository contains reusable [Agent Skills](https://agentskills.io/) for AI
 
 It also contains the local tooling used to create, modify, validate, and evaluate them.
 
+For project participation and reporting, see [Contributing](./CONTRIBUTING.md), [Support](./SUPPORT.md), [Security](./SECURITY.md), [Code of Conduct](./CODE_OF_CONDUCT.md), and [Privacy](./PRIVACY.md).
+
 The repository follows one core rule:
 
 > [!IMPORTANT]
@@ -1792,7 +1794,9 @@ When upstream guidance changes, prefer updating this repository's development wo
 ## License
 
 Repository-authored source code, documentation, and canonical skills are licensed under the [Mozilla Public License 2.0](./LICENSE).
+The adapted [Code of Conduct](./CODE_OF_CONDUCT.md) is separately licensed under CC BY-SA 4.0.
 Third-party dependencies, imported skills, and external development tools retain their respective licenses.
+See [third-party notices](./THIRD-PARTY-NOTICES.md) for attribution and the bundled-component and development-tool boundaries.
 
 ---
 

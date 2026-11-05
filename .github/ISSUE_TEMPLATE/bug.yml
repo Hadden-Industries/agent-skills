@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible skill, executable, installation, build, or evaluation defect.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Report vulnerabilities privately through the Security tab.
+        Use synthetic examples; do not include credentials, private repositories,
+        personal information, or restricted document content.
+  - type: input
+    id: component
+    attributes:
+      label: Affected skill or tool
+      description: Include the skill name or the relevant repository command.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Source commit or installed version
+      description: Give the exact commit or skill/plugin version and installation method.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Host and environment
+      description: Include agent host/version, OS, and relevant Node, npm, Python, Git, or Pandoc versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide exact commands or prompts and sanitized input. For activation problems, identify the expected skill and the observed host behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior
+      description: Include exit codes and sanitized diagnostics where relevant. Distinguish an observed failure from an unverified explanation.
+    validations:
+      required: true

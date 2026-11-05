@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/Hadden-Industries/agent-skills/security/advisories/new
+    about: Report suspected vulnerabilities privately; keep sensitive details out of public issues.
+  - name: Support and reporting guidance
+    url: https://github.com/Hadden-Industries/agent-skills/blob/main/SUPPORT.md
+    about: Find usage guidance and the appropriate support, conduct, or privacy channel.

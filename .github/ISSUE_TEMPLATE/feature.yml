@@ -1,0 +1,27 @@
+name: Feature proposal
+description: Propose a skill or tooling improvement with a concrete use case.
+body:
+  - type: markdown
+    attributes:
+      value: Keep examples non-sensitive. Use the private security channel for suspected vulnerabilities.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and intended outcome
+      description: Identify the affected skill or tool, who needs the change, and a concrete example.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Explain existing approaches, relevant agent hosts, compatibility constraints, and any new dependencies or execution effects.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      description: Describe how a reviewer could tell the change solves the problem, including behavioral or trigger evidence when applicable.
+    validations:
+      required: true
