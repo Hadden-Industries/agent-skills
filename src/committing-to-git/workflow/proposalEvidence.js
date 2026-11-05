@@ -1,14 +1,17 @@
-import { streamGit } from "../git/gitRepository.js";
+import {
+  MAXIMUM_NO_INDEX_PATH_BYTES,
+  streamGit,
+} from "../git/gitRepository.js";
 import { MAXIMUM_CONCISE_RESULT_BYTES } from "../inspection/inlineEvidenceCapsule.js";
 import { emptyTreeObjectId } from "../snapshot/workingTreeSnapshot.js";
 import { memoryStorageUnsupported } from "./workflowStateStorage.js";
 
 /** Stream one scope-wide diff, stopping as soon as it exceeds the budget. */
-async function boundedScopeDiff(root, args, maximumBytes) {
+async function boundedScopeDiff(root, args, maximumBytes, operation = "diff") {
   const controller = new AbortController();
   const chunks = [];
   let byteCount = 0;
-  const result = await streamGit("diff", args, {
+  const result = await streamGit(operation, args, {
     cwd: root,
     signal: controller.signal,
     allowFailure: true,
@@ -36,10 +39,43 @@ async function boundedScopeDiff(root, args, maximumBytes) {
   return Buffer.concat(chunks);
 }
 
+async function boundedSelectedDiff(
+  root,
+  manifest,
+  selectedPaths,
+  maximumBytes,
+) {
+  const chunks = [];
+  let remaining = maximumBytes;
+  const comparison = manifest.headOid ?? emptyTreeObjectId(root);
+  for (const pathBytes of selectedPaths) {
+    const path = pathBytes.toString("utf8");
+    if (
+      !Buffer.from(path, "utf8").equals(pathBytes) ||
+      pathBytes.length > MAXIMUM_NO_INDEX_PATH_BYTES
+    ) {
+      throw memoryStorageUnsupported(
+        "selected-evidence-path-transport",
+        "Selected message evidence needs a UTF-8 path within the native per-path argument bound.",
+      );
+    }
+    const patch = await boundedScopeDiff(
+      root,
+      [comparison, path],
+      remaining,
+      "diff-path",
+    );
+    if (patch === null) return null;
+    remaining -= patch.length;
+    chunks.push(patch);
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
- * Collect message evidence in process memory without path arguments: one
- * scope-wide diff covers every tracked change, so a message group must cover
- * the whole scope. Full-scope untracked patches come from the observation.
+ * Collect message evidence in process memory. Staged/full use one scope-wide
+ * diff; paths use bounded literal single-path native diffs. A message group
+ * covers the whole selected scope. Untracked patches come from observation.
  * Returns null once the concise budget is exceeded.
  */
 export async function captureProposalEvidence({
@@ -48,6 +84,7 @@ export async function captureProposalEvidence({
   manifest,
   evidencePlan,
   untrackedPatches,
+  selectedPaths = null,
   maximumBytes = MAXIMUM_CONCISE_RESULT_BYTES,
 }) {
   const messageGroups = evidencePlan.groups.filter(
@@ -89,17 +126,24 @@ export async function captureProposalEvidence({
   const tracked =
     untrackedBytes > maximumBytes
       ? null
-      : await boundedScopeDiff(
-          root,
-          [
-            ...(scope === "staged" ? ["--cached"] : []),
-            "--no-renames",
-            "--diff-filter=d",
-            comparison,
-            "--",
-          ],
-          maximumBytes - untrackedBytes,
-        );
+      : scope === "paths"
+        ? await boundedSelectedDiff(
+            root,
+            manifest,
+            selectedPaths,
+            maximumBytes - untrackedBytes,
+          )
+        : await boundedScopeDiff(
+            root,
+            [
+              ...(scope === "staged" ? ["--cached"] : []),
+              "--no-renames",
+              "--diff-filter=d",
+              comparison,
+              "--",
+            ],
+            maximumBytes - untrackedBytes,
+          );
 
   return tracked === null
     ? null

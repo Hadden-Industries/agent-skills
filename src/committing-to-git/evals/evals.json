@@ -823,6 +823,18 @@
         "Does not select --message-format detailed merely because the request asks for a meaningful body.",
         "Uses the returned default route and reaches message-ready without committing or pushing."
       ]
+    },
+    {
+      "id": 81,
+      "prompt": "Commit only src/manifest.json using default memory storage. Leave unrelated staged and unstaged converter changes untouched. The selected manifest is partially staged, and I authorize its whole current contents. Use a detailed per-file message. Do not push or retain workflow transaction files.",
+      "expected_output": "Prepares literal memory path scope, checks a detailed message before exact approval, and creates one signed selected-path commit while preserving unrelated staged and unstaged work without a storage question or empty-index gate.",
+      "files": [],
+      "assertions": [
+        "Uses actual paths scope for exactly src/manifest.json without replacing it with full or staged scope.",
+        "Retains default memory storage and uses the returned proposal and checked stdin continuation without requesting a transaction directory or clearing unrelated staging.",
+        "Treats the explicit whole-path authorization as including selected unstaged content while preserving unrelated index entries and worktree differences.",
+        "Obtains exact message approval, creates one signed commit of only the selected manifest, and does not push."
+      ]
     }
   ]
 }

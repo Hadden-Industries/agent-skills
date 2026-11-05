@@ -13,7 +13,10 @@ import {
   COMMIT_PROPOSAL_SCHEMA,
   encodeCommitProposal,
 } from "./commitProposal.js";
-import { normalizeEvidencePlan } from "./preparationInputs.js";
+import {
+  normalizeEvidencePlan,
+  normalizeScopePayload,
+} from "./preparationInputs.js";
 import {
   assertNoGitStorageOverrides,
   assertPreallocationRepositoryState,
@@ -44,13 +47,6 @@ function initialEvidencePlan(options, cwd) {
 
 /** Reject routes whose state still lives in a transaction, before any read. */
 function assertMemoryRoute(options) {
-  if (options.scope === "paths") {
-    throw memoryStorageUnsupported(
-      "paths-scope",
-      "Path scope still stages through a transaction-owned index.",
-    );
-  }
-
   if (options.correctionFromPath !== null) {
     throw new WorkflowDiagnosticError(
       "CORRECTION_FROM_REQUIRES_TRANSACTION",
@@ -77,6 +73,8 @@ function preparedResult({
   changeSetSha256,
   evidencePlan,
   capsule,
+  normalizedScope,
+  selectedPaths,
 }) {
   return createWorkflowResult({
     disposition: "succeeded",
@@ -93,7 +91,7 @@ function preparedResult({
       proposal,
       mode: options.mode,
       messageFormat: options.messageFormat,
-      scope: scopeSummary(options.scope, null, []),
+      scope: scopeSummary(options.scope, normalizedScope, selectedPaths ?? []),
       headAnchor,
       changeUnitCount: manifest.changeUnitCount,
       changeSetSha256,
@@ -124,6 +122,14 @@ export async function prepareProposalWorkflow({
   environment = process.env,
 }) {
   assertMemoryRoute(options);
+  const pathSelectors =
+    options.scope === "paths"
+      ? normalizeScopePayload(
+          options.scopeFilePath
+            ? readBoundedJson(resolve(cwd, options.scopeFilePath), "Scope file")
+            : options.inlineScope,
+        ).canonicalPayload
+      : null;
   const normalizedEvidence = initialEvidencePlan(options, cwd);
 
   if (
@@ -149,23 +155,31 @@ export async function prepareProposalWorkflow({
   const needsMessageEvidence = normalizedEvidence.plan.groups.some(
     ({ policy }) => policy === "message",
   );
-  const { headAnchor, manifest, changeSetSha256, untrackedPatches } =
-    await observeProposalScope({
-      root,
-      scope: options.scope,
-      mode: options.mode,
-      // Untracked patches ride on the observation process while they fit.
-      maximumUntrackedPatchBytes: needsMessageEvidence
-        ? MAXIMUM_CONCISE_RESULT_BYTES
-        : null,
-    });
+  const {
+    headAnchor,
+    manifest,
+    changeSetSha256,
+    untrackedPatches,
+    normalizedScope,
+    selectedPaths,
+    selectedIndexSha256,
+  } = await observeProposalScope({
+    root,
+    scope: options.scope,
+    mode: options.mode,
+    pathSelectors,
+    // Untracked patches ride on the observation process while they fit.
+    maximumUntrackedPatchBytes: needsMessageEvidence
+      ? MAXIMUM_CONCISE_RESULT_BYTES
+      : null,
+  });
 
   if (manifest.changeUnitCount === 0) {
     throw new WorkflowDiagnosticError(
       "EMPTY_SCOPE",
       options.scope === "staged"
         ? "The staged scope is empty."
-        : "The full workspace scope is empty.",
+        : "The selected working-tree scope is empty.",
     );
   }
 
@@ -205,6 +219,7 @@ export async function prepareProposalWorkflow({
     manifest,
     evidencePlan,
     untrackedPatches,
+    selectedPaths,
   });
   const routing =
     evidenceByGroupId === null
@@ -231,6 +246,9 @@ export async function prepareProposalWorkflow({
     changeUnitCount: manifest.changeUnitCount,
     allowedTypes: options.allowedTypes ?? [],
     verificationPolicy: options.verificationPolicy,
+    ...(options.scope === "paths"
+      ? { pathSelectors, selectedIndexSha256 }
+      : {}),
     ...(options.messageFormat === "detailed"
       ? { messageFormat: "detailed" }
       : {}),
@@ -243,6 +261,8 @@ export async function prepareProposalWorkflow({
     changeSetSha256,
     evidencePlan,
     capsule: routing.capsule,
+    normalizedScope,
+    selectedPaths,
   };
   let measuredByteCount = routing.capsule.byteCount;
   let result;

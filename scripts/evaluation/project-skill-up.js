@@ -52,7 +52,7 @@ export function projectSkillUp(compiled, { caseIds } = {}) {
   const receipt = {
     schemaVersion: 1,
     projectorVersion: 1,
-    consumer: "skill-up@0.12.0",
+    consumer: "skill-up@0.14.0",
     compiledSuiteSha256: compiled.compiledSuiteSha256,
     profile: compiled.profile,
     cases: cases.map(({ yaml, ...value }) => ({

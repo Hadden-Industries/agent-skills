@@ -2,6 +2,7 @@ import { TextDecoder } from "node:util";
 
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
 import { memoryStorageUnsupported } from "./workflowStateStorage.js";
+import { normalizeScopePayload } from "./preparationInputs.js";
 
 export const COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
 // A proposal travels as one command argument and one recovery operand.
@@ -21,9 +22,13 @@ const PROPOSAL_FIELDS = [
 ];
 // Older proposals have no presentation constraint; detailed intent is explicit.
 function proposalFields(proposal) {
-  return Object.hasOwn(proposal, "messageFormat")
-    ? [...PROPOSAL_FIELDS, "messageFormat"]
-    : PROPOSAL_FIELDS;
+  return [
+    ...PROPOSAL_FIELDS,
+    ...(proposal.scope === "paths"
+      ? ["pathSelectors", "selectedIndexSha256"]
+      : []),
+    ...(Object.hasOwn(proposal, "messageFormat") ? ["messageFormat"] : []),
+  ];
 }
 const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -76,6 +81,17 @@ function validHeadAnchor(anchor) {
   }
 }
 
+function validPathSelection(proposal) {
+  if (proposal.scope !== "paths") return true;
+  if (!SHA256.test(proposal.selectedIndexSha256)) return false;
+  try {
+    normalizeScopePayload(proposal.pathSelectors);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Facts that bind approval; never authority, always recomputed before use. */
 export function validateCommitProposal(proposal) {
   if (
@@ -84,7 +100,8 @@ export function validateCommitProposal(proposal) {
     typeof proposal.repositoryRoot !== "string" ||
     proposal.repositoryRoot.length === 0 ||
     !new Set(["actual", "draft"]).has(proposal.mode) ||
-    !new Set(["staged", "full"]).has(proposal.scope) ||
+    !new Set(["staged", "full", "paths"]).has(proposal.scope) ||
+    !validPathSelection(proposal) ||
     !validHeadAnchor(proposal.headAnchor) ||
     !SHA256.test(proposal.changeSetSha256) ||
     !Number.isSafeInteger(proposal.changeUnitCount) ||
@@ -115,7 +132,9 @@ export function encodeCommitProposal(proposal) {
             targetRef: headAnchor.targetRef,
             expectedParentOids: [...headAnchor.expectedParentOids],
           }
-        : proposal[field],
+        : field === "pathSelectors"
+          ? normalizeScopePayload(proposal.pathSelectors).canonicalPayload
+          : proposal[field],
     ]),
   );
   const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;

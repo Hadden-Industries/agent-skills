@@ -124,6 +124,41 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
     ephemeralState.addedFiles.map(({ path }) => path),
     ["skills/committing-to-git/references/state-storage.md"],
   );
+  const memoryPaths = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/memory-paths-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    memoryPaths.baselineRevision,
+    "2d0203eb9d1291805baf8409e52de1712ab8a3bc",
+  );
+  assert.deepEqual(memoryPaths.files.map(({ path }) => path).sort(), [
+    "skills/committing-to-git/SKILL.md",
+    "skills/committing-to-git/references/state-storage.md",
+    "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  ]);
+  const messageDetail = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/message-detail-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    messageDetail.baselineRevision,
+    "2d0203eb9d1291805baf8409e52de1712ab8a3bc",
+  );
+  assert.deepEqual(
+    messageDetail.files.map(({ path }) => path),
+    ["skills/committing-to-git/references/message-format.md"],
+  );
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -161,8 +196,12 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
       false,
       added.path,
     );
-    assert.equal(bytes.length, added.byteLength, added.path);
-    assert.equal(sha256Hex(bytes), added.sha256, added.path);
+    const successor = memoryPaths.files.find(({ path }) => path === added.path);
+    if (successor)
+      assert.equal(successor.previousSha256, added.sha256, added.path);
+    const expected = successor ?? added;
+    assert.equal(bytes.length, expected.byteLength, added.path);
+    assert.equal(sha256Hex(bytes), expected.sha256, added.path);
   }
   const releaseVersion = JSON.parse(
     readFileSync(join(root, "scripts/plugin-releases.json"), "utf8"),
@@ -292,11 +331,31 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
         file.path,
       );
     }
-    const expectedIdentity =
+    const preDetailIdentity =
       ephemeralStateChange ??
       reportRevisionChange ??
       selectionIndexingChange ??
       priorIdentity;
+    const messageDetailChange = messageDetail.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (messageDetailChange)
+      assert.equal(
+        messageDetailChange.previousSha256,
+        preDetailIdentity.sha256,
+        file.path,
+      );
+    const previousIdentity = messageDetailChange ?? preDetailIdentity;
+    const memoryPathsChange = memoryPaths.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (memoryPathsChange)
+      assert.equal(
+        memoryPathsChange.previousSha256,
+        previousIdentity.sha256,
+        file.path,
+      );
+    const expectedIdentity = memoryPathsChange ?? previousIdentity;
     assert.equal(
       comparisonBytes.length,
       expectedIdentity.byteLength,

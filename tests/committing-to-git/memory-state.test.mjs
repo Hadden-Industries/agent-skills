@@ -507,7 +507,6 @@ test("verified memory limitations require a human decision without disk commands
   const before = repositoryState(fixture.repo);
   const filesBefore = listFiles(fixture.base);
   for (const args of [
-    ["--scope", "paths", "--path", "src/app.txt"],
     [
       "--scope",
       "full",

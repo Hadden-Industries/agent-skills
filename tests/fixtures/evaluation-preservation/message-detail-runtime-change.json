@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "2d0203eb9d1291805baf8409e52de1712ab8a3bc",
+  "reason": "Record the already-committed message-detail guidance change at 2d0203e; source and historical records are unchanged.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/references/message-format.md",
+      "previousSha256": "d9726be8c23c8f57a88ce763e8557cc92f2667611f61bc7560377b4cfdb5a799",
+      "byteLength": 18788,
+      "sha256": "efdc12320771e87453e964a35aa85d2d4ec5b0142488cf184cc3b43e5756cba6"
+    }
+  ]
+}

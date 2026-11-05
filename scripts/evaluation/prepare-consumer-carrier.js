@@ -47,7 +47,6 @@ export function prepareConsumerCarrier({
   const expectedInput = {
     case_id: publicSessionId,
     variant: "with_skill",
-    kwargs: { correlation: publicSessionId },
     messages: [
       {
         role: "user",
@@ -74,7 +73,7 @@ export function prepareConsumerCarrier({
         transport: "local",
         conversation_mode: "batch",
         response_format: "session_result",
-        kwargs: expectedInput.kwargs,
+        kwargs: { correlation: publicSessionId },
         local: {
           command: process.execPath,
           args: [

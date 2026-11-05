@@ -70,6 +70,43 @@ test("a detailed proposal preserves its required presentation", () => {
   );
 });
 
+test("path proposals retain validated literal selectors and selected index binding", () => {
+  const proposal = {
+    ...PROPOSAL,
+    scope: "paths",
+    pathSelectors: {
+      schemaVersion: 2,
+      includePaths: ["selected [literal].txt"],
+      includePathPrefixes: [],
+      excludePaths: [],
+      excludePathPrefixes: [],
+      includePathBytesBase64: [],
+      excludePathBytesBase64: [],
+    },
+    selectedIndexSha256: "c".repeat(64),
+  };
+  assert.deepEqual(
+    decodeCommitProposal(encodeCommitProposal(proposal)),
+    proposal,
+  );
+  for (const invalid of [
+    { ...proposal, selectedIndexSha256: "not-a-digest" },
+    {
+      ...proposal,
+      pathSelectors: { ...proposal.pathSelectors, includePaths: ["../escape"] },
+    },
+    {
+      ...proposal,
+      pathSelectors: { ...proposal.pathSelectors, unknown: true },
+    },
+    { ...proposal, pathSelectors: null },
+  ])
+    assert.equal(
+      rejectedCode(() => encodeCommitProposal(invalid)),
+      "INVALID_PROPOSAL",
+    );
+});
+
 test("proposal transport overflow requires a human storage decision", () => {
   assert.throws(
     () =>

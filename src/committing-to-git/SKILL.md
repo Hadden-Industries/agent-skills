@@ -5,7 +5,7 @@ compatibility: Requires a Git working tree, Node.js 24+, Git 2.45+, and configur
 license: MPL-2.0
 metadata:
   category: development
-  version: "0.1.1-dev.15"
+  version: "0.1.1-dev.16"
 ---
 
 # Committing to Git
@@ -72,9 +72,10 @@ Never delete a live index lock.
 | Propose without changing the real index | `draft`  | `staged`, `full`, or `paths` |
 | Stage for an authorized workflow        | `actual` | `staged`, `full`, or `paths` |
 
-`staged` preserves intentional/partial hunks; `full` selects every change; `paths` selects exact whole paths.
-Memory drafts never commit; memory `full` runs `git add -A` only at commit.
-Actual `paths` requires an empty index; draft `paths` allows only disjoint staged work until cleared.
+`staged` preserves partial hunks; `full` selects all; `paths` selects whole working-tree paths.
+Memory drafts never commit.
+Memory `paths` preserves unrelated staging; whole-path scope includes unstaged content.
+Disk actual paths needs an empty index; disk drafts need disjoint staging.
 Include rename sides.
 Manifest inclusion is not review.
 

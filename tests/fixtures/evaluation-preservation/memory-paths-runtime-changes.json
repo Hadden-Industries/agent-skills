@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "2d0203eb9d1291805baf8409e52de1712ab8a3bc",
+  "reason": "Owner-directed memory literal-path commits preserve unrelated staged work; deterministic regression evidence does not establish behavioral or cross-host acceptance.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/SKILL.md",
+      "previousSha256": "e5a4d1d87141cccf567f8293352195315a9792e370032b9b4c118f00a018a6b7",
+      "byteLength": 13252,
+      "sha256": "82ffd93c18da5933501af394294445c3f5f96531d449464e113110152a26080f"
+    },
+    {
+      "path": "skills/committing-to-git/references/state-storage.md",
+      "previousSha256": "c0e4e4c85c9f5f9308798766d3cd42a67408f0eb6355f3ae68a946e8ba5e76d8",
+      "byteLength": 10986,
+      "sha256": "360a80b5ad945b34e65bfd72c1a1b4c68f03ba2e8e1f19b49d60a318504dba8d"
+    },
+    {
+      "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "previousSha256": "e8cda9069dae8f33a21613f3d0fc890a79bf3fff85520a621b9834c21ecac755",
+      "byteLength": 931644,
+      "sha256": "7a6fed3a935de99963788442114b76b1251857d4b7b9c3090e75dabfd37c0ab7"
+    }
+  ]
+}

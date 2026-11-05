@@ -777,7 +777,7 @@ var init_commandArguments = __esm({
         },
         "state-storage": {
           ...stringOption,
-          description: "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory."
+          description: "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full/paths scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory."
         },
         "state-directory": {
           ...stringOption,
@@ -1262,7 +1262,7 @@ function buildReadOnlyDiffArguments(args) {
 }
 function buildReadOnlyNoIndexArguments(args) {
   const [format, separator, path] = args;
-  if (args.length !== 3 || !(/* @__PURE__ */ new Set(["--raw-numstat", "--raw-numstat-patch", "--patch"])).has(format) || separator !== "--" || typeof path !== "string" || path.length === 0 || Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES || isAbsolute(path) || containsControlCharacter(path) || path.split("/").some((component) => component === "..")) {
+  if (args.length !== 3 || !(/* @__PURE__ */ new Set(["--raw-numstat", "--raw-numstat-patch", "--patch"])).has(format) || separator !== "--" || typeof path !== "string" || path.length === 0 || Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES || isAbsolute(path) || path.split("/").some((component) => component === "..")) {
     throw new Error(
       "Arguments are not permitted for read-only Git operation diff-no-index."
     );
@@ -1387,6 +1387,26 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
+    case "diff-path": {
+      const [comparison, path] = args;
+      if (args.length !== 2 || !FULL_OBJECT_ID.test(comparison) || typeof path !== "string" || path.length === 0 || Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES || isAbsolute(path) || path.split("/").some((part) => part === "..")) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation diff-path."
+        );
+      }
+      return [
+        "--literal-pathspecs",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        "--diff-filter=d",
+        comparison,
+        "--",
+        path
+      ];
+    }
     case "diff-no-index":
       return buildReadOnlyNoIndexArguments(args);
     case "diff-files-names":
@@ -9231,6 +9251,11 @@ function splitNul(buffer) {
 function comparePathBytes(left, right) {
   return Buffer.compare(left, right);
 }
+function quotePathForGitInput(bytes) {
+  return `"${[...bytes].map(
+    (byte) => byte >= 32 && byte <= 126 && byte !== 34 && byte !== 92 ? String.fromCharCode(byte) : `\\${byte.toString(8).padStart(3, "0")}`
+  ).join("")}"`;
+}
 function pathRecord(raw) {
   const decoded = raw.toString("utf8");
   return {
@@ -11758,117 +11783,6 @@ var init_commitMessageRenderer = __esm({
   }
 });
 
-// src/committing-to-git/workflow/commitProposal.js
-import { TextDecoder as TextDecoder5 } from "node:util";
-function proposalFields(proposal) {
-  return Object.hasOwn(proposal, "messageFormat") ? [...PROPOSAL_FIELDS, "messageFormat"] : PROPOSAL_FIELDS;
-}
-function invalid2(message) {
-  throw new WorkflowDiagnosticError("INVALID_PROPOSAL", message, {
-    recovery: {
-      kind: "correct-input",
-      requiredInputs: ["the exact proposal returned by workflow prepare"],
-      commands: [],
-      automatic: false
-    }
-  });
-}
-function hasExactKeys(value, keys) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
-}
-function validHeadAnchor(anchor) {
-  if (!hasExactKeys(anchor, ["headKind", "targetRef", "expectedParentOids"])) {
-    return false;
-  }
-  const parents = anchor.expectedParentOids;
-  if (!Array.isArray(parents) || !parents.every((oid) => FULL_OBJECT_ID2.test(oid))) {
-    return false;
-  }
-  switch (anchor.headKind) {
-    case "attached":
-      return typeof anchor.targetRef === "string" && parents.length === 1;
-    case "unborn":
-      return typeof anchor.targetRef === "string" && parents.length === 0;
-    case "detached":
-      return anchor.targetRef === null && parents.length === 1;
-    default:
-      return false;
-  }
-}
-function validateCommitProposal(proposal) {
-  if (!hasExactKeys(proposal, proposalFields(proposal ?? {})) || proposal.schema !== COMMIT_PROPOSAL_SCHEMA || typeof proposal.repositoryRoot !== "string" || proposal.repositoryRoot.length === 0 || !(/* @__PURE__ */ new Set(["actual", "draft"])).has(proposal.mode) || !(/* @__PURE__ */ new Set(["staged", "full"])).has(proposal.scope) || !validHeadAnchor(proposal.headAnchor) || !SHA256.test(proposal.changeSetSha256) || !Number.isSafeInteger(proposal.changeUnitCount) || proposal.changeUnitCount < 1 || Object.hasOwn(proposal, "messageFormat") && proposal.messageFormat !== "detailed" || !Array.isArray(proposal.allowedTypes) || !proposal.allowedTypes.every((type) => typeof type === "string") || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
-    proposal.verificationPolicy
-  )) {
-    invalid2(`The proposal is not a valid ${COMMIT_PROPOSAL_SCHEMA} value.`);
-  }
-  return proposal;
-}
-function encodeCommitProposal(proposal) {
-  const { headAnchor } = validateCommitProposal(proposal);
-  const ordered = Object.fromEntries(
-    proposalFields(proposal).map((field) => [
-      field,
-      field === "headAnchor" ? {
-        headKind: headAnchor.headKind,
-        targetRef: headAnchor.targetRef,
-        expectedParentOids: [...headAnchor.expectedParentOids]
-      } : proposal[field]
-    ])
-  );
-  const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;
-  if (Buffer.byteLength(encoded) > MAXIMUM_PROPOSAL_BYTES) {
-    throw memoryStorageUnsupported(
-      "proposal-size-limit",
-      `The proposal exceeds its ${MAXIMUM_PROPOSAL_BYTES}-byte transport limit; no equivalent memory proposal fits.`,
-      {
-        code: "PROPOSAL_TOO_LARGE",
-        maximumProposalBytes: MAXIMUM_PROPOSAL_BYTES
-      }
-    );
-  }
-  return encoded;
-}
-function decodeCommitProposal(text) {
-  if (typeof text !== "string" || Buffer.byteLength(text) > MAXIMUM_PROPOSAL_BYTES || !text.startsWith(PROPOSAL_PREFIX) || !/^[A-Za-z0-9_-]+$/u.test(text.slice(PROPOSAL_PREFIX.length))) {
-    invalid2("The proposal is not an encoded commit proposal.");
-  }
-  const bytes = Buffer.from(text.slice(PROPOSAL_PREFIX.length), "base64url");
-  let proposal;
-  try {
-    proposal = JSON.parse(STRICT_UTF8_DECODER4.decode(bytes));
-  } catch {
-    invalid2("The proposal does not contain strict UTF-8 JSON.");
-  }
-  if (encodeCommitProposal(validateCommitProposal(proposal)) !== text) {
-    invalid2("The proposal is not in its canonical encoding.");
-  }
-  return proposal;
-}
-var COMMIT_PROPOSAL_SCHEMA, MAXIMUM_PROPOSAL_BYTES, PROPOSAL_PREFIX, PROPOSAL_FIELDS, FULL_OBJECT_ID2, SHA256, STRICT_UTF8_DECODER4;
-var init_commitProposal = __esm({
-  "src/committing-to-git/workflow/commitProposal.js"() {
-    init_workflowDiagnosticError();
-    init_workflowStateStorage();
-    COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
-    MAXIMUM_PROPOSAL_BYTES = 4096;
-    PROPOSAL_PREFIX = "ctg1.";
-    PROPOSAL_FIELDS = [
-      "schema",
-      "repositoryRoot",
-      "mode",
-      "scope",
-      "headAnchor",
-      "changeSetSha256",
-      "changeUnitCount",
-      "allowedTypes",
-      "verificationPolicy"
-    ];
-    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-    SHA256 = /^[0-9a-f]{64}$/u;
-    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
-  }
-});
-
 // src/committing-to-git/workflow/preparationInputs.js
 function fail4(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -12138,6 +12052,132 @@ var init_preparationInputs = __esm({
     EVIDENCE_PLAN_KEYS = ["schemaVersion", "groups"];
     GROUP_KEYS = ["selection", "policy", "basis"];
     BASIS_KEYS = ["kind", "note"];
+  }
+});
+
+// src/committing-to-git/workflow/commitProposal.js
+import { TextDecoder as TextDecoder5 } from "node:util";
+function proposalFields(proposal) {
+  return [
+    ...PROPOSAL_FIELDS,
+    ...proposal.scope === "paths" ? ["pathSelectors", "selectedIndexSha256"] : [],
+    ...Object.hasOwn(proposal, "messageFormat") ? ["messageFormat"] : []
+  ];
+}
+function invalid2(message) {
+  throw new WorkflowDiagnosticError("INVALID_PROPOSAL", message, {
+    recovery: {
+      kind: "correct-input",
+      requiredInputs: ["the exact proposal returned by workflow prepare"],
+      commands: [],
+      automatic: false
+    }
+  });
+}
+function hasExactKeys(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+function validHeadAnchor(anchor) {
+  if (!hasExactKeys(anchor, ["headKind", "targetRef", "expectedParentOids"])) {
+    return false;
+  }
+  const parents = anchor.expectedParentOids;
+  if (!Array.isArray(parents) || !parents.every((oid) => FULL_OBJECT_ID2.test(oid))) {
+    return false;
+  }
+  switch (anchor.headKind) {
+    case "attached":
+      return typeof anchor.targetRef === "string" && parents.length === 1;
+    case "unborn":
+      return typeof anchor.targetRef === "string" && parents.length === 0;
+    case "detached":
+      return anchor.targetRef === null && parents.length === 1;
+    default:
+      return false;
+  }
+}
+function validPathSelection(proposal) {
+  if (proposal.scope !== "paths") return true;
+  if (!SHA256.test(proposal.selectedIndexSha256)) return false;
+  try {
+    normalizeScopePayload(proposal.pathSelectors);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function validateCommitProposal(proposal) {
+  if (!hasExactKeys(proposal, proposalFields(proposal ?? {})) || proposal.schema !== COMMIT_PROPOSAL_SCHEMA || typeof proposal.repositoryRoot !== "string" || proposal.repositoryRoot.length === 0 || !(/* @__PURE__ */ new Set(["actual", "draft"])).has(proposal.mode) || !(/* @__PURE__ */ new Set(["staged", "full", "paths"])).has(proposal.scope) || !validPathSelection(proposal) || !validHeadAnchor(proposal.headAnchor) || !SHA256.test(proposal.changeSetSha256) || !Number.isSafeInteger(proposal.changeUnitCount) || proposal.changeUnitCount < 1 || Object.hasOwn(proposal, "messageFormat") && proposal.messageFormat !== "detailed" || !Array.isArray(proposal.allowedTypes) || !proposal.allowedTypes.every((type) => typeof type === "string") || !(/* @__PURE__ */ new Set(["required", "advisory", "skipped"])).has(
+    proposal.verificationPolicy
+  )) {
+    invalid2(`The proposal is not a valid ${COMMIT_PROPOSAL_SCHEMA} value.`);
+  }
+  return proposal;
+}
+function encodeCommitProposal(proposal) {
+  const { headAnchor } = validateCommitProposal(proposal);
+  const ordered = Object.fromEntries(
+    proposalFields(proposal).map((field) => [
+      field,
+      field === "headAnchor" ? {
+        headKind: headAnchor.headKind,
+        targetRef: headAnchor.targetRef,
+        expectedParentOids: [...headAnchor.expectedParentOids]
+      } : field === "pathSelectors" ? normalizeScopePayload(proposal.pathSelectors).canonicalPayload : proposal[field]
+    ])
+  );
+  const encoded = `${PROPOSAL_PREFIX}${Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url")}`;
+  if (Buffer.byteLength(encoded) > MAXIMUM_PROPOSAL_BYTES) {
+    throw memoryStorageUnsupported(
+      "proposal-size-limit",
+      `The proposal exceeds its ${MAXIMUM_PROPOSAL_BYTES}-byte transport limit; no equivalent memory proposal fits.`,
+      {
+        code: "PROPOSAL_TOO_LARGE",
+        maximumProposalBytes: MAXIMUM_PROPOSAL_BYTES
+      }
+    );
+  }
+  return encoded;
+}
+function decodeCommitProposal(text) {
+  if (typeof text !== "string" || Buffer.byteLength(text) > MAXIMUM_PROPOSAL_BYTES || !text.startsWith(PROPOSAL_PREFIX) || !/^[A-Za-z0-9_-]+$/u.test(text.slice(PROPOSAL_PREFIX.length))) {
+    invalid2("The proposal is not an encoded commit proposal.");
+  }
+  const bytes = Buffer.from(text.slice(PROPOSAL_PREFIX.length), "base64url");
+  let proposal;
+  try {
+    proposal = JSON.parse(STRICT_UTF8_DECODER4.decode(bytes));
+  } catch {
+    invalid2("The proposal does not contain strict UTF-8 JSON.");
+  }
+  if (encodeCommitProposal(validateCommitProposal(proposal)) !== text) {
+    invalid2("The proposal is not in its canonical encoding.");
+  }
+  return proposal;
+}
+var COMMIT_PROPOSAL_SCHEMA, MAXIMUM_PROPOSAL_BYTES, PROPOSAL_PREFIX, PROPOSAL_FIELDS, FULL_OBJECT_ID2, SHA256, STRICT_UTF8_DECODER4;
+var init_commitProposal = __esm({
+  "src/committing-to-git/workflow/commitProposal.js"() {
+    init_workflowDiagnosticError();
+    init_workflowStateStorage();
+    init_preparationInputs();
+    COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
+    MAXIMUM_PROPOSAL_BYTES = 4096;
+    PROPOSAL_PREFIX = "ctg1.";
+    PROPOSAL_FIELDS = [
+      "schema",
+      "repositoryRoot",
+      "mode",
+      "scope",
+      "headAnchor",
+      "changeSetSha256",
+      "changeUnitCount",
+      "allowedTypes",
+      "verificationPolicy"
+    ];
+    FULL_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    SHA256 = /^[0-9a-f]{64}$/u;
+    STRICT_UTF8_DECODER4 = new TextDecoder5("utf-8", { fatal: true });
   }
 });
 
@@ -15932,10 +15972,10 @@ function unsupported(reason, message) {
 }
 function textPath(pathBytes) {
   const text = pathBytes.toString("utf8");
-  if (!Buffer.from(text, "utf8").equals(pathBytes) || /[\r\n]/u.test(text)) {
+  if (!Buffer.from(text, "utf8").equals(pathBytes)) {
     unsupported(
       "path-encoding",
-      "A changed path is not line-safe UTF-8 and cannot be observed without an index."
+      "A selected untracked path is not UTF-8 and cannot use the native per-path observation transport."
     );
   }
   return text;
@@ -16040,8 +16080,8 @@ async function observeUntrackedPath(root, pathBytes, zeroObjectId, withPatch) {
     }
   };
 }
-function symbolicLinkTarget(root, path) {
-  const absolutePath = join11(root, path);
+function symbolicLinkTarget(root, pathBytes) {
+  const absolutePath = Buffer.concat([Buffer.from(`${root}/`), pathBytes]);
   try {
     return readlinkSync(absolutePath, { encoding: "buffer" });
   } catch (error) {
@@ -16059,8 +16099,10 @@ function hashWorkingTreeObjects(root, records) {
   if (files.length > 0) {
     const objectIds = runReadOnlyGit(root, "hash-object-paths", [], {
       input: Buffer.from(
-        files.map(({ destinationBytes }) => `${textPath(destinationBytes)}
-`).join(""),
+        files.map(
+          ({ destinationBytes }) => `${quotePathForGitInput(destinationBytes)}
+`
+        ).join(""),
         "utf8"
       )
     }).stdout.toString("ascii").trim().split(/\r?\n/u);
@@ -16073,7 +16115,7 @@ function hashWorkingTreeObjects(root, records) {
   }
   for (const record of pending.filter(({ newMode }) => newMode === "120000")) {
     record.newOid = runReadOnlyGit(root, "hash-object-unfiltered-input", [], {
-      input: symbolicLinkTarget(root, textPath(record.destinationBytes))
+      input: symbolicLinkTarget(root, record.destinationBytes)
     }).stdout.toString("ascii").trim();
   }
 }
@@ -16087,7 +16129,9 @@ function eligibleBlobBytes(root, records) {
   for (const record of records) {
     if (record.newMode !== "000000" && ZERO_OBJECT_ID.test(record.newOid)) {
       workingTreeBytes += BigInt(
-        lstatSync9(join11(root, textPath(record.destinationBytes))).size
+        lstatSync9(
+          Buffer.concat([Buffer.from(`${root}/`), record.destinationBytes])
+        ).size
       );
     }
   }
@@ -16131,10 +16175,13 @@ async function buildWorkingTreeSnapshot({
   withLineStatistics = true,
   maximumPatchBytes = null,
   maximumUntrackedObservations = MAXIMUM_UNTRACKED_OBSERVATIONS,
-  maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES
+  maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES,
+  selectedPaths = null
 }) {
   const baseTreeish = headOid ?? emptyTreeObjectId(root);
   const zeroObjectId = "0".repeat(baseTreeish.length);
+  const selectedKeys = selectedPaths === null ? null : new Set(selectedPaths.map((path) => path.toString("base64")));
+  const selected = (path) => selectedKeys === null || selectedKeys.has(path.toString("base64"));
   const tracked = parseRawDiff(
     runReadOnlyGit(root, "diff", [
       "-z",
@@ -16144,7 +16191,7 @@ async function buildWorkingTreeSnapshot({
       baseTreeish,
       "--"
     ]).stdout
-  );
+  ).filter(({ destinationBytes }) => selected(destinationBytes));
   const untrackedPaths = splitNul(
     runReadOnlyGit(root, "ls-files", [
       "--others",
@@ -16152,11 +16199,11 @@ async function buildWorkingTreeSnapshot({
       "-z",
       "--"
     ]).stdout
-  );
+  ).filter(selected);
   if (untrackedPaths.length > maximumUntrackedObservations) {
     unsupported(
       "untracked-path-limit",
-      `Full scope has ${untrackedPaths.length} untracked paths; memory preparation observes at most ${maximumUntrackedObservations}.`
+      `Selected scope has ${untrackedPaths.length} untracked paths; memory preparation observes at most ${maximumUntrackedObservations}.`
     );
   }
   if (untrackedPaths.some((path) => path.at(-1) === 47)) {
@@ -16226,7 +16273,7 @@ async function buildWorkingTreeSnapshot({
   const snapshot = assembleSnapshot({
     root,
     workflowMode,
-    scopeKind: "full",
+    scopeKind: selectedPaths === null ? "full" : "paths",
     sourceIndex: "working-tree",
     headOid,
     indexTreeOid: null,
@@ -16267,11 +16314,11 @@ var init_workingTreeSnapshot = __esm({
 });
 
 // src/committing-to-git/workflow/proposalEvidence.js
-async function boundedScopeDiff(root, args, maximumBytes) {
+async function boundedScopeDiff(root, args, maximumBytes, operation = "diff") {
   const controller = new AbortController();
   const chunks = [];
   let byteCount = 0;
-  const result = await streamGit("diff", args, {
+  const result = await streamGit(operation, args, {
     cwd: root,
     signal: controller.signal,
     allowFailure: true,
@@ -16294,12 +16341,37 @@ async function boundedScopeDiff(root, args, maximumBytes) {
   }
   return Buffer.concat(chunks);
 }
+async function boundedSelectedDiff(root, manifest, selectedPaths, maximumBytes) {
+  const chunks = [];
+  let remaining = maximumBytes;
+  const comparison = manifest.headOid ?? emptyTreeObjectId(root);
+  for (const pathBytes of selectedPaths) {
+    const path = pathBytes.toString("utf8");
+    if (!Buffer.from(path, "utf8").equals(pathBytes) || pathBytes.length > MAXIMUM_NO_INDEX_PATH_BYTES) {
+      throw memoryStorageUnsupported(
+        "selected-evidence-path-transport",
+        "Selected message evidence needs a UTF-8 path within the native per-path argument bound."
+      );
+    }
+    const patch = await boundedScopeDiff(
+      root,
+      [comparison, path],
+      remaining,
+      "diff-path"
+    );
+    if (patch === null) return null;
+    remaining -= patch.length;
+    chunks.push(patch);
+  }
+  return Buffer.concat(chunks);
+}
 async function captureProposalEvidence({
   root,
   scope,
   manifest,
   evidencePlan,
   untrackedPatches,
+  selectedPaths = null,
   maximumBytes = MAXIMUM_CONCISE_RESULT_BYTES
 }) {
   const messageGroups = evidencePlan.groups.filter(
@@ -16325,7 +16397,12 @@ async function captureProposalEvidence({
     0
   );
   const comparison = manifest.headOid ?? (scope === "staged" ? "--root" : emptyTreeObjectId(root));
-  const tracked = untrackedBytes > maximumBytes ? null : await boundedScopeDiff(
+  const tracked = untrackedBytes > maximumBytes ? null : scope === "paths" ? await boundedSelectedDiff(
+    root,
+    manifest,
+    selectedPaths,
+    maximumBytes - untrackedBytes
+  ) : await boundedScopeDiff(
     root,
     [
       ...scope === "staged" ? ["--cached"] : [],
@@ -16426,6 +16503,18 @@ var init_changeSet = __esm({
 });
 
 // src/committing-to-git/workflow/proposalObservation.js
+import { createHash as createHash16 } from "node:crypto";
+function selectedIndexDigest(root, paths) {
+  const keys = new Set(paths.map((path) => path.toString("base64")));
+  const entries = splitNul(
+    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"]).stdout
+  ).filter(
+    (entry) => keys.has(entry.subarray(entry.indexOf(9) + 1).toString("base64"))
+  );
+  return createHash16("sha256").update(
+    Buffer.concat(entries.flatMap((entry) => [entry, Buffer.from([0])]))
+  ).digest("hex");
+}
 function proposalStale(changed) {
   return new WorkflowDiagnosticError(
     "PROPOSAL_STALE",
@@ -16453,12 +16542,19 @@ async function observeProposalScope({
   scope,
   mode,
   withLineStatistics = true,
-  maximumUntrackedPatchBytes = null
+  maximumUntrackedPatchBytes = null,
+  pathSelectors = null
 }) {
   const headAnchor = captureHeadAnchor(root);
   const headOid = headAnchor.expectedParentOids[0] ?? null;
   let snapshot;
   let untrackedPatches = /* @__PURE__ */ new Map();
+  const normalizedScope = scope === "paths" ? normalizeScopePayload(pathSelectors) : null;
+  const selectedPaths = normalizedScope === null ? null : validateSelectorsAgainstCandidates(
+    normalizedScope,
+    discoverCandidates(root)
+  );
+  const selectedIndexSha256 = selectedPaths === null ? null : selectedIndexDigest(root, selectedPaths);
   try {
     if (scope === "staged") {
       snapshot = buildSnapshot({
@@ -16476,7 +16572,8 @@ async function observeProposalScope({
         workflowMode: mode,
         headOid,
         withLineStatistics,
-        maximumPatchBytes: maximumUntrackedPatchBytes
+        maximumPatchBytes: maximumUntrackedPatchBytes,
+        selectedPaths
       }));
     }
   } catch (error) {
@@ -16497,6 +16594,9 @@ async function observeProposalScope({
     headAnchor,
     manifest,
     untrackedPatches,
+    normalizedScope,
+    selectedPaths,
+    selectedIndexSha256,
     changeSetSha256: changeSetSha256(
       changeSetFromChangeUnits(manifest.changeUnits)
     )
@@ -16510,15 +16610,30 @@ async function observeCurrentProposal({ proposal, cwd }) {
       "The proposal belongs to a different repository working tree."
     );
   }
-  const observation = await observeProposalScope({
-    root,
-    scope: proposal.scope,
-    mode: proposal.mode,
-    withLineStatistics: false
-  });
+  if (proposal.scope === "paths") assertPreallocationRepositoryState(root);
+  let observation;
+  try {
+    observation = await observeProposalScope({
+      root,
+      scope: proposal.scope,
+      mode: proposal.mode,
+      withLineStatistics: false,
+      pathSelectors: proposal.pathSelectors ?? null
+    });
+  } catch (error) {
+    if (proposal.scope === "paths" && (/* @__PURE__ */ new Set([
+      "UNMATCHED_SCOPE_SELECTOR",
+      "EMPTY_SCOPE",
+      "RENAME_SCOPE_BOUNDARY"
+    ])).has(error.code)) {
+      throw proposalStale(["selected-scope"]);
+    }
+    throw error;
+  }
   const changed = [
     ...sameHeadAnchor(observation.headAnchor, proposal.headAnchor) ? [] : ["head"],
-    ...observation.changeSetSha256 === proposal.changeSetSha256 && observation.manifest.changeUnitCount === proposal.changeUnitCount ? [] : [proposal.scope === "staged" ? "index" : "working-tree"]
+    ...observation.changeSetSha256 === proposal.changeSetSha256 && observation.manifest.changeUnitCount === proposal.changeUnitCount ? [] : [proposal.scope === "staged" ? "index" : "working-tree"],
+    ...proposal.scope !== "paths" || observation.selectedIndexSha256 === proposal.selectedIndexSha256 ? [] : ["selected-index"]
   ];
   if (changed.length > 0) {
     throw proposalStale(changed);
@@ -16529,12 +16644,15 @@ var init_proposalObservation = __esm({
   "src/committing-to-git/workflow/proposalObservation.js"() {
     init_workflowDiagnosticError();
     init_gitRepository();
+    init_gitPath();
     init_inlineEvidenceCapsule();
     init_changeSet();
     init_commitSnapshot();
     init_workingTreeSnapshot();
     init_indexInstallation();
     init_workflowStateStorage();
+    init_preparationInputs();
+    init_prepareWorkflow();
   }
 });
 
@@ -16555,12 +16673,6 @@ function initialEvidencePlan(options, cwd) {
   );
 }
 function assertMemoryRoute(options) {
-  if (options.scope === "paths") {
-    throw memoryStorageUnsupported(
-      "paths-scope",
-      "Path scope still stages through a transaction-owned index."
-    );
-  }
   if (options.correctionFromPath !== null) {
     throw new WorkflowDiagnosticError(
       "CORRECTION_FROM_REQUIRES_TRANSACTION",
@@ -16585,7 +16697,9 @@ function preparedResult({
   manifest,
   changeSetSha256: changeSetSha2562,
   evidencePlan,
-  capsule
+  capsule,
+  normalizedScope,
+  selectedPaths
 }) {
   return createWorkflowResult({
     disposition: "succeeded",
@@ -16602,7 +16716,7 @@ function preparedResult({
       proposal,
       mode: options.mode,
       messageFormat: options.messageFormat,
-      scope: scopeSummary(options.scope, null, []),
+      scope: scopeSummary(options.scope, normalizedScope, selectedPaths ?? []),
       headAnchor,
       changeUnitCount: manifest.changeUnitCount,
       changeSetSha256: changeSetSha2562,
@@ -16626,6 +16740,9 @@ async function prepareProposalWorkflow({
   environment = process.env
 }) {
   assertMemoryRoute(options);
+  const pathSelectors = options.scope === "paths" ? normalizeScopePayload(
+    options.scopeFilePath ? readBoundedJson(resolve17(cwd, options.scopeFilePath), "Scope file") : options.inlineScope
+  ).canonicalPayload : null;
   const normalizedEvidence = initialEvidencePlan(options, cwd);
   if (normalizedEvidence.plan.groups.some(({ policy }) => policy === "review")) {
     throw memoryStorageUnsupported(
@@ -16645,17 +16762,26 @@ async function prepareProposalWorkflow({
   const needsMessageEvidence = normalizedEvidence.plan.groups.some(
     ({ policy }) => policy === "message"
   );
-  const { headAnchor, manifest, changeSetSha256: changeSetSha2562, untrackedPatches } = await observeProposalScope({
+  const {
+    headAnchor,
+    manifest,
+    changeSetSha256: changeSetSha2562,
+    untrackedPatches,
+    normalizedScope,
+    selectedPaths,
+    selectedIndexSha256
+  } = await observeProposalScope({
     root,
     scope: options.scope,
     mode: options.mode,
+    pathSelectors,
     // Untracked patches ride on the observation process while they fit.
     maximumUntrackedPatchBytes: needsMessageEvidence ? MAXIMUM_CONCISE_RESULT_BYTES : null
   });
   if (manifest.changeUnitCount === 0) {
     throw new WorkflowDiagnosticError(
       "EMPTY_SCOPE",
-      options.scope === "staged" ? "The staged scope is empty." : "The full workspace scope is empty."
+      options.scope === "staged" ? "The staged scope is empty." : "The selected working-tree scope is empty."
     );
   }
   if (options.messageFormat === "detailed") {
@@ -16691,7 +16817,8 @@ async function prepareProposalWorkflow({
     scope: options.scope,
     manifest,
     evidencePlan,
-    untrackedPatches
+    untrackedPatches,
+    selectedPaths
   });
   const routing = evidenceByGroupId === null ? { route: "extended", extendedReason: "required-evidence-over-budget" } : createInlineEvidenceCapsule({
     manifest: { ...manifest, evidenceByGroupId },
@@ -16713,6 +16840,7 @@ async function prepareProposalWorkflow({
     changeUnitCount: manifest.changeUnitCount,
     allowedTypes: options.allowedTypes ?? [],
     verificationPolicy: options.verificationPolicy,
+    ...options.scope === "paths" ? { pathSelectors, selectedIndexSha256 } : {},
     ...options.messageFormat === "detailed" ? { messageFormat: "detailed" } : {}
   });
   const facts = {
@@ -16722,7 +16850,9 @@ async function prepareProposalWorkflow({
     manifest,
     changeSetSha256: changeSetSha2562,
     evidencePlan,
-    capsule: routing.capsule
+    capsule: routing.capsule,
+    normalizedScope,
+    selectedPaths
   };
   let measuredByteCount = routing.capsule.byteCount;
   let result;
@@ -17269,7 +17399,7 @@ var init_extendReviewCommand = __esm({
 });
 
 // src/committing-to-git/workflow/reviewNextWorkflow.js
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import { lstatSync as lstatSync10, realpathSync as realpathSync7 } from "node:fs";
 import { isAbsolute as isAbsolute10, relative as relative6, resolve as resolve19, sep as sep3 } from "node:path";
 import { TextDecoder as TextDecoder9 } from "node:util";
@@ -17332,7 +17462,7 @@ function cursorFor({ catalogSha256, nextIndex, priorPacketSha256 }) {
     nextIndex,
     priorPacketSha256
   });
-  const digest3 = createHash16("sha256").update(identity).digest("hex");
+  const digest3 = createHash17("sha256").update(identity).digest("hex");
   return `review-v1-${digest3}`;
 }
 function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
@@ -17575,14 +17705,14 @@ var init_reviewNextCommand = __esm({
 });
 
 // src/committing-to-git/workflow/resumePreparationWorkflow.js
-import { createHash as createHash17 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 import { existsSync as existsSync14, lstatSync as lstatSync11, unlinkSync as unlinkSync8 } from "node:fs";
 import { join as join12, relative as relative7, resolve as resolve20 } from "node:path";
 function fail11(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2564(bytes) {
-  return createHash17("sha256").update(bytes).digest("hex");
+  return createHash18("sha256").update(bytes).digest("hex");
 }
 function assertContainedExactPath(attemptDirectory, path, name) {
   const expected = resolve20(attemptDirectory, name);
@@ -17896,7 +18026,7 @@ var init_resumePreparationCommand = __esm({
 });
 
 // src/committing-to-git/workflow/promoteDraftWorkflow.js
-import { createHash as createHash18 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 import { existsSync as existsSync15 } from "node:fs";
 import { isAbsolute as isAbsolute11, join as join13, resolve as resolve21 } from "node:path";
 import { TextDecoder as TextDecoder10 } from "node:util";
@@ -17904,7 +18034,7 @@ function fail13(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2565(bytes) {
-  return createHash18("sha256").update(bytes).digest("hex");
+  return createHash19("sha256").update(bytes).digest("hex");
 }
 function samePath3(left, right) {
   const normalizedLeft = resolve21(left);
@@ -19119,7 +19249,7 @@ var require_cross_spawn = __commonJS({
 });
 
 // src/committing-to-git/checks/checkOutputCapture.js
-import { createHash as createHash19 } from "node:crypto";
+import { createHash as createHash20 } from "node:crypto";
 import {
   closeSync as closeSync12,
   existsSync as existsSync16,
@@ -19181,7 +19311,7 @@ function appendTail(current, chunk, maximumBytes) {
 }
 function channelCapture() {
   return {
-    hash: createHash19("sha256"),
+    hash: createHash20("sha256"),
     totalByteCount: 0,
     head: Buffer.alloc(0),
     rollingTail: Buffer.alloc(0)
@@ -19229,10 +19359,10 @@ function finalizeChannel(directory, receiptId, channel, capture) {
       sha256: capture.hash.digest("hex"),
       headPath,
       headByteCount: capture.head.length,
-      headSha256: headPath === null ? null : createHash19("sha256").update(capture.head).digest("hex"),
+      headSha256: headPath === null ? null : createHash20("sha256").update(capture.head).digest("hex"),
       tailPath,
       tailByteCount: tail.length,
-      tailSha256: tailPath === null ? null : createHash19("sha256").update(tail).digest("hex"),
+      tailSha256: tailPath === null ? null : createHash20("sha256").update(tail).digest("hex"),
       truncated: capture.totalByteCount > capture.head.length + tail.length
     },
     head: capture.head,
@@ -19564,14 +19694,14 @@ var init_checkWorkspace = __esm({
 });
 
 // src/committing-to-git/workflow/runCheckWorkflow.js
-import { createHash as createHash20 } from "node:crypto";
+import { createHash as createHash21 } from "node:crypto";
 import { lstatSync as lstatSync14, realpathSync as realpathSync9 } from "node:fs";
 import { isAbsolute as isAbsolute12, relative as relative9, resolve as resolve24 } from "node:path";
 function fail15(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2566(bytes) {
-  return createHash20("sha256").update(bytes).digest("hex");
+  return createHash21("sha256").update(bytes).digest("hex");
 }
 function readSnapshot(transactionPath, transaction) {
   const input = readRecordedSnapshotFile(transactionPath);
@@ -20204,13 +20334,13 @@ var init_runCheckCommand = __esm({
 });
 
 // src/committing-to-git/workflow/checkDetailWorkflow.js
-import { createHash as createHash21 } from "node:crypto";
+import { createHash as createHash22 } from "node:crypto";
 import { join as join15, resolve as resolve25 } from "node:path";
 function fail17(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2567(bytes) {
-  return createHash21("sha256").update(bytes).digest("hex");
+  return createHash22("sha256").update(bytes).digest("hex");
 }
 function contentFor(bytes) {
   try {
@@ -20792,7 +20922,7 @@ var init_verifySnapshot = __esm({
 });
 
 // src/committing-to-git/git/gitProcessTranscript.js
-import { createHash as createHash22 } from "node:crypto";
+import { createHash as createHash23 } from "node:crypto";
 import {
   closeSync as closeSync13,
   existsSync as existsSync17,
@@ -20862,7 +20992,7 @@ function appendTail2(current, chunk, maximumBytes) {
   return combined.length <= maximumBytes ? combined : combined.subarray(combined.length - maximumBytes);
 }
 function completionDigest(value) {
-  return createHash22("sha256").update(`${JSON.stringify(value)}
+  return createHash23("sha256").update(`${JSON.stringify(value)}
 `, "utf8").digest("hex");
 }
 function captureGitProcessTranscript({
@@ -20900,10 +21030,10 @@ function captureGitProcessTranscript({
     operation,
     instanceId
   );
-  const transcriptHash = createHash22("sha256");
+  const transcriptHash = createHash23("sha256");
   const channelHashes = {
-    stdout: createHash22("sha256"),
-    stderr: createHash22("sha256")
+    stdout: createHash23("sha256"),
+    stderr: createHash23("sha256")
   };
   const channelByteCounts = { stdout: 0, stderr: 0 };
   const headLimit = Math.min(16 * 1024, diagnosticBudget);
@@ -21037,7 +21167,7 @@ var init_gitProcessTranscript = __esm({
 
 // src/committing-to-git/workflow/createCommitWorkflow.js
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash23, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash24, randomUUID as randomUUID7 } from "node:crypto";
 import {
   closeSync as closeSync14,
   constants as fsConstants7,
@@ -21054,7 +21184,7 @@ function fail19(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha2568(bytes) {
-  return createHash23("sha256").update(bytes).digest("hex");
+  return createHash24("sha256").update(bytes).digest("hex");
 }
 function canonicalJsonBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -22000,38 +22130,110 @@ var init_createCommitWorkflow = __esm({
 
 // src/committing-to-git/workflow/commitProposalWorkflow.js
 import { spawn as spawn3 } from "node:child_process";
+import {
+  existsSync as existsSync18,
+  mkdtempSync,
+  writeFileSync as writeFileSync12,
+  unlinkSync as unlinkSync9,
+  rmdirSync
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join as join18 } from "node:path";
 function fail20(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
-function runNativeCommit({ root, messageBytes, environment, processLauncher }) {
-  return new Promise((resolvePromise, reject) => {
-    const child = processLauncher(
-      "git",
-      ["commit", "--cleanup=verbatim", "-S", "-F", "-"],
-      {
-        cwd: root,
-        env: { ...environment, GIT_PAGER: "cat", PAGER: "cat", NO_COLOR: "1" },
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"]
-      }
-    );
-    let stderr = Buffer.alloc(0);
-    child.stdout.resume();
-    child.stderr.on("data", (chunk) => {
-      stderr = Buffer.concat([stderr, chunk]);
-      if (stderr.length > MAXIMUM_CAPTURED_STDERR_BYTES) {
-        stderr = stderr.subarray(stderr.length - MAXIMUM_CAPTURED_STDERR_BYTES);
-      }
+async function runNativeCommit({
+  root,
+  messageBytes,
+  environment,
+  processLauncher,
+  pathspecBytes = null
+}) {
+  let directory = null;
+  let pathspecFile = null;
+  try {
+    if (pathspecBytes !== null) {
+      directory = mkdtempSync(join18(tmpdir(), "c2g-commit-paths-"));
+      pathspecFile = join18(directory, "paths");
+      writeFileSync12(pathspecFile, pathspecBytes, { flag: "wx", mode: 384 });
+    }
+    return await new Promise((resolvePromise, reject) => {
+      const child = processLauncher(
+        "git",
+        [
+          ...pathspecFile === null ? [] : ["--literal-pathspecs"],
+          "commit",
+          "--cleanup=verbatim",
+          "-S",
+          "-F",
+          "-",
+          ...pathspecFile === null ? [] : [
+            "--only",
+            `--pathspec-from-file=${pathspecFile}`,
+            "--pathspec-file-nul"
+          ]
+        ],
+        {
+          cwd: root,
+          env: {
+            ...environment,
+            GIT_PAGER: "cat",
+            PAGER: "cat",
+            NO_COLOR: "1"
+          },
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "pipe"]
+        }
+      );
+      let stderr = Buffer.alloc(0);
+      child.stdout.resume();
+      child.stderr.on("data", (chunk) => {
+        stderr = Buffer.concat([stderr, chunk]);
+        if (stderr.length > MAXIMUM_CAPTURED_STDERR_BYTES) {
+          stderr = stderr.subarray(
+            stderr.length - MAXIMUM_CAPTURED_STDERR_BYTES
+          );
+        }
+      });
+      child.once("error", (error) => {
+        if (pathspecFile === null) reject(error);
+        else
+          stderr = Buffer.from(error.message, "utf8").subarray(
+            -MAXIMUM_CAPTURED_STDERR_BYTES
+          );
+      });
+      child.once(
+        "close",
+        (exitCode, signal) => resolvePromise({ exitCode, signal, stderr: stderr.toString("utf8") })
+      );
+      child.stdin.once("error", () => {
+      });
+      child.stdin.end(messageBytes);
     });
-    child.once("error", reject);
-    child.once(
-      "close",
-      (exitCode, signal) => resolvePromise({ exitCode, signal, stderr: stderr.toString("utf8") })
-    );
-    child.stdin.once("error", () => {
-    });
-    child.stdin.end(messageBytes);
-  });
+  } finally {
+    if (directory !== null) {
+      try {
+        if (pathspecFile !== null && existsSync18(pathspecFile))
+          unlinkSync9(pathspecFile);
+        rmdirSync(directory);
+      } catch (error) {
+        fail20(
+          "PATH_TRANSPORT_CLEANUP_FAILED",
+          "The native path commit transport could not be cleaned up; inspect HEAD and the owned path before retrying.",
+          {
+            disposition: "internal-failure",
+            cause: error,
+            state: {
+              commitState: "unknown",
+              publicationState: "not-requested",
+              recoveryRequired: true
+            },
+            details: { pathspecFile, directory }
+          }
+        );
+      }
+    }
+  }
 }
 function verificationAttempt({
   root,
@@ -22121,7 +22323,10 @@ async function commitProposalWorkflow({
   }
   assertNoGitStorageOverrides(environment);
   const finalPolicy = verificationPolicyOverride ?? proposal.verificationPolicy;
-  const { root, manifest } = await observeCurrentProposal({ proposal, cwd });
+  const { root, manifest, selectedPaths } = await observeCurrentProposal({
+    proposal,
+    cwd
+  });
   assertPreallocationRepositoryState(root);
   const signaturePreflight = preflightVerificationPolicy({
     root,
@@ -22146,6 +22351,23 @@ async function commitProposalWorkflow({
     );
   }
   const headOid = proposal.headAnchor.expectedParentOids[0] ?? null;
+  const pathspecByteCount = selectedPaths?.reduce((total, path) => total + path.length + 1, 0) ?? 0;
+  if (pathspecByteCount > MAXIMUM_PATHSPEC_TRANSPORT_BYTES) {
+    fail20(
+      "PATH_SCOPE_TOO_LARGE",
+      "The selected native path transport exceeds its 64 MiB bound; nothing was changed.",
+      {
+        disposition: "unmet-prerequisite",
+        details: {
+          byteCount: pathspecByteCount,
+          maximumBytes: MAXIMUM_PATHSPEC_TRANSPORT_BYTES
+        }
+      }
+    );
+  }
+  const pathspecBytes = selectedPaths === null ? null : Buffer.concat(
+    selectedPaths.flatMap((path) => [path, Buffer.from([0])])
+  );
   if (proposal.scope === "full") {
     runIndexMutationGit(root, "add-all", []);
     if (changeSetSha256(observeStagedChangeSet(root, headOid)) !== proposal.changeSetSha256) {
@@ -22154,12 +22376,63 @@ async function commitProposalWorkflow({
       throw stale;
     }
   }
-  const outcome = await runNativeCommit({
-    root,
-    messageBytes: Buffer.from(validation.displayText, "utf8"),
-    environment,
-    processLauncher
-  });
+  if (proposal.scope === "paths") {
+    try {
+      runIndexMutationGit(root, "add-paths", [], { input: pathspecBytes });
+    } catch (error) {
+      fail20(
+        "PATH_STAGING_FAILED",
+        "Native selected-path staging failed; no commit was attempted.",
+        {
+          disposition: "rejected",
+          cause: error,
+          state: { commitState: "absent", publicationState: "not-requested" },
+          details: {
+            indexMutationAttempted: true,
+            selectedIndexChanged: selectedIndexDigest(root, selectedPaths) !== proposal.selectedIndexSha256
+          }
+        }
+      );
+    }
+    const keys = new Set(selectedPaths.map((path) => path.toString("base64")));
+    const staged = observeStagedChangeSet(root, headOid).filter(
+      ({ pathBytes }) => keys.has(pathBytes.toString("base64"))
+    );
+    if (changeSetSha256(staged) !== proposal.changeSetSha256) {
+      const stale = proposalStale(["working-tree"]);
+      stale.message = "Selected paths changed while being staged. Their current contents are staged; nothing was committed. Prepare again.";
+      throw stale;
+    }
+  }
+  let outcome;
+  try {
+    outcome = await runNativeCommit({
+      root,
+      messageBytes: Buffer.from(validation.displayText, "utf8"),
+      environment,
+      processLauncher,
+      pathspecBytes
+    });
+  } catch (error) {
+    if (proposal.scope !== "paths" || error instanceof WorkflowDiagnosticError)
+      throw error;
+    const headAfter2 = captureHeadAnchor(root);
+    const unchangedHead = JSON.stringify(headAfter2) === JSON.stringify(proposal.headAnchor);
+    fail20(
+      unchangedHead ? "GIT_COMMIT_FAILED" : "COMMIT_OUTCOME_UNKNOWN",
+      "Native path commit execution failed; inspect the recorded index and HEAD effects before retrying.",
+      {
+        disposition: unchangedHead ? "rejected" : "internal-failure",
+        cause: error,
+        state: {
+          commitState: unchangedHead ? "absent" : "unknown",
+          publicationState: "not-requested",
+          recoveryRequired: !unchangedHead
+        },
+        details: { indexUpdated: true, headAfter: headAfter2 }
+      }
+    );
+  }
   const headAfter = captureHeadAnchor(root);
   if (outcome.exitCode !== 0) {
     if (JSON.stringify(headAfter) === JSON.stringify(proposal.headAnchor)) {
@@ -22170,7 +22443,7 @@ async function commitProposalWorkflow({
           exitCode: outcome.exitCode,
           signal: outcome.signal,
           stderrTail: outcome.stderr,
-          indexUpdated: proposal.scope === "full"
+          indexUpdated: proposal.scope === "full" || proposal.scope === "paths"
         }
       });
     }
@@ -22235,7 +22508,7 @@ async function commitProposalWorkflow({
     );
   }
 }
-var VERIFICATION_POLICIES4, MAXIMUM_CAPTURED_STDERR_BYTES;
+var VERIFICATION_POLICIES4, MAXIMUM_CAPTURED_STDERR_BYTES, MAXIMUM_PATHSPEC_TRANSPORT_BYTES;
 var init_commitProposalWorkflow = __esm({
   "src/committing-to-git/workflow/commitProposalWorkflow.js"() {
     init_diagnosticContract();
@@ -22253,6 +22526,7 @@ var init_commitProposalWorkflow = __esm({
     init_proposalObservation();
     VERIFICATION_POLICIES4 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
     MAXIMUM_CAPTURED_STDERR_BYTES = 16 * 1024;
+    MAXIMUM_PATHSPEC_TRANSPORT_BYTES = 64 * 1024 * 1024;
   }
 });
 
@@ -22382,11 +22656,11 @@ var init_createCommitCommand = __esm({
 });
 
 // src/committing-to-git/workflow/reportDetailWorkflow.js
-import { createHash as createHash24, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
+import { createHash as createHash25, randomBytes, randomUUID as randomUUID8 } from "node:crypto";
 import {
   closeSync as closeSync15,
   constants as fsConstants8,
-  existsSync as existsSync18,
+  existsSync as existsSync19,
   fsyncSync as fsyncSync11,
   lstatSync as lstatSync17,
   mkdirSync as mkdirSync11,
@@ -22394,16 +22668,16 @@ import {
   readFileSync as readFileSync9,
   renameSync as renameSync6,
   rmSync as rmSync5,
-  unlinkSync as unlinkSync9,
-  writeFileSync as writeFileSync12
+  unlinkSync as unlinkSync10,
+  writeFileSync as writeFileSync13
 } from "node:fs";
-import { basename as basename3, join as join18, resolve as resolve29 } from "node:path";
+import { basename as basename3, join as join19, resolve as resolve29 } from "node:path";
 import { TextDecoder as TextDecoder12 } from "node:util";
 function fail22(code, message, disposition = "invalid-input", cause) {
   throw new WorkflowDiagnosticError(code, message, { disposition, cause });
 }
 function sha2569(value) {
-  return createHash24("sha256").update(value).digest("hex");
+  return createHash25("sha256").update(value).digest("hex");
 }
 function canonicalBytes2(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -22512,7 +22786,7 @@ function writeNew(path, value) {
     384
   );
   try {
-    writeFileSync12(descriptor, canonicalBytes2(value));
+    writeFileSync13(descriptor, canonicalBytes2(value));
     fsyncSync11(descriptor);
   } finally {
     closeSync15(descriptor);
@@ -22594,13 +22868,13 @@ function observationDirectory(transaction, active) {
   if (!UUID_V4_PATTERN3.test(active.observationId)) {
     fail22("DETAIL_STATE_INVALID", "Workspace observation ID is invalid.");
   }
-  return join18(
+  return join19(
     transaction.attemptDirectory,
     `report-detail-${active.observationId}`
   );
 }
 function pagePath(transaction, active, index) {
-  return join18(
+  return join19(
     observationDirectory(transaction, active),
     `page-${String(index).padStart(6, "0")}.json`
   );
@@ -22684,7 +22958,7 @@ async function materializeObservation(transaction, active) {
     observedEntryCount: observation.observedEntries,
     pages: pages2
   };
-  replaceJson2(join18(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
+  replaceJson2(join19(transaction.attemptDirectory, ACTIVE_NAME), completedActive);
   return completedActive;
 }
 function boundedPageResult(transactionPath, transaction, active, page, requestCursor) {
@@ -22829,14 +23103,14 @@ async function readWorkspaceDetailPage({
         "rejected"
       );
     }
-    const activePath = join18(transaction.attemptDirectory, ACTIVE_NAME);
-    const completedPath = join18(transaction.attemptDirectory, COMPLETED_NAME);
-    if (existsSync18(completedPath) && !refresh) {
+    const activePath = join19(transaction.attemptDirectory, ACTIVE_NAME);
+    const completedPath = join19(transaction.attemptDirectory, COMPLETED_NAME);
+    if (existsSync19(completedPath) && !refresh) {
       const completed = readJson(
         completedPath,
         "Completed workspace detail replay"
       );
-      if (!existsSync18(activePath)) {
+      if (!existsSync19(activePath)) {
         return replayCompletion(completed, cursor, transactionPath);
       }
       const replayActive = readJson(
@@ -22847,18 +23121,18 @@ async function readWorkspaceDetailPage({
         validateReadyActive(transactionPath, replayActive);
         const replay = replayCompletion(completed, cursor, transactionPath);
         const directory = observationDirectory(transaction, replayActive);
-        if (existsSync18(directory)) {
+        if (existsSync19(directory)) {
           rmSync5(assertObservationDirectory(transaction, replayActive), {
             recursive: true,
             force: false
           });
         }
-        unlinkSync9(activePath);
+        unlinkSync10(activePath);
         return replay;
       }
     }
     let active;
-    if (existsSync18(activePath)) {
+    if (existsSync19(activePath)) {
       if (cursor === null || refresh) {
         fail22(
           "DETAIL_STATE_CONFLICT",
@@ -22897,8 +23171,8 @@ async function readWorkspaceDetailPage({
         pages: []
       };
       writeNew(activePath, active);
-      if (refresh && existsSync18(completedPath)) {
-        unlinkSync9(completedPath);
+      if (refresh && existsSync19(completedPath)) {
+        unlinkSync10(completedPath);
       }
       active = await materializeObservation(transaction, active);
       active = validateReadyActive(transactionPath, active);
@@ -22923,7 +23197,7 @@ async function readWorkspaceDetailPage({
           "Completed detail replay exceeds the serialized result budget."
         );
       }
-      if (existsSync18(completedPath)) {
+      if (existsSync19(completedPath)) {
         replaceJson2(completedPath, completed);
       } else {
         writeNew(completedPath, completed);
@@ -22934,7 +23208,7 @@ async function readWorkspaceDetailPage({
         force: false
       });
       failureInjector("after-detail-page-cleanup-before-journal-cleanup");
-      unlinkSync9(activePath);
+      unlinkSync10(activePath);
       failureInjector("after-detail-cleanup-before-output");
     }
     return bounded.result;
@@ -23077,7 +23351,7 @@ var init_reportDetailCommand = __esm({
 
 // src/committing-to-git/workflow/publishWorkflow.js
 import { spawn as spawn4 } from "node:child_process";
-import { createHash as createHash25, randomUUID as randomUUID9 } from "node:crypto";
+import { createHash as createHash26, randomUUID as randomUUID9 } from "node:crypto";
 import {
   closeSync as closeSync16,
   constants as fsConstants9,
@@ -23085,14 +23359,14 @@ import {
   lstatSync as lstatSync18,
   openSync as openSync16,
   renameSync as renameSync7,
-  writeFileSync as writeFileSync13
+  writeFileSync as writeFileSync14
 } from "node:fs";
-import { dirname as dirname11, join as join19, resolve as resolve30 } from "node:path";
+import { dirname as dirname11, join as join20, resolve as resolve30 } from "node:path";
 function fail24(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25610(bytes) {
-  return createHash25("sha256").update(bytes).digest("hex");
+  return createHash26("sha256").update(bytes).digest("hex");
 }
 function canonicalBytes3(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
@@ -23105,14 +23379,14 @@ function containsControlCharacter2(value) {
   });
 }
 function atomicWrite2(path, bytes) {
-  const candidate = join19(dirname11(path), `.publication-${randomUUID9()}.tmp`);
+  const candidate = join20(dirname11(path), `.publication-${randomUUID9()}.tmp`);
   const descriptor = openSync16(
     candidate,
     fsConstants9.O_WRONLY + fsConstants9.O_CREAT + fsConstants9.O_EXCL,
     384
   );
   try {
-    writeFileSync13(descriptor, bytes);
+    writeFileSync14(descriptor, bytes);
     fsyncSync12(descriptor);
   } finally {
     closeSync16(descriptor);
@@ -23388,11 +23662,11 @@ function persistPublicationReport({
   if (!currentReportFilesMatch(transaction, reportBytes, textBytes)) {
     const reportRevision = randomUUID9();
     const reportDirectory = dirname11(transaction.report.jsonPath);
-    jsonPath = join19(
+    jsonPath = join20(
       reportDirectory,
       `report-publication-${reportRevision}.json`
     );
-    textPath2 = join19(
+    textPath2 = join20(
       reportDirectory,
       `report-publication-${reportRevision}.txt`
     );
@@ -24288,14 +24562,14 @@ var init_recoverTransactionCommand = __esm({
 });
 
 // src/committing-to-git/workflow/checkMessageWorkflow.js
-import { createHash as createHash26 } from "node:crypto";
+import { createHash as createHash27 } from "node:crypto";
 import { resolve as resolve32 } from "node:path";
 import { TextDecoder as TextDecoder13 } from "node:util";
 function fail26(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
-  return createHash26("sha256").update(bytes).digest("hex");
+  return createHash27("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
@@ -24637,7 +24911,7 @@ var init_checkMessageCommand = __esm({
 });
 
 // src/committing-to-git/message/semanticContentValidation.js
-import { createHash as createHash27 } from "node:crypto";
+import { createHash as createHash28 } from "node:crypto";
 function isPlainObject5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -24646,7 +24920,7 @@ function boundedPointerToken(token) {
   if (Buffer.byteLength(value, "utf8") <= MAXIMUM_POINTER_TOKEN_BYTES) {
     return value;
   }
-  const digest3 = createHash27("sha256").update(value).digest("hex");
+  const digest3 = createHash28("sha256").update(value).digest("hex");
   return `field-sha256:${digest3}`;
 }
 function childPointer(parent, token) {
@@ -24654,7 +24928,7 @@ function childPointer(parent, token) {
   return `${parent}/${escaped}`;
 }
 function diagnosticCollector() {
-  const digest3 = createHash27("sha256");
+  const digest3 = createHash28("sha256");
   const samples = [];
   let count = 0;
   return {
@@ -24665,7 +24939,7 @@ function diagnosticCollector() {
         ...pointerByteLength <= 4096 ? {} : {
           pointerOmitted: true,
           pointerByteLength,
-          pointerSha256: createHash27("sha256").update(pointer).digest("hex")
+          pointerSha256: createHash28("sha256").update(pointer).digest("hex")
         },
         code,
         message
@@ -25114,7 +25388,7 @@ var init_semanticContentValidation = __esm({
 
 // src/committing-to-git/workflow/finalizeMessageWorkflow.js
 import { lstatSync as lstatSync19, readFileSync as readFileSync10, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename4, isAbsolute as isAbsolute13, join as join20, relative as relative11, resolve as resolve33, sep as sep5 } from "node:path";
+import { basename as basename4, isAbsolute as isAbsolute13, join as join21, relative as relative11, resolve as resolve33, sep as sep5 } from "node:path";
 import { TextDecoder as TextDecoder14 } from "node:util";
 function fail28(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
@@ -25296,7 +25570,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
   }
 }
 function writeEvidencePlanRevision2(transaction, evidencePlan) {
-  const path = join20(
+  const path = join21(
     transaction.attemptDirectory,
     `evidence-plan-${evidencePlan.evidencePlanSha256}.json`
   );
@@ -25692,7 +25966,7 @@ init_commandArguments();
 init_commandExecution();
 init_diagnosticContract();
 import { fileURLToPath } from "node:url";
-import { createHash as createHash28 } from "node:crypto";
+import { createHash as createHash29 } from "node:crypto";
 import { readFileSync as readFileSync11, realpathSync as realpathSync12 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
@@ -25950,7 +26224,7 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest3 = createHash28("sha256").update(readFileSync11(new URL(import.meta.url))).digest("hex");
+    const digest3 = createHash29("sha256").update(readFileSync11(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({

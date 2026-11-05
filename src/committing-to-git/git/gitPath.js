@@ -23,6 +23,17 @@ export function comparePathBytes(left, right) {
   return Buffer.compare(left, right);
 }
 
+/** Git's line-oriented --stdin-paths accepts C-quoted raw path bytes. */
+export function quotePathForGitInput(bytes) {
+  return `"${[...bytes]
+    .map((byte) =>
+      byte >= 0x20 && byte <= 0x7e && byte !== 0x22 && byte !== 0x5c
+        ? String.fromCharCode(byte)
+        : `\\${byte.toString(8).padStart(3, "0")}`,
+    )
+    .join("")}"`;
+}
+
 export function pathRecord(raw) {
   const decoded = raw.toString("utf8");
 

@@ -26,11 +26,18 @@ Memory preparation reads Git and process memory only.
 Before the authorized commit it creates no file or directory, writes no Git object, and leaves the index, refs and working tree unchanged.
 Interrupted work needs no recovery: prepare again.
 
-It supports `staged` and `full` scope, uniform `message` or `reuse` evidence (or an evidence plan whose single `message` group covers the whole scope), and the concise route.
+It supports `staged`, `full`, and literal `paths` scope, uniform `message` or `reuse` evidence (or an evidence plan whose single `message` group covers the whole selected scope), and the concise route.
 `--message-format detailed` uses the same checked stdin route, with exhaustive per-file validation, fewer than 50 units and the existing 32 KiB presentation limits.
 The proposal retains that intent: both checking and committing reject a missing `File Changes:` inventory.
 Execute `checkedAuthoring.arguments`, present exact `displayText`, and after approval use the returned commit arguments with the same bytes.
 Full scope observes at most 128 untracked paths of at most 512 bytes each and rejects submodule changes and untracked embedded repositories.
+Path scope applies observation limits to selected paths; unrelated working-tree files do not consume the selected evidence budget.
+Native per-path untracked observation and selected message evidence require lossless UTF-8 path transport within 512 bytes.
+
+Path selectors, their expanded final states, and selected index entries are bound in the proposal and rechecked.
+Unrelated staged changes are allowed and preserved, including staging added after preparation.
+Whole-path selection includes the selected files' entire current working-tree contents even when they are partially staged; use `staged` scope when only staged hunks are authorized.
+The legacy disk executor retains its empty-index requirement for actual path preparation and rejects selected staged overlap in drafts; these restrictions do not apply to memory paths.
 
 The `proposal` is an opaque, self-contained value that binds approval to the head anchor and the exact final state of every changed path.
 It is not authority: every later command recomputes those facts from the repository.
@@ -43,7 +50,11 @@ It is not authority: every later command recomputes those facts from the reposit
 
 Commit recomputes the scope and rejects any difference with `PROPOSAL_STALE` before mutation.
 Full scope then runs `git add -A` and requires the staged result to equal the proposal; a difference stops with the index updated and nothing committed.
-The commit itself is `git commit --cleanup=verbatim -S -F -`, so hooks and signing behave as on disk storage.
+Path scope stages only the selected whole paths, verifies their final staged states, and uses native `git commit --only` with a literal NUL-delimited path list, so unrelated staged entries remain outside the commit.
+The path list uses a task-owned temporary file created only after commit authorization, with a 64 MiB transport bound; the checked message still travels through stdin.
+The file and its exclusive directory are removed after the native Git process exits.
+This transient transport does not retain a proposal, message, report, or recoverable transaction and needs no per-commit storage choice.
+Hooks and signing remain enabled through `git commit --cleanup=verbatim -S -F -`.
 The result reports `commit.parentMatches`, `treeMatches`, `messageMatches`, `signed` and `verification`; no report file exists.
 
 A memory draft is never committed; prepare again with `--mode actual`.
@@ -66,7 +77,11 @@ Witnessed checks, review packets, report detail, resume, recovery and helper pub
 | `GIT_COMMIT_FAILED`                    | `git commit` failed and HEAD is unchanged; `details.stderrTail` and `indexUpdated` explain it.                                                                                         |
 | `COMMIT_OUTCOME_UNKNOWN`               | `git commit` failed but HEAD moved; inspect HEAD before another commit.                                                                                                                |
 | `POST_COMMIT_OBSERVATION_FAILED`       | The commit exists but its comparison or verification did not finish; inspect it.                                                                                                       |
+| `PATH_SCOPE_TOO_LARGE`                 | Expanded selected paths exceed the 64 MiB native transport bound; nothing was changed.                                                                                                 |
+| `PATH_TRANSPORT_CLEANUP_FAILED`        | Inspect HEAD, process closure, and the returned owned transport path before retrying; do not assume no commit was created.                                                             |
 | `STATE_DIRECTORY_REQUIRED`             | Disk storage needs an absolute `--state-directory`.                                                                                                                                    |
+
+`PATH_STAGING_FAILED` means no commit was attempted; inspect the reported selected-index changes from native staging.
 
 ## Disk authoring
 

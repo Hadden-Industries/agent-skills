@@ -1,5 +1,7 @@
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
-import { repositoryRoot } from "../git/gitRepository.js";
+import { repositoryRoot, runReadOnlyGit } from "../git/gitRepository.js";
+import { splitNul } from "../git/gitPath.js";
+import { createHash } from "node:crypto";
 import { manifestDigest } from "../inspection/inlineEvidenceCapsule.js";
 import {
   changeSetFromChangeUnits,
@@ -12,6 +14,27 @@ import {
 } from "../snapshot/workingTreeSnapshot.js";
 import { captureHeadAnchor } from "../transaction/indexInstallation.js";
 import { memoryStorageUnsupported } from "./workflowStateStorage.js";
+import { normalizeScopePayload } from "./preparationInputs.js";
+import {
+  assertPreallocationRepositoryState,
+  discoverCandidates,
+  validateSelectorsAgainstCandidates,
+} from "./prepareWorkflow.js";
+
+/** Bind selected index entries only; unrelated staging is independent of path scope. */
+export function selectedIndexDigest(root, paths) {
+  const keys = new Set(paths.map((path) => path.toString("base64")));
+  const entries = splitNul(
+    runReadOnlyGit(root, "ls-files", ["--stage", "-z", "--"]).stdout,
+  ).filter((entry) =>
+    keys.has(entry.subarray(entry.indexOf(9) + 1).toString("base64")),
+  );
+  return createHash("sha256")
+    .update(
+      Buffer.concat(entries.flatMap((entry) => [entry, Buffer.from([0])])),
+    )
+    .digest("hex");
+}
 
 function proposalStale(changed) {
   return new WorkflowDiagnosticError(
@@ -49,11 +72,23 @@ export async function observeProposalScope({
   mode,
   withLineStatistics = true,
   maximumUntrackedPatchBytes = null,
+  pathSelectors = null,
 }) {
   const headAnchor = captureHeadAnchor(root);
   const headOid = headAnchor.expectedParentOids[0] ?? null;
   let snapshot;
   let untrackedPatches = new Map();
+  const normalizedScope =
+    scope === "paths" ? normalizeScopePayload(pathSelectors) : null;
+  const selectedPaths =
+    normalizedScope === null
+      ? null
+      : validateSelectorsAgainstCandidates(
+          normalizedScope,
+          discoverCandidates(root),
+        );
+  const selectedIndexSha256 =
+    selectedPaths === null ? null : selectedIndexDigest(root, selectedPaths);
 
   try {
     if (scope === "staged") {
@@ -73,6 +108,7 @@ export async function observeProposalScope({
         headOid,
         withLineStatistics,
         maximumPatchBytes: maximumUntrackedPatchBytes,
+        selectedPaths,
       }));
     }
   } catch (error) {
@@ -97,6 +133,9 @@ export async function observeProposalScope({
     headAnchor,
     manifest,
     untrackedPatches,
+    normalizedScope,
+    selectedPaths,
+    selectedIndexSha256,
     changeSetSha256: changeSetSha256(
       changeSetFromChangeUnits(manifest.changeUnits),
     ),
@@ -113,13 +152,30 @@ export async function observeCurrentProposal({ proposal, cwd }) {
       "The proposal belongs to a different repository working tree.",
     );
   }
+  if (proposal.scope === "paths") assertPreallocationRepositoryState(root);
 
-  const observation = await observeProposalScope({
-    root,
-    scope: proposal.scope,
-    mode: proposal.mode,
-    withLineStatistics: false,
-  });
+  let observation;
+  try {
+    observation = await observeProposalScope({
+      root,
+      scope: proposal.scope,
+      mode: proposal.mode,
+      withLineStatistics: false,
+      pathSelectors: proposal.pathSelectors ?? null,
+    });
+  } catch (error) {
+    if (
+      proposal.scope === "paths" &&
+      new Set([
+        "UNMATCHED_SCOPE_SELECTOR",
+        "EMPTY_SCOPE",
+        "RENAME_SCOPE_BOUNDARY",
+      ]).has(error.code)
+    ) {
+      throw proposalStale(["selected-scope"]);
+    }
+    throw error;
+  }
   const changed = [
     ...(sameHeadAnchor(observation.headAnchor, proposal.headAnchor)
       ? []
@@ -128,6 +184,10 @@ export async function observeCurrentProposal({ proposal, cwd }) {
     observation.manifest.changeUnitCount === proposal.changeUnitCount
       ? []
       : [proposal.scope === "staged" ? "index" : "working-tree"]),
+    ...(proposal.scope !== "paths" ||
+    observation.selectedIndexSha256 === proposal.selectedIndexSha256
+      ? []
+      : ["selected-index"]),
   ];
 
   if (changed.length > 0) {

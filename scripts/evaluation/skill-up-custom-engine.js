@@ -65,7 +65,6 @@ export function assertConsumerCorrelation(input, expected, deadline) {
     "variant",
     "workspace",
     "model",
-    "kwargs",
     "messages",
     "max_turns",
     "timeout_seconds",

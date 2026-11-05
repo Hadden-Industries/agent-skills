@@ -10,6 +10,10 @@ The 11 October 2026 upgrade supersedes the earlier local/CI split without relabe
 The local authoring environment was refreshed on 10 October 2026 with Python 3.15.0, pip 26.2.1, PyYAML 6.0.3, official upstream skills-ref 0.1.0 at commit `69ef37e9424c0a7ea9dd2293b559e43ec8176379`, click 8.5.0, strictyaml 1.7.3, python-dateutil 2.9.0.post0 and six 1.17.0.
 These are new development-tool selections; earlier behavioral and platform observations retain their dated runtime context.
 
+On 5 November 2026, the owner approved skill-up 0.14.0 and refreshed the local validators to Tessl 0.119.0 and skills-ref 0.1.0 at upstream commit `83021e2be457a9b6679148719c1f6074f0ad975e`, using Python 3.15.2.
+The new native archive and executable identities were verified before installation.
+Windows assured qualification is `pending` for 0.14.0; the earlier qualification and observations below remain evidence about 0.12.0.
+
 | Surface                               | Observed result                                                                                                                                                                 | Boundary                                                                                                                                  |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | skill-up 0.12.0 native custom engine  | Literal fake-provider smoke and generated five-case EPUB projection pass native validation/execution                                                                            | No semantic or real-provider judgment; no assurance from native report scores                                                             |

@@ -78,7 +78,7 @@ const ACTIVE_IDS = [
   ...Array.from({ length: 34 }, (_, index) => index + 1).filter(
     (id) => !RETIRED_IDS.has(id),
   ),
-  ...Array.from({ length: 46 }, (_, index) => index + 35),
+  ...Array.from({ length: 47 }, (_, index) => index + 35),
 ];
 const NEW_CASE_KEYS = new Map([
   [35, "known-context-skill-inventory-hint"],
@@ -127,6 +127,7 @@ const NEW_CASE_KEYS = new Map([
   [78, "detailed-limit-recovery"],
   [79, "extended-bulk-alternative"],
   [80, "body-only-concise-near-miss"],
+  [81, "memory-paths-preserve-staged"],
 ]);
 const REMOVED_COMMAND =
   /\b(?:snapshot create|snapshot verify|inspection (?:prepare|acknowledge|expand-deletion)|message (?:scaffold|render|validate)|signature verify|report create|publication push)\b/iu;

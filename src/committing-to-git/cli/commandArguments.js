@@ -122,7 +122,7 @@ export const COMMAND_ARGUMENTS = {
     "state-storage": {
       ...stringOption,
       description:
-        "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory.",
+        "<memory|disk>  Default: memory. Memory writes nothing before commit and\n    returns a proposal; staged/full/paths scope, message/reuse evidence, concise route.\n    Disk keeps a recoverable transaction and requires --state-directory.",
     },
     "state-directory": {
       ...stringOption,

@@ -241,7 +241,6 @@ function buildReadOnlyNoIndexArguments(args) {
     path.length === 0 ||
     Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES ||
     isAbsolute(path) ||
-    containsControlCharacter(path) ||
     path.split("/").some((component) => component === "..")
   ) {
     throw new Error(
@@ -408,6 +407,34 @@ function buildReadOnlyArguments(operation, args) {
       return ["ls-files", ...args];
     case "diff":
       return buildReadOnlyDiffArguments(args);
+    case "diff-path": {
+      const [comparison, path] = args;
+      if (
+        args.length !== 2 ||
+        !FULL_OBJECT_ID.test(comparison) ||
+        typeof path !== "string" ||
+        path.length === 0 ||
+        Buffer.byteLength(path) > MAXIMUM_NO_INDEX_PATH_BYTES ||
+        isAbsolute(path) ||
+        path.split("/").some((part) => part === "..")
+      ) {
+        throw new Error(
+          "Arguments are not permitted for read-only Git operation diff-path.",
+        );
+      }
+      return [
+        "--literal-pathspecs",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        "--diff-filter=d",
+        comparison,
+        "--",
+        path,
+      ];
+    }
     case "diff-no-index":
       return buildReadOnlyNoIndexArguments(args);
     case "diff-files-names":

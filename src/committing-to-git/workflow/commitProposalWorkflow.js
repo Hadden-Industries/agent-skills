@@ -1,4 +1,13 @@
 import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  writeFileSync,
+  unlinkSync,
+  rmdirSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createWorkflowResult } from "../diagnostics/diagnosticContract.js";
 import { WorkflowDiagnosticError } from "../diagnostics/workflowDiagnosticError.js";
@@ -26,47 +35,116 @@ import {
 import {
   observeCurrentProposal,
   proposalStale,
+  selectedIndexDigest,
 } from "./proposalObservation.js";
 
 const VERIFICATION_POLICIES = new Set(["required", "advisory", "skipped"]);
 const MAXIMUM_CAPTURED_STDERR_BYTES = 16 * 1024;
+const MAXIMUM_PATHSPEC_TRANSPORT_BYTES = 64 * 1024 * 1024;
 
 function fail(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 
 /** Run `git commit -F -`: hooks and signing behave as on the transaction route. */
-function runNativeCommit({ root, messageBytes, environment, processLauncher }) {
-  return new Promise((resolvePromise, reject) => {
-    const child = processLauncher(
-      "git",
-      ["commit", "--cleanup=verbatim", "-S", "-F", "-"],
-      {
-        cwd: root,
-        env: { ...environment, GIT_PAGER: "cat", PAGER: "cat", NO_COLOR: "1" },
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    let stderr = Buffer.alloc(0);
+async function runNativeCommit({
+  root,
+  messageBytes,
+  environment,
+  processLauncher,
+  pathspecBytes = null,
+}) {
+  let directory = null;
+  let pathspecFile = null;
+  try {
+    if (pathspecBytes !== null) {
+      directory = mkdtempSync(join(tmpdir(), "c2g-commit-paths-"));
+      pathspecFile = join(directory, "paths");
+      writeFileSync(pathspecFile, pathspecBytes, { flag: "wx", mode: 0o600 });
+    }
+    return await new Promise((resolvePromise, reject) => {
+      const child = processLauncher(
+        "git",
+        [
+          ...(pathspecFile === null ? [] : ["--literal-pathspecs"]),
+          "commit",
+          "--cleanup=verbatim",
+          "-S",
+          "-F",
+          "-",
+          ...(pathspecFile === null
+            ? []
+            : [
+                "--only",
+                `--pathspec-from-file=${pathspecFile}`,
+                "--pathspec-file-nul",
+              ]),
+        ],
+        {
+          cwd: root,
+          env: {
+            ...environment,
+            GIT_PAGER: "cat",
+            PAGER: "cat",
+            NO_COLOR: "1",
+          },
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      let stderr = Buffer.alloc(0);
 
-    child.stdout.resume();
-    child.stderr.on("data", (chunk) => {
-      stderr = Buffer.concat([stderr, chunk]);
+      child.stdout.resume();
+      child.stderr.on("data", (chunk) => {
+        stderr = Buffer.concat([stderr, chunk]);
 
-      if (stderr.length > MAXIMUM_CAPTURED_STDERR_BYTES) {
-        stderr = stderr.subarray(stderr.length - MAXIMUM_CAPTURED_STDERR_BYTES);
+        if (stderr.length > MAXIMUM_CAPTURED_STDERR_BYTES) {
+          stderr = stderr.subarray(
+            stderr.length - MAXIMUM_CAPTURED_STDERR_BYTES,
+          );
+        }
+      });
+      // Node emits close after spawn failure as well as normal exit. Wait for
+      // that closure before removing transport that a child could still read.
+      child.once("error", (error) => {
+        if (pathspecFile === null) reject(error);
+        else
+          stderr = Buffer.from(error.message, "utf8").subarray(
+            -MAXIMUM_CAPTURED_STDERR_BYTES,
+          );
+      });
+      child.once("close", (exitCode, signal) =>
+        resolvePromise({ exitCode, signal, stderr: stderr.toString("utf8") }),
+      );
+      child.stdin.once("error", () => {
+        /* Git may exit before reading; its exit status is authoritative. */
+      });
+      child.stdin.end(messageBytes);
+    });
+  } finally {
+    if (directory !== null) {
+      try {
+        if (pathspecFile !== null && existsSync(pathspecFile))
+          unlinkSync(pathspecFile);
+        rmdirSync(directory);
+      } catch (error) {
+        fail(
+          "PATH_TRANSPORT_CLEANUP_FAILED",
+          "The native path commit transport could not be cleaned up; inspect HEAD and the owned path before retrying.",
+          {
+            disposition: "internal-failure",
+            cause: error,
+            state: {
+              commitState: "unknown",
+              publicationState: "not-requested",
+              recoveryRequired: true,
+            },
+            details: { pathspecFile, directory },
+          },
+        );
       }
-    });
-    child.once("error", reject);
-    child.once("close", (exitCode, signal) =>
-      resolvePromise({ exitCode, signal, stderr: stderr.toString("utf8") }),
-    );
-    child.stdin.once("error", () => {
-      /* Git may exit before reading; its exit status is authoritative. */
-    });
-    child.stdin.end(messageBytes);
-  });
+    }
+  }
 }
 
 function verificationAttempt({
@@ -183,7 +261,10 @@ export async function commitProposalWorkflow({
 
   assertNoGitStorageOverrides(environment);
   const finalPolicy = verificationPolicyOverride ?? proposal.verificationPolicy;
-  const { root, manifest } = await observeCurrentProposal({ proposal, cwd });
+  const { root, manifest, selectedPaths } = await observeCurrentProposal({
+    proposal,
+    cwd,
+  });
 
   assertPreallocationRepositoryState(root);
   const signaturePreflight = preflightVerificationPolicy({
@@ -217,6 +298,27 @@ export async function commitProposalWorkflow({
   }
 
   const headOid = proposal.headAnchor.expectedParentOids[0] ?? null;
+  const pathspecByteCount =
+    selectedPaths?.reduce((total, path) => total + path.length + 1, 0) ?? 0;
+  if (pathspecByteCount > MAXIMUM_PATHSPEC_TRANSPORT_BYTES) {
+    fail(
+      "PATH_SCOPE_TOO_LARGE",
+      "The selected native path transport exceeds its 64 MiB bound; nothing was changed.",
+      {
+        disposition: "unmet-prerequisite",
+        details: {
+          byteCount: pathspecByteCount,
+          maximumBytes: MAXIMUM_PATHSPEC_TRANSPORT_BYTES,
+        },
+      },
+    );
+  }
+  const pathspecBytes =
+    selectedPaths === null
+      ? null
+      : Buffer.concat(
+          selectedPaths.flatMap((path) => [path, Buffer.from([0])]),
+        );
 
   if (proposal.scope === "full") {
     runIndexMutationGit(root, "add-all", []);
@@ -233,12 +335,70 @@ export async function commitProposalWorkflow({
     }
   }
 
-  const outcome = await runNativeCommit({
-    root,
-    messageBytes: Buffer.from(validation.displayText, "utf8"),
-    environment,
-    processLauncher,
-  });
+  if (proposal.scope === "paths") {
+    // Whole-path authority covers selected staging, including newly untracked
+    // files. The subsequent native --only commit isolates unrelated staging.
+    try {
+      runIndexMutationGit(root, "add-paths", [], { input: pathspecBytes });
+    } catch (error) {
+      fail(
+        "PATH_STAGING_FAILED",
+        "Native selected-path staging failed; no commit was attempted.",
+        {
+          disposition: "rejected",
+          cause: error,
+          state: { commitState: "absent", publicationState: "not-requested" },
+          details: {
+            indexMutationAttempted: true,
+            selectedIndexChanged:
+              selectedIndexDigest(root, selectedPaths) !==
+              proposal.selectedIndexSha256,
+          },
+        },
+      );
+    }
+    const keys = new Set(selectedPaths.map((path) => path.toString("base64")));
+    const staged = observeStagedChangeSet(root, headOid).filter(
+      ({ pathBytes }) => keys.has(pathBytes.toString("base64")),
+    );
+    if (changeSetSha256(staged) !== proposal.changeSetSha256) {
+      const stale = proposalStale(["working-tree"]);
+      stale.message =
+        "Selected paths changed while being staged. Their current contents are staged; nothing was committed. Prepare again.";
+      throw stale;
+    }
+  }
+
+  let outcome;
+  try {
+    outcome = await runNativeCommit({
+      root,
+      messageBytes: Buffer.from(validation.displayText, "utf8"),
+      environment,
+      processLauncher,
+      pathspecBytes,
+    });
+  } catch (error) {
+    if (proposal.scope !== "paths" || error instanceof WorkflowDiagnosticError)
+      throw error;
+    const headAfter = captureHeadAnchor(root);
+    const unchangedHead =
+      JSON.stringify(headAfter) === JSON.stringify(proposal.headAnchor);
+    fail(
+      unchangedHead ? "GIT_COMMIT_FAILED" : "COMMIT_OUTCOME_UNKNOWN",
+      "Native path commit execution failed; inspect the recorded index and HEAD effects before retrying.",
+      {
+        disposition: unchangedHead ? "rejected" : "internal-failure",
+        cause: error,
+        state: {
+          commitState: unchangedHead ? "absent" : "unknown",
+          publicationState: "not-requested",
+          recoveryRequired: !unchangedHead,
+        },
+        details: { indexUpdated: true, headAfter },
+      },
+    );
+  }
   const headAfter = captureHeadAnchor(root);
 
   if (outcome.exitCode !== 0) {
@@ -250,7 +410,7 @@ export async function commitProposalWorkflow({
           exitCode: outcome.exitCode,
           signal: outcome.signal,
           stderrTail: outcome.stderr,
-          indexUpdated: proposal.scope === "full",
+          indexUpdated: proposal.scope === "full" || proposal.scope === "paths",
         },
       });
     }

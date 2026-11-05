@@ -635,6 +635,14 @@
         "fixture": "draft-isolation",
         "critical_safety": true,
         "cost_profile": "concise-checked"
+      },
+      "81": {
+        "portableCaseSha256": "871bfb4b5639513aec4278c4572d3d56a2f084b08b89624e9601f3441f9c6f56",
+        "case_key": "memory-paths-preserve-staged",
+        "execution_mode": "policy",
+        "fixture": null,
+        "critical_safety": true,
+        "cost_profile": null
       }
     }
   }

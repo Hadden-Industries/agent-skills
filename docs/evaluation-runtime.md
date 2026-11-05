@@ -26,13 +26,15 @@ No authored JSON field imports a module.
 `consumer-workspace.js` copies verified runtime bytes and referenced fixtures into a fresh temporary root.
 Source extensions and private mappings stay outside the model-readable skill.
 
-The pinned native consumer is skill-up 0.12.0; the independent portable reader is agent-skills-eval 0.1.1.
+The pinned native consumer is skill-up 0.14.0; the independent portable reader is agent-skills-eval 0.1.1.
 Exact versions, archives, executable hashes and license hashes are in `evaluation-toolchain.json`.
 Explicit tool acquisition uses `python scripts/set_up_evaluation_execution_tools.py`; verification must not download tools.
 Fake target and static judge checks establish transport and format conformance only.
 The independent reader omits baseline fixtures, skips binary EPUB input and does not send expected output to its assertion judge; its coverage receipt records those limits.
 
 The owner approved Windows x64 assured bridge enablement on 2026-10-05 after the Job Object host, independent closure recorder and explicit interrupted-home recovery passed their synthetic qualification.
+That qualification covered skill-up 0.12.0.
+The 5 November upgrade to 0.14.0 leaves the Windows qualification marker `pending`; deterministic conformance does not authorize assured dispatch with the new binary.
 The [Windows qualification record](evaluation-windows-bridge-qualification.md) separates that path from the original failed native-consumer experiment, whose [retained evidence](../evidence/qualification/2026-10-03-windows-process-tree.json) remains unchanged.
 Linux functional consumer execution has passed CI, but Linux assured dispatch remains disabled with its qualification marker `pending`.
 An unqualified bridge fails before provider launch; direct Hadden execution remains an explicit mode.

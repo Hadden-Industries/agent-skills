@@ -61,6 +61,10 @@
       {
         "version": "0.1.1-dev.15",
         "contentSha256": "01a396af4c6be33a03317236d3bb265a9085211216afb9c2cabce542b33620ad"
+      },
+      {
+        "version": "0.1.1-dev.16",
+        "contentSha256": "6b4bbe158a4c3cb003364c2d5741083bf5101aad9a35d70022f27485fbec81d6"
       }
     ]
   }

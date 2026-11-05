@@ -429,7 +429,7 @@ function discoverTrackedChanges(root, source, prefix, environment) {
   );
 }
 
-function discoverCandidates(root) {
+export function discoverCandidates(root) {
   const readOnlyEnvironment = {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_NO_REPLACE_OBJECTS: "1",
@@ -532,7 +532,7 @@ function safePathDisplay(bytes) {
   return `path-bytes:${prefix}${suffix ? `...${suffix}` : ""};bytes=${bytes.length};sha256=${digest}`;
 }
 
-function validateSelectorsAgainstCandidates(scope, candidates) {
+export function validateSelectorsAgainstCandidates(scope, candidates) {
   for (const selector of scope.descriptors) {
     if (!candidates.paths.some((path) => selectorMatches(selector, path))) {
       fail(

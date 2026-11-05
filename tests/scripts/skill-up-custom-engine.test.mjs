@@ -58,7 +58,6 @@ test("in-memory contract parsing retains duplicate-key rejection", () => {
 const expected = {
   case_id: "public-cell",
   variant: "with_skill",
-  kwargs: { correlation: "public-cell" },
   messages: [
     { role: "user", content: "Execute the frozen session public-cell." },
   ],

@@ -6,7 +6,7 @@ import {
   runReadOnlyGit,
   streamGit,
 } from "../git/gitRepository.js";
-import { splitNul } from "../git/gitPath.js";
+import { quotePathForGitInput, splitNul } from "../git/gitPath.js";
 import {
   MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES,
   MAXIMUM_SIMILARITY_CANDIDATE_PAIRS,
@@ -45,14 +45,14 @@ function unsupported(reason, message) {
   throw new UnsupportedWorkingTreeObservation(reason, message);
 }
 
-/** Paths reach argv and line-oriented stdin as UTF-8 text. */
+/** Only native argv observations require a lossless UTF-8 path. */
 function textPath(pathBytes) {
   const text = pathBytes.toString("utf8");
 
-  if (!Buffer.from(text, "utf8").equals(pathBytes) || /[\r\n]/u.test(text)) {
+  if (!Buffer.from(text, "utf8").equals(pathBytes)) {
     unsupported(
       "path-encoding",
-      "A changed path is not line-safe UTF-8 and cannot be observed without an index.",
+      "A selected untracked path is not UTF-8 and cannot use the native per-path observation transport.",
     );
   }
 
@@ -197,8 +197,8 @@ async function observeUntrackedPath(root, pathBytes, zeroObjectId, withPatch) {
   };
 }
 
-function symbolicLinkTarget(root, path) {
-  const absolutePath = join(root, path);
+function symbolicLinkTarget(root, pathBytes) {
+  const absolutePath = Buffer.concat([Buffer.from(`${root}/`), pathBytes]);
 
   try {
     return readlinkSync(absolutePath, { encoding: "buffer" });
@@ -224,7 +224,10 @@ function hashWorkingTreeObjects(root, records) {
     const objectIds = runReadOnlyGit(root, "hash-object-paths", [], {
       input: Buffer.from(
         files
-          .map(({ destinationBytes }) => `${textPath(destinationBytes)}\n`)
+          .map(
+            ({ destinationBytes }) =>
+              `${quotePathForGitInput(destinationBytes)}\n`,
+          )
           .join(""),
         "utf8",
       ),
@@ -244,7 +247,7 @@ function hashWorkingTreeObjects(root, records) {
 
   for (const record of pending.filter(({ newMode }) => newMode === "120000")) {
     record.newOid = runReadOnlyGit(root, "hash-object-unfiltered-input", [], {
-      input: symbolicLinkTarget(root, textPath(record.destinationBytes)),
+      input: symbolicLinkTarget(root, record.destinationBytes),
     })
       .stdout.toString("ascii")
       .trim();
@@ -262,7 +265,9 @@ function eligibleBlobBytes(root, records) {
   for (const record of records) {
     if (record.newMode !== "000000" && ZERO_OBJECT_ID.test(record.newOid)) {
       workingTreeBytes += BigInt(
-        lstatSync(join(root, textPath(record.destinationBytes))).size,
+        lstatSync(
+          Buffer.concat([Buffer.from(`${root}/`), record.destinationBytes]),
+        ).size,
       );
     }
   }
@@ -340,9 +345,16 @@ export async function buildWorkingTreeSnapshot({
   maximumPatchBytes = null,
   maximumUntrackedObservations = MAXIMUM_UNTRACKED_OBSERVATIONS,
   maximumEagerLineStatInputBytes = MAXIMUM_EAGER_LINE_STAT_INPUT_BYTES,
+  selectedPaths = null,
 }) {
   const baseTreeish = headOid ?? emptyTreeObjectId(root);
   const zeroObjectId = "0".repeat(baseTreeish.length);
+  const selectedKeys =
+    selectedPaths === null
+      ? null
+      : new Set(selectedPaths.map((path) => path.toString("base64")));
+  const selected = (path) =>
+    selectedKeys === null || selectedKeys.has(path.toString("base64"));
   const tracked = parseRawDiff(
     runReadOnlyGit(root, "diff", [
       "-z",
@@ -352,7 +364,7 @@ export async function buildWorkingTreeSnapshot({
       baseTreeish,
       "--",
     ]).stdout,
-  );
+  ).filter(({ destinationBytes }) => selected(destinationBytes));
   const untrackedPaths = splitNul(
     runReadOnlyGit(root, "ls-files", [
       "--others",
@@ -360,12 +372,12 @@ export async function buildWorkingTreeSnapshot({
       "-z",
       "--",
     ]).stdout,
-  );
+  ).filter(selected);
 
   if (untrackedPaths.length > maximumUntrackedObservations) {
     unsupported(
       "untracked-path-limit",
-      `Full scope has ${untrackedPaths.length} untracked paths; memory preparation observes at most ${maximumUntrackedObservations}.`,
+      `Selected scope has ${untrackedPaths.length} untracked paths; memory preparation observes at most ${maximumUntrackedObservations}.`,
     );
   }
 
@@ -456,7 +468,7 @@ export async function buildWorkingTreeSnapshot({
   const snapshot = assembleSnapshot({
     root,
     workflowMode,
-    scopeKind: "full",
+    scopeKind: selectedPaths === null ? "full" : "paths",
     sourceIndex: "working-tree",
     headOid,
     indexTreeOid: null,

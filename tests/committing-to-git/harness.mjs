@@ -43,6 +43,9 @@ export function git(args, cwd, options = {}) {
     env: options.env,
     input: options.input,
     windowsHide: true,
+    // Large native fixtures can emit more than Node's 1 MiB default in
+    // line-ending warnings without failing Git. Keep that evidence bounded.
+    maxBuffer: 16 * 1024 * 1024,
   });
 
   if (!options.allowFailure) {
@@ -58,7 +61,12 @@ export function git(args, cwd, options = {}) {
 
 export function createRepositoryFixture(t, prefix = "committing-to-git-") {
   // Git reports long paths; hosted Windows temp roots can use 8.3 spellings.
-  const base = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+  // Leave room for Git's nested transaction/index lock names on Windows.
+  const directoryPrefix =
+    process.platform === "win32" ? prefix.slice(0, 12) : prefix;
+  const base = realpathSync.native(
+    mkdtempSync(join(tmpdir(), directoryPrefix)),
+  );
   const repo = join(base, "repo");
   const scratch = join(base, "scratch");
 

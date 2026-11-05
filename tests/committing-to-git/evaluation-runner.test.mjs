@@ -992,7 +992,7 @@ test("candidate resolution rejects unpushed, dirty, or incomplete campaigns", (t
 
 test("Google policy schedule derives only manifest policy cases and leaves the executable matrix unchanged", () => {
   const caseIds = listPolicyEvaluationCaseIds(REPOSITORY_ROOT);
-  assert.deepEqual(caseIds, [3, 12, 15, 17, 23, 24]);
+  assert.deepEqual(caseIds, [3, 12, 15, 17, 23, 24, 81]);
   const options = {
     seed: "google-policy-seed",
     provider: "google",
@@ -1002,7 +1002,7 @@ test("Google policy schedule derives only manifest policy cases and leaves the e
     caseIds,
   };
   const schedule = buildPolicyEvaluationSchedule(options);
-  assert.equal(schedule.length, 36);
+  assert.equal(schedule.length, 42);
   assert.deepEqual(schedule, buildPolicyEvaluationSchedule(options));
   assert.equal(
     buildEvaluationSchedule({
@@ -1385,7 +1385,7 @@ test("CLI policy-plan freezes the pushed candidate without model execution", (t)
   const output = JSON.parse(first.stdout);
   assert.equal(output.command, "policy-plan");
   assert.equal(output.modelCalls, 0);
-  assert.equal(output.sessions.length, 36);
+  assert.equal(output.sessions.length, 42);
   assert.equal(
     output.candidate.commitOid,
     runGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"]),
