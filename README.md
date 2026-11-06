@@ -148,7 +148,7 @@ It holds the same package at the archive root plus the minimal desktop `plugin.j
 ## How It Works
 
 Maintained Markdown uses the [shared Markdown quality controls](./docs/markdown-quality.md).
-Install their isolated locked toolchain with `npm run install:markdown`; use `npm run check:markdown` for a read-only check and `npm run format:markdown` to apply policy.
+Install the root locked toolchain with `npm ci --ignore-scripts`; use `npm run check:markdown` for a read-only check and `npm run format:markdown` to write formatting.
 The complete verification gate includes these controls.
 
 These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices).
@@ -1481,7 +1481,7 @@ Tessl lint is not per-skill; it validates the whole plugin package root at once:
 npm test
 ```
 
-Run `npm ci --ignore-scripts` and `npm run install:markdown` to install the two committed dependency graphs before verification.
+Run `npm ci --ignore-scripts` to install the committed root dependency graph, including Markdown Quality, before verification.
 Root registry development dependencies use stable `>=` floors, permitting deliberate upgrades across majors; the committed lockfile selects the exact graph reproduced by `npm ci`.
 Native `devEngines.packageManager` requires npm `>=12.2.0`, while root dependency CI consumers bootstrap exact npm `12.2.0` before npm probes and installation.
 The separate Markdown archive graph retains its own qualified source, lock, and workflow identities.

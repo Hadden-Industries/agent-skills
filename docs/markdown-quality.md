@@ -1,13 +1,12 @@
 # Markdown quality
 
-Run `npm run install:markdown` once after installing the root development dependencies.
-This installs the separate locked development-tool graph with lifecycle scripts disabled.
-`npm run check:markdown` checks maintained Markdown without writes or acquisition; `npm run format:markdown` applies approved formatting.
-`npm run inspect:markdown` explains complete tracked inventory decisions.
-`npm run qualify:markdown -- profile --root .` reads the trusted execution profile; the `candidate` operation requires explicit immutable trusted/candidate identities and native runtime paths as defined by the shared producer.
+Run `npm ci --ignore-scripts` to install the root locked development dependencies.
+The root manifest declares `@hadden-industries/markdown-quality` with the `>=3.0.0` minimum; the root lock freezes the core and matching optional Windows/Linux native packages.
+`npm run check:markdown` checks maintained Markdown without writes or acquisition; `npm run format:markdown` writes formatting.
+`npm run --silent inspect:markdown` explains complete tracked inventory decisions as JSON.
 `npm run verify` includes the shared check and independent installed-consumer integration tests.
 
-The root `.markdown-quality.json` is the sole Markdown scope and rule authority.
+The root `.markdown-quality.json` contains only schema-3 ownership exclusions; the installed package supplies its `authored-gfm@2` defaults.
 It selects all `.md` files unless explicitly excluded, including package documentation, canonical skill instructions and references.
 Git inventory reconciles tracked paths; discovery also includes untracked Markdown files.
 Historical plans, reviews, design/assurance records, evaluation inputs, evidence, generated skills/plugins and imported installations retain their original bytes.
@@ -15,24 +14,25 @@ Markdown selection does not read ignore files.
 Edit source under `src/`, then use the repository build to regenerate distributions.
 ASCII-only canonical instructions and source/generated correspondence remain separately enforced; the former custom one-prose-block-per-line validator is retired in favor of shared sentence layout.
 
-`tooling/markdown/source.json` records the exact producer source/tree/lock, transported archive SHA-256/SHA-512 values and paired reusable workflow.
-The committed isolated lock resolves these local archives.
-The manifest's `registryUpgradeTarget` records the future registry floor; it does not change actual archive resolution.
-A future adoption must refresh all identities and affected qualification together, even if the producer keeps its package version.
-Routine checks use public installed bins and exports and never install a fallback.
+For a literal path, run `npm run check:markdown -- -- src/defining-concepts/SKILL.md`.
+Use `npm run --silent check:markdown -- --json -- src/defining-concepts/SKILL.md` for one complete schema-5 result on stdout; human diagnostics use stderr.
+Warnings are advisory by default; `--strict` makes warnings blocking.
+Formatting needs exactly one repair mode: the `format:markdown` script supplies `--write`.
+Preview with `npm exec -- markdown-quality format --dry-run --root . -- src/defining-concepts/SKILL.md`; do not append `--dry-run` to the write script.
+Preview reports candidate byte counts and hashes without writing; a successful preview, repair or selected check does not establish complete repository cleanliness.
+Use the complete `npm run check:markdown` verdict for that claim.
+From another working directory, `npm --prefix <absolute-repository-root> run check:markdown` retains this repository's explicit root.
 
-The tool's AGPL-3.0-only licence and native-component notices/source materials travel inside the development archives. They are not bundled into the MPL skill/plugin payloads.
+The tool's AGPL-3.0-only licence and native-component notices/source materials ship in the installed development packages.
+They are not bundled into the MPL skill/plugin payloads.
 The shared producer owns formatting, linting, selection, local-link checks, report validation, staging and resource observation.
-This repository owns policy, approved acquisition, domain ASCII/build checks and representative consumer assertions.
+This repository owns policy, npm dependency selection, domain ASCII/build checks and representative consumer assertions.
 
-Trusted qualification calls the producer-owned workflow at a full immutable SHA.
-Pushes to reviewed main promote that commit's policy/toolchain to the trusted baseline; pull requests use their base commit's controls and treat head content as data. Manual qualification requires explicit full trusted and candidate SHA inputs. The finite profile owns six samples, checker/window/memory/staging/report bounds and exact qualified runtime declarations.
-Ordinary checks retain the producer's supported Node range; the exact runtime declarations apply to qualification.
-Candidate scripts, configuration and hooks cannot authorize execution or relax trusted policy.
-A clean local check, a hosted positive result and a hosted adversarial failure are separate evidence claims.
+`.markdown-quality-execution.json` retains the existing 30-second execution ceiling using schema 2; other ordinary bounds use finite package defaults.
+The shared `.markdown-quality-runtimes.json` remains the canonical runtime source for independent evaluation and bootstrap consumers.
+It does not add an exact-runtime qualification requirement to ordinary Markdown checks.
 
-Hosted artifacts contain compact receipts, results, bounded logs and complete staged-content manifests instead of repeated staged source copies.
-The manifests include hidden paths and empty directories; reconstruction requires the exact candidate/trusted Git objects and locked archives, with every path/type/size/hash and the original staged digest verified.
-Incomplete or truncated failure diagnostics never establish a passing qualification; early structural failures can leave only the job log or a partial upload.
-Routine successful artifacts retain 7 days and failed runs 14 days; explicit manual qualification selects 30 days through the producer's `qualification-evidence` input.
-Retention changes do not alter fresh staging, six samples, policy or execution bounds, and existing historical artifacts keep their original expiry.
+The Markdown workflow installs the frozen root graph and runs the complete check plus installed-consumer tests on Windows and Linux.
+It checks repository Markdown through public installed commands and exports; it does not issue the retired archive qualification receipts.
+Historical qualification records keep their original identities and evidence claims.
+Evaluation-conformance receipt reuse is an independent contract and remains unchanged.

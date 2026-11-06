@@ -14,11 +14,10 @@ Repository-policy, dependency, lockfile, build, test, and CI configuration chang
 
 Use Node.js 24 or newer and npm 12.2.0 or newer, as declared in [package.json](package.json).
 The [bootstrap prerequisites](README.md#prerequisites) describe Python and the additional tools needed for complete skill verification.
-For an existing development environment, install the committed dependency graphs with:
+For an existing development environment, install the committed root dependency graph with:
 
 ```sh
 npm ci --ignore-scripts
-npm run install:markdown
 ```
 
 The [bootstrap guide](README.md#bootstrap-the-repository) covers acquiring the additional authoring and evaluation tools.

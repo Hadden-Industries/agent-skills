@@ -478,15 +478,28 @@ test("evidence and Markdown entry points retain the root dependency graph and ex
     "",
   );
   assert.equal(
-    current.scripts["install:markdown"],
-    "npm ci --prefix tooling/markdown --ignore-scripts",
+    current.devDependencies["@hadden-industries/markdown-quality"],
+    ">=3.0.0",
+  );
+  delete current.devDependencies["@hadden-industries/markdown-quality"];
+  assert.equal(current.scripts["install:markdown"], undefined);
+  assert.equal(current.scripts["qualify:markdown"], undefined);
+  assert.equal(
+    current.scripts["check:markdown"],
+    "markdown-quality check --root .",
+  );
+  assert.equal(
+    current.scripts["format:markdown"],
+    "markdown-quality format --write --root .",
+  );
+  assert.equal(
+    current.scripts["inspect:markdown"],
+    "markdown-quality inspect --root . --json",
   );
   for (const name of [
-    "install:markdown",
     "check:markdown",
     "format:markdown",
     "inspect:markdown",
-    "qualify:markdown",
     "test:markdown",
   ]) {
     delete current.scripts[name];
@@ -495,6 +508,47 @@ test("evidence and Markdown entry points retain the root dependency graph and ex
     createHash("sha256").update(JSON.stringify(current)).digest("hex"),
     approvedPackageDigest,
   );
+});
+
+test("Markdown workflow checks the complete installed graph on both supported platforms", () => {
+  const workflow = parse(
+    readFileSync(".github/workflows/markdown-quality.yml", "utf8"),
+  );
+  assert.deepEqual(Object.keys(workflow.on).sort(), [
+    "pull_request",
+    "push",
+    "workflow_dispatch",
+  ]);
+  assert.deepEqual(workflow.permissions, {});
+  const job = workflow.jobs.markdown;
+  assert.deepEqual(job.permissions, { contents: "read" });
+  assert.deepEqual(job.strategy.matrix.os, ["ubuntu-24.04", "windows-2025"]);
+  const commands = job.steps.filter((step) => step.run);
+  assert.deepEqual(
+    commands.slice(1).map((step) => step.run),
+    [
+      "npm ci --include=dev --ignore-scripts",
+      "npm run check:markdown",
+      "npm run test:markdown",
+    ],
+  );
+  assert.equal(commands[0].shell, "pwsh");
+  assert.match(commands[0].run, /npm install --global npm@12\.2\.0/u);
+  assert.match(
+    commands[0].run,
+    /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/u,
+  );
+  assert.match(commands[0].run, /if \(\(npm --version\) -ne '12\.2\.0'\)/u);
+  for (const step of commands) {
+    assert.equal(step.if, undefined);
+    assert.equal(step["continue-on-error"], undefined);
+  }
+  assert.equal(job.if, undefined);
+  assert.equal(job["continue-on-error"], undefined);
+  for (const step of job.steps.filter((entry) => entry.uses)) {
+    assert.match(step.uses, /^actions\/[a-z-]+@[a-f0-9]{40}$/u);
+  }
+  assert.equal(job.steps[0].with["persist-credentials"], false);
 });
 
 test("the Linux probe shell fails on an early command or pipeline failure", (t) => {

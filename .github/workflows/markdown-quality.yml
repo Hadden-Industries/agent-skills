@@ -1,19 +1,10 @@
-name: Trusted Markdown qualification
+name: Markdown quality
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      trusted_sha:
-        description: Reviewed full agent-skills commit containing trusted policy and archives
-        required: true
-        type: string
-      candidate_sha:
-        description: Full candidate commit to inspect as data
-        required: true
-        type: string
 
 permissions: {}
 
@@ -21,11 +12,33 @@ jobs:
   markdown:
     permissions:
       contents: read
-    uses: Hadden-Industries/markdown-quality/.github/workflows/markdown-quality.yml@2e619b8cd1024e3bd37a1452af55a2cdb9cd7867
-    with:
-      trusted-repository: Hadden-Industries/agent-skills
-      trusted-sha: ${{ inputs.trusted_sha || github.event.pull_request.base.sha || github.sha }}
-      candidate-repository: Hadden-Industries/agent-skills
-      candidate-sha: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
-      profile: .markdown-quality-execution.json
-      qualification-evidence: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Select the assessed npm toolchain
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            npm install --global npm@12.2.0 --prefix (Split-Path (node -p 'process.execPath'))
+          } else {
+            npm install --global npm@12.2.0
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((npm --version) -ne '12.2.0') { throw 'Unexpected npm version' }
+      - name: Install locked root dependencies
+        run: npm ci --include=dev --ignore-scripts
+      - name: Check maintained Markdown
+        run: npm run check:markdown
+      - name: Verify installed consumer contracts
+        run: npm run test:markdown
