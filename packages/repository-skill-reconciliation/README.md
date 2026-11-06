@@ -19,6 +19,7 @@ python tools/repository-skills.pyz recover PLAN_ID
 `plan` resolves `skills@latest` once, stages actual bytes and returns the exact proposed diff and plan ID.
 Review it before applying.
 `apply` never reacquires; stale inputs or modified candidates fail.
+
 `recover` restores an interrupted publication while preserving conflicting user edits.
 Apply and recovery share a writer lock acquired before authoritative checks.
 They are not globally atomic to other readers.
@@ -48,9 +49,11 @@ It preserves remote lock bytes and does not synthesize native hashes for local s
 Native lock entries alone select remote skills and supply their source and optional `ref` (branch, tag or commit).
 Sources and pins are never repeated in the options file.
 The first remote provider is GitHub; unsupported providers fail explicitly.
+
 Optional `localSkillSources` maps canonical skill names to repository-contained `./relative/path` source directories.
 Native locks can represent local sources; this tool deliberately keeps direct local copies outside that acquisition contract.
 These declarations neither create native lock entries nor synthesize hashes.
+
 Moving them into native lock authority would require a separate change to declaration, hash and local-only semantics.
 A local/native name collision fails rather than overriding either declaration.
 The existing source `SKILL.md` must declare the same name and a nonempty description; `check` and planning validate that identity before creating operation state.
@@ -68,9 +71,11 @@ The existing source `SKILL.md` must declare the same name and a nonempty descrip
 `invocationPolicyOverrides` references declared skill names and maps selected, supported agents to `explicit-only` or `implicit-allowed`.
 Omission inherits source metadata on the next reconciliation; it does not retain a previously installed override.
 An empty outer optional map is equivalent to omission; an empty per-skill override is rejected.
+
 There is no static default invocation mode.
 Codex maps the values to `policy.allow_implicit_invocation: false/true`.
 Claude maps them to `disable-model-invocation: true/false` while preserving `user-invocable`; implicit eligibility does not enable a disabled manual route.
+
 Explicit-only conflicts with `user-invocable: false` and is rejected.
 Antigravity remains an installation target but has no supported invocation override.
 Dangling skill references, unsupported or unselected targets, unknown/duplicate JSON keys and unsafe paths fail with configuration filename and field-path diagnostics.
@@ -79,24 +84,29 @@ Dangling skill references, unsupported or unselected targets, unknown/duplicate 
 Codex and Antigravity share `.agents/skills`; Claude uses `.claude/skills`.
 Selecting a target does not isolate outputs from other applications reading that tree.
 An existing `.claude/skills/<name>` directory junction or symbolic link to the matching `.agents/skills/<name>` keeps one physical skill installation.
+
 The helper combines selected agents' metadata projections in that canonical tree and publishes it once, preserving the link itself.
 This shared layout requires Codex or Antigravity to be selected alongside Claude.
 A fresh Claude-only installation uses a physical `.claude/skills/<name>` directory without creating a canonical `.agents/skills/<name>` installation or link.
+
 An existing shared Claude link conflicts with Claude-only selection; the helper stops before preparing or publishing changes and requires an explicitly approved conversion to a physical Claude directory.
 It creates no links and does not convert existing independent directories.
 
 The unreleased configuration contract retains `schemaVersion: 1` for this explicit pre-release revision.
 The prior `agents`, `localSkills` and `invocationPolicies` fields are rejected without aliases.
 Update each deployed archive and configuration together.
+
 Saved plans bind both exact configuration bytes and the CLI digest, so changed plans must be regenerated; interrupted-publication recovery remains independent of current configuration.
 Future breaking changes to a released contract require an explicit version decision.
 This configuration version is independent of the CLI, native lock, result and operation-record versions.
+
 The schema's `$schema` identifies its JSON Schema dialect; it is not an accepted instance field.
 A `$id` would identify a published schema, but no such publication or URL is required here.
 
 The two data files hold complementary information.
 The lock owns remote selections, sources, optional refs and native acquisition metadata; the options file owns agent targets, invocation policies and optional local paths.
 Neither duplicates the other's facts.
+
 A floating ref does not guarantee exact replay.
 Removing a native or local declaration stops management without pruning installed content.
 Local-only plans preserve all remote lock bytes.
@@ -105,9 +115,11 @@ Generated skills preserve source metadata except requested policy and same-revis
 Managed outputs must be ignored/untracked.
 Only the matching Claude-to-canonical directory links described above are accepted; parent links, chains, external or unexpected targets, nested links, other reparse points and hardlinked files remain rejected.
 Planning freezes link targets and filesystem identities separately from canonical content.
+
 Apply and recovery revalidate those identities and operate on canonical paths without writing through links.
 A link may briefly be dangling while its canonical directory is replaced; interrupted publication restores the canonical tree using the retained journal.
 Changed links and conflicting user edits stop the operation for inspection rather than being overwritten.
+
 Generated candidate bytes, baselines and recovery records live in ignored `.agent-tools/skill-reconciliation/`.
 Retain failed recovery state.
 Normal external npm caches/temp are expected; this is ordinary developer-tool trust, not an OS sandbox against malicious dependencies.
@@ -131,6 +143,7 @@ python -B -m unittest discover -s packages/repository-skill-reconciliation/tests
 Producer tests import bundled dependencies while exercising maintained source, then independently execute the deployed archive for conformance.
 Consumers run the archive's offline `check`; they do not import a Python test interface.
 Repository-specific runtime tests stay with each consumer's runtime tooling.
+
 `npm test` includes that source suite and archive/source drift check through the existing test glob. Builds have deterministic ZIP metadata, embedded source/dependency identities and original licenses/notices.
 Deploy the same reviewed archive independently; there is no automatic cross-repo upgrade.
 

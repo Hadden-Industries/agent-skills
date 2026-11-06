@@ -12,8 +12,11 @@ Use the following channels to help route a report without exposing sensitive inf
 | Community conduct concern                                                 | Use the private process in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)                                                                                                           |
 | Privacy concern about information sent to project maintainers             | Follow [PRIVACY.md](PRIVACY.md)                                                                                                                                               |
 
+## What to include in a report
+
 For technical reports, include the skill or tool, exact source commit or installed version, agent host and version, OS, relevant runtime versions, command or prompt, and expected versus actual behavior.
 Provide a minimal example with synthetic data and sanitized logs.
+
 Skill-selection problems should identify which skill was expected to activate and what the host actually did.
 Static validation, model behavior, and host activation are different observations; describe the evidence you have.
 

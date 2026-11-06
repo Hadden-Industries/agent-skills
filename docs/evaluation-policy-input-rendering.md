@@ -10,6 +10,7 @@ New policy campaigns use `markdown-guidance-v2` and preserve the full package se
 Package identity answers which skill implementation was supplied.
 Model-visible guidance answers which instructions the agent was asked to apply.
 They are different contracts: retaining executable bytes for provenance does not require asking a language model to read all of them.
+
 A bundled helper is an execution interface; its implementation, including bundled dependencies, should normally remain behind that interface.
 Dumping it increases context and processing cost, exposes incidental internals as apparent policy, and makes the evaluation depend on code reconstruction rather than the published caller instructions.
 
@@ -42,6 +43,7 @@ Do not infer that Markdown is the only policy-bearing format for every skill.
 Schema-3 Git policy campaigns bind `markdown-guidance-v2`, all-package Markdown selection, task/entry/reference ordering and a 128,000-byte UTF-8 prompt limit.
 The full immutable treatment is extracted and hashed as before.
 The packet's suite context records every selected and excluded file identity, full package inventory digest, prompt length and hash.
+
 No executable contents are inserted into the prompt, including in the baseline arm.
 The control arm has no treatment.
 Overflow fails preparation; it does not remove references or clip strings.
@@ -58,10 +60,12 @@ Existing packets, results and authority remain unchanged; no consumed approval c
 ## Inspecting local generation fidelity
 
 After an authorized completed 1.2.16 or 1.2.17 trial, run the documented `scripts/evaluation/inspect-policy-generation.js` command with its explicit prepared-session directory and exact conversation database.
+
 It verifies the retained packet/transcript hashes and native conversation identity, opens that database read-only with extension loading disabled, and reads only the initial user step and single generation record. Node's maintained [SQLite API](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html) provides this capability without a new dependency or runtime installation.
 
 The report exports only identity, length, digest and public input-occurrence facts.
 It never exports private generation text, discovers other conversations, reads credential files, launches a model or rewrites the prepared trial.
+
 The CLI exits nonzero for input loss or unavailable/unsupported evidence.
 Local exact prompt occurrence is not authenticated proof of the final service context, and does not establish correctness of an answer.
 A completed transport with known input loss is unsuitable for scoring the complete supplied guidance.
@@ -70,6 +74,7 @@ A completed transport with known input loss is unsuitable for scoring the comple
 
 The scratch-allocation cases 17, 23 and 24 concern behavior now largely delegated to the opaque helper.
 Its implementation preserves UUID-v4 allocation, exclusive creation and bounded collision retries, while the published prose does not state all of those details as a caller contract.
+
 Removing the dump does not make these assertions obsolete or authorize adding an implementation-derived answer key to the prompt.
 Reconcile their accepted intent with caller-facing guidance or test the executable contract before interpreting future text-only scores.
 The other sampled cases have substantial direct policy guidance in the current prose.
@@ -77,12 +82,14 @@ The other sampled cases have substantial direct policy guidance in the current p
 No skill policy or assertion meaning changes here.
 The original 18 sessions and their diagnosed input loss remain historical evidence.
 Two subsequently approved current-guidance diagnostics, cases 3 then 24, completed with the complete prompt present in both inspected native generation records.
+
 Case 3 substantially applied the explicit prose with one spacing-formula inconsistency; case 24 still missed requirements of its unchanged complete contract.
 See the [diagnostic readback](evaluation-real-provider-observations.md#revised-guidance-diagnostic-readback) for exact identities, scope and limitations.
 
 Those two selected cells establish local input retention for that treatment and pinned Antigravity 1.2.16 executable.
 They are not a matched six-case contrast, independent semantic acceptance, or a live qualification of the subsequently admitted 1.2.17 CLI.
 Their authority is consumed.
+
 Further experiments require a new question, fresh exact packets and separate call authorization.
 Deciding new caller policy or changing assertion meaning is outside the original preservation plan; unchanged failures remain failures.
 Source changes, build checks, local inspection and independent code review authorize no inference or judge call.

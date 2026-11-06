@@ -7,6 +7,7 @@
 We pledge to make our community welcoming, safe, and equitable for all.
 
 We are committed to fostering an environment that respects and promotes the dignity, rights, and contributions of all individuals, regardless of characteristics including race, ethnicity, caste, color, age, physical characteristics, neurodiversity, disability, sex or gender, gender identity or expression, sexual orientation, language, philosophy or religion, national or social origin, socio-economic position, level of education, or other status.
+
 The same privileges of participation are extended to everyone who participates in good faith and in accordance with this Covenant.
 
 ## Encouraged Behaviors
@@ -70,6 +71,7 @@ The project cannot promise absolute confidentiality or a response deadline.
 Fair investigation or an applicable legal or platform process may require limited disclosure, but handlers must avoid unnecessary disclosure and minimize personal information in public enforcement statements.
 
 If Maksym Shostak is named in a report, directly involved in the reported events, or otherwise materially conflicted, he **must not adjudicate** or take enforcement action on that report alone.
+
 The report will remain restricted and pending until a separately governed independent handler is appointed or an applicable external legal or platform process can handle it.
 The initial project governance has no independent internal substitute; appointing one is a future governance improvement rather than a present promise.
 

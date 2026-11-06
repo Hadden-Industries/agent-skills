@@ -5,6 +5,7 @@
 Security fixes are developed against the current `main` source of this repository.
 The primary skill installation path follows that tree; the `committing-to-git` host plugin also has separately identified development releases described in the [release guide](docs/plugin-releases.md).
 Include the exact source commit, skill version, or installed plugin version in a report.
+
 Older commits, release archives, and installed caches do not have a promised backport or long-term-support window.
 Download availability does not establish ongoing security maintenance or production qualification.
 Imported skills, external tools, host applications, and model providers retain their own security policies.
@@ -17,6 +18,7 @@ If that mechanism is unavailable or unsuitable, email [security@haddenindustries
 
 Include the affected component and exact version or commit, host and operating system, impact, reproduction steps or a minimal proof of concept, and any known mitigation.
 Use a disposable repository and synthetic credentials or documents where possible.
+
 Minimize personal information, production data, secrets, and unrelated source content; see [PRIVACY.md](PRIVACY.md).
 The maintainer aims to acknowledge private reports within five working days; this is a target rather than an SLA or a guaranteed resolution time.
 
@@ -42,6 +44,7 @@ Platform qualification and its limits are documented in the [evaluation runtime]
 
 Report realistic unintended access, secret exposure, unauthorized mutation or publication, command execution, or bypasses of the applicable security boundaries.
 Describe reachability, prerequisites, and impact; a policy or test claim alone does not prove a control is effective.
+
 Reports about older versions or third-party components can still help establish impact and identify the responsible upstream project.
 Ordinary correctness problems and feature requests use [public support channels](SUPPORT.md).
 

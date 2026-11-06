@@ -20,6 +20,7 @@ Linux callers supply an explicit normalized absolute root.
 The Windows-specific `evaluationHomesRootFromLocalAppData` helper remains Windows-specific.
 New managed directories use owner-only mode `0700`; generated records use `0600`.
 Credentials are moved through the existing same-volume rename route without reading or copying their contents.
+
 Codex invocation already selects its file-backed credential store.
 Synthetic credential rotation tests do not establish a real Linux login or model session; those remain separately authorized operations.
 

@@ -1,91 +1,22 @@
 # Agent Skills
 
-> **Portable, testable Agent Skills with an evidence-driven authoring workflow.**
+Install reusable [Agent Skills](https://agentskills.io/) in a coding agent, or use this repository's authoring tools to build and evaluate your own.
 
-This repository contains reusable [Agent Skills](https://agentskills.io/) for AI coding agents like Claude Code, Cursor, Codex, and others.
-
-It also contains the local tooling used to create, modify, validate, and evaluate them.
-
-For project participation and reporting, see [Contributing](./CONTRIBUTING.md), [Support](./SUPPORT.md), [Security](./SECURITY.md), [Code of Conduct](./CODE_OF_CONDUCT.md), and [Privacy](./PRIVACY.md).
-
-The repository follows one core rule:
-
-> [!IMPORTANT]
-> **Edit the canonical project under [`src/`](./src/), then run `npm run build` to generate [`skills/`](./skills/). Never edit an installed copy under `.agents/skills/` or `.claude/skills/`.**
-> Those agent-facing directories are generated local development state and may be deleted and recreated at any time.
-
-The source/distribution and evaluation contracts are documented in the [shared runtime guide](./docs/evaluation-runtime.md), [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md), and [capability preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md).
-Native consumer conformance, assured execution, semantic grading, and real host activation are separate acceptance claims.
-The assured skill-up bridge remains disabled on unqualified platforms.
+- [Choose a skill](#available-skills) and [install it in your agent](#installation).
+- For a reproducibly pinned Git plugin, see [host plugin installation](#install-committing-to-git-as-a-host-plugin).
+- To change a skill, start with the [developer guide](#for-developers).
+  For a setup problem, try [troubleshooting](#troubleshooting) or [support](./SUPPORT.md).
 
 ## Available Skills
 
-- **[committing-to-git](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/committing-to-git/SKILL.md)**: Builds and validates WHY-first commit messages from an exact Git snapshot, creates and verifies explicitly approved signed commits, and guides authorized direct or GitHub pull-request delivery.
-  For commit-and-publish requests, it checks publication feasibility before drafting.
-  Use for message drafts, new local commits, or their delivery; not for amending history or continuing an existing local merge, rebase, cherry-pick, or revert operation.
+- [Committing to Git](./skills/committing-to-git/SKILL.md) drafts messages for an exact set of changes, signs and verifies approved commits, and checks publication routes.
+  See [what the Git workflow adds](#what-committing-to-git-adds) for its approval and recovery behavior.
+- [Defining concepts](./skills/defining-concepts/SKILL.md) develops definitions for a stated use, checks neighboring concepts and distinguishes permission to reuse wording from evidence that two concepts mean the same thing.
+- [Naming objects in software engineering](./skills/naming-objects-in-software-engineering/SKILL.md) helps choose or review precise names for files, packages, APIs and other software artifacts.
+- [Reading EPUBs](./skills/reading-epubs/SKILL.md) converts EPUB books to Markdown with Pandoc so an agent can read them.
 
-- **[defining-concepts](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/defining-concepts/SKILL.md)**: Engineers definition-first concept entries: it frames intended use and boundaries, researches and qualifies evidence, separates semantic reuse from wording permission, chooses among adopt/adapt/formulate/defer, validates identity and neighboring concepts, and projects the same entry as a compact answer, revision audit, concept package, or requested machine representation. It composes data-definition, ontology, knowledge-organization, multilingual, and epistemic-governance profiles only when applicable; an otherwise-unqualified deliberate definition request uses ISO/IEC 11179 data-definition discipline as a fallback without claiming registration or standards conformance.
-  It is not for dictionary lookup, naming-only work, prose explanation, schema or ontology implementation without concept-definition work, or unsupported certification claims.
-
-- **[naming-objects-in-software-engineering](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/naming-objects-in-software-engineering/SKILL.md)**: Create, assess, and refactor semantically precise, ecosystem-conformant names for programming and data artefacts.
-  Use whenever naming or renaming files, directories, packages, modules, types, functions, methods, parameters, arguments, variables, fields, properties, constants, APIs, CLI commands/options, environment variables, or database objects; and during code review when naming quality, consistency, ambiguity, or terminology is relevant.
-  Enforces conceptual discrimination before casing and separators.
-
-- **[reading-epubs](https://github.com/Hadden-Industries/agent-skills/tree/main/skills/reading-epubs/SKILL.md)**: Convert and read EPUB ebook files through a deterministic Pandoc-to-Markdown workflow.
-  Use whenever a task needs the content of an EPUB; not for producing EPUBs, for other formats such as PDF, MOBI, or AZW3, for managing ebook files without reading them, or for writing code that parses EPUB.
-
-  Measured against the same agent working without it, on a real standards document: **45% fewer tokens for Haiku 4.5, 9% for Opus**, with correctness unchanged in every arm.
-  Across 80 books the converted text is 17% smaller than the spine documents an agent would otherwise read, rising to 30% on heavily styled standards and 49% on a code-dense technical book.
-  See [the evaluation record](https://github.com/Hadden-Industries/agent-skills/tree/main/src/reading-epubs/evals/README.md) for the method, the null results, and the limits.
-
-### What `committing-to-git` adds
-
-The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section.
-It separates agent judgment from mechanically enforceable guarantees:
-
-- read-only `workflow preflight` checks local readiness, GitHub API permissions, classic protection, inherited branch and push rules, allowed merge methods, and queue requirements before drafting for publication; API permissions do not establish Git transport permissions, and draft-only and local-only requests need no remote preflight;
-- publication prefers direct signed push, then normal PR merge, then disclosed squash, subject to policy and explicit signature requirements; missing policy remains unknown, while pending checks and reviews remain prerequisites;
-- one informed approval can cover commit, push, PR creation, merge, and disclosed fallbacks; the agent reuses that authority instead of interrupting again at each phase, without treating commit approval alone as permission to publish;
-- the transaction CLI provides `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
-- a [shared diagnostic contract](./skills/committing-to-git/references/diagnostics.md) gives failures stable codes, explicit next actions, and required recovery inputs across command routes, including failed-check acknowledgement, evidence-plan reuse, message validation, and uncertain transaction outcomes;
-- a targeted exact-path diff can establish a small dependency, integrity-hash, lock-entry, or metadata-scalar change without extended ceremony; concise preparation then returns complete bounded evidence inline;
-- extended preparation creates hash-bound packets only for unresolved uncertainty, and `workflow review-next` returns one complete verified packet plus an opaque replay-safe cursor until the helper records a catalog-bound receipt;
-- evidence depth and presentation depth are independent: a reviewed change may use a concise checked subject, while an already understood change may use a structured body when that adds durable information;
-- a transport-safe ASCII subject can go directly from preparation and exact approval to commit with no workflow-artifact reads; schema-version-3 `content.json` contains only editable semantics for agent-authored bodies and inventories, while helper-owned review and rendering state remains in the transaction;
-- nonportable subjects and exact user- or repository-supplied bytes use the one fixed transaction-local `message-input.txt` plus `message check`; arbitrary external message paths remain unsupported;
-- every checked or structured proposal reaches `message-ready` before it is shown for exact approval, so formatter corrections stay inside authorship and requested sections are not discarded to avoid another approval round;
-- the agent treats a strong user hint as direction to improve against evidence, not as a demand for exact Conventional Commit type, scope, wording, rationale, UX consequence, or path selection;
-- draft `full` and `paths` isolate the real index, actual preparation records the exact intended tree, and only an unchanged draft can cross to actual through `workflow promote`;
-- exact manifests and bounded scope synopses prevent accidental inclusion; optional detailed or counted-domain presentation is derived only when it adds durable value;
-- optional `workflow check` receipts bind an exact argv and observed child outcome to the prepared tree; they never reconstruct passes from prose or stdout, and bounded retained output is available through `workflow check-detail`;
-- the approved tree and raw message bytes are compared with the one journaled signed commit, and unknown outcomes are observed rather than replayed;
-- signature policy is `required`, `advisory`, or `skipped`, but every created commit still requires a signature header and recovery remains bound to the exact full OID; and
-- an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
-
-Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing.
-Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch.
-Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source.
-The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
-
-GitHub preflight additionally requires an authenticated GitHub CLI (`gh`) with access to the relevant policy.
-Its API account and permissions are separate from the account and permissions used by Git transport; different accounts alone require no additional approval.
-
-Git transport identity checks provide supplementary evidence.
-Unavailable, ambiguous, or guard-denied optional checks alone do not block an already authorized publication route or require a user prompt.
-A guard denial stops that operation without retries, equivalent commands, or requests to run it manually.
-Explicit account requirements, actor-specific provider restrictions, and positively established permission failures remain material.
-DCG and the supported Git Credential Manager or OpenSSH tooling are requirements only for optional identity collection, not new baseline runtime dependencies.
-See [publication routing](./skills/committing-to-git/references/publication-routing.md) for supported contexts, evidence reuse, and required-identity handling.
-
-Feasibility is an observation, not mutation authorization or a guarantee that a future push will succeed.
-PR creation, merge, queue handling, and final integration verification use agent-guided native GitHub operations; they are not journaled by the helper's push transaction.
-Normal merge preserves the original signed commits as ancestors.
-Squash creates a different commit: GitHub's signature does not prove that the original author signed it.
-The publication-routing guidance also covers approval boundaries, head binding, recovery, and separate source/final verification.
-
-The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it.
-The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor.
-Historical design decisions are recorded separately in dated implementation plans.
+In the [EPUB evaluation](./src/reading-epubs/evals/README.md), reading a standards document through the skill took 45% fewer tokens for Haiku 4.5 and 9% fewer for Opus, with the same correctness in all arms.
+Across 80 books, converted text was 17% smaller than the original spine documents, rising to 30% for heavily styled books and 49% for a code-dense technical book.
 
 ## Installation
 
@@ -140,10 +71,63 @@ A marketplace entry points at that directory and pins an exact commit, so an ins
 
 The package uses ordered development versions such as `0.1.1-dev.1`, shared by both host manifests, its release tag and archive name.
 [`scripts/plugin-releases.json`](./scripts/plugin-releases.json) binds each version to the complete package-input digest.
+
 Changed published inputs require an explicitly advanced release record; committed version/digest pairs cannot be edited or removed. `npm run build` regenerates the package and `npm run build:check` rejects stale artifacts or an unadvanced release. Never edit generated manifests by hand. The complete SHA pin identifies the repository revision; it remains separate from the readable release version. See [release preparation and installation reporting](./docs/plugin-releases.md).
 
 Hosts without a marketplace (Antigravity desktop) install the release archive `committing-to-git-<version>-antigravity-desktop.zip`, produced by `npm run package:plugin -- --output <absolute directory>` and attached to the matching GitHub release.
 It holds the same package at the archive root plus the minimal desktop `plugin.json`; extract it into `<home>/.gemini/config/plugins/committing-to-git/`.
+
+## What `committing-to-git` adds
+
+The skill is an opinionated proportional review and transaction workflow, not a claim that Git itself requires Conventional Commit subjects, inventories, or a `File Changes:` section.
+It separates agent judgment from mechanically enforceable guarantees:
+
+- read-only `workflow preflight` checks local readiness, GitHub API permissions, classic protection, inherited branch and push rules, allowed merge methods, and queue requirements before drafting for publication; API permissions do not establish Git transport permissions, and draft-only and local-only requests need no remote preflight;
+- publication prefers direct signed push, then normal PR merge, then disclosed squash, subject to policy and explicit signature requirements; missing policy remains unknown, while pending checks and reviews remain prerequisites;
+- one informed approval can cover commit, push, PR creation, merge, and disclosed fallbacks; the agent reuses that authority instead of interrupting again at each phase, without treating commit approval alone as permission to publish;
+- the transaction CLI provides `workflow prepare`, the transaction-bound `workflow review-next` reader, optional message finalization, draft promotion, helper-witnessed checks, exact commit, optional publication, and focused recovery/detail commands;
+- a [shared diagnostic contract](./skills/committing-to-git/references/diagnostics.md) gives failures stable codes, explicit next actions, and required recovery inputs across command routes, including failed-check acknowledgement, evidence-plan reuse, message validation, and uncertain transaction outcomes;
+- a targeted exact-path diff can establish a small dependency, integrity-hash, lock-entry, or metadata-scalar change without extended ceremony; concise preparation then returns complete bounded evidence inline;
+- extended preparation creates hash-bound packets only for unresolved uncertainty, and `workflow review-next` returns one complete verified packet plus an opaque replay-safe cursor until the helper records a catalog-bound receipt;
+- evidence depth and presentation depth are independent: a reviewed change may use a concise checked subject, while an already understood change may use a structured body when that adds durable information;
+- a transport-safe ASCII subject can go directly from preparation and exact approval to commit with no workflow-artifact reads; schema-version-3 `content.json` contains only editable semantics for agent-authored bodies and inventories, while helper-owned review and rendering state remains in the transaction;
+- nonportable subjects and exact user- or repository-supplied bytes use the one fixed transaction-local `message-input.txt` plus `message check`; arbitrary external message paths remain unsupported;
+- every checked or structured proposal reaches `message-ready` before it is shown for exact approval, so formatter corrections stay inside authorship and requested sections are not discarded to avoid another approval round;
+- the agent treats a strong user hint as direction to improve against evidence, not as a demand for exact Conventional Commit type, scope, wording, rationale, UX consequence, or path selection;
+- draft `full` and `paths` isolate the real index, actual preparation records the exact intended tree, and only an unchanged draft can cross to actual through `workflow promote`;
+- exact manifests and bounded scope synopses prevent accidental inclusion; optional detailed or counted-domain presentation is derived only when it adds durable value;
+- optional `workflow check` receipts bind an exact argv and observed child outcome to the prepared tree; they never reconstruct passes from prose or stdout, and bounded retained output is available through `workflow check-detail`;
+- the approved tree and raw message bytes are compared with the one journaled signed commit, and unknown outcomes are observed rather than replayed;
+- signature policy is `required`, `advisory`, or `skipped`, but every created commit still requires a signature header and recovery remains bound to the exact full OID; and
+- an authorized push uses the exact reported object ID and full destination ref, with [durable recovery rules](./skills/committing-to-git/references/publication-recovery.md) for an uncertain result.
+
+Runtime requirements are Git 2.45 or newer, Node.js 24 or newer, and configured Git commit signing.
+Git 2.45 is the floor because the helper preflights `--no-lazy-fetch`, making its `GIT_NO_LAZY_FETCH=1` read-only inspection boundary enforceable instead of allowing an older Git to hide a network fetch.
+
+Under `required` policy, trusted SSH identity verification also needs the configured allowed-signers source.
+The helper distinguishes missing, denied, invalid, and unexpected trust-source failures; the user may explicitly choose `advisory` or `skipped`.
+
+GitHub preflight additionally requires an authenticated GitHub CLI (`gh`) with access to the relevant policy.
+Its API account and permissions are separate from the account and permissions used by Git transport; different accounts alone require no additional approval.
+
+Git transport identity checks provide supplementary evidence.
+Unavailable, ambiguous, or guard-denied optional checks alone do not block an already authorized publication route or require a user prompt.
+A guard denial stops that operation without retries, equivalent commands, or requests to run it manually.
+
+Explicit account requirements, actor-specific provider restrictions, and positively established permission failures remain material.
+DCG and the supported Git Credential Manager or OpenSSH tooling are requirements only for optional identity collection, not new baseline runtime dependencies.
+See [publication routing](./skills/committing-to-git/references/publication-routing.md) for supported contexts, evidence reuse, and required-identity handling.
+
+Feasibility is an observation, not mutation authorization or a guarantee that a future push will succeed.
+PR creation, merge, queue handling, and final integration verification use agent-guided native GitHub operations; they are not journaled by the helper's push transaction.
+
+Normal merge preserves the original signed commits as ancestors.
+Squash creates a different commit: GitHub's signature does not prove that the original author signed it.
+The publication-routing guidance also covers approval boundaries, head binding, recovery, and separate source/final verification.
+
+The helper enforces deterministic mechanics, but it does not establish authorization, semantic truth, or whether an agent actually read an artifact before acknowledging it.
+The current boundaries, primary-source rationale, tests, and residual limitations are documented in the [witnessed-check assurance case](./docs/assurance-cases/2026-08-25-committing-to-git-witnessed-checks.md), with the broader proportional-workflow evidence preserved in its predecessor.
+Historical design decisions are recorded separately in dated implementation plans.
 
 ## How It Works
 
@@ -153,10 +137,19 @@ The complete verification gate includes these controls.
 
 These skills are built on the open [Agent Skills specification](https://agentskills.io/specification), and designed with industry best practices in mind e.g. [agentskills.io](https://agentskills.io/skill-creation/best-practices).
 They rely on a progressive disclosure model designed to protect your agent's context window.
+
 At startup, the agent only loads the skill's name and description.
 The full instructional body is only read into context when the agent explicitly decides the skill is relevant to your current prompt.
 
 ## For Developers
+
+Edit the canonical skill under [`src/`](./src/) and run `npm run build` to generate [`skills/`](./skills/).
+Installed copies under `.agents/skills/` and `.claude/skills/` are disposable.
+
+The [shared evaluation runtime](./docs/evaluation-runtime.md) explains consumer conformance, assured execution, semantic grading and host activation.
+The [implementation plan](./docs/plans/2026-10-03-evaluation-modernization.md), [architecture](./docs/designs/2026-10-03-evaluation-architecture.md) and [preservation ledger](./docs/designs/2026-10-03-evaluation-preservation-ledger.md) record the corresponding contracts.
+
+For project participation and private reports, see [contributing](./CONTRIBUTING.md), [security](./SECURITY.md), the [Code of Conduct](./CODE_OF_CONDUCT.md) and [privacy](./PRIVACY.md).
 
 | I want to…                                     | Go to                                                                                             |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
@@ -214,7 +207,10 @@ flowchart LR
 This repository is structured so that compatible package managers and agents automatically crawl the root `skills/` directory to discover available capabilities.
 Every file beneath one `skills/<name>/` directory is treated as part of that deployable skill; repository-maintainer evaluation material is deliberately kept in the source-only `src/<name>/evals/` tree.
 
-The important paths are:
+Start with [source versus generated state](#source-versus-generated-state) to find which directory to edit or commit.
+
+<details>
+<summary>Full repository tree and generated local directories</summary>
 
 ```text
 agent-skills/
@@ -401,6 +397,8 @@ agent-skills/
     └── plugin-eval                       # Generated link/junction
 ```
 
+</details>
+
 ### Source versus generated state
 
 | Path                                           | Purpose                                                                                                               | Commit? |
@@ -570,6 +568,7 @@ A useful skill should have a narrower purpose than “make the agent better at X
 
 Answer the cost question before writing anything.
 A skill whose value is efficiency is a legitimate and often easier skill to justify, because resource use is measurable where output quality is arguable — but it has to be built for that from the start.
+
 It will need a task the agent can already complete, a recorded baseline cost, and a saving large enough to clear the skill's own overhead.
 Deciding this afterwards tends to produce an evaluation that measures correctness, finds no difference, and concludes the skill is worthless when it is merely cheaper.
 
@@ -704,6 +703,7 @@ Do not move those files through a redundant source-to-distribution copy stage.
 When an executable requires transformation, its maintainer source may instead live under `src/<skill-name>/`.
 Register the explicit source and output in `scripts/buildSkillArtifacts.js`, run `npm run build`, and commit the generated artifact under the skill's `scripts/` directory.
 The generated banner identifies `src/` as authoritative for that artifact; do not edit the output directly.
+
 `scripts/validateSkillRepository.js` owns deployable and evaluation validation, including ASCII-only canonical `SKILL.md` files, while `scripts/buildRepository.js` composes validation with generated-artifact construction.
 The shared `npm run check:markdown` command owns Markdown layout, GFM lint and local links.
 Skill users run generated artifacts directly and do not install repository dependencies.
@@ -769,6 +769,7 @@ Use the [change-risk matrix](#change-risk-matrix) to decide how much evaluation 
 
 A skill's `scripts/` directory is part of the shipped capability, so changes to executables require ordinary software-engineering discipline **plus** skill-level evaluation.
 Skill-specific implementations live under `src/<skill-name>/`; repository-owned JavaScript shared by independent consumers lives under `lib/`, with direct tests under `tests/<domain>/`.
+
 Shared modules must not depend on skill internals.
 Python, Lua, and other runtime resources are copied byte-for-byte; the Git helper and its shared dependencies are bundled with the existing build recipe into `skills/committing-to-git/scripts/commitWorkflow.mjs`, so installed skills remain self-contained.
 
@@ -967,6 +968,7 @@ Run at least a weak and a strong one: the interesting comparison is often the di
 
 A "without skill" arm that can see the skill is not a baseline.
 Omitting to mention it is not enough — an agent will find a skill in its own working directory, and a scratch path containing the repository name is a strong hint.
+
 Instruct the baseline explicitly to work from first principles and to report whether it encountered relevant tooling, then check that report before believing the numbers.
 
 #### Net the skill's own cost
@@ -1229,6 +1231,7 @@ git status --porcelain=v2 --branch --untracked-files=all
 ```
 
 Use the repository's `committing-to-git` skill for scope classification, transactional staging where applicable, bounded inspection, message construction, approval, signing, verification, reporting, and explicitly authorized publication.
+
 For commit-and-publish requests, establish publication feasibility before drafting and include the selected route and permitted fallbacks in the approval proposal.
 The message must describe **only** the exact staged tree that was inspected and approved; a draft is neither staging nor commit authorization.
 
@@ -1323,6 +1326,7 @@ Local-only plans preserve all native remote lock bytes.
 Removing a declaration does not prune an installation.
 Tracked or linked managed destinations are rejected.
 Shared resources are normalized from the same resolved source revision, with unrelated metadata preserved.
+
 `plan --local-only` needs no npm/network acquisition and leaves remote lock entries untouched. `recover PLAN_ID` safely restores an interrupted publication and preserves conflicting user edits. Generated candidates/journals live under ignored `.agent-tools/skill-reconciliation/`; normal tool caches may live outside the checkout.
 
 The archive, config and native lock are the three maintained consumer files.
@@ -1486,19 +1490,23 @@ npm test
 
 Run `npm ci --ignore-scripts` to install the committed root dependency graph, including Markdown Quality, before verification.
 Root registry development dependencies use stable `>=` floors, permitting deliberate upgrades across majors; the committed lockfile selects the exact graph reproduced by `npm ci`.
+
 Native `devEngines.packageManager` requires npm `>=12.2.0`, while root dependency CI consumers bootstrap exact npm `12.2.0` before npm probes and installation.
 The separate Markdown archive graph retains its own qualified source, lock, and workflow identities.
 Refreshing the four evaluation packages also requires updating their exact identities in `evaluation-toolchain.json` and requalifying their consumers; a permitted range is not qualification evidence.
+
 These tests cover skills that ship executable scripts and the repository tooling that builds or installs them.
 Skill contract tests run published executables the way an agent does - as subprocesses against throwaway inputs or Git repositories - and assert that their JSON output still conforms to the source schemas.
 
 This matters because a skill's instructions branch on specific output fields.
 `committing-to-git` passes a versioned snapshot, transaction-bound packet stream, semantic-only content input, validation result, witnessed check receipts, exact-commit signature result, optional publication result, and post-commit report between its public routes in one published workflow bundle.
+
 If one output changes without its schema and consumer, the workflow can silently stage, inspect, approve, verify, publish, or report a different state.
 The suite validates representative cross-route payloads; exact Git-tree, path, signature, report, and publication invariants; transactional staging failure behavior; CLI help and exit semantics; and agreement between validator issue codes and schema enums.
 
 The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with Node 24.
 It records the tested commit and tool versions and retains build and TAP output.
+
 See [workflow runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/committing-to-git-linux.yml) for results and [native evaluation platform boundaries](./docs/evaluation-platform-boundaries.md) for supported storage, credential handling, and platform limitations.
 Deterministic Linux verification does not establish additional agent-host behavioral coverage.
 
@@ -1506,7 +1514,9 @@ The repository keeps esbuild, ESLint, and Prettier as development-only dependenc
 Published generated skill artifacts have no third-party runtime dependency.
 Run `npm run build` after changing maintainer source under `src/`.
 Its prebuild gate checks formatting and lint before regenerating artifacts.
+
 Run the non-mutating `npm run build:check` to check code formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, and committed artifact currency.
+
 Run `npm run check:markdown` for shared Markdown layout, GFM lint and local links; the full verification command includes both checks.
 Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
 
@@ -1527,6 +1537,7 @@ npm run verify:skill -- --skill defining-concepts
 
 The scoped command checks that skill's ASCII-only canonical `SKILL.md`, shared evaluation-manifest contract when a suite exists, configured generated bundle when one exists, `skills-ref` validation, convention-owned tests, and whitespace in existing target-owned paths.
 It reports shared repository Markdown quality as an omitted global check; run `npm run check:markdown` separately.
+
 It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
 A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
@@ -1545,6 +1556,7 @@ Existing committing-to-git Linux coverage remains a separate workflow.
 Environment, installation, setup and verification output is retained in protected Actions logs and a bounded job summary on success and failure, without uploading workflow artifacts.
 Native nonzero exits propagate through the capture wrapper; cancellation can prevent final reporting.
 The Node test output reports skips explicitly, including the retained-campaign check when no current campaign is present.
+
 See [hosted runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/defining-concepts-linux.yml) for exact results.
 This route validates deterministic structure, references, formatting, generated artifacts, evaluation definitions, runners, session handling and retained-result contracts.
 It makes no model calls and establishes neither live behavioral quality nor trigger accuracy; those evaluations remain separately authorized.

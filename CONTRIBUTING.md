@@ -7,6 +7,7 @@ Use [support guidance](SUPPORT.md) to choose the right channel, report suspected
 
 Search existing issues and discuss substantial behavior, compatibility, dependency, or evaluation changes before investing in a large implementation.
 Explain the problem, intended outcome, affected skill or tool, and evidence that would demonstrate the improvement.
+
 Read [AGENTS.md](AGENTS.md) for repository controls and the [README](README.md#for-developers) for the detailed development workflow.
 Repository-policy, dependency, lockfile, build, test, and CI configuration changes require the maintainer's explicit approval for the exact change.
 
@@ -67,5 +68,6 @@ Submission does not transfer copyright or grant additional relicensing rights.
 
 Identify copied or adapted material and preserve its source, licence, copyright notices, and redistribution requirements.
 The [third-party notices](THIRD-PARTY-NOTICES.md) distinguish the Code of Conduct, bundled components, development tools, and imported skills.
+
 Generated or AI-assisted material remains subject to the same correctness, provenance, licensing, and sensitive-data requirements as other contributions.
 Do not include credentials, private vulnerability reports, personal data, or material you are not entitled to redistribute in public issues, fixtures, or commits.

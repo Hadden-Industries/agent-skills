@@ -1,5 +1,8 @@
 # Maintainer Evaluations
 
+Use this guide to find the shared runner and the limits of its evidence.
+To evaluate a particular skill, start with its `src/<name>/evals/README.md` for cases, commands and grading criteria.
+
 Each canonical `src/<name>/` project contains runtime source and a maintainer-only `evals/` directory.
 `npm run build` creates the exact deployable runtime inventory under `skills/<name>/`; evals and private execution code are excluded.
 Suite READMEs define domain cases, controllers, capabilities, grading, and commands.
@@ -22,6 +25,7 @@ The compiler rejects duplicate JSON keys, unknown fields, stale bindings, orphan
 `scripts/evaluation/compile-suite.js` returns a frozen versioned contract with source, distribution, fixture and case identities.
 Only the maintained profile registry resolves executable policy.
 No authored JSON field imports a module.
+
 `project-skill-up.js` creates static YAML and an explicit coverage receipt; expected output and assertions remain semantic descriptions, never guessed substring rules.
 `consumer-workspace.js` copies verified runtime bytes and referenced fixtures into a fresh temporary root.
 Source extensions and private mappings stay outside the model-readable skill.
@@ -29,34 +33,50 @@ Source extensions and private mappings stay outside the model-readable skill.
 The pinned native consumer is skill-up 0.14.0; the independent portable reader is agent-skills-eval 0.1.1.
 Exact versions, archives, executable hashes and license hashes are in `evaluation-toolchain.json`.
 Explicit tool acquisition uses `python scripts/set_up_evaluation_execution_tools.py`; verification must not download tools.
+
 Fake target and static judge checks establish transport and format conformance only.
 The independent reader omits baseline fixtures, skips binary EPUB input and does not send expected output to its assertion judge; its coverage receipt records those limits.
+
+### Host qualification
 
 The owner approved Windows x64 assured bridge enablement on 2026-10-05 after the Job Object host, independent closure recorder and explicit interrupted-home recovery passed their synthetic qualification.
 That qualification covered skill-up 0.12.0.
 The 5 November upgrade to 0.14.0 leaves the Windows qualification marker `pending`; deterministic conformance does not authorize assured dispatch with the new binary.
+
 The [Windows qualification record](evaluation-windows-bridge-qualification.md) separates that path from the original failed native-consumer experiment, whose [retained evidence](../evidence/qualification/2026-10-03-windows-process-tree.json) remains unchanged.
 Linux functional consumer execution has passed CI, but Linux assured dispatch remains disabled with its qualification marker `pending`.
+
 An unqualified bridge fails before provider launch; direct Hadden execution remains an explicit mode.
 Qualification permits an explicitly selected execution path, not a model call: exact packet authorization is still required.
 Native conformance and Windows workload closure do not establish OS-level network isolation, real-provider acceptance or host activation.
 
 ### Prepared execution mode
 
-Windows carrier preparation binds the absolute installed base Python interpreter, its executable digest and version, both host/closure-recorder source digests, and a fresh job identity in `windows-job-v2`. Dispatch uses one short-lived workload host and one bounded independent closure recorder; no service or dependency is installed. Job membership is assigned atomically at process creation, breakaway is disabled, and only standard stream handles enter the workload. The Node wrapper owns the sole liveness-pipe writer. The recorder is armed before any workload, outside this invocation's job, with explicitly inherited query/terminate and exact host process handles.
+Windows carrier preparation binds the absolute installed base Python interpreter, its executable digest and version, both host/closure-recorder source digests, and a fresh job identity in `windows-job-v2`.
+Dispatch uses one short-lived workload host and one bounded independent closure recorder; no service or dependency is installed.
+
+Job membership is assigned atomically at process creation, breakaway is disabled, and only standard stream handles enter the workload.
+The Node wrapper owns the sole liveness-pipe writer.
+
+The recorder is armed before any workload, outside this invocation's job, with explicitly inherited query/terminate and exact host process handles.
+
 Those handles become non-inheritable in the recorder and never enter the workload.
 Wrapper loss, timeout, recorder loss or consumer exit makes the host terminate the job.
+
 The bridge checks membership in its packet-bound job before executing the provider; its brief query-only probe closes its handle before returning.
 
 The recorder's additional handle changes kill-on-last-handle-close: host death alone is no longer the final close.
 It waits for the retained exact host process handle to become signaled, terminates that exact job, and observes zero active processes within five seconds before sealing a separate `process-host-observation.json.closure.json`.
+
 Waiting for actual host termination covers in-flight process creation.
 Readiness pins lossless FILETIME birth identities, producer/consumer digests, the private carrier/packet association and an invocation-only public RSA key.
+
 The private key remains in the recorder, using native Windows CNG; the receipt is signed over sorted compact UTF-8 JSON with RSA/SHA-256. This detects altered receipt bytes against the readiness key recorded in the home lease. It is not independent attestation of arbitrary producer code or protection against a hostile account that can replace all trusted control records. [CNG signing](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptsignhash) and the [RSA public blob layout](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_rsakey_blob) define the native boundary.
 
 Host closure observations are derived diagnostics.
 An abrupt host death remains a failed invocation even when the independent recorder proves workload closure.
 If recorder and host both die, closing both job handles retains kernel kill-on-close, but the missing signed receipt remains unknown.
+
 Missing/truncated observations, remaining active processes, invalid signatures or stale interpreter/script bytes fail closed and do not fabricate terminal Hadden results or reset consumed authority.
 Identity binding covers interpreter executable and both source files, not every Python DLL or standard-library file; this is lifecycle containment, not a hostile-local-user sandbox.
 The Windows qualification marker admits this bound `windows-job-v2` path; Linux retains its disabled qualification gate.
@@ -66,6 +86,7 @@ The Windows qualification marker admits this bound `windows-job-v2` path; Linux 
 `prepareEvaluationHomeRecovery` and `applyEvaluationHomeRecovery` in `scripts/evaluation/evaluation-homes.js` maintain a resource, not an evaluation outcome.
 The initial scope is version2 Windows bridge-owned execution leases whose journal reached the witnessed operation interval.
 Legacy, preflight, direct-provider and Linux leases remain unavailable.
+
 An eligible proposal binds root/volume/marker identity, role, lease token, operation, original generation inventory, exact lease/journal bytes, packet/carrier/readiness records, the exclusive signed closure reservation, consumed-attempt bytes and the original outcome's bytes or absence.
 Preparation reads metadata for `auth.json`, never its contents.
 
@@ -80,15 +101,18 @@ node scripts/evaluation/manage-evaluation-homes.js apply-recovery --root ROOT --
 
 Application revalidates exact state and acquires exclusive recovery ownership while the original role lease continues blocking ordinary operations.
 It retains the used generation in distinct quarantine, creates a marked fresh generation, identity-checks and renames at most the existing single-link credential cache, and seals a `recovered-evaluation-home` resource receipt before moving the original lease directory into `.history/*.recovered`.
+
 No quarantine, failed evidence or consumed authority is deleted.
 Inspection distinguishes `completedHistory`, `recoveredHistory` and unclassified `otherHistory`; recovered history is not a successful evaluation.
 
 An interrupted recovery retains its original proposal, transition journal and numbered owner records.
 To resume, run `prepare-recovery` into a new proposal path, review its new state/digest, then use `resume-recovery` with the same exact root/role/digest confirmations. A live owner refuses immediately. A returned owner has a bound durable release; a hard-killed owner requires native PID/birth comparison and process-state inspection.
+
 This owner observation is separate from the signed workload-closure proof; PID absence never substitutes for that proof.
 Recovery attempts are capped at 32 and never automatically retried.
 
 Known pre/post-transition states can resume after rotation, marked staging creation, publication, credential transfer and receipt sealing. Missing/truncated journals, incomplete ownership, an unmarked partial replacement, conflicting credential caches, changed evidence, redirected paths, hardlinks or unsupported original phases remain unknown and retained for explicit investigation.
+
 If archival finished but the caller died before receiving its response, inspection shows the sealed recovered history and released role.
 No repeated recovery is needed.
 
@@ -108,6 +132,7 @@ Retain both locations with the session evidence.
 The existing run command dispatches according to that prepared binding.
 It cannot turn a direct packet into a consumer packet or silently fall back to direct execution.
 Naming consumer requests use an `authorizationFile` path and literal `allowExternalModelCall: true`; direct naming requests may retain their existing inline authorization.
+
 Supplying both authorization forms is rejected.
 Native reports are never returned as authoritative outcomes: dispatch checks the retained Hadden outcome and artifact hashes.
 A failed native attempt retains its claim/control evidence and must be reconciled before any fresh preparation.
@@ -123,6 +148,7 @@ Every provider session using this shared runtime crosses an explicit prepare/aut
 
 Finish source edits, generation, approved preservation/configuration updates and candidate commits before preparing packets.
 For a campaign that must coexist with development writes, run its maintained runner from an owned independent plain clone of the frozen candidate, with independent Git storage and the established dependency toolchain.
+
 Keep that clone fixed through the campaign; a linked worktree or a copied skill alone does not freeze the runner's Git identity.
 The committing-to-git runner binds both HEAD/tree and execution-module bytes, so even an unrelated or empty commit invalidates a packet prepared from the changing checkout.
 
@@ -137,6 +163,7 @@ The committing-to-git runner binds both HEAD/tree and execution-module bytes, so
 
 The public provider adapters are `codexAppServerAdapter`, `claudeCliAdapter`, and `antigravityCliAdapter`.
 Suites supply a controller and provider request; they do not implement provider transport, credential-home rotation, packet hashing, or run-record writes.
+
 `preflightCodexAppServer(...)` is a separate zero-turn provider-protocol check and requires an explicit suite/operator guard. It may start the reviewed provider process and inspect authenticated metadata, but it never calls `turn/start`. Antigravity exposes no reviewed zero-turn authentication/status command, so its cached authentication is tested only by a separately authorized model launch.
 
 Committing-to-git also provides a local candidate inspection, requiring no authorization or provider process:
@@ -148,8 +175,10 @@ node src/committing-to-git/evals/assurance/v1/run-evaluation-session.mjs inspect
 `candidate-current` reports only matching HEAD, tree and execution-module identities at that moment, with zero model calls.
 It does not establish provider/tool availability, unconsumed authority or overall execution readiness.
 The maintained `run` command checks this binding before either direct or consumer dispatch, and direct API execution checks it before terminal evidence acquisition.
+
 Candidate drift raises `EVALUATION_CANDIDATE_CHANGED` in the API and a specific CLI explanation without creating authorization retention, a run record, a launch consumption record or a credential home.
 Stop the remaining campaign when any candidate check fails; settle writes, prepare fresh packets and authorize their new digests.
+
 Never rewrite an old packet or transfer its authorization to the new candidate.
 The common broker still rechecks all current-state inputs after validating authority and before launch; a change after the local inspection can therefore leave a retained failed attempt.
 Neither inspection nor the early rejection locks out concurrent writers or automatically retries a session.
@@ -157,6 +186,7 @@ Neither inspection nor the early rejection locks out concurrent writers or autom
 `evals.json` and `trigger-evals.json` remain portable manifest surfaces.
 `npm run build:check` verifies matching skill/suite names, behavioral and trigger shapes, unique normalized cases, contained fixture paths, and the deployable/evaluation boundary.
 Capability contracts reside in the versioned assurance extension and enter compiled contract version 1.
+
 Validation reads the canonical skill's standard `compatibility` field, requires an exact reviewed candidate-arm interpretation, validates every case capability declaration, and proves that the deny-by-default campaign policy permits all declared arm, compatibility, and case requirements.
 Mechanical validation is not model or semantic evidence, and provider availability remains a preparation or preflight concern.
 
@@ -191,6 +221,7 @@ The packet and retained inputs therefore authorize the complete conversation rat
 
 `createScriptedConversationController(...)` owns only bounded conversation mechanics.
 It supplies the initial text, accepts one completed nonempty final answer for the expected turn, emits the exact next committed input when one exists, and completes through a suite-provided result function after the last turn.
+
 It rejects duplicate, skipped, failed, out-of-order, or post-completion turns and rejects every approval request.
 It does not inspect domain semantics, invent clarifications, branch on answer content, grade outputs, call providers, or broaden capabilities.
 
@@ -203,6 +234,7 @@ A provider that cannot preserve the declared turn count and transition semantics
 Treat a deployable skill directory as the evaluation treatment.
 `captureGitSkillBundle(...)` captures ordinary UTF-8 files from one exact Git commit; `captureWorkingTreeSkillBundle(...)` captures the current canonical directory.
 Both retain source identity, repository-relative file paths, exact content, byte lengths, per-file SHA-256 values, and an aggregate SHA-256 over canonical JSON.
+
 `renderSkillBundle(...)` preserves file boundaries when presenting those bytes to a model.
 A bundle must include `skills/<name>/SKILL.md`; unsupported entries, invalid UTF-8, or a digest mismatch fail closed.
 
@@ -214,6 +246,7 @@ Use these canonical arm names when a campaign measures both incremental skill va
 
 The prompt, provider conditions, and all non-treatment inputs remain matched across arms.
 Capturing only `SKILL.md` is insufficient when the skill depends on references, scripts, or assets.
+
 Changing candidate bytes after preparation invalidates that candidate iteration; create a new bundle and campaign rather than modifying retained evidence.
 Historical two-arm names such as `with_skill` and `without_skill` remain valid only within their recorded schema and are never silently renamed.
 
@@ -225,12 +258,14 @@ The common naming guidance above does not authorize rewriting an existing campai
 
 The Agent Skills `compatibility` frontmatter field remains portable human-readable prose.
 It is not a repository-specific capability expression language: do not encode vendor IDs, tool names, `allowed-tools`, MCP declarations, Boolean operators, or a private mini-grammar in it.
+
 A capability-aware schema-v3 suite instead owns an explicit `capability_contract` in `evals.json` and copies each frozen skill-bearing arm's `compatibility` value into an exact-text interpretation.
 Any changed, missing, duplicated, or unreviewed value fails closed; heuristic keyword parsing and model-based interpretation are prohibited.
 
 Each case declares `required_capabilities`, including an empty array when it needs no additional facility.
 Reconciliation unions case requirements, arm requirements, and unconditional compatibility requirements, then checks that union against the suite's explicit deny-by-default campaign policy and the selected provider's reviewed support.
 Requirements never grant permission.
+
 A successful reconciliation receipt records the exact skill-bundle digests, compatibility text and interpretations, selected cases, required and allowed capabilities, provider bindings, runtime capability object, and matched per-arm envelopes.
 Its digest is bound into the campaign manifest, every session, and every transmission packet.
 
@@ -242,12 +277,14 @@ All comparison arms receive the same non-treatment capability envelope unless a 
 
 Before preparing a campaign, compare every declared conversation and case requirement with the selected adapter's reviewed capability profile.
 Freeze provider, exact model, effort, toolchain, network, web search, tools, provider facilities, isolation, and runtime fingerprint in each transmission.
+
 Reject unsupported multi-turn conversations, tools, permissions, network requirements, or provider facilities before execution.
 Do not claim that a tool is unavailable merely because it was unused, or that a capability is available because a provider normally advertises it; the packet records the reviewed session policy.
 
 Provider-level capability discovery and session-level activation are distinct.
 For Codex, `modelProvider/capabilities/read` reports facilities the provider can make available.
 A `true` availability value does not mean that the packet requested or the thread activated that facility, so it must not be compared for equality with a disabled packet policy.
+
 A facility requested by the packet must be available; actual activation is verified separately from the thread start/read state, and emitted tool, web-search, image-generation, MCP, delegation, command, and file-change events remain subject to fail-closed runtime enforcement.
 
 Capability differences are methodologically material.
@@ -293,6 +330,7 @@ The provider, model, effort, and digest values must equal the prepared packet.
 Earlier implementation approval, toolchain login, preflight approval, or authorization of another packet does not authorize a model call.
 `authorization.json` is written only after exact validation.
 `attempt.json` is written only when the adapter consumes the packet-bound, single-use launch capability.
+
 If an interruption retains the exact authorization and provisional stream files but no `attempt.json` or terminal result, the same prepared session may reopen those files and continue to its first launch without overwriting retained bytes.
 Once `attempt.json` exists, the packet can never launch again; another model attempt requires a new prepared session and new exact authorization.
 
@@ -329,21 +367,29 @@ It re-inspects the exact executable/schema, launches App Server with a process-l
 
 Codex provider and host inventories describe facilities that are available to the application, not facilities activated in a particular evaluation thread.
 The native `modelProvider/capabilities/read` response supplies boolean `imageGeneration` and `webSearch` bounds; it does not attest namespace tools.
+
 The adapter validates those native fields and rejects requested namespace tools before thread creation, even if an extra response field claims support.
 Preflight therefore does not call or retain `skills/list` or `app/installed`; enumerating the operator's unrelated skills or apps would neither attest thread isolation nor satisfy evidence minimization.
+
 It does inspect hooks because an enabled hook can execute independently of model tool selection: disabled hooks are acceptable, enabled hooks fail closed, and malformed hook metadata is a protocol failure.
 The preflight thread is deliberately more restrictive than an execution turn: `thread/start` uses no runtime workspace roots, no instruction sources or dynamic tools, read-only sandboxing, and no process network.
+
 Tool-bearing policies explicitly select one native `local` execution environment at the packet's working directory, with empty preflight workspace roots; text-only policies select none.
 The adapter checks the returned thread's environment identity, directory and roots before any turn, rejecting missing, remote or drifted selection.
+
 An explicit empty environment list removes local command and file tools in the native client; a working-directory field alone does not select them.
 Execution binds that same local environment to the packet's runtime workspace roots.
 This zero-turn selection check establishes a native execution prerequisite, not actual tool use or behavioral acceptance.
+
 Completed-turn evidence separately records observed command/file tool types; a completed session remains ungraded until its suite assertions and final state are assessed.
 The adapter enables App Server's experimental protocol surface only so the reviewed runtime-workspace-root fields are accepted; this does not activate model tools or provider facilities.
+
 It binds native web explicitly through the supported thread configuration, using `config.web_search = "live"` when authorized and `"disabled"` otherwise.
 Exact model effort, runtime workspace roots, sandbox policy, and packet input are bound at `turn/start`, while runtime event enforcement rejects any unrequested tool, search, image, MCP, delegation, command, or file-change activity.
+
 Native command approvals may omit their optional network-context and additional-permission fields; omission means no such overlay, while malformed present values remain rejected.
 Native file-change approval contains an item identity rather than paths.
+
 The adapter correlates it with the current thread/turn's preceding file-change item, converts every source and move-destination path into exact one-turn write permissions, and delegates those permissions to the suite controller.
 Missing or stale items, unsupported change kinds and session-wide root grants fail closed; file approvals never receive session-wide acceptance.
 
@@ -354,12 +400,14 @@ Unsupported versions or required capabilities fail before execution.
 Google sessions use the Antigravity CLI adapter.
 It pins a reviewed version/profile, the exact executable and prefix files, and the `--help` bytes.
 It uses one process with `stream-json` input and output, explicit model and version-specific effort binding, terminal sandboxing, disabled slash commands, and request-review permissions.
+
 It never passes `--dangerously-skip-permissions`, an agent override, a conversation-resume flag, or permission allow rules.
 One `init` event and one terminal `result` per turn are required; raw NDJSON and stderr are retained, while final cumulative usage is normalized.
 Any observed tool or subagent step fails the run.
 
 Antigravity's `init.tools` inventory is evidence of advertised built-in facilities, not a claim that the CLI disabled them.
 The policy profile proves that no tool step appeared in a completed run; it does not prove that provider-owned tools, default instructions, global customizations, or cached account context were unavailable.
+
 An advertised plugin or MCP tool fails closed.
 Treatment activation is therefore explicit and packet-bound rather than delegated to automatic skill discovery.
 
@@ -373,12 +421,14 @@ Google sessions admit only the specifically qualified 1.2.17 CLI profile.
 Older 1.1.19 and 1.2.16 launch profiles are retired.
 A changed installed version, including a newer patch release, refuses preparation before any model call.
 Requalify the adapter explicitly and prepare fresh packets; there is no automatic upgrade, version range or fallback.
+
 Each packet pins the profile, executable, version and help bytes.
 The profile uses stdin NDJSON, one process for all declared turns, per-turn result events, cumulative usage, sandbox request and disabled slash-command expansion.
 It requires native initialization to confirm the exact model, workspace and `request-review`; any observed tool or subagent step fails the session.
 
 Native 1.2.17 uses effort-bearing model slugs, so its profile binds effort through the explicit model slug instead.
 Its reviewed tiers are `low`, `medium` and `high`; the slug's final tier must equal the packet effort; a missing or contradictory tier refuses before consumption.
+
 The profile fingerprints stdout and stderr separately (native help uses stderr) and checks that help exposes the required stream, model, sandbox and slash-disable flags.
 Version/profile drift and provider-control prefix overrides remain refusals.
 The common runtime records an adapter return without launch consumption as `provider-failed`; no attempt or model process is created for that refusal, and its record is not a completed evaluation.
@@ -386,9 +436,11 @@ The common runtime records an adapter return without launch consumption as `prov
 The installed 1.2.17 zero-turn probe on 2026-10-05 confirmed `gemini-3.8-flash-low`, `request-review`, EOF exit and producer quiescence.
 It made no model turn and does not establish actual real-provider behavioral acceptance, instruction isolation or OS-level egress isolation.
 Preparation still needs explicit model/effort and every real session still needs exact packet authorization. Protocol references: [Google headless mode](https://antigravity.google/docs/cli/headless/) and [execution modes](https://antigravity.google/docs/cli/modes).
+
 Persistent permission or provider settings are not changed by this adapter.
 The executable's observed SHA-256 was `6224a54c35d31b9b85232bbfb23e3306002c418481930442519743fab585f65a`; each preparation still fingerprints its own exact executable.
 Deterministic conformance and native zero-turn inspection qualify this protocol profile, not real-provider behavior or isolation.
+
 Older completed results remain readable; the offline generation inspector accepts exact 1.2.16 and 1.2.17 native schemas and rejects unknown versions without granting launch support.
 Its 1.2.17 generation-payload checks have deterministic fixture evidence; no new real 1.2.17 generation was requested as part of this adapter change.
 
@@ -399,17 +451,21 @@ Its 1.2.17 generation-payload checks have deterministic fixture evidence; no new
 The defining-concepts session-runner tests and Windows bridge matrix allocate their roots through `tests/fixtures/temporary-workspace.mjs`.
 The helper records ownership at creation and registers a Node test after hook immediately.
 Child processes receive fixture-local `TEMP`, `TMP` and `TMPDIR`, so their consumer and inspection scratch remains inside that owned root.
+
 This is test fixture policy; production evaluation evidence and reusable homes retain their existing contracts.
 In-process carrier allocation passes the fixture as `temporaryParent` through `prepareSessionDispatch`; omission keeps the normal OS temporary parent.
 The caller owns this location and its disposal; the option grants no launch authority.
 
 A successful fixture is eligible for disposal only after its tracked children emit `close`, its directory and owner marker retain their original identity, and a bounded inventory finds no symlinks, reparse points, multiply linked files, active home leases, consumed attempts without terminal records, or unsafe/unknown process closure.
+
 Windows and Unix first use Node's permanent recursive deletion.
 Native deletion handles read-only files on Windows and retries transient filesystem failures up to three times with linear backoff.
+
 Only a persistent busy, access, permission or nonempty-directory error permits a recoverable fallback.
 Before fallback, the helper rechecks ownership and the remaining evidence holds; changed ownership, a missing marker or unresolved remaining evidence refuses fallback.
 Windows then uses the native Recycle Bin API; Unix uses installed `/usr/bin/gio trash`.
 Fallback reports its reason.
+
 If recoverable disposal is unavailable, the fixture is retained with a diagnostic; unexpected errors and disposal failures fail the test hook.
 Cleanup does not elevate privileges, change ACLs or stop other processes.
 
@@ -417,12 +473,14 @@ Failed or cancelled tests and unfinished recovery scenarios keep their exact wor
 `.test-workspace-retention.json` records the root, test, owner nonce, reason and reassessment condition when ownership still holds.
 Changed ownership is reported without writing into the substituted directory.
 A passing parent also preserves nested retention markers; an existing marker is never overwritten, including a hard link to a different file.
+
 A passing Windows bridge matrix intentionally retains scenarios whose leases or consumed attempts remain unresolved; passing assertions alone do not release that state.
 Reconcile those recorded consumers before later disposal.
 The helper never adopts old directories by name, age or marker, and does not sweep Temp.
 
 `scripts/evaluation/evaluation-homes.js` manages the reusable versioned root returned by `evaluationHomesRootFromLocalAppData(localAppData)`.
 It owns exactly two stable roles: `preflight` and `execution`.
+
 A role operation validates the approved absolute root and owner marker, acquires an exclusive lease, verifies path identity and containment, rotates the prior home into owned quarantine, creates the fresh stable path, carries forward only a validated single-link ordinary `auth.json`, binds `CODEX_HOME`, registers child processes, requires exact release evidence, retires the used generation, carries the possibly refreshed credential cache into the next clean stable path, and records immutable completion history.
 Every other Codex-created file is disposable runtime residue.
 
@@ -432,8 +490,10 @@ The execution fingerprint binds both files.
 
 The installed Codex CLI reports a successful browser login even when Windows keyring storage falls back to `auth.json`.
 Deleting the disposable generation would therefore delete the credential.
+
 Each stable `preflight` or `execution` role instead owns one file-backed credential cache inside the approved root and may require its own separately authorized one-time login through `manage-evaluation-homes.js login`.
 The operator forces file storage only for the child process, rotates the cache through the ordinary lifecycle, and reports success only after `codex login status` passes in a second rotated home.
+
 The manager never reads or copies credential bytes, never writes `config.toml`, and never modifies the OS keyring.
 Tests use injected temporary roots, fake credentials, and fake executables, never the production root or real authentication material.
 
@@ -462,6 +522,7 @@ Tracked historical results now reside under `evidence/historical/`; the relocati
 Pre-existing ignored naming results remain under `evals/naming-objects-in-software-engineering/results/`.
 Both are immutable evidence for their recorded runner and schema.
 Every new manifest, packet, bundle, controller policy, and derived record declares its own schema version.
+
 Readers branch on the explicit version, preserve documented legacy branches, and reject unknown versions; they never infer a schema from absent fields.
 Do not rewrite packet digests, retrofit the common envelope, rename historical arms, or make an older result claim current runtime, adapter, authorization, bundle, scripted-controller, or stable-home guarantees.
 
@@ -476,6 +537,7 @@ Every failed launch, invalid attempt, exclusion, requested model, provider-confi
 
 Authentication material never enters packet inputs, transcripts, normalized events, suite artifacts, errors, or run results.
 The evidence API rejects authentication-bearing member names and scans structured values before persistence.
+
 Adapters redact account email, tokens, login URLs, bearer values, secrets, and provider diagnostics; environment policy forbids provider API-key variables and records secret sources as an empty array.
 Evaluation-home rotation identity-checks and renames `auth.json` without reading its bytes.
 Antigravity uses the CLI's cached credentials without exporting or inspecting their values.
