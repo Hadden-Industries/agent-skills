@@ -449,6 +449,9 @@ The bootstrap expects:
 - **Node.js 24 or newer**
 - **npm / npx 12.2.0 or newer**
 
+CI selects the exact Node.js reference in [`.node-version`](./.node-version).
+The Python workflows read both `python` and the `uv` provisioner version from [`.development-runtimes.json`](./.development-runtimes.json), so toolchain updates have one maintained declaration per tool.
+
 Check the basics:
 
 ```powershell
@@ -1527,7 +1530,7 @@ It reports shared repository Markdown quality as an omitted global check; run `n
 It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
 A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
-The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python selected from `.development-runtimes.json`.
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node selected from `.node-version` and Python plus uv selected from `.development-runtimes.json`.
 Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
 
 ```sh

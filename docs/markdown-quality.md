@@ -29,7 +29,7 @@ The shared producer owns formatting, linting, selection, local-link checks, repo
 This repository owns policy, npm dependency selection, domain ASCII/build checks and representative consumer assertions.
 
 `.markdown-quality-execution.json` retains the existing 30-second execution ceiling using schema 2; other ordinary bounds use finite package defaults.
-The shared `.development-runtimes.json` remains the canonical runtime source for independent evaluation and bootstrap consumers.
+The shared `.development-runtimes.json` declares Python for independent evaluation and bootstrap consumers, plus uv for Python CI provisioning; `.node-version` selects the exact Node reference for repository workflows.
 Markdown checks use the installed supported Node runtime.
 
 The Markdown workflow installs the frozen root graph and runs the complete check plus installed-consumer tests on Windows and Linux.

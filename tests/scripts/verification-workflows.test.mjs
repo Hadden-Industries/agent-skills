@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { parse } from "yaml";
@@ -230,7 +237,7 @@ test("defining-concepts Linux route provisions the supported tools before the sc
 });
 
 for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
-  test(`${name} preserves unrelated runtimes, action identities and job policy`, () => {
+  test(`${name} preserves action identities and unrelated job policy`, () => {
     const { original, current } = workflows(name);
     // CI reuse adds main push plus strategy/aggregate jobs; the native matrix is preserved.
     assert.deepEqual(
@@ -258,13 +265,27 @@ for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
         assert.deepEqual(after[field], before[field], field);
       }
       const retainedActionSteps = (workflowJob) =>
-        workflowJob.steps.filter(
-          (step) =>
-            step.uses &&
-            !/^(?:actions\/(?:upload-artifact|setup-python)|astral-sh\/setup-uv)@/u.test(
-              step.uses,
-            ),
-        );
+        workflowJob.steps
+          .filter(
+            (step) =>
+              step.uses &&
+              !/^(?:actions\/(?:upload-artifact|setup-python)|astral-sh\/setup-uv)@/u.test(
+                step.uses,
+              ),
+          )
+          .map((step) =>
+            step.uses.startsWith("actions/setup-node@")
+              ? {
+                  ...step,
+                  with: Object.fromEntries(
+                    Object.entries(step.with).filter(
+                      ([key]) =>
+                        !["node-version", "node-version-file"].includes(key),
+                    ),
+                  ),
+                }
+              : step,
+          );
       assert.deepEqual(retainedActionSteps(after), retainedActionSteps(before));
       if (name === "evaluation-conformance") assertCanonicalPython(after);
       assert.equal(
@@ -510,6 +531,82 @@ test("Markdown workflow checks the complete installed graph on both supported pl
   assert.equal(job.steps[0].with["persist-credentials"], false);
 });
 
+test("every Node workflow selects the single exact repository runtime", () => {
+  const version = readFileSync(".node-version", "utf8").trim();
+  assert.match(version, /^\d+\.\d+\.\d+$/u);
+  let consumers = 0;
+  for (const file of readdirSync(".github/workflows").filter((entry) =>
+    /\.ya?ml$/u.test(entry),
+  )) {
+    const workflow = parse(
+      readFileSync(join(".github/workflows", file), "utf8"),
+    );
+    for (const job of Object.values(workflow.jobs)) {
+      for (const step of job.steps ?? []) {
+        if (!step.uses?.startsWith("actions/setup-node@")) continue;
+        consumers += 1;
+        assert.equal(step.with["node-version-file"], ".node-version", file);
+        assert.equal(step.with["node-version"], undefined, file);
+        assert.ok(
+          job.steps.some(
+            (previous, index) =>
+              index < job.steps.indexOf(step) &&
+              previous.uses?.startsWith("actions/checkout@"),
+          ),
+          `${file} must check out the version file before selecting Node`,
+        );
+      }
+    }
+  }
+  assert.ok(consumers > 0);
+});
+
+for (const name of ["defining-concepts-linux", "evaluation-conformance"]) {
+  test(`${name} propagates changes to both shared Python toolchain targets`, (t) => {
+    const workflow = workflows(name).current;
+    const job = workflow.jobs.conformance ?? workflow.jobs.verify;
+    assertCanonicalPython(job);
+    const target = job.steps.find((step) => step.id === "python-target");
+    assert.equal(target.shell, "bash");
+    const command = /^node --input-type=module -e '([^']+)'$/u.exec(target.run);
+    assert.ok(command, "Run the workflow's actual runtime-reading program");
+    const root = mkdtempSync(join(tmpdir(), "workflow-runtime-targets-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const canonical = JSON.parse(
+      readFileSync(".development-runtimes.json", "utf8"),
+    );
+    const changed = Object.fromEntries(
+      Object.entries(canonical).map(([key, version]) => {
+        assert.match(version, /^\d+\.\d+\.\d+$/u);
+        const parts = version.split(".").map(Number);
+        parts[2] += 1;
+        return [key, parts.join(".")];
+      }),
+    );
+    for (const [index, targets] of [canonical, changed].entries()) {
+      writeFileSync(
+        join(root, ".development-runtimes.json"),
+        JSON.stringify(targets),
+      );
+      const output = join(root, `outputs-${index}`);
+      const result = spawnSync(
+        process.execPath,
+        ["--input-type=module", "-e", command[1]],
+        {
+          cwd: root,
+          env: { ...process.env, GITHUB_OUTPUT: output },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(
+        readFileSync(output, "utf8"),
+        `python=${targets.python}\nuv=${targets.uv}\n`,
+      );
+    }
+  });
+}
+
 test("the Linux probe shell fails on an early command or pipeline failure", (t) => {
   const gitPaths = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
   const shell =
@@ -551,8 +648,8 @@ function assertCanonicalPython(job) {
     "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
   );
   assert.deepEqual(provision.with, {
-    version: "0.13.0",
-    "python-version": "${{ steps.python-target.outputs.version }}",
+    version: "${{ steps.python-target.outputs.uv }}",
+    "python-version": "${{ steps.python-target.outputs.python }}",
     "enable-cache": false,
   });
   const base = job.steps.find(
