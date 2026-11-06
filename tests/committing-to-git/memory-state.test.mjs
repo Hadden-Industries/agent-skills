@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
+import { readStableFile } from "../../lib/filesystem/stableFile.js";
 
 import {
   assertWorkflowResult,
@@ -44,19 +39,25 @@ function sentinelFixture(t) {
   };
 }
 
+/** Snapshot fixture entries, rejecting unstable or linked file reads. */
 function listFiles(root) {
   const entries = [];
 
-  for (const name of readdirSync(root)) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const { name } = entry;
     const path = join(root, name);
-    const stats = statSync(path);
 
-    entries.push(
-      `${relative(root, path).replaceAll("\\", "/")}:${stats.isDirectory() ? "dir" : `${stats.size}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`}`,
-    );
-
-    if (stats.isDirectory()) {
+    if (entry.isDirectory()) {
+      entries.push(`${relative(root, path).replaceAll("\\", "/")}:dir`);
       entries.push(...listFiles(path).map((entry) => `${name}/${entry}`));
+    } else {
+      // Size and digest must describe the same validated file contents.
+      const { bytes } = readStableFile(path, Number.MAX_SAFE_INTEGER, {
+        rejectLinkedAncestors: true,
+      });
+      entries.push(
+        `${relative(root, path).replaceAll("\\", "/")}:${bytes.length}:${createHash("sha256").update(bytes).digest("hex")}`,
+      );
     }
   }
 

@@ -36,6 +36,9 @@
     "test:markdown": "node --test tests/scripts/markdown-quality.test.mjs",
     "verify": "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test"
   },
+  "overrides": {
+    "minimatch": "^11.0.1"
+  },
   "devDependencies": {
     "@eslint/js": ">=10.0.1",
     "@hadden-industries/markdown-quality": ">=3.0.0",

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "9a6d92a64a1beb5628df7215a9e86fae23b6fa85",
+  "reason": "Record the already-committed naming source-authority autolinks and dev.2 metadata; canonical skill content and historical records are unchanged.",
+  "files": [
+    {
+      "path": "skills/naming-objects-in-software-engineering/references/source-authorities.md",
+      "previousSha256": "24e8eb4400730adddca52fe3efba70efedb98745cf1a717dbd724e1b7dd8c436",
+      "byteLength": 11953,
+      "sha256": "8a9deb881f0d67d733de55fb89dc832639ba1991c8b85e1e89521aa0a61f711d"
+    }
+  ]
+}

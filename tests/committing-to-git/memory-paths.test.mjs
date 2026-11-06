@@ -6,12 +6,12 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { readStableFile } from "../../lib/filesystem/stableFile.js";
 import { commitProposalWorkflow } from "../../src/committing-to-git/workflow/commitProposalWorkflow.js";
 
 import {
@@ -24,16 +24,21 @@ import {
   writeRepositoryFile,
 } from "./harness.mjs";
 
+/** Snapshot fixture entries, rejecting unstable or linked file reads. */
 function inventory(root) {
-  return readdirSync(root)
-    .sort()
-    .flatMap((name) => {
+  return readdirSync(root, { withFileTypes: true })
+    .sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    )
+    .flatMap((entry) => {
+      const { name } = entry;
       const path = join(root, name);
-      return statSync(path).isDirectory()
-        ? [name, ...inventory(path).map((entry) => `${name}/${entry}`)]
-        : [
-            `${name}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`,
-          ];
+      if (entry.isDirectory())
+        return [name, ...inventory(path).map((entry) => `${name}/${entry}`)];
+      const { bytes } = readStableFile(path, Number.MAX_SAFE_INTEGER, {
+        rejectLinkedAncestors: true,
+      });
+      return [`${name}:${createHash("sha256").update(bytes).digest("hex")}`];
     });
 }
 

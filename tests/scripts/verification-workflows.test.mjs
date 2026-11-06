@@ -458,6 +458,7 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
 
 test("verification retains complete Markdown checking and the evidence generator", () => {
   const current = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.equal(current.overrides?.minimatch, "^11.0.1");
   assert.equal(
     current.scripts["ci:evidence"],
     "node scripts/ci/verificationEvidence.js",

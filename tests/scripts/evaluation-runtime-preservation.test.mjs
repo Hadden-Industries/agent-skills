@@ -159,6 +159,26 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
     messageDetail.files.map(({ path }) => path),
     ["skills/committing-to-git/references/message-format.md"],
   );
+  const namingAutolinks = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/naming-autolinks-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(namingAutolinks.schemaVersion, 1);
+  assert.equal(
+    namingAutolinks.baselineRevision,
+    "9a6d92a64a1beb5628df7215a9e86fae23b6fa85",
+  );
+  assert.deepEqual(
+    namingAutolinks.files.map(({ path }) => path),
+    [
+      "skills/naming-objects-in-software-engineering/references/source-authorities.md",
+    ],
+  );
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -209,7 +229,7 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
   const metadataVersions = new Map([
     ["skills/committing-to-git/SKILL.md", releaseVersion],
     ["skills/defining-concepts/SKILL.md", "0.1.0-dev.1"],
-    ["skills/naming-objects-in-software-engineering/SKILL.md", "0.1.0-dev.1"],
+    ["skills/naming-objects-in-software-engineering/SKILL.md", "0.1.0-dev.2"],
   ]);
   for (const file of baseline) {
     const bytes = actual.get(file.path.slice("skills/".length));
@@ -355,7 +375,17 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
         previousIdentity.sha256,
         file.path,
       );
-    const expectedIdentity = memoryPathsChange ?? previousIdentity;
+    const preAutolinksIdentity = memoryPathsChange ?? previousIdentity;
+    const namingAutolinksChange = namingAutolinks.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (namingAutolinksChange)
+      assert.equal(
+        namingAutolinksChange.previousSha256,
+        preAutolinksIdentity.sha256,
+        file.path,
+      );
+    const expectedIdentity = namingAutolinksChange ?? preAutolinksIdentity;
     assert.equal(
       comparisonBytes.length,
       expectedIdentity.byteLength,
