@@ -8,7 +8,7 @@ import { readContract } from "./json-contract.js";
 import { setTimeout as delay } from "node:timers/promises";
 
 const pythonTarget = JSON.parse(
-  readFileSync(join(repositoryRoot, ".markdown-quality-runtimes.json"), "utf8"),
+  readFileSync(join(repositoryRoot, ".development-runtimes.json"), "utf8"),
 ).python;
 const pythonMinimum = pythonTarget.split(".").map(Number);
 

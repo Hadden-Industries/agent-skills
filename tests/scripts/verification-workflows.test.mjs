@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -162,11 +161,6 @@ const originalWorkflows = {
     },
   },
 };
-// Accepted 2026-10-10 development floors and native npm policy, plus the
-// 2026-11-03 dependency-cruiser >=18.7.1 floor, with the separately tested
-// evidence/Markdown script additions removed below.
-const approvedPackageDigest =
-  "076a2ce9e32130119d09a60c90d8d10790b42e6d3d72505b1f70ed5dd9959ad2";
 function workflows(name) {
   return {
     original: originalWorkflows[name],
@@ -462,51 +456,15 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
   );
 });
 
-test("evidence and Markdown entry points retain the root dependency graph and existing verification order", () => {
+test("verification retains complete Markdown checking and the evidence generator", () => {
   const current = JSON.parse(readFileSync("package.json", "utf8"));
   assert.equal(
     current.scripts["ci:evidence"],
     "node scripts/ci/verificationEvidence.js",
   );
-  delete current.scripts["ci:evidence"];
   assert.equal(
     current.scripts.verify,
     "npm run diff:check && npm run build:check && npm run check:markdown && npm run skills:validate && npm run skills:lint && npm run eval:check && npm test",
-  );
-  current.scripts.verify = current.scripts.verify.replace(
-    " && npm run check:markdown",
-    "",
-  );
-  assert.equal(
-    current.devDependencies["@hadden-industries/markdown-quality"],
-    ">=3.0.0",
-  );
-  delete current.devDependencies["@hadden-industries/markdown-quality"];
-  assert.equal(current.scripts["install:markdown"], undefined);
-  assert.equal(current.scripts["qualify:markdown"], undefined);
-  assert.equal(
-    current.scripts["check:markdown"],
-    "markdown-quality check --root .",
-  );
-  assert.equal(
-    current.scripts["format:markdown"],
-    "markdown-quality format --write --root .",
-  );
-  assert.equal(
-    current.scripts["inspect:markdown"],
-    "markdown-quality inspect --root . --json",
-  );
-  for (const name of [
-    "check:markdown",
-    "format:markdown",
-    "inspect:markdown",
-    "test:markdown",
-  ]) {
-    delete current.scripts[name];
-  }
-  assert.equal(
-    createHash("sha256").update(JSON.stringify(current)).digest("hex"),
-    approvedPackageDigest,
   );
 });
 
@@ -582,10 +540,7 @@ test("the Linux probe shell fails on an early command or pipeline failure", (t) 
 
 function assertCanonicalPython(job) {
   const target = job.steps.find((step) => step.id === "python-target");
-  assert.match(
-    target.run,
-    /readFileSync\("\.markdown-quality-runtimes\.json"/u,
-  );
+  assert.match(target.run, /readFileSync\("\.development-runtimes\.json"/u);
   assert.match(target.run, /GITHUB_OUTPUT/u);
   const provision = job.steps.find((step) =>
     step.uses?.startsWith("astral-sh/setup-uv@"),

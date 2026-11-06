@@ -17,7 +17,7 @@ import {
 const windows = process.platform === "win32";
 const pythonTarget = JSON.parse(
   readFileSync(
-    new URL("../../.markdown-quality-runtimes.json", import.meta.url),
+    new URL("../../.development-runtimes.json", import.meta.url),
     "utf8",
   ),
 ).python;

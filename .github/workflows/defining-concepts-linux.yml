@@ -46,7 +46,7 @@ jobs:
       - name: Read the canonical Python target
         id: python-target
         shell: bash
-        run: node --input-type=module -e 'import {readFileSync,appendFileSync} from "node:fs"; const {python}=JSON.parse(readFileSync(".markdown-quality-runtimes.json","utf8")); appendFileSync(process.env.GITHUB_OUTPUT, `version=${python}\n`);'
+        run: node --input-type=module -e 'import {readFileSync,appendFileSync} from "node:fs"; const {python}=JSON.parse(readFileSync(".development-runtimes.json","utf8")); appendFileSync(process.env.GITHUB_OUTPUT, `version=${python}\n`);'
 
       - name: Set up the Python provisioner
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0

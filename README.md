@@ -445,7 +445,7 @@ They should not rely on a developer-specific `.git/info/exclude`.
 The bootstrap expects:
 
 - **Git**
-- **Stable Python at or above `.markdown-quality-runtimes.json#python`** (shared by local authoring, CI and Markdown tooling)
+- **Stable Python at or above `.development-runtimes.json#python`** (shared by local authoring and evaluation CI)
 - **Node.js 24 or newer**
 - **npm / npx 12.2.0 or newer**
 
@@ -1527,7 +1527,7 @@ It reports shared repository Markdown quality as an omitted global check; run `n
 It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
 A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
-The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python selected from `.markdown-quality-runtimes.json`.
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node 24 and Python selected from `.development-runtimes.json`.
 Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
 
 ```sh
@@ -1626,7 +1626,7 @@ Project-wide generated artifacts belong in `.gitignore`, not in a developer-spec
 Python virtual environments retain the base-interpreter location used when they were created.
 If that Python installation moves, is removed, or becomes inaccessible to a sandbox, `.venv\Scripts\python.exe` may fail even though the current `python` or `py` command works normally.
 
-Rerun the evaluation-tool setup with an accessible stable Python meeting `.markdown-quality-runtimes.json#python`:
+Rerun the evaluation-tool setup with an accessible stable Python meeting `.development-runtimes.json#python`:
 
 ```powershell
 py scripts\set_up_evaluation_tools.py

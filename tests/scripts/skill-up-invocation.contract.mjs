@@ -34,7 +34,7 @@ for (const item of [
   "node_modules",
   "package.json",
   "package-lock.json",
-  ".markdown-quality-runtimes.json",
+  ".development-runtimes.json",
   "evaluation-toolchain.json",
 ])
   cpSync(path.join(repository, item), path.join(checkout, item), {

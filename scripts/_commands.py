@@ -30,7 +30,9 @@ class SetupError(RuntimeError):
 
 
 PYTHON_TARGET = json.loads(
-    (Path(__file__).resolve().parents[1] / ".markdown-quality-runtimes.json").read_text(encoding="utf-8")
+    (Path(__file__).resolve().parents[1] / ".development-runtimes.json").read_text(
+        encoding="utf-8"
+    )
 )["python"]
 PYTHON_MINIMUM = tuple(map(int, PYTHON_TARGET.split(".")))
 

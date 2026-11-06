@@ -86,13 +86,14 @@ test("an older usable virtual environment is replaced before installing tools", 
 test("Python setup rejects older runtimes and accepts the floor and newer versions", () => {
   const target = JSON.parse(
     readFileSync(
-      new URL("../../.markdown-quality-runtimes.json", import.meta.url),
+      new URL("../../.development-runtimes.json", import.meta.url),
       "utf8",
     ),
   ).python;
   const [major, minor, patch] = target.split(".").map(Number);
   for (const version of [
     `${major}.${minor - 1}.99`,
+    `${major}.${minor}.${patch - 1}`,
     `${target}@candidate`,
     `${major}.${minor + 1}.0@alpha`,
   ]) {

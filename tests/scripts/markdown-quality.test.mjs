@@ -1,231 +1,152 @@
+// Consumer checks exercise repository-owned behavior through root npm commands.
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
-
-const root = resolve(import.meta.dirname, "../..");
-const {
-  inspectSelection,
-  readExecutionProfile,
-  runQuality,
-  validateQualityResult,
-} = await import("@hadden-industries/markdown-quality");
-const packageRoot = resolve(
-  dirname(
-    fileURLToPath(import.meta.resolve("@hadden-industries/markdown-quality")),
-  ),
-  "..",
-);
-const manifest = JSON.parse(
-  readFileSync(join(packageRoot, "package.json"), "utf8"),
-);
-const cli = join(packageRoot, manifest.bin["markdown-quality"]);
-const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-
-function fixture(t) {
-  const directory = mkdtempSync(join(tmpdir(), "agent skills markdown "));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  writeFileSync(
-    join(directory, ".markdown-quality.json"),
-    JSON.stringify({
-      ...readJson(join(root, ".markdown-quality.json")),
-      include: ["**/*.md"],
-      exclude: ["excluded/**"],
-    }),
-  );
-  return directory;
-}
-
-test("root lock owns the installed core and matching native platform packages", () => {
-  const lock = readJson(join(root, "package-lock.json"));
-  assert.equal(lock.packages[""].devDependencies[manifest.name], ">=3.0.0");
-  assert.equal(
-    lock.packages[`node_modules/${manifest.name}`].version,
-    manifest.version,
-  );
-  for (const platform of ["win32-x64", "linux-x64"]) {
-    const entry = lock.packages[`node_modules/${manifest.name}-${platform}`];
-    assert.equal(entry.version, manifest.version);
-    assert.equal(entry.optional, true);
-    assert.match(entry.resolved, /^https:\/\/registry\.npmjs\.org\//u);
+import { afterEach, test } from "node:test";
+const repository = fileURLToPath(new URL("../../", import.meta.url));
+const npmCli = process.env.npm_execpath;
+assert.ok(npmCli, "Run these consumer checks through npm.");
+const scripts = JSON.parse(
+  readFileSync(join(repository, "package.json"), "utf8"),
+).scripts;
+const roots = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
   }
-  const profile = readExecutionProfile({ root });
-  assert.equal(profile.schemaVersion, 2);
-  assert.equal(profile.executionTimeoutMs, 30000);
 });
-
-test("Markdown root policy accounts for tracked inventory and agrees with explicit selection", async () => {
-  const report = await inspectSelection({
-    root,
-    reconciliationInventory: "git",
-  });
-  assert.equal(report.schemaVersion, 5);
-  assert.equal(report.preset, "authored-gfm@2");
-  validateQualityResult(report, { operation: "inspect", exitCode: 0 });
-  const tracked = execFileSync("git", ["ls-files", "-z"], {
+function npm(args, root = repository) {
+  const child = spawnSync(process.execPath, [npmCli, "--silent", ...args], {
     cwd: root,
     encoding: "utf8",
-  })
-    .split("\0")
-    .filter((path) => path.endsWith(".md"));
-  assert.deepEqual(
-    report.selection.reconciliationDecisions.map((item) => item.path).sort(),
-    tracked.sort(),
+    timeout: 60000,
+    maxBuffer: 8 * 1024 * 1024,
+    windowsHide: true,
+  });
+  assert.ifError(child.error);
+  assert.equal(child.signal, null, child.stderr);
+  return child;
+}
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "agent-skills-markdown-"));
+  roots.push(root);
+  for (const path of [
+    ".markdown-quality.json",
+    ".markdown-quality-execution.json",
+  ]) {
+    if (existsSync(join(repository, path))) {
+      copyFileSync(join(repository, path), join(root, path));
+    }
+  }
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({
+      private: true,
+      scripts: {
+        "check:markdown": scripts["check:markdown"],
+        "format:markdown": scripts["format:markdown"],
+      },
+    }),
   );
-  const selected = [
+  symlinkSync(
+    join(repository, "node_modules"),
+    join(root, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  return root;
+}
+test("root commands select maintained documents and independently exclude preserved records", () => {
+  const git = spawnSync("git", ["ls-files", "-z", "--", "*.md"], {
+    cwd: repository,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  assert.ifError(git.error);
+  assert.equal(git.status, 0, git.stderr);
+  const tracked = git.stdout.split("\0").filter(Boolean);
+  const preserved = tracked.filter(
+    (path) =>
+      /^(?:skills|plugins|evidence)\//u.test(path) ||
+      /^docs\/(?:plans|reviews|designs|assurance-cases|research)\//u.test(
+        path,
+      ) ||
+      /^src\/[^/]+\/evals\//u.test(path),
+  );
+  assert.ok(
+    preserved.length > 0,
+    "The ownership assertion needs real preserved records.",
+  );
+  const child = npm(["run", "inspect:markdown"]);
+  assert.equal(child.status, 0, child.stderr);
+  const selection = JSON.parse(child.stdout).selection;
+  for (const path of [
     "README.md",
     "AGENTS.md",
     "src/defining-concepts/SKILL.md",
-    "src/reading-epubs/references/conversion-troubleshooting.md",
-  ];
-  const excluded = [
-    "skills/defining-concepts/SKILL.md",
-    "src/defining-concepts/evals/README.md",
-    "docs/plans/2026-10-10-markdown-quality-centralization.md",
-  ];
-  for (const path of selected)
-    assert.ok(report.selection.files.includes(path), path);
-  for (const path of excluded)
-    assert.ok(!report.selection.files.includes(path), path);
-  const explicit = await inspectSelection({
-    root,
-    files: [...selected, ...excluded],
-  });
-  validateQualityResult(explicit, { operation: "inspect", exitCode: 0 });
-  assert.deepEqual([...explicit.selection.files].sort(), selected.sort());
-});
-
-test("installed formatter preserves skill metadata, literal commands and rendered hard breaks and converges", async (t) => {
-  const directory = fixture(t);
-  const metadata =
-    "---\nname: example-skill\ndescription: Preserve exact skill metadata.\n---\n";
-  const code = '```sh\nprintf "%s\\n" "$HOME"\n```';
-  writeFileSync(
-    join(directory, "SKILL.md"),
-    `${metadata}\n# Example\n\nFirst sentence. Second sentence.\n\n${code}\n\nFirst line.  \nSecond line.\n`,
-  );
-  const formatted = await runQuality({ root: directory, mode: "format" });
-  assert.equal(formatted.exitCode, 0, JSON.stringify(formatted));
-  validateQualityResult(formatted, { operation: "format", exitCode: 0 });
-  const bytes = readFileSync(join(directory, "SKILL.md"), "utf8");
-  assert.ok(bytes.startsWith(metadata));
-  assert.ok(bytes.includes(code));
-  assert.match(bytes, /First line\.(?: {2}|\\)\nSecond line\./u);
-  assert.ok([...Buffer.from(bytes)].every((byte) => byte < 128));
-  const second = await runQuality({ root: directory, mode: "format" });
-  validateQualityResult(second, { operation: "format", exitCode: 0 });
-  assert.deepEqual(second.writtenPaths, []);
-  assert.equal(readFileSync(join(directory, "SKILL.md"), "utf8"), bytes);
-});
-
-test("installed shared checker rejects a broken local link and formatting writes no selected document", async (t) => {
-  const directory = fixture(t);
-  const original = "# Good\n\nFirst sentence. Second sentence.\n";
-  const broken = "# Broken\n\n[Missing](absent.md)\n";
-  writeFileSync(join(directory, "good.md"), original);
-  writeFileSync(join(directory, "broken.md"), broken);
-  const report = await runQuality({ root: directory, mode: "format" });
-  validateQualityResult(report, { operation: "format", exitCode: 1 });
-  assert.ok(
-    report.diagnostics.some(
-      (item) => item.path === "broken.md" && item.source === "links",
-    ),
-    JSON.stringify(report),
-  );
-  assert.deepEqual(report.writtenPaths, []);
-  assert.equal(readFileSync(join(directory, "good.md"), "utf8"), original);
-  assert.equal(readFileSync(join(directory, "broken.md"), "utf8"), broken);
-});
-
-test("ignore files cannot bypass the root policy and excluded ancestor bytes stay intact", async (t) => {
-  const directory = fixture(t);
-  mkdirSync(join(directory, "excluded/nested"), { recursive: true });
-  const excluded = "# Broken archival fixture\n\n[Missing](absent.md)\n";
-  writeFileSync(join(directory, "excluded/nested/history.md"), excluded);
-  writeFileSync(join(directory, "README.md"), "# Visible\n");
-  writeFileSync(join(directory, ".gitignore"), "*.md\n");
-  writeFileSync(join(directory, ".prettierignore"), "*.md\n");
-  const report = await runQuality({ root: directory, mode: "format" });
-  validateQualityResult(report, { operation: "format", exitCode: 0 });
-  assert.deepEqual(report.selection.files, ["README.md"]);
-  assert.equal(
-    readFileSync(join(directory, "excluded/nested/history.md"), "utf8"),
-    excluded,
-  );
-});
-
-test("public CLI previews exact candidates, writes explicitly and converges without read-only mutations", (t) => {
-  const directory = fixture(t);
-  const path = join(directory, "literal [skill].md");
-  const original = Buffer.from(
-    "# Example\n\nFirst sentence. Second sentence.\n",
-  );
-  writeFileSync(path, original);
-  const invoke = (...args) =>
-    spawnSync(process.execPath, [cli, ...args], {
-      cwd: directory,
-      encoding: "utf8",
-      windowsHide: true,
-    });
-  for (const args of [[], ["--write", "--dry-run"]]) {
-    const refused = invoke("format", "--root", directory, ...args);
-    assert.equal(refused.status, 2, refused.stderr);
-    assert.deepEqual(readFileSync(path), original);
+  ]) {
+    assert.ok(selection.files.includes(path), path);
   }
-  const preview = invoke(
-    "format",
-    "--dry-run",
-    "--json",
-    "--root",
-    directory,
-    "--",
-    "literal [skill].md",
+  for (const path of preserved) {
+    assert.ok(!selection.files.includes(path), path);
+    assert.ok(
+      selection.omissions.some(
+        (item) => item.path === path && item.reason === "excluded",
+      ),
+      path,
+    );
+  }
+});
+test("root check and format preserve domain literals and excluded historical bytes", () => {
+  const root = fixture();
+  const path = join(root, "SKILL.md");
+  mkdirSync(dirname(path), { recursive: true });
+  const original = Buffer.from(
+    '---\nname: example\ndescription: Preserve canonical skill metadata.\n---\n\n#   Guide\n\n```sh\nprintf "%s\\n" "$HOME"  \n```\n',
   );
-  assert.equal(preview.status, 0, preview.stderr);
-  const predicted = JSON.parse(preview.stdout);
-  assert.equal(predicted.schemaVersion, 5);
-  validateQualityResult(predicted, { operation: "format", exitCode: 0 });
-  assert.deepEqual(predicted.writtenPaths, []);
+  const expected =
+    '---\nname: example\ndescription: Preserve canonical skill metadata.\n---\n\n# Guide\n\n```sh\nprintf "%s\\n" "$HOME"  \n```\n';
+  const retained = join(root, "docs/plans/retained.md");
+  mkdirSync(dirname(retained), { recursive: true });
+  const historical = Buffer.from("#   Retained historical record\n");
+  writeFileSync(retained, historical);
+  writeFileSync(path, original);
+  const check = npm(["run", "check:markdown"], root);
+  assert.equal(check.status, 1, check.stderr);
   assert.deepEqual(readFileSync(path), original);
-  const candidate = predicted.documentResults[0].candidate;
-  assert.equal(candidate.inputSha256, hash(original));
-  assert.equal(candidate.inputBytes, original.length);
-  assert.equal(candidate.changed, true);
-  const write = invoke(
-    "format",
-    "--write",
-    "--json",
-    "--root",
-    directory,
-    "--",
-    "literal [skill].md",
-  );
-  assert.equal(write.status, 0, write.stderr);
-  const written = JSON.parse(write.stdout);
-  assert.equal(written.schemaVersion, 5);
-  assert.deepEqual(written.writtenPaths, ["literal [skill].md"]);
-  const output = readFileSync(path);
-  assert.equal(hash(output), candidate.outputSha256);
-  assert.equal(output.length, candidate.outputBytes);
-  const second = invoke("format", "--write", "--json", "--root", directory);
-  assert.equal(second.status, 0, second.stderr);
-  assert.deepEqual(JSON.parse(second.stdout).writtenPaths, []);
-  const check = invoke("check", "--json", "--root", directory);
-  assert.equal(check.status, 0, check.stderr);
-  const checked = JSON.parse(check.stdout);
-  assert.equal(checked.schemaVersion, 5);
-  assert.equal(checked.operationStatus, "completed");
-  assert.equal(checked.qualityStatus, "clean");
-  assert.deepEqual(readFileSync(path), output);
+  assert.deepEqual(readFileSync(retained), historical);
+  const format = npm(["run", "format:markdown"], root);
+  assert.equal(format.status, 0, format.stderr);
+  assert.equal(readFileSync(path, "utf8"), expected);
+  assert.deepEqual(readFileSync(retained), historical);
+  const clean = npm(["run", "check:markdown"], root);
+  assert.equal(clean.status, 0, clean.stderr);
+});
+test("root check propagates native success, quality failure and configuration failure without writes", () => {
+  const root = fixture();
+  const path = join(root, "README.md");
+  for (const [content, expected] of [
+    ["# Guide\n\nA clear sentence.\n", 0],
+    ["# Guide\n\n[Missing target](absent.md).\n", 1],
+    ["# Guide\n", 2],
+  ]) {
+    writeFileSync(path, content);
+    if (expected === 2) {
+      writeFileSync(join(root, ".markdown-quality.json"), "{invalid");
+    }
+    const child = npm(["run", "check:markdown"], root);
+    assert.equal(child.status, expected, child.stderr);
+    assert.equal(readFileSync(path, "utf8"), content);
+  }
 });
