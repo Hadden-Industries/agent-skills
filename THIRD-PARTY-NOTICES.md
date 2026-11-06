@@ -22,7 +22,7 @@ Use those records for its Python dependency versions and redistribution terms.
 ## Development tools and imported skills
 
 Markdown development tooling uses the separately licensed `@hadden-industries/markdown-quality` package under AGPL-3.0-only.
-Its retained archives carry the component notices and source materials described in the [Markdown quality guide](docs/markdown-quality.md).
+The installed development packages carry the component notices and source materials described in the [Markdown quality guide](docs/markdown-quality.md).
 That development graph is separate from the MPL skill/plugin payloads.
 
 Other development dependencies, external executables, and imported skills retain their upstream licences and notices.
