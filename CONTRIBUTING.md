@@ -40,15 +40,12 @@ Checks do not authorize tool acquisition, authentication, paid services, or mode
 
 ## Verification and review
 
-During implementation, run focused tests for the changed behavior and affected checks at integration.
-Before review, run `npm run format:check` and `npm run lint`; check maintained documentation with `npm run check:markdown`.
-A passing `npm run build:check` or `npm run verify` satisfies the formatting and lint prerequisites when the relevant inputs are unchanged.
-
-For the final candidate of a skill, related test, or repository authoring/build-script change, run:
-
-```sh
-npm run verify
-```
+1. **While editing**, run focused tests for the behavior you changed.
+   Run affected checks when you integrate the change.
+2. **Before review**, run `npm run format:check` and `npm run lint`.
+   Check maintained documentation with `npm run check:markdown`.
+   A passing `npm run build:check` or `npm run verify` also satisfies the formatting and lint prerequisites for the same inputs.
+3. **For the final candidate**, run `npm run verify` if you changed a skill, a related test, or the repository's authoring or build scripts.
 
 Deterministic verification does not establish behavioral improvement, trigger accuracy, cross-agent portability, or real host activation.
 Provide the applicable additional evidence for those claims.

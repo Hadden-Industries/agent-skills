@@ -3,9 +3,18 @@
 Run `npm ci --ignore-scripts` to install the root locked development dependencies.
 The root manifest declares `@hadden-industries/markdown-quality` with the `>=3.0.0` minimum; the root lock freezes the core and matching optional Windows/Linux native packages.
 
-`npm run check:markdown` checks maintained Markdown without writes or acquisition; `npm run format:markdown` writes formatting.
-`npm run --silent inspect:markdown` explains complete tracked inventory decisions as JSON.
-`npm run verify` includes the shared check and independent installed-consumer integration tests.
+## Choose a command
+
+- **Check the repository** with `npm run check:markdown`.
+  It reports findings without writing files or acquiring tools.
+- **Explain file selection** with `npm run --silent inspect:markdown`.
+  It prints tracked inventory decisions as JSON.
+- **Apply formatting** with `npm run format:markdown`.
+  It writes eligible formatting changes.
+- **Verify the integration** with `npm run verify`.
+  It runs the shared check and independent installed-consumer tests.
+
+## Which files to edit
 
 The root `.markdown-quality.json` contains only schema-3 ownership exclusions; the installed package supplies its `authored-gfm@2` defaults.
 It selects all `.md` files unless explicitly excluded, including package documentation, canonical skill instructions and references.
@@ -15,6 +24,8 @@ Historical plans, reviews, design/assurance records, evaluation inputs, evidence
 Markdown selection does not read ignore files.
 Edit source under `src/`, then use the repository build to regenerate distributions.
 ASCII-only canonical instructions and source/generated correspondence remain separately enforced; the former custom one-prose-block-per-line validator is retired in favor of shared sentence layout.
+
+## Check or preview one file
 
 For a literal path, run `npm run check:markdown -- -- src/defining-concepts/SKILL.md`.
 Use `npm run --silent check:markdown -- --json -- src/defining-concepts/SKILL.md` for one complete schema-5 result on stdout; human diagnostics use stderr.
@@ -26,6 +37,8 @@ Preview with `npm exec -- markdown-quality format --dry-run --root . -- src/defi
 Preview reports candidate byte counts and hashes without writing; a successful preview, repair or selected check does not establish complete repository cleanliness.
 Use the complete `npm run check:markdown` verdict for that claim.
 From another working directory, `npm --prefix <absolute-repository-root> run check:markdown` retains this repository's explicit root.
+
+## Toolchain and verification scope
 
 The tool's AGPL-3.0-only licence and native-component notices/source materials ship in the installed development packages.
 They are not bundled into the MPL skill/plugin payloads.

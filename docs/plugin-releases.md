@@ -29,6 +29,8 @@ The build copies it into the distributed skill.
 For committing-to-git, the plugin build also rejects disagreement between this metadata and the selected ledger release.
 Earlier installed copies retain their original bytes, including the absence of version metadata.
 
+### Assign a development version
+
 When published inputs change, the build reports their new full digest and refuses to reuse the current version.
 After the exact configuration change is approved, run one deliberate release operation:
 
@@ -54,11 +56,14 @@ Build count, timestamps, dirty revisions and host paths never determine the vers
 
 Run formatting/lint and the applicable verification before review; complete `npm run verify` on the final candidate.
 Commit the generated package, ledger and source together through the repository's authorized Git workflow.
-Existing `npm run package:plugin -- --output <absolute directory>` continues to produce the desktop ZIP.
-To prepare an exact committed release with a revision-to-artifact mapping, use:
+
+### Package a verified commit
+
+Use `npm run package:plugin -- --output <absolute directory>` when you need the desktop ZIP.
+To bind a ZIP and its provenance to an exact verified commit, run the following from your `agent-skills` checkout.
 
 ```powershell
-node scripts/preparePluginRelease.js --repository C:\Users\maksy\GitHub\agent-skills --revision <full-verified-commit-sha> --output <absolute-external-directory>
+node scripts/preparePluginRelease.js --repository . --revision <full-verified-commit-sha> --output <absolute-external-directory>
 ```
 
 The command requires a clean checkout at that exact commit, matching host versions and a committed package-input digest matching the ledger.
@@ -93,7 +98,10 @@ Unexpected files, missing files and changed bytes are differences even when both
 The bounded inspection supports regular files only; links and special files fail explicitly.
 Reads are observations, not an atomic whole-directory snapshot.
 
-The JSON report distinguishes:
+### Interpret the inspection result
+
+Start with `comparison.status` to see whether the installed bytes match the selected pin.
+Use the remaining fields to identify the versions compared and the limits of that observation.
 
 | Field                          | Meaning                                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
