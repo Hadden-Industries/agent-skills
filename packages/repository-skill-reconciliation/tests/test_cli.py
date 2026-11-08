@@ -350,6 +350,26 @@ class RepositoryCliTests(RepositoryFixture):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual(lock_before, (self.root / "skills-lock.json").read_bytes())
 
+    def test_tracked_descendant_blocks_an_otherwise_ignored_installation(self):
+        self.local_skill()
+        relative = ".claude/skills/team-conventions"
+        tracked = self.root / relative / "nested" / "keep.txt"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_bytes(b"tracked contents")
+        subprocess.run(
+            ["git", "add", "--force", "--", tracked.relative_to(self.root).as_posix()],
+            cwd=self.root,
+            check=True,
+        )
+
+        result = self.invoke("plan", "--local-only")
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            f"Refusing tracked managed destination: {relative}",
+            json.loads(result.stdout)["error"]["message"],
+        )
+        self.assertEqual(b"tracked contents", tracked.read_bytes())
+
     def test_skill_file_only_ignore_does_not_authorize_unignored_assets(self):
         self.local_skill()
         (self.root / ".gitignore").write_text(

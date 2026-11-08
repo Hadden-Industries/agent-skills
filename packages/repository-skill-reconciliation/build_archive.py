@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 import zipfile
 from importlib.metadata import distributions
 from pathlib import Path, PurePosixPath
@@ -63,6 +64,20 @@ def _member_name(value):
     return name
 
 
+def _measure(stream, *, algorithm="sha256", copy_to=None):
+    digest = hashlib.sha256()
+    record_digest = digest if algorithm == "sha256" else hashlib.new(algorithm)
+    length = 0
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+        if record_digest is not digest:
+            record_digest.update(chunk)
+        if copy_to is not None:
+            copy_to.write(chunk)
+        length += len(chunk)
+    return {"sha256": digest.hexdigest(), "byteLength": length}, record_digest.digest()
+
+
 def _dependency_members(vendor, expected):
     """Check native installed RECORD identities before bundling their actual bytes.
 
@@ -82,7 +97,7 @@ def _dependency_members(vendor, expected):
             )
         name = _member_name(path.relative_to(vendor).as_posix())
         if not _bytecode(name):
-            members[name] = path.read_bytes()
+            members[name] = path
     packages = list(distributions(path=[str(vendor)]))
     installed = {
         item.metadata["Name"].lower().replace("_", "-"): item.version
@@ -94,7 +109,7 @@ def _dependency_members(vendor, expected):
         raise ValueError(
             "Build vendor directory must contain exactly the three locked distributions."
         )
-    recorded = set()
+    recorded = {}
     for package in packages:
         files = package.files
         if files is None:
@@ -114,34 +129,29 @@ def _dependency_members(vendor, expected):
                 raise ValueError(
                     "Dependency RECORD contains duplicate or missing members."
                 )
-            recorded.add(name)
-            content = members[name]
             if item.hash is None:
                 if name != record_files[0] or item.size is not None:
                     raise ValueError(
                         "Dependency RECORD lacks a required content identity."
                     )
-            else:
-                if item.hash.mode not in ("sha256", "sha384", "sha512"):
-                    raise ValueError(
-                        "Dependency RECORD uses an unsupported content hash."
-                    )
-                actual = (
-                    base64.urlsafe_b64encode(
-                        hashlib.new(item.hash.mode, content).digest()
-                    )
-                    .decode()
-                    .rstrip("=")
+            elif item.hash.mode not in ("sha256", "sha384", "sha512"):
+                raise ValueError("Dependency RECORD uses an unsupported content hash.")
+            with members[name].open("rb") as stream:
+                facts, digest = _measure(
+                    stream, algorithm=item.hash.mode if item.hash else "sha256"
                 )
-                if actual != item.hash.value or item.size != len(content):
+            if item.hash is not None:
+                actual = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+                if actual != item.hash.value or item.size != facts["byteLength"]:
                     raise ValueError(
                         "Dependency bytes differ from installed RECORD: " + name
                     )
-    if recorded != set(members):
+            recorded[name] = facts
+    if recorded.keys() != members.keys():
         raise ValueError(
             "Vendor directory contains files outside installed RECORD inventories."
         )
-    return members
+    return members, recorded
 
 
 def _source_digest(members):
@@ -149,7 +159,7 @@ def _source_digest(members):
         json.dumps(
             {
                 name: hashlib.sha256(value).hexdigest()
-                for name, value in sorted(members.items())
+                for name, value in members.items()
             },
             sort_keys=True,
         ).encode()
@@ -168,12 +178,11 @@ def _directories(names):
 def build(output: Path, vendor: Path):
     """Create deterministic ZIP bytes with dependencies/schema/notices inside one file."""
     expected = _requirements()
-    dependencies = _dependency_members(vendor, expected)
+    dependencies, dependency_files = _dependency_members(vendor, expected)
     members = source_members()
     source_digest = _source_digest(members)
     if set(dependencies) & (set(members) | {"BUILD.json"}):
         raise ValueError("Dependency/source archive member collision.")
-    members.update(dependencies)
     members["BUILD.json"] = (
         json.dumps(
             {
@@ -183,13 +192,7 @@ def build(output: Path, vendor: Path):
                     name: {"version": version, "wheelSha256": digest}
                     for name, (version, digest) in expected.items()
                 },
-                "dependencyFiles": {
-                    name: {
-                        "sha256": hashlib.sha256(content).hexdigest(),
-                        "byteLength": len(content),
-                    }
-                    for name, content in sorted(dependencies.items())
-                },
+                "dependencyFiles": dependency_files,
             },
             sort_keys=True,
             indent=2,
@@ -197,16 +200,31 @@ def build(output: Path, vendor: Path):
         + "\n"
     ).encode()
     output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(
-        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
-    ) as archive:
-        directories = _directories(members)
-        for name in sorted(directories | set(members)):
-            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.create_system = 3
-            info.external_attr = (0o40755 if name.endswith("/") else 0o100644) << 16
-            info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, b"" if name.endswith("/") else members[name])
+    names = members.keys() | dependencies.keys()
+    # Preserve member order and verify the exact bytes written against BUILD.json.
+    with tempfile.TemporaryDirectory(dir=output.parent) as directory:
+        temporary = Path(directory) / output.name
+        with zipfile.ZipFile(temporary, "w") as archive:
+            for name in sorted(names | _directories(names)):
+                info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.create_system = 3
+                info.external_attr = (0o40755 if name.endswith("/") else 0o100644) << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                if name in dependencies:
+                    expected_facts = dependency_files[name]
+                    info.file_size = expected_facts["byteLength"]
+                    with (
+                        dependencies[name].open("rb") as source,
+                        archive.open(info, "w") as entry,
+                    ):
+                        facts, _ = _measure(source, copy_to=entry)
+                    if facts != expected_facts:
+                        raise ValueError(
+                            "Dependency changed during archive build: " + name
+                        )
+                else:
+                    archive.writestr(info, b"" if name.endswith("/") else members[name])
+        temporary.replace(output)
 
 
 def check(output: Path):
@@ -256,11 +274,9 @@ def check(output: Path):
         if len(names) != len(set(names)) or set(names) != files | _directories(files):
             raise ValueError("Archive member inventory differs from the build.")
         for name, facts in dependency_files.items():
-            content = archive.read(name)
-            if facts != {
-                "sha256": hashlib.sha256(content).hexdigest(),
-                "byteLength": len(content),
-            }:
+            with archive.open(name) as stream:
+                observed, _ = _measure(stream)
+            if facts != observed:
                 raise ValueError(
                     "Archive dependency bytes differ from the build: " + name
                 )

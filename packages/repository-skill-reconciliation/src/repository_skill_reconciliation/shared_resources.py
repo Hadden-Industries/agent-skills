@@ -17,7 +17,7 @@ from urllib.parse import quote, unquote, urlsplit, urlunsplit
 from .errors import ReconciliationError
 from .filesystem import copy_tree, validate_tree
 
-_DOCUMENT_SUFFIXES = {".md", ".markdown", ".mdx"}
+_DOCUMENT_SUFFIXES = (".md", ".markdown", ".mdx")
 _DESTINATIONS = (
     (
         re.compile(
@@ -57,25 +57,27 @@ def _failure(message: str) -> ReconciliationError:
     return ReconciliationError(message, code="shared-resource-invalid", exit_status=2)
 
 
-def _within(path: Path, root: Path) -> bool:
-    return path == root or root in path.parents
-
-
-def _source_path(parent: Path, value: str, root: Path) -> Path:
+def _source_path(
+    parent: Path, value: str, root: Path, checked_directories: set[Path]
+) -> Path:
     if "\\" in value or "\x00" in value or ":" in value:
         raise _failure(f"Unsupported shared resource path: {value!r}")
     target = Path(os.path.abspath(parent / value))
-    if not _within(target, root):
+    if not target.is_relative_to(root):
         raise _failure(f"Resource escapes its source snapshot: {value!r}")
     current = root
     for part in target.relative_to(root).parts:
         current /= part
+        if current != target and current in checked_directories:
+            continue
         try:
             info = current.lstat()
         except FileNotFoundError as error:
             raise _failure(f"Referenced resource does not exist: {target}") from error
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
             raise _failure(f"Linked resource is unsupported: {current}")
+        if stat.S_ISDIR(info.st_mode):
+            checked_directories.add(current)
     return target
 
 
@@ -88,9 +90,9 @@ def _shared_root(path: Path, root: Path) -> Path | None:
     return None
 
 
-def _references(text: str, source_file: Path, source_skill: Path, root: Path):
+def _references(text, source_file, source_skill, root, checked_directories):
     seen = set()
-    in_shared = not _within(source_file, source_skill)
+    in_shared = not source_file.is_relative_to(source_skill)
     for pattern, is_url in _DESTINATIONS:
         for match in pattern.finditer(text):
             group = "angle" if match.groupdict().get("angle") is not None else "path"
@@ -106,14 +108,33 @@ def _references(text: str, source_file: Path, source_skill: Path, root: Path):
             # Unrelated skill prose/links are outside this transform's scope.
             if not in_shared and "_shared" not in path_text.split("/"):
                 continue
-            target = _source_path(source_file.parent, path_text, root)
-            if not _within(target, source_skill) and _shared_root(target, root) is None:
+            target = _source_path(
+                source_file.parent, path_text, root, checked_directories
+            )
+            if (
+                not target.is_relative_to(source_skill)
+                and _shared_root(target, root) is None
+            ):
                 raise _failure(
                     f"Shared resource depends on an unsupported external tree: {original}"
                 )
             yield _Reference(
                 *span, original, target, is_url, parsed.query, parsed.fragment
             )
+
+
+def _document_paths(directory: Path):
+    for parent, _, files in os.walk(directory, onerror=_raise_walk_error):
+        parent = Path(parent)
+        for name in files:
+            if name.lower().endswith(_DOCUMENT_SUFFIXES):
+                path = parent / name
+                if path.suffix and path.is_file():
+                    yield path
+
+
+def _raise_walk_error(error: OSError) -> None:
+    raise error
 
 
 def normalize_shared_resources(
@@ -128,7 +149,7 @@ def normalize_shared_resources(
     output = skill_directory.absolute()
     root = source_root.absolute()
     source_skill = source_skill_directory.absolute()
-    if not _within(source_skill, root) or _within(output, root):
+    if not source_skill.is_relative_to(root) or output.is_relative_to(root):
         raise _failure(
             "Source skill must be in its snapshot; candidate must be separate"
         )
@@ -136,15 +157,12 @@ def normalize_shared_resources(
     validate_tree(output)
     shared_roots: set[Path] = set()
     documents: dict[Path, tuple[bytes, str, list[_Reference]]] = {}
+    # Reuse ancestor checks only within this private, immutable source snapshot.
+    checked_directories: set[Path] = set()
     pending = [source_skill]
     while pending:
         directory = pending.pop()
-        for source_file in sorted(directory.rglob("*")):
-            if (
-                not source_file.is_file()
-                or source_file.suffix.lower() not in _DOCUMENT_SUFFIXES
-            ):
-                continue
+        for source_file in sorted(_document_paths(directory)):
             if source_file in documents:
                 continue
             raw = source_file.read_bytes()
@@ -154,10 +172,12 @@ def normalize_shared_resources(
                 raise _failure(
                     f"Referenced Markdown must be UTF-8: {source_file}"
                 ) from error
-            references = list(_references(text, source_file, source_skill, root))
+            references = list(
+                _references(text, source_file, source_skill, root, checked_directories)
+            )
             documents[source_file] = (raw, text, references)
             for reference in references:
-                if _within(reference.target, source_skill):
+                if reference.target.is_relative_to(source_skill):
                     continue
                 shared = _shared_root(reference.target, root)
                 if shared not in shared_roots:
@@ -188,10 +208,10 @@ def normalize_shared_resources(
         destinations[shared] = destination
 
     def mapped(path):
-        if _within(path, source_skill):
+        if path.is_relative_to(source_skill):
             return output / path.relative_to(source_skill)
         for shared in ordered:
-            if _within(path, shared):
+            if path.is_relative_to(shared):
                 return destinations[shared] / path.relative_to(shared)
         raise _failure(f"No materialized destination for resource: {path}")
 
@@ -226,7 +246,10 @@ def normalize_shared_resources(
         if replacement != text:
             updates.append((destination_file, replacement.encode("utf-8")))
         # Source candidate bytes must still be those validated by acquisition.
-        if _within(source_file, source_skill) and destination_file.read_bytes() != raw:
+        if (
+            source_file.is_relative_to(source_skill)
+            and destination_file.read_bytes() != raw
+        ):
             raise _failure(
                 f"Candidate changed before shared-resource normalization: {destination_file}"
             )

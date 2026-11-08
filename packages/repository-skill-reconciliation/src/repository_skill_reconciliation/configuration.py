@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import fastjsonschema
@@ -346,8 +347,8 @@ def derive_skill_declarations(
     return declarations
 
 
-def validate_managed_destination(root: Path, relative: str) -> Path:
-    """Require selected installation roots to be untracked, ignored and alias-free."""
+def managed_destination_path(root: Path, relative: str) -> Path:
+    """Check the filesystem shape of a managed destination without querying Git."""
     destination = contained_path(root, relative)
     if (
         destination.exists()
@@ -359,21 +360,67 @@ def validate_managed_destination(root: Path, relative: str) -> Path:
             "unsafe-path",
             2,
         )
-    validate_ignored_output(root, relative)
     return destination
 
 
-def validate_ignored_output(root: Path, relative: str) -> None:
-    """Require an installation name to be ignored/untracked, without following it."""
-    tracked = run_command(["git", "ls-files", "-z", "--", relative], root)
-    if tracked:
-        raise ReconciliationError(
-            f"Refusing tracked managed destination: {relative}", "unsafe-path", 2
+def validate_managed_destination(root: Path, relative: str) -> Path:
+    """Require selected installation roots to be untracked, ignored and alias-free."""
+    destination = managed_destination_path(root, relative)
+    validate_ignored_outputs(root, [relative])
+    return destination
+
+
+def validate_ignored_outputs(root: Path, relatives: Iterable[str]) -> None:
+    """Check tracked descendants and ignore rules for each literal destination."""
+    paths = list(dict.fromkeys(relatives))
+    if not paths:
+        return
+    tracked = set()
+    # ls-files takes pathspecs on argv. Bound batches for Windows command lines.
+    for start in range(0, len(paths), 128):
+        listing = run_command(
+            [
+                "git",
+                "--literal-pathspecs",
+                "ls-files",
+                "-z",
+                "--",
+                *paths[start : start + 128],
+            ],
+            root,
         )
-    if relative != "skills-lock.json":
-        try:
-            run_command(["git", "check-ignore", "--quiet", "--", relative + "/"], root)
-        except ReconciliationError as error:
+        for entry in listing.split("\0"):
+            while entry and entry not in tracked:
+                tracked.add(entry)
+                entry = entry.rpartition("/")[0]
+    for relative in paths:
+        if relative in tracked:
             raise ReconciliationError(
-                f"Managed output must be Git-ignored: {relative}", "unsafe-path", 2
-            ) from error
+                f"Refusing tracked managed destination: {relative}", "unsafe-path", 2
+            )
+
+    directories = [path + "/" for path in paths if path != "skills-lock.json"]
+    if not directories:
+        return
+    try:
+        ignored = set(
+            run_command(
+                ["git", "check-ignore", "-z", "--stdin"],
+                root,
+                input_text="\0".join(directories) + "\0",
+                accepted_statuses=(0, 1),
+            ).split("\0")
+        )
+    except ReconciliationError as error:
+        raise ReconciliationError(
+            f"Could not check Git ignore rules for managed outputs: {directories[0]}",
+            "unsafe-path",
+            2,
+        ) from error
+    for directory in directories:
+        if directory not in ignored:
+            raise ReconciliationError(
+                f"Managed output must be Git-ignored: {directory[:-1]}",
+                "unsafe-path",
+                2,
+            )

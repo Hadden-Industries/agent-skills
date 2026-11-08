@@ -27,6 +27,7 @@ import json
 import posixpath
 import re
 import zipfile
+from contextlib import nullcontext
 from typing import Dict, List, Optional
 
 TOC_NAME = "toc.json"
@@ -110,7 +111,7 @@ def _parse_nav(markup: str) -> List[Dict]:
     entries: List[Dict] = []
     depth = 0
 
-    for token in NAV_TOKEN.finditer(section.group(1)):
+    for token in NAV_TOKEN.finditer(markup, *section.span(1)):
         text = token.group(0)
         lowered = text.lower()
 
@@ -122,7 +123,9 @@ def _parse_nav(markup: str) -> List[Dict]:
             href = HREF_ATTR.search(text)
             title = _clean(text)
             if href and title:
-                entries.append({"title": title, "href": href.group(1), "level": max(1, depth)})
+                entries.append(
+                    {"title": title, "href": href.group(1), "level": max(1, depth)}
+                )
 
     return entries
 
@@ -130,7 +133,7 @@ def _parse_nav(markup: str) -> List[Dict]:
 def _parse_ncx(markup: str) -> List[Dict]:
     entries: List[Dict] = []
     depth = 0
-    position = 0
+    body = None
 
     for token in NAVPOINT_TOKEN.finditer(markup):
         if token.group(0).lower().startswith("</"):
@@ -138,20 +141,24 @@ def _parse_ncx(markup: str) -> List[Dict]:
             continue
 
         depth += 1
-        body = NAVPOINT_BODY.search(markup, token.end())
-
-        if body and body.start() >= position:
-            title = _clean(body.group(1))
-            if title:
-                entries.append({"title": title, "href": body.group(2), "level": depth})
-            position = token.end()
+        if body is None or body.start() < token.end():
+            body = NAVPOINT_BODY.search(markup, token.end())
+            if body is None:
+                break
+        title = _clean(body.group(1))
+        if title:
+            entries.append({"title": title, "href": body.group(2), "level": depth})
 
     return entries
 
 
 def build_toc(epub_path) -> List[Dict]:
     """Return [{title, anchor, level}] for the book's table of contents."""
-    with zipfile.ZipFile(epub_path) as archive:
+    with (
+        nullcontext(epub_path)
+        if isinstance(epub_path, zipfile.ZipFile)
+        else zipfile.ZipFile(epub_path)
+    ) as archive:
         opf_path = _opf_path(archive)
         entries: List[Dict] = []
 
@@ -159,7 +166,9 @@ def build_toc(epub_path) -> List[Dict]:
             nav_path = _nav_document(archive, opf_path)
             if nav_path:
                 try:
-                    entries = _parse_nav(archive.read(nav_path).decode("utf-8", "replace"))
+                    entries = _parse_nav(
+                        archive.read(nav_path).decode("utf-8", "replace")
+                    )
                 except (KeyError, OSError):
                     entries = []
 
@@ -167,7 +176,9 @@ def build_toc(epub_path) -> List[Dict]:
             for name in archive.namelist():
                 if name.lower().endswith(".ncx"):
                     try:
-                        entries = _parse_ncx(archive.read(name).decode("utf-8", "replace"))
+                        entries = _parse_ncx(
+                            archive.read(name).decode("utf-8", "replace")
+                        )
                     except (KeyError, OSError):
                         entries = []
                     break
@@ -176,7 +187,9 @@ def build_toc(epub_path) -> List[Dict]:
     for entry in entries:
         anchor = anchor_for(entry["href"])
         if anchor:
-            resolved.append({"title": entry["title"], "anchor": anchor, "level": entry["level"]})
+            resolved.append(
+                {"title": entry["title"], "anchor": anchor, "level": entry["level"]}
+            )
 
     return resolved
 

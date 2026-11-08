@@ -6,46 +6,58 @@ import signal
 import subprocess
 import sys
 import time
+from ctypes import wintypes
+from functools import cache
 from pathlib import Path
 
 from .errors import ReconciliationError
+
+
+@cache
+def _job_api():
+    native = ctypes.WinDLL("kernel32", use_last_error=True)
+    native.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    native.CreateJobObjectW.restype = wintypes.HANDLE
+    native.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    native.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    native.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    native.CloseHandle.argtypes = [wintypes.HANDLE]
+    native.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    native.OpenProcess.restype = wintypes.HANDLE
+    native.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    native.WaitForSingleObject.restype = wintypes.DWORD
+    native.IsProcessInJob.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    return native
+
+
+class _JobAccounting(ctypes.Structure):
+    _fields_ = [
+        ("user", ctypes.c_int64),
+        ("kernel", ctypes.c_int64),
+        ("period_user", ctypes.c_int64),
+        ("period_kernel", ctypes.c_int64),
+        ("faults", ctypes.c_uint32),
+        ("total", ctypes.c_uint32),
+        ("active", ctypes.c_uint32),
+        ("terminated", ctypes.c_uint32),
+    ]
 
 
 class _WindowsJob:
     """Own normal tool descendants and wait for termination before returning to rollback."""
 
     def __init__(self):
-        from ctypes import wintypes
-
-        self.native = ctypes.WinDLL("kernel32", use_last_error=True)
-        self.native.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-        self.native.CreateJobObjectW.restype = wintypes.HANDLE
-        self.native.AssignProcessToJobObject.argtypes = [
-            wintypes.HANDLE,
-            wintypes.HANDLE,
-        ]
-        self.native.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        self.native.QueryInformationJobObject.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.c_void_p,
-        ]
-        self.native.CloseHandle.argtypes = [wintypes.HANDLE]
-        self.native.OpenProcess.argtypes = [
-            wintypes.DWORD,
-            wintypes.BOOL,
-            wintypes.DWORD,
-        ]
-        self.native.OpenProcess.restype = wintypes.HANDLE
-        self.native.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        self.native.WaitForSingleObject.restype = wintypes.DWORD
-        self.native.IsProcessInJob.argtypes = [
-            wintypes.HANDLE,
-            wintypes.HANDLE,
-            ctypes.POINTER(wintypes.BOOL),
-        ]
+        self.native = _job_api()
         self.handle = self.native.CreateJobObjectW(None, None)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -57,20 +69,6 @@ class _WindowsJob:
 
     def close(self):
         """Wait on retained member handles: accounting-zero precedes handle teardown."""
-        from ctypes import wintypes
-
-        class Accounting(ctypes.Structure):
-            _fields_ = [
-                ("user", ctypes.c_int64),
-                ("kernel", ctypes.c_int64),
-                ("period_user", ctypes.c_int64),
-                ("period_kernel", ctypes.c_int64),
-                ("faults", ctypes.c_uint32),
-                ("total", ctypes.c_uint32),
-                ("active", ctypes.c_uint32),
-                ("terminated", ctypes.c_uint32),
-            ]
-
         handles = []
         try:
             capacity = 64
@@ -108,7 +106,7 @@ class _WindowsJob:
             for process_handle in handles:
                 if self.native.WaitForSingleObject(process_handle, 0xFFFFFFFF) != 0:
                     raise ctypes.WinError(ctypes.get_last_error())
-            observation = Accounting()
+            observation = _JobAccounting()
             while True:
                 if not self.native.QueryInformationJobObject(
                     self.handle,
@@ -131,7 +129,12 @@ class _WindowsJob:
 
 
 def run_command(
-    arguments: list[str], cwd: Path, environment: dict | None = None
+    arguments: list[str],
+    cwd: Path,
+    environment: dict | None = None,
+    *,
+    input_text: str | None = None,
+    accepted_statuses: tuple[int, ...] = (0,),
 ) -> str:
     """Run tokenized argv, capture stdout, forward stderr and stop owned descendants.
 
@@ -143,10 +146,10 @@ def run_command(
     process = None
     try:
         process = subprocess.Popen(
-            list(map(str, arguments)),
+            arguments,
             cwd=cwd,
             env=environment,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL if input_text is None else subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -157,10 +160,10 @@ def run_command(
         )
         if job:
             job.attach(process)
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate(input_text)
         if stderr:
             print(stderr.rstrip(), file=sys.stderr)
-        if process.returncode:
+        if process.returncode not in accepted_statuses:
             # Avoid echoing a potentially credential-bearing remote URL in errors.
             raise ReconciliationError(
                 f"{Path(arguments[0]).name} failed (exit {process.returncode})."

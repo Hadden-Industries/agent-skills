@@ -15,11 +15,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
-
-from _repair import REPAIRED_NAME, needs_repair, write_repaired_epub
-from _styles import STYLE_MAP_NAME, write_style_map
-from _toc import TOC_NAME, build_toc, write_toc
+from typing import Optional
 
 from _pandoc import (
     INSTALLATION_REFERENCE,
@@ -27,6 +23,9 @@ from _pandoc import (
     find_pandoc,
     pandoc_version_line,
 )
+from _repair import REPAIRED_NAME, write_repaired_epub
+from _styles import STYLE_MAP_NAME, write_style_map
+from _toc import CONTAINER_PATH, TOC_NAME, build_toc, write_toc
 
 EXIT_OK = 0
 # 10 deliberately matches check_pandoc.py: it means "Pandoc is missing" in both
@@ -41,6 +40,7 @@ MANIFEST_NAME = "manifest.json"
 MARKDOWN_NAME = "document.md"
 LOG_NAME = "pandoc.stderr.log"
 ASSETS_NAME = "assets"
+HEADING = re.compile(r"^#{1,6}\s+\S")
 
 # Declared by scripts/conversion-result.schema.json. Bump both together whenever
 # the output shape changes; SKILL.md branches on these fields.
@@ -59,7 +59,13 @@ COUNT_FIELDS = (
 
 
 def emit(payload: dict) -> None:
-    print(json.dumps({"schemaVersion": SCHEMA_VERSION, **payload}, ensure_ascii=False, separators=(",", ":")))
+    print(
+        json.dumps(
+            {"schemaVersion": SCHEMA_VERSION, **payload},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -75,19 +81,16 @@ def safe_stem(path: Path) -> str:
     return stem[:48]
 
 
-def validate_epub(path: Path) -> Tuple[bool, Optional[str]]:
-    if not path.is_file():
-        return False, "input file does not exist or is not a regular file"
-    if not zipfile.is_zipfile(path):
-        return False, "input is not a ZIP-based EPUB container"
-    try:
-        with zipfile.ZipFile(path) as archive:
-            names = set(archive.namelist())
-            if "META-INF/container.xml" not in names:
-                return False, "EPUB container is missing META-INF/container.xml"
-    except (OSError, zipfile.BadZipFile) as exc:
-        return False, f"could not inspect EPUB container: {exc}"
-    return True, None
+def invalid_epub(reason: str) -> int:
+    emit(
+        {
+            "status": "error",
+            "error": "invalid_epub",
+            "reason": reason,
+            "troubleshooting_reference": TROUBLESHOOTING_REFERENCE,
+        }
+    )
+    return EXIT_BAD_INPUT
 
 
 def load_manifest(path: Path) -> Optional[dict]:
@@ -146,18 +149,23 @@ def main() -> int:
     args = parse_args()
     source = Path(args.input).expanduser().resolve()
 
-    valid, reason = validate_epub(source)
-    if not valid:
-        emit(
-            {
-                "status": "error",
-                "error": "invalid_epub",
-                "reason": reason,
-                "troubleshooting_reference": TROUBLESHOOTING_REFERENCE,
-            }
-        )
-        return EXIT_BAD_INPUT
+    if not source.is_file():
+        return invalid_epub("input file does not exist or is not a regular file")
+    try:
+        archive = zipfile.ZipFile(source)
+    except (OSError, zipfile.BadZipFile) as error:
+        if not zipfile.is_zipfile(source):
+            return invalid_epub("input is not a ZIP-based EPUB container")
+        return invalid_epub(f"could not inspect EPUB container: {error}")
+    with archive:
+        try:
+            archive.getinfo(CONTAINER_PATH)
+        except KeyError:
+            return invalid_epub("EPUB container is missing META-INF/container.xml")
+        return convert(args, source, archive)
 
+
+def convert(args: argparse.Namespace, source: Path, archive: zipfile.ZipFile) -> int:
     pandoc = find_pandoc()
     if pandoc is None:
         emit(
@@ -233,25 +241,21 @@ def main() -> int:
     # Pandoc discards the navigation document, so the table of contents is
     # extracted here and emitted as data. Its anchors are handed to the filter
     # too, which would otherwise strip them as unreferenced.
-    toc_entries = build_toc(source)
+    toc_entries = build_toc(archive)
     write_toc(toc_entries, output_dir)
 
     # The Lua filter cannot read the EPUB's zip, so the class-to-semantics map
     # is derived here and handed over as a generated Lua module.
     _, style_map, list_markers = write_style_map(
-        source, output_dir, [entry["anchor"] for entry in toc_entries]
+        archive, output_dir, [entry["anchor"] for entry in toc_entries]
     )
 
     # Pandoc discards the indentation of a <pre> with no inner <code>, so a book
     # containing one is converted from a repaired copy. Gated so that an
     # ordinary book pays for the scan and nothing more.
-    pandoc_input = source
-    repaired_blocks = 0
-
-    if needs_repair(source):
-        repaired_blocks = write_repaired_epub(source, output_dir / REPAIRED_NAME)
-        if repaired_blocks:
-            pandoc_input = output_dir / REPAIRED_NAME
+    repaired_path = output_dir / REPAIRED_NAME
+    repaired_blocks = write_repaired_epub(archive, repaired_path)
+    pandoc_input = repaired_path if repaired_blocks else source
 
     filter_path = Path(__file__).with_name("clean_epub.lua").resolve()
     command = [
@@ -309,9 +313,13 @@ def main() -> int:
         )
         return EXIT_BAD_OUTPUT
 
-    markdown_text = markdown_path.read_text(encoding="utf-8", errors="replace")
-    lines = markdown_text.splitlines()
-    headings = sum(1 for line in lines if re.match(r"^#{1,6}\s+\S", line))
+    lines = headings = 0
+    with markdown_path.open(encoding="utf-8", errors="replace") as markdown:
+        for physical_line in markdown:
+            # Preserve splitlines() counting for Unicode separators as well.
+            for line in physical_line.splitlines():
+                lines += 1
+                headings += bool(HEADING.match(line))
     warnings = warning_count(stderr)
 
     manifest = {
@@ -330,7 +338,7 @@ def main() -> int:
         "toc": str(toc_path),
         "repaired_code_blocks": repaired_blocks,
         "warning_count": warnings,
-        "line_count": len(lines),
+        "line_count": lines,
         "heading_count": headings,
         "toc_entries": len(toc_entries),
     }
@@ -357,7 +365,7 @@ def main() -> int:
             "toc_entries": len(toc_entries),
             "repaired_code_blocks": repaired_blocks,
             "warning_count": warnings,
-            "line_count": len(lines),
+            "line_count": lines,
             "heading_count": headings,
             "source_sha256": source_hash,
         }

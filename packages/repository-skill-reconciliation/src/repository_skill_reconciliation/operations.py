@@ -24,7 +24,9 @@ from .configuration import (
     is_local,
     load_configuration,
     load_lock,
+    managed_destination_path,
     read_json,
+    validate_ignored_outputs,
     validate_managed_destination,
 )
 from .errors import ReconciliationError
@@ -252,26 +254,29 @@ def _active_publication(state, excluding=None):
                 )
 
 
-def _describe_change(root, relative, candidate):
+def _describe_change(root, change, candidate):
     """Show actual byte changes, including native metadata; binaries get explicit hashes."""
-    current = root / relative
-    if candidate.is_file():
+    relative = change["destination"]
+    current = contained_path(root, relative)
+    if os.path.lexists(current):
+        validate_tree(current)
+    validate_tree(candidate)
+    single_file = candidate.is_file()
+    if single_file:
         files = [Path("")]
     else:
         files = sorted(
             set(p.relative_to(candidate) for p in candidate.rglob("*") if p.is_file())
             | set(p.relative_to(current) for p in current.rglob("*") if p.is_file())
         )
-    rendered = [
-        f"Managed path {relative}: {fingerprint(current)} -> {fingerprint(candidate)}\n"
-    ]
+    rendered = [f"Managed path {relative}: {change['before']} -> {change['after']}\n"]
     for file in files:
-        before = current if candidate.is_file() else current / file
-        after = candidate if candidate.is_file() else candidate / file
-        old = before.read_bytes() if before.is_file() else b""
-        new = after.read_bytes() if after.is_file() else b""
+        before = current if single_file else current / file
+        after = candidate if single_file else candidate / file
         label = relative + ("/" + file.as_posix() if file.parts else "")
         old_exists, new_exists = before.is_file(), after.is_file()
+        old = before.read_bytes() if old_exists else b""
+        new = after.read_bytes() if new_exists else b""
         old_executable = (
             bool(before.stat().st_mode & stat.S_IXUSR) if old_exists else None
         )
@@ -329,7 +334,7 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
     roots = {AGENT_ROOTS[agent] for agent in config["targetAgents"]}
     destinations, links = installation_layout(root, roots, selected)
     baselines = {
-        relative: fingerprint(validate_managed_destination(root, relative))
+        relative: fingerprint(contained_path(root, relative))
         for relative in sorted(set(destinations.values()))
     }
     _state_directory(root)
@@ -407,6 +412,12 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
                     "phase": "pending",
                 }
             )
+    record["diff"] = "".join(
+        _describe_change(
+            root, change, contained_path(run, change["candidate"], allow_missing=False)
+        )
+        for change in record["changes"]
+    )
     for relative, expected in inputs.items():
         _assert_fingerprint(
             contained_path(root, relative),
@@ -420,10 +431,6 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
             "An installation changed during planning; plan again.",
         )
     assert_installation_links(root, links)
-    record["diff"] = "".join(
-        _describe_change(root, change["destination"], run / change["candidate"])
-        for change in record["changes"]
-    )
     record["phase"] = "planned"
     atomic_json(run / "operation.json", record)
     return {
@@ -536,9 +543,15 @@ def apply_plan(root, plan_id):
                 expected,
                 "An input changed after review; plan again.",
             )
+        installation_paths = [
+            relative
+            for relative in record["outputBaselines"]
+            if relative != "skills-lock.json"
+        ]
+        for relative in installation_paths:
+            managed_destination_path(root, relative)
+        validate_ignored_outputs(root, installation_paths)
         for relative, expected in record["outputBaselines"].items():
-            if relative != "skills-lock.json":
-                validate_managed_destination(root, relative)
             _assert_fingerprint(
                 contained_path(root, relative),
                 expected,

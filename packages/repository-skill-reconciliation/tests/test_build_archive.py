@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 PACKAGE = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -98,6 +99,27 @@ class ArchiveDependencyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             builder.build(self.archive, self.vendor)
         self.assertFalse(self.archive.exists())
+
+    def test_vendor_drift_during_streaming_keeps_previous_archive(self):
+        self.build()
+        before = self.archive.read_bytes()
+        inventory = builder._dependency_members
+
+        def change_after_measurement(*args):
+            paths, facts = inventory(*args)
+            path = paths["fastjsonschema/__init__.py"]
+            path.write_bytes(path.read_bytes().replace(b"payload", b"changed"))
+            return paths, facts
+
+        with patch.object(
+            builder, "_dependency_members", side_effect=change_after_measurement
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "Dependency changed during archive build"
+            ):
+                builder.build(self.archive, self.vendor)
+        self.assertEqual(before, self.archive.read_bytes())
+        builder.check(self.archive)
 
     def test_changed_dependency_bytes_are_rejected(self):
         target = self.altered_archive(alter="fastjsonschema/__init__.py")

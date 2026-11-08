@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 from .errors import ReconciliationError
 
 
-def _reject_alias(path: Path):
+def _reject_alias(path: Path) -> os.stat_result:
     """Reject symlinks, Windows reparse points, multiply-linked files and special nodes."""
     facts = path.lstat()
     if stat.S_ISLNK(facts.st_mode) or getattr(facts, "st_file_attributes", 0) & 0x400:
@@ -25,6 +25,7 @@ def _reject_alias(path: Path):
         raise ReconciliationError(
             f"Multiply-linked file is not managed: {path}", "unsafe-path", 2
         )
+    return facts
 
 
 def contained_path(root: Path, relative: str, *, allow_missing: bool = True) -> Path:
@@ -57,8 +58,7 @@ def contained_path(root: Path, relative: str, *, allow_missing: bool = True) -> 
 
 def validate_tree(path: Path) -> None:
     """Validate every node without following a link, before copying or fingerprinting."""
-    _reject_alias(path)
-    if path.is_dir():
+    if stat.S_ISDIR(_reject_alias(path).st_mode):
         for child in path.iterdir():
             validate_tree(child)
 
@@ -79,14 +79,15 @@ def fingerprint(path: Path) -> str | None:
 
     This is an operation/output identity, never a native skills computedHash.
     """
-    if not os.path.lexists(path):
+    try:
+        facts = _reject_alias(path)
+    except (FileNotFoundError, NotADirectoryError):
         return None
-    validate_tree(path)
     digest = hashlib.sha256()
 
-    def visit(current, relative):
-        facts = current.stat()
-        kind = "directory" if current.is_dir() else "file"
+    def visit(current, relative, facts):
+        is_directory = stat.S_ISDIR(facts.st_mode)
+        kind = "directory" if is_directory else "file"
         digest.update(
             json.dumps(
                 [relative, kind, bool(facts.st_mode & stat.S_IXUSR)],
@@ -94,16 +95,17 @@ def fingerprint(path: Path) -> str | None:
             ).encode()
         )
         digest.update(b"\0")
-        if current.is_file():
+        if is_directory:
+            for child in sorted(current.iterdir(), key=lambda p: p.name):
+                # DirEntry.stat() does not provide the Windows hard-link count.
+                visit(child, relative + "/" + child.name, _reject_alias(child))
+        else:
             with current.open("rb") as stream:
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
-        else:
-            for child in sorted(current.iterdir(), key=lambda p: p.name):
-                visit(child, relative + "/" + child.name)
         digest.update(b"\0")
 
-    visit(path, "")
+    visit(path, "", facts)
     return digest.hexdigest()
 
 

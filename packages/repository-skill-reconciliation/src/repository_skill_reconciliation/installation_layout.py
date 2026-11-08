@@ -11,8 +11,8 @@ from pathlib import Path
 
 from .configuration import (
     SKILL_NAME,
-    validate_ignored_output,
-    validate_managed_destination,
+    managed_destination_path,
+    validate_ignored_outputs,
 )
 from .errors import ReconciliationError
 from .filesystem import contained_path
@@ -70,13 +70,11 @@ def _link_identity(root, relative):
             actual = actual.parent
         else:
             actual = contained_path(root, (actual / part).relative_to(root).as_posix())
-    expected = contained_path(root, canonical)
+    expected = managed_destination_path(root, canonical)
     if os.path.normcase(str(actual)) != os.path.normcase(str(expected)):
         raise ReconciliationError(
             f"Skill link must target {canonical}: {relative}", "unsafe-path", 2
         )
-    validate_ignored_output(root, relative)
-    validate_managed_destination(root, canonical)
     return {
         "destination": canonical,
         "target": target,
@@ -109,8 +107,9 @@ def installation_layout(root, prefixes, names):
                 destinations[relative] = identity["destination"]
                 links[relative] = identity
             else:
-                validate_managed_destination(root, relative)
+                managed_destination_path(root, relative)
                 destinations[relative] = relative
+    validate_ignored_outputs(root, [*destinations, *destinations.values()])
     return destinations, links
 
 
@@ -145,3 +144,16 @@ def assert_installation_links(root, links):
             raise ReconciliationError(
                 f"Installation link changed: {relative}", "conflict", 3
             )
+    try:
+        validate_ignored_outputs(
+            root,
+            [
+                path
+                for link, identity in links.items()
+                for path in (link, identity["destination"])
+            ],
+        )
+    except ReconciliationError as error:
+        raise ReconciliationError(
+            f"Installation link Git protection changed: {error}", "conflict", 3
+        ) from error

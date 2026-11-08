@@ -14,12 +14,17 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 EXIT_VALID = 0
 EXIT_INVALID = 1
 EXIT_USAGE_OR_CONFIG = 2
-DEFAULT_POLICY = Path(__file__).resolve().parent.parent / "assets" / "naming-policy.json"
+DEFAULT_POLICY = (
+    Path(__file__).resolve().parent.parent / "assets" / "naming-policy.json"
+)
+LOWER_UPPER_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+SEMANTIC_TOKEN = re.compile(r"[A-Za-z]+|[0-9]+")
 
 
 class PolicyError(Exception):
@@ -98,11 +103,13 @@ def load_policy(path: Path) -> Mapping[str, Any]:
         pattern = profile.get("pattern")
         form = profile.get("form")
         if not isinstance(pattern, str) or not pattern:
-            raise PolicyError(f"profile {kind!r} must have a non-empty string 'pattern'")
+            raise PolicyError(
+                f"profile {kind!r} must have a non-empty string 'pattern'"
+            )
         if not isinstance(form, str) or not form:
             raise PolicyError(f"profile {kind!r} must have a non-empty string 'form'")
         try:
-            re.compile(pattern)
+            profile["pattern"] = re.compile(pattern)
         except re.error as exc:
             raise PolicyError(f"profile {kind!r} has an invalid regex: {exc}") from exc
 
@@ -127,9 +134,9 @@ def split_semantic_tokens(name: str) -> List[str]:
     """Return rough lowercase word tokens for warning purposes only."""
 
     # Split lower-to-upper and acronym-to-word boundaries before punctuation.
-    with_boundaries = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
-    with_boundaries = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", with_boundaries)
-    return [token.lower() for token in re.findall(r"[A-Za-z]+|[0-9]+", with_boundaries)]
+    with_boundaries = LOWER_UPPER_BOUNDARY.sub(r"\1 \2", name)
+    with_boundaries = ACRONYM_BOUNDARY.sub(r"\1 \2", with_boundaries)
+    return [token.lower() for token in SEMANTIC_TOKEN.findall(with_boundaries)]
 
 
 def semantic_warnings(policy: Mapping[str, Any], name: str) -> List[str]:
@@ -141,13 +148,13 @@ def semantic_warnings(policy: Mapping[str, Any], name: str) -> List[str]:
         return []
 
     vague_set = {str(token).lower() for token in vague}
-    found = sorted({token for token in split_semantic_tokens(name) if token in vague_set})
+    found = sorted(
+        {token for token in split_semantic_tokens(name) if token in vague_set}
+    )
     if not found:
         return []
     joined = ", ".join(found)
-    return [
-        f"semantic review recommended: presumptively vague token(s): {joined}"
-    ]
+    return [f"semantic review recommended: presumptively vague token(s): {joined}"]
 
 
 def validate_name(
@@ -155,8 +162,7 @@ def validate_name(
 ) -> Tuple[bool, Mapping[str, Any], List[str]]:
     profile = profile_for(policy, kind)
     pattern = profile["pattern"]
-    assert isinstance(pattern, str)
-    lexical_valid = re.fullmatch(pattern, name) is not None
+    lexical_valid = pattern.fullmatch(name) is not None
 
     max_length = profile.get("max_length")
     if isinstance(max_length, int) and len(name) > max_length:
@@ -179,7 +185,9 @@ def list_kinds_text(policy: Mapping[str, Any]) -> str:
     for kind in sorted(profiles):
         profile = profiles[kind]
         assert isinstance(profile, dict)
-        rows.append((kind, str(profile.get("form", "")), str(profile.get("description", ""))))
+        rows.append(
+            (kind, str(profile.get("form", "")), str(profile.get("description", "")))
+        )
 
     kind_width = max(len("KIND"), *(len(row[0]) for row in rows))
     form_width = max(len("FORM"), *(len(row[1]) for row in rows))
@@ -264,7 +272,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return EXIT_VALID
 
         if not args.kind:
-            emit_error("--kind is required unless --list-kinds is used", args.as_json, args.quiet)
+            emit_error(
+                "--kind is required unless --list-kinds is used",
+                args.as_json,
+                args.quiet,
+            )
             return EXIT_USAGE_OR_CONFIG
 
         profile = profile_for(policy, args.kind)
@@ -278,7 +290,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         "basis": profile.get("basis"),
                         "description": profile.get("description"),
                         "valid_examples": string_list(profile.get("valid_examples")),
-                        "invalid_examples": string_list(profile.get("invalid_examples")),
+                        "invalid_examples": string_list(
+                            profile.get("invalid_examples")
+                        ),
                         "notes": string_list(profile.get("notes")),
                     },
                     args.quiet,
@@ -300,7 +314,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "semantic_certified": False,
             "expected_form": profile.get("form"),
             "basis": profile.get("basis"),
-            "pattern": profile.get("pattern"),
+            "pattern": profile["pattern"].pattern,
             "warnings": warnings,
             "policy_name": policy.get("policy_name"),
             "policy_version": policy.get("policy_version"),
@@ -316,7 +330,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"EXPECTED: {profile.get('form', '')}")
                 valid_examples = string_list(profile.get("valid_examples"))
                 if valid_examples:
-                    print("VALID EXAMPLES: " + ", ".join(repr(item) for item in valid_examples))
+                    print(
+                        "VALID EXAMPLES: "
+                        + ", ".join(repr(item) for item in valid_examples)
+                    )
             print("NOTE: semantic correctness is not mechanically certified.")
             for warning in warnings:
                 print(f"WARNING: {warning}")

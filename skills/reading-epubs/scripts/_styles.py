@@ -22,12 +22,21 @@ from __future__ import annotations
 
 import re
 import zipfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 # Fixed order so a class carrying several declarations always nests its
 # constructors the same way, and the generated map is reproducible.
-SEMANTIC_ORDER = ["strong", "emph", "smallcaps", "strikeout", "superscript", "subscript", "code"]
+SEMANTIC_ORDER = [
+    "strong",
+    "emph",
+    "smallcaps",
+    "strikeout",
+    "superscript",
+    "subscript",
+    "code",
+]
 
 BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 MONOSPACE_HINTS = ("mono", "courier", "consolas", "menlo", "typewriter")
@@ -38,6 +47,7 @@ TRANSPARENT_AT_RULES = {"@media", "@supports", "@document", "@layer"}
 CLASS_IN_SELECTOR = re.compile(r"\.(-?[A-Za-z_][-\w]*)")
 COMMENT = re.compile(r"/\*.*?\*/", re.S)
 CLASS_PREFIX_SELECTOR = re.compile(r'\[class\^="([^"]+)"\]')
+RULE_BRACE = re.compile(r"[{}]")
 
 STYLE_MAP_NAME = "style-map.lua"
 
@@ -61,37 +71,23 @@ def _iter_rules(css: str) -> Iterator[Tuple[str, str]]:
     rules one level deeper, and a regex that ignores nesting silently drops
     every rule inside them.
     """
-    index = 0
-    length = len(css)
-    prelude: List[str] = []
-
-    while index < length:
-        character = css[index]
-
-        if character == "}":
+    start = 0
+    braces = RULE_BRACE.finditer(css)
+    for opening in braces:
+        if opening.group() == "}":
             # Stray close brace; resynchronise rather than abort.
-            prelude = []
-            index += 1
+            start = opening.end()
             continue
 
-        if character != "{":
-            prelude.append(character)
-            index += 1
-            continue
-
-        selector = "".join(prelude).strip()
-        prelude = []
-
+        selector = css[start : opening.start()].strip()
         depth = 1
-        cursor = index + 1
-        while cursor < length and depth:
-            if css[cursor] == "{":
-                depth += 1
-            elif css[cursor] == "}":
-                depth -= 1
-            cursor += 1
-
-        body = css[index + 1 : cursor - 1]
+        end = len(css) - 1
+        for brace in braces:
+            depth += 1 if brace.group() == "{" else -1
+            if depth == 0:
+                end = brace.start()
+                break
+        body = css[opening.end() : end]
 
         if selector.startswith("@"):
             if selector.split()[0].lower() in TRANSPARENT_AT_RULES:
@@ -100,17 +96,16 @@ def _iter_rules(css: str) -> Iterator[Tuple[str, str]]:
         else:
             yield selector, body
 
-        index = cursor
+        start = end + 1
 
 
 def _declarations(block: str) -> Dict[str, str]:
     parsed: Dict[str, str] = {}
 
     for part in block.split(";"):
-        if ":" not in part:
-            continue
-        prop, _, value = part.partition(":")
-        parsed[prop.strip().lower()] = " ".join(value.split()).lower()
+        prop, separator, value = part.partition(":")
+        if separator:
+            parsed[prop.strip().lower()] = " ".join(value.split()).lower()
 
     return parsed
 
@@ -132,7 +127,10 @@ def semantics_for(declarations: Dict[str, str]) -> List[str]:
         found.add("subscript")
 
     decoration = " ".join(
-        (declarations.get("text-decoration", ""), declarations.get("text-decoration-line", ""))
+        (
+            declarations.get("text-decoration", ""),
+            declarations.get("text-decoration-line", ""),
+        )
     )
     if "line-through" in decoration:
         found.add("strikeout")
@@ -163,13 +161,19 @@ def _is_hanging(indent: str) -> bool:
     return indent.strip().startswith("-")
 
 
-def build_maps(epub_path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
+def build_maps(
+    epub_path: Path | zipfile.ZipFile,
+) -> Tuple[Dict[str, List[str]], List[str]]:
     """Return the class-to-semantics map and the list-marker span classes."""
     style_map: Dict[str, List[str]] = {}
     hanging_exact = set()
-    hanging_prefixes = []
+    hanging_prefixes = set()
 
-    with zipfile.ZipFile(epub_path) as archive:
+    with (
+        nullcontext(epub_path)
+        if isinstance(epub_path, zipfile.ZipFile)
+        else zipfile.ZipFile(epub_path)
+    ) as archive:
         names = archive.namelist()
 
         for name in [n for n in names if n.lower().endswith(".css")]:
@@ -187,7 +191,7 @@ def build_maps(epub_path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
 
                 for selector in selector_group.split(","):
                     if hanging:
-                        hanging_prefixes.extend(CLASS_PREFIX_SELECTOR.findall(selector))
+                        hanging_prefixes.update(CLASS_PREFIX_SELECTOR.findall(selector))
 
                     for class_name in CLASS_IN_SELECTOR.findall(selector):
                         if hanging:
@@ -200,11 +204,13 @@ def build_maps(epub_path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
                         if existing is None or (semantics and not existing):
                             style_map[class_name] = semantics
 
+        prefixes = tuple(hanging_prefixes)
+
         def outdented(class_attribute: str) -> bool:
             for token in class_attribute.split():
                 if token in hanging_exact:
                     return True
-                if any(token.startswith(prefix) for prefix in hanging_prefixes):
+                if token.startswith(prefixes):
                     return True
             return False
 
@@ -286,7 +292,9 @@ def render_lua(
 
 
 def write_style_map(
-    epub_path: Path, output_dir: Path, toc_anchors: Optional[List[str]] = None
+    epub_path: Path | zipfile.ZipFile,
+    output_dir: Path,
+    toc_anchors: Optional[List[str]] = None,
 ) -> Tuple[Path, Dict[str, List[str]], List[str]]:
     style_map, list_markers = build_maps(epub_path)
     destination = output_dir / STYLE_MAP_NAME

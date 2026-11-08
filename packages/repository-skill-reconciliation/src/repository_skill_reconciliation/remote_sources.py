@@ -7,6 +7,7 @@ destination. All working files belong to ``workspace``; normal npm caches remain
 normal developer-tool state. No global Git/npm/agent settings are changed.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -501,7 +502,11 @@ def _installed_inventory(directory, *, source=False):
         ):
             continue
         if path.is_file():
-            result[relative.as_posix()] = path.read_bytes()
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            result[relative.as_posix()] = digest.digest()
     return result
 
 

@@ -42,6 +42,9 @@ converted output so the transformation can be inspected.
 from __future__ import annotations
 
 import re
+import shutil
+import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import Tuple
@@ -51,6 +54,7 @@ REPAIRED_NAME = "repaired-source.epub"
 MARKUP_SUFFIXES = (".xhtml", ".html", ".htm")
 
 PRE_BLOCK = re.compile(r"(<pre\b[^>]*>)(.*?)(</pre\s*>)", re.S | re.I)
+PRE_START = re.compile(rb"<pre", re.I)
 OPENS_WITH_CODE = re.compile(r"\A\s*<code\b", re.I)
 
 # Markup whose meaning is not carried by its text, and so cannot survive being
@@ -88,53 +92,71 @@ def repair_markup(text: str) -> Tuple[str, int]:
     return PRE_BLOCK.sub(replace, text), repaired
 
 
-def _markup_entries(archive: zipfile.ZipFile):
-    return [name for name in archive.namelist() if name.lower().endswith(MARKUP_SUFFIXES)]
+def _repair_entry(source: zipfile.ZipFile, name: str) -> Tuple[bytes, int]:
+    data = source.read(name)
+    if PRE_START.search(data):
+        text, count = repair_markup(data.decode("utf-8", "replace"))
+        if count:
+            return text.encode("utf-8"), count
+    return data, 0
 
 
-def needs_repair(epub_path: Path) -> bool:
-    """Cheap gate: returns at the first repairable block found."""
+def _copy_entry(source: zipfile.ZipFile, output: zipfile.ZipFile, name: str) -> None:
     try:
-        with zipfile.ZipFile(epub_path) as archive:
-            for name in _markup_entries(archive):
+        original = source.open(name)
+    except (KeyError, OSError):
+        return
+    with original:
+        info = zipfile.ZipInfo(name, time.localtime()[:6])
+        info.file_size = source.getinfo(name).file_size
+        if info.is_dir():
+            info.external_attr = (0o40775 << 16) | 0x10
+        info.compress_type = (
+            zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED
+        )
+        with output.open(info, "w") as entry:
+            shutil.copyfileobj(original, entry)
+
+
+def write_repaired_epub(source: zipfile.ZipFile, destination: Path) -> int:
+    """Write a copy only if at least one block changes. Return the repair count."""
+    # The container format requires `mimetype` first and uncompressed.
+    ordered = sorted(source.namelist(), key=lambda name: name != "mimetype")
+    unreadable = set()
+    for index, name in enumerate(ordered):
+        if not name.lower().endswith(MARKUP_SUFFIXES):
+            continue
+        try:
+            data, repaired = _repair_entry(source, name)
+        except zipfile.BadZipFile:
+            return 0
+        except (KeyError, OSError):
+            unreadable.add(index)
+            continue
+        if repaired:
+            break
+    else:
+        return 0
+
+    # Copy the already-inspected prefix without repeating the markup scan.
+    with tempfile.TemporaryDirectory(dir=destination.parent) as directory:
+        temporary = Path(directory) / destination.name
+        with zipfile.ZipFile(
+            temporary, "w", compression=zipfile.ZIP_DEFLATED
+        ) as output:
+            for preceding, member in enumerate(ordered[:index]):
+                if preceding not in unreadable:
+                    _copy_entry(source, output, member)
+            output.writestr(name, data)
+            for member in ordered[index + 1 :]:
+                if not member.lower().endswith(MARKUP_SUFFIXES):
+                    _copy_entry(source, output, member)
+                    continue
                 try:
-                    text = archive.read(name).decode("utf-8", "replace")
+                    data, count = _repair_entry(source, member)
                 except (KeyError, OSError):
                     continue
-
-                for match in PRE_BLOCK.finditer(text):
-                    if _wrappable(match.group(2)):
-                        return True
-    except (zipfile.BadZipFile, OSError):
-        return False
-
-    return False
-
-
-def write_repaired_epub(epub_path: Path, destination: Path) -> int:
-    """Write a repaired copy of the book. Returns the number of blocks fixed."""
-    repaired = 0
-
-    with zipfile.ZipFile(epub_path) as source:
-        # The container format requires `mimetype` first and uncompressed.
-        ordered = sorted(source.namelist(), key=lambda name: name != "mimetype")
-
-        with zipfile.ZipFile(destination, "w") as output:
-            for name in ordered:
-                try:
-                    data = source.read(name)
-                except (KeyError, OSError):
-                    continue
-
-                if name.lower().endswith(MARKUP_SUFFIXES):
-                    text, count = repair_markup(data.decode("utf-8", "replace"))
-                    if count:
-                        data = text.encode("utf-8")
-                        repaired += count
-
-                compression = (
-                    zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED
-                )
-                output.writestr(name, data, compress_type=compression)
-
+                output.writestr(member, data)
+                repaired += count
+        temporary.replace(destination)
     return repaired
