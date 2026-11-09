@@ -58,7 +58,14 @@ Hooks and signing remain enabled through `git commit --cleanup=verbatim -S -F -`
 The result reports `commit.parentMatches`, `treeMatches`, `messageMatches`, `signed` and `verification`; no report file exists.
 
 A memory draft is never committed; prepare again with `--mode actual`.
-Witnessed checks, review packets, report detail, resume, recovery and helper publication require disk storage.
+Witnessed check receipts, review packets, persisted report detail and transaction resume/recovery require disk storage.
+Publication has an equivalent memory route; its interruption recovery is observation-only and has no durable attempt journal.
+Use `publicationPreparation.arguments` from a successful memory commit, adding the known `--remote` and full `--destination`.
+The read-only `workflow publish --commit-oid <full-oid>` route also adopts an earlier memory result without recreating the commit.
+It returns a caller-held `publicationProposal` and `publish.arguments`; preparation writes no files or Git objects and never pushes.
+See [memory publication and recovery](publication-recovery.md#memory-publication) before executing those arguments.
+Tokens contain observations, not authenticated history or permission.
+Do not choose disk merely because publication is requested.
 
 ## Diagnostics
 

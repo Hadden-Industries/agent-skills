@@ -110,7 +110,7 @@ function transcriptFacts(transcript) {
   };
 }
 
-function classifyPushCompletion(transcript, destination) {
+export function classifyPushCompletion(transcript, destination) {
   if (
     transcript.status === 0 &&
     transcript.signal === null &&
@@ -167,7 +167,7 @@ function updateAttempt(transactionPath, attemptId, transform) {
   });
 }
 
-function validateDestination(
+export function validateDestination(
   root,
   remote,
   destination,

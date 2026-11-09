@@ -212,6 +212,24 @@ function committedResult({ commitOid, commit, verification, displayText }) {
       commit,
       verification,
       displayText,
+      ...(!blocked
+        ? {
+            publicationPreparation: {
+              arguments: [
+                "workflow",
+                "publish",
+                "--commit-oid",
+                commitOid,
+                "--verification",
+                verification.finalPolicy,
+              ],
+              requiredInputs: [
+                "authorized configured remote",
+                "full destination branch ref",
+              ],
+            },
+          }
+        : {}),
     },
   });
 }

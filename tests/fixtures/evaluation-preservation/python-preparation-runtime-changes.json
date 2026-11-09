@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "9e1669f46e1d83d97277344a3b8d3bff3c582708",
+  "revision": "7983c3f5020749acdb7cd184091083ff56cbdc64",
+  "reason": "Record the committed Python skill preparation performance changes without changing the migration baseline.",
+  "files": [
+    {
+      "path": "skills/naming-objects-in-software-engineering/scripts/check-name.py",
+      "previousSha256": "1205bcbb748cf596c96e8228da1c0e3c838df88686a2545dac698d2cf8128b06",
+      "byteLength": 12440,
+      "sha256": "2cd531ebc02813b1ecdd61f188f026e23963f6994adf5c82ca94e2280ba16619"
+    },
+    {
+      "path": "skills/reading-epubs/scripts/_repair.py",
+      "previousSha256": "4c3aecf813f8bf6476f4bc200d0816ad32bfa2f3968d60139199747faf9635fc",
+      "byteLength": 5928,
+      "sha256": "cbae398c43bbe322d8c1cd8448436e6c0f7def0331f5541e983ff60dafb2ff8c"
+    },
+    {
+      "path": "skills/reading-epubs/scripts/_styles.py",
+      "previousSha256": "9748ecb792964e34120d37d37a6222bed21c28063ff8db9ef635d4c62c3d1624",
+      "byteLength": 10669,
+      "sha256": "84f9ffdb43af27a963ffa784d848c99264db28d4c8cb7af43aab506340029ef1"
+    },
+    {
+      "path": "skills/reading-epubs/scripts/_toc.py",
+      "previousSha256": "e6b865e21f3c23ed10239568be2667541ec88699c09505852149aa146db501ef",
+      "byteLength": 6424,
+      "sha256": "71477db15208bec2c6c43128e2b055052771d6f38755f8f505dbcd910f8f62be"
+    },
+    {
+      "path": "skills/reading-epubs/scripts/convert_epub.py",
+      "previousSha256": "7d6c6654a330903a2ab55e67a519dfe1d3966dea8bb8e82857a1e80b57852409",
+      "byteLength": 12353,
+      "sha256": "d6d51baabe1535adbb4d1413fb101387558633116576e62a0655d2b993c0f544"
+    }
+  ]
+}

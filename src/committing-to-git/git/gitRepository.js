@@ -506,6 +506,77 @@ function buildReadOnlyArguments(operation, args) {
     case "remote-names":
       assertExactArguments(args, [], operation);
       return ["remote"];
+    case "publication-push-urls":
+      if (
+        args.length !== 1 ||
+        !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[0])
+      ) {
+        throw new Error("Publication requires one configured remote name.");
+      }
+      return ["remote", "get-url", "--push", "--all", "--", args[0]];
+    case "publication-raw-urls":
+      if (
+        args.length !== 2 ||
+        !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[0]) ||
+        !["pushurl", "url"].includes(args[1])
+      ) {
+        throw new Error(
+          "Publication requires one configured remote URL field.",
+        );
+      }
+      return ["config", "--get-all", `remote.${args[0]}.${args[1]}`];
+    case "publication-resolve-url":
+      if (args.length !== 1 || containsControlCharacter(args[0])) {
+        throw new Error(
+          "Publication URL resolution requires one non-option operand.",
+        );
+      }
+      return ["ls-remote", "--get-url", "--", args[0]];
+    case "publication-history-files":
+      assertExactArguments(args, [], operation);
+      return [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "shallow",
+        "--git-path",
+        "info/grafts",
+      ];
+    case "publication-outgoing":
+      if (
+        args.length < 1 ||
+        args.length > 2 ||
+        !args.every((oid) => FULL_OBJECT_ID.test(oid))
+      ) {
+        throw new Error("Publication ancestry requires exact object IDs.");
+      }
+      return [
+        "rev-list",
+        "--topo-order",
+        args[0],
+        ...(args.length === 2 ? [`^${args[1]}`] : []),
+        "--",
+      ];
+    case "publication-is-ancestor":
+      if (args.length !== 2 || !args.every((oid) => FULL_OBJECT_ID.test(oid))) {
+        throw new Error("Publication ancestry requires exact object IDs.");
+      }
+      return ["merge-base", "--is-ancestor", ...args];
+    case "publication-ls-remote":
+      if (
+        args.length !== 5 ||
+        args[0] !== "--refs" ||
+        args[1] !== "--exit-code" ||
+        args[2] !== "--" ||
+        containsControlCharacter(args[3]) ||
+        !args[4].startsWith("refs/heads/") ||
+        containsControlCharacter(args[4])
+      ) {
+        throw new Error(
+          "Publication observation requires one bound push endpoint and branch ref.",
+        );
+      }
+      return ["ls-remote", ...args];
     case "ls-remote":
       if (
         args.length !== 5 ||

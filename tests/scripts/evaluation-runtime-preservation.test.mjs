@@ -142,6 +142,26 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
     "skills/committing-to-git/references/state-storage.md",
     "skills/committing-to-git/scripts/commitWorkflow.mjs",
   ]);
+  const memoryPublication = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/memory-publication-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(memoryPublication.schemaVersion, 1);
+  assert.equal(
+    memoryPublication.baselineRevision,
+    "9e1669f46e1d83d97277344a3b8d3bff3c582708",
+  );
+  assert.deepEqual(memoryPublication.files.map(({ path }) => path).sort(), [
+    "skills/committing-to-git/SKILL.md",
+    "skills/committing-to-git/references/publication-recovery.md",
+    "skills/committing-to-git/references/state-storage.md",
+    "skills/committing-to-git/scripts/commitWorkflow.mjs",
+  ]);
   const messageDetail = JSON.parse(
     readFileSync(
       join(
@@ -179,6 +199,31 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
       "skills/naming-objects-in-software-engineering/references/source-authorities.md",
     ],
   );
+  const pythonPreparation = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/python-preparation-runtime-changes.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(pythonPreparation.schemaVersion, 1);
+  assert.equal(
+    pythonPreparation.baselineRevision,
+    memoryPublication.baselineRevision,
+  );
+  assert.equal(
+    pythonPreparation.revision,
+    "7983c3f5020749acdb7cd184091083ff56cbdc64",
+  );
+  assert.deepEqual(pythonPreparation.files.map(({ path }) => path).sort(), [
+    "skills/naming-objects-in-software-engineering/scripts/check-name.py",
+    "skills/reading-epubs/scripts/_repair.py",
+    "skills/reading-epubs/scripts/_styles.py",
+    "skills/reading-epubs/scripts/_toc.py",
+    "skills/reading-epubs/scripts/convert_epub.py",
+  ]);
   const approved = JSON.parse(
     readFileSync(
       join(
@@ -219,7 +264,16 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
     const successor = memoryPaths.files.find(({ path }) => path === added.path);
     if (successor)
       assert.equal(successor.previousSha256, added.sha256, added.path);
-    const expected = successor ?? added;
+    const publicationSuccessor = memoryPublication.files.find(
+      ({ path }) => path === added.path,
+    );
+    if (publicationSuccessor)
+      assert.equal(
+        publicationSuccessor.previousSha256,
+        (successor ?? added).sha256,
+        added.path,
+      );
+    const expected = publicationSuccessor ?? successor ?? added;
     assert.equal(bytes.length, expected.byteLength, added.path);
     assert.equal(sha256Hex(bytes), expected.sha256, added.path);
   }
@@ -385,7 +439,29 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
         preAutolinksIdentity.sha256,
         file.path,
       );
-    const expectedIdentity = namingAutolinksChange ?? preAutolinksIdentity;
+    const priorPublicationIdentity =
+      namingAutolinksChange ?? preAutolinksIdentity;
+    const memoryPublicationChange = memoryPublication.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (memoryPublicationChange)
+      assert.equal(
+        memoryPublicationChange.previousSha256,
+        priorPublicationIdentity.sha256,
+        file.path,
+      );
+    const beforePythonPreparation =
+      memoryPublicationChange ?? priorPublicationIdentity;
+    const pythonPreparationChange = pythonPreparation.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (pythonPreparationChange)
+      assert.equal(
+        pythonPreparationChange.previousSha256,
+        beforePythonPreparation.sha256,
+        file.path,
+      );
+    const expectedIdentity = pythonPreparationChange ?? beforePythonPreparation;
     assert.equal(
       comparisonBytes.length,
       expectedIdentity.byteLength,

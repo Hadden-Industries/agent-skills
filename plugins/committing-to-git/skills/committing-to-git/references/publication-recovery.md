@@ -58,5 +58,71 @@ A known rejection is also not authorization to retry.
 
 When a user asks to push an existing local commit but no matching transaction capsule survives, do not claim snapshot, exact-message approval, comparison, signature-policy, or report assurance that cannot be recovered.
 Do not inspect, stage, commit, or alter current workspace changes.
-Explain the missing assurance and offer limited guidance for an ordinary explicit-OID non-force push only if the user separately chooses a workflow outside this skill.
-This skill's `workflow publish` must honestly refuse without a matching reported transaction.
+Use the existing exact OID with the read-only memory preparation below, reusing actual task evidence and authority.
+The fresh Git observations do not reconstruct missing approval or historical helper receipts.
+Explain a material assurance gap; resolve only missing evidence or authority before the actual push.
+
+## Memory publication
+
+Memory publication supports local commits from current and earlier helper versions without creating a disk transaction or recreating the signed commit.
+Use the successful commit result's `publicationPreparation.arguments`, or prepare an earlier exact OID directly:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow publish --commit-oid <full-oid> --remote <name> --destination <refs/heads/name> [--verification <required|advisory|skipped>]
+```
+
+This is read-only.
+It independently observes the existing commit's tree, parents, raw-message digest, signature header and signature verification under the selected policy.
+Reuse the authorized policy; do not silently weaken required verification.
+It observes the effective push URL, live destination and complete outgoing commit membership, streaming the full graph into a count and digest without writing state.
+The live destination must be absent or a locally available ancestor of the selected OID; reconcile missing/divergent ancestry separately before preparing again.
+Shallow and grafted history cannot establish complete outgoing ancestry and are refused.
+Multiple effective push URLs and credential-bearing URLs cannot enter a memory binding.
+The result's `historicalAssurance: not-attested` means no supplied token/report is treated as an authenticated past helper result or user approval.
+Reuse genuine task evidence for exact message/scope approval and checks; observe missing Git facts without inventing receipts.
+
+Retain `publicationProposal` opaque.
+Review `binding`, `verification` and every `outgoingCommitOids` member against authorized scope, signer requirements and current content policy.
+For more than 256 outgoing commits, `outgoingCommitOids` is null and `outgoingInspection` gives the exact read-only native command and environment for the complete range.
+The bound count and digest still cover every commit; the result never substitutes a truncated list or requires disk for a larger graph.
+Complete that inspection using applicable task-lineage evidence and missing evidence deltas before executing the publish arguments.
+The helper binds membership; this does not establish that every outgoing commit's content, identity, signatures, checks or reviews satisfy provider policy.
+Complete [publication discovery and before-publication checks](publication-routing.md) for the current payload and live refs.
+Tokens and `publicationAllowed: false` never grant push permission; reuse separate explicit user authority for the exact OID, configured remote and full destination.
+Then execute `publish.arguments`:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow publish --publication-proposal <opaque-proposal>
+```
+
+The helper re-observes the binding and rejects drift before launch.
+It rechecks the effective push endpoint immediately before launching through the authorized configured remote, preserving native URL rewriting, remote-specific transport settings and hook arguments.
+Read-only destination observations use an independently resolved operand for that same push endpoint, including when fetch and push URLs differ; an unresolved rewrite remains a prerequisite.
+The exact OID targets one full branch ref and permits only creation or a verified fast-forward.
+Git's explicit expected-value lease requires the previously observed tip or absence, so a concurrent deletion, creation or move cannot change the approved update.
+Mirror mode, follow-tags and submodule pushes are disabled, and native hooks remain enabled.
+Configuration is observed before launch without claiming a concurrent configuration lock; known changes require a fresh binding.
+It changes no local index, HEAD, working files or workflow files; native Git hooks and transport can have their ordinary effects.
+A destination already at that OID is `observed-matching`, with no ref update and no witnessed-success claim.
+This includes Git reporting the destination up to date during the push.
+Only a successful child witnessed by the current invocation is `succeeded` with `witnessedOutcome: witnessed-success`.
+A complete native rejection is `rejected`; refresh policy and prepare a fresh binding before a separately authorized retry or covered fallback.
+Do not reuse an attempted proposal.
+
+Memory mode has no crash-durable transcript, child journal, cross-process consumption lock or authenticated token origin.
+The current process rejects consumed proposals, but a new process cannot establish whether an old token was already attempted.
+Never treat a token's presence, a missing result or an unchanged remote ref as proof that no push ran.
+After interruption, lost output or `PUBLICATION_OUTCOME_UNKNOWN`, preserve the commit and original binding and run only the observation command returned in `recovery.commands`:
+
+```text
+node <skill>/scripts/commitWorkflow.mjs workflow publish --observe-publication <opaque-proposal>
+```
+
+This command never pushes, including with forged caller data.
+A current exact match is `observed-matching`, with `witnessedOutcome: null`; it is not authenticated evidence that a prior invocation succeeded.
+An absent, different or unavailable destination remains `unknown`; changed repository/endpoint bindings also preserve uncertainty.
+No recovery observation grants retry permission.
+Before a new attempt after ambiguity, obtain explicit confirmation that the prior Git process and its children ended or the host restarted, reconcile observed remote state, refresh applicable policy and obtain new explicit push authority.
+Only then prepare a fresh binding; do not automatically retry or retarget.
+If durable crash recovery is a verified requirement, explain the disk journal's storage effects and let the user choose it before starting the workflow.
+Existing disk publication keeps its durable journals, locks, reports and separately bound retry protocol.

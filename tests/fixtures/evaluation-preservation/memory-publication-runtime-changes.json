@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "baselineRevision": "9e1669f46e1d83d97277344a3b8d3bff3c582708",
+  "reason": "Owner-directed memory publication continuation freshly observes existing signed commits and exact remote bindings, without treating caller-held data as authenticated history or approval. Deterministic native-Git coverage does not establish behavioral or cross-host acceptance.",
+  "files": [
+    {
+      "path": "skills/committing-to-git/SKILL.md",
+      "previousSha256": "82ffd93c18da5933501af394294445c3f5f96531d449464e113110152a26080f",
+      "byteLength": 13234,
+      "sha256": "ae32c47af5441f5d8d7c61f5c31333a8b56d4b4c12eab6803f36c4c5ea12bf79"
+    },
+    {
+      "path": "skills/committing-to-git/references/publication-recovery.md",
+      "previousSha256": "52f2541db92bb1d1aaadc9e4fb39d99436a436a5e7e4707fb02145f24e86d693",
+      "byteLength": 10314,
+      "sha256": "676147f1f7d6063c05ee1ac680a6b5313923752bbaa8dd87208d274573dd251f"
+    },
+    {
+      "path": "skills/committing-to-git/references/state-storage.md",
+      "previousSha256": "360a80b5ad945b34e65bfd72c1a1b4c68f03ba2e8e1f19b49d60a318504dba8d",
+      "byteLength": 11757,
+      "sha256": "ab41e8a1be62cc881437b31cb5d4937c142c0a3d4939d3adb04c133c74fdc7d5"
+    },
+    {
+      "path": "skills/committing-to-git/scripts/commitWorkflow.mjs",
+      "previousSha256": "7a6fed3a935de99963788442114b76b1251857d4b7b9c3090e75dabfd37c0ab7",
+      "byteLength": 958616,
+      "sha256": "44db7395cfdc9500662f7c12045d8577099ee9101663e0d7c1486f8ac1b39c6f"
+    }
+  ]
+}

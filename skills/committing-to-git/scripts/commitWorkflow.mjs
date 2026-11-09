@@ -596,7 +596,7 @@ function commandOptions(command) {
     ...["workflow prepare", "workflow preflight"].includes(command) ? {} : {
       transaction: {
         ...stringOption,
-        description: "<transaction.json>  Opaque helper-returned disk-storage path;\n    required unless the command accepts --proposal and it is supplied."
+        description: "<transaction.json>  Opaque helper-returned disk-storage path;\n    alternative to a supported memory proposal or existing-commit route."
       }
     },
     format: {
@@ -900,6 +900,22 @@ var init_commandArguments = __esm({
         }
       },
       "workflow publish": {
+        "commit-oid": {
+          ...stringOption,
+          description: "<full-oid>  Read-only memory publication preparation for an existing commit; returns publicationProposal and grants no push authority."
+        },
+        "publication-proposal": {
+          ...stringOption,
+          description: "<proposal>  Revalidate a caller-held memory binding and make one authorized push with an exact expected branch value. Never replay an unknown attempt."
+        },
+        "observe-publication": {
+          ...stringOption,
+          description: "<proposal>  Observe the bound destination after interruption; never pushes or attests historical success."
+        },
+        verification: {
+          ...stringOption,
+          description: "<required|advisory|skipped>  Signature policy for --commit-oid preparation; default: required. Reuse the authorized policy."
+        },
         remote: {
           ...stringOption,
           description: "<name>  Required configured Git remote name, not a URL."
@@ -1474,6 +1490,58 @@ function buildReadOnlyArguments(operation, args) {
     case "remote-names":
       assertExactArguments(args, [], operation);
       return ["remote"];
+    case "publication-push-urls":
+      if (args.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[0])) {
+        throw new Error("Publication requires one configured remote name.");
+      }
+      return ["remote", "get-url", "--push", "--all", "--", args[0]];
+    case "publication-raw-urls":
+      if (args.length !== 2 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[0]) || !["pushurl", "url"].includes(args[1])) {
+        throw new Error(
+          "Publication requires one configured remote URL field."
+        );
+      }
+      return ["config", "--get-all", `remote.${args[0]}.${args[1]}`];
+    case "publication-resolve-url":
+      if (args.length !== 1 || containsControlCharacter(args[0])) {
+        throw new Error(
+          "Publication URL resolution requires one non-option operand."
+        );
+      }
+      return ["ls-remote", "--get-url", "--", args[0]];
+    case "publication-history-files":
+      assertExactArguments(args, [], operation);
+      return [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "shallow",
+        "--git-path",
+        "info/grafts"
+      ];
+    case "publication-outgoing":
+      if (args.length < 1 || args.length > 2 || !args.every((oid) => FULL_OBJECT_ID.test(oid))) {
+        throw new Error("Publication ancestry requires exact object IDs.");
+      }
+      return [
+        "rev-list",
+        "--topo-order",
+        args[0],
+        ...args.length === 2 ? [`^${args[1]}`] : [],
+        "--"
+      ];
+    case "publication-is-ancestor":
+      if (args.length !== 2 || !args.every((oid) => FULL_OBJECT_ID.test(oid))) {
+        throw new Error("Publication ancestry requires exact object IDs.");
+      }
+      return ["merge-base", "--is-ancestor", ...args];
+    case "publication-ls-remote":
+      if (args.length !== 5 || args[0] !== "--refs" || args[1] !== "--exit-code" || args[2] !== "--" || containsControlCharacter(args[3]) || !args[4].startsWith("refs/heads/") || containsControlCharacter(args[4])) {
+        throw new Error(
+          "Publication observation requires one bound push endpoint and branch ref."
+        );
+      }
+      return ["ls-remote", ...args];
     case "ls-remote":
       if (args.length !== 5 || args[0] !== "--refs" || args[1] !== "--exit-code" || args[2] !== "--" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(args[3]) || !args[4].startsWith("refs/heads/") || containsControlCharacter(args[4])) {
         throw new Error(
@@ -1812,8 +1880,8 @@ function runIndexMutationGit(root, operation, args = [], { env, input, allowFail
 function readOnlyGitText(root, operation, args = [], options) {
   return runReadOnlyGit(root, operation, args, options).stdout.toString("utf8");
 }
-function repositoryRoot(cwd = process.cwd(), observe = readOnlyGitText) {
-  return observe(cwd, "repository-root").trim();
+function repositoryRoot(cwd = process.cwd(), observe2 = readOnlyGitText) {
+  return observe2(cwd, "repository-root").trim();
 }
 function resolveHead(root, env) {
   const result = runReadOnlyGit(root, "resolve-head", [], {
@@ -1863,8 +1931,8 @@ function indexMatchesTree(root, treeOid, env) {
   }
   throw new GitCommandError(args, result);
 }
-function activeGitOperations(root, observe = readOnlyGitText) {
-  const markerPaths = observe(
+function activeGitOperations(root, observe2 = readOnlyGitText) {
+  const markerPaths = observe2(
     root,
     "operation-markers",
     OPERATION_MARKERS.map(([, marker]) => marker)
@@ -2965,9 +3033,9 @@ function assessTransportIdentity({
     ] : []
   };
 }
-function collectTransportObservation(observe, binding, context) {
+function collectTransportObservation(observe2, binding, context) {
   try {
-    return projectTransportObservation(observe(binding, context));
+    return projectTransportObservation(observe2(binding, context));
   } catch (error) {
     return projectTransportObservation({
       state: "unavailable",
@@ -3105,7 +3173,7 @@ function inspectPublicationFeasibility({
     discoveryReuse: { eligible: false, binding: null }
   });
   const read = (root, args, allowAbsent = false) => gitRead(runCommand, root, args, allowAbsent);
-  const observe = (root, operation, args = []) => gitRead(
+  const observe2 = (root, operation, args = []) => gitRead(
     runCommand,
     root,
     buildReadOnlyGitArguments(operation, args),
@@ -3115,7 +3183,7 @@ function inspectPublicationFeasibility({
   try {
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(remote ?? ""))
       return stop("blocked", "Select an exact configured remote name.");
-    const root = repositoryRoot(cwd, observe);
+    const root = repositoryRoot(cwd, observe2);
     if (destination && !destination.startsWith("refs/heads/"))
       return stop(
         "blocked",
@@ -3142,7 +3210,7 @@ function inspectPublicationFeasibility({
         "unknown",
         "This provider or transport is not supported by GitHub preflight; no publication permission is inferred."
       );
-    if (activeGitOperations(root, observe).length)
+    if (activeGitOperations(root, observe2).length)
       return stop(
         "blocked",
         "Finish or explicitly resolve the existing Git operation before starting a new commit workflow."
@@ -3971,9 +4039,9 @@ function unitPathDisplay(unit) {
 function serializedStatistic(value) {
   return Number.isSafeInteger(value) && value >= 0 ? String(value) : "deferred";
 }
-function exactSynopsis(manifest, digest3) {
+function exactSynopsis(manifest, digest4) {
   const lines = [
-    `${manifest.changeUnitCount} change unit${manifest.changeUnitCount === 1 ? "" : "s"}; manifest ${digest3}`
+    `${manifest.changeUnitCount} change unit${manifest.changeUnitCount === 1 ? "" : "s"}; manifest ${digest4}`
   ];
   for (const unit of manifest.changeUnits) {
     const source = unit.sourcePathBytesBase64 ? ` from ${safeBoundedText(Buffer.from(unit.sourcePathBytesBase64, "base64"), "source-path-bytes")}` : "";
@@ -4195,7 +4263,7 @@ function anomalyLines(manifest, maximumSamples) {
   }
   return categories;
 }
-function bulkSynopsis(manifest, digest3) {
+function bulkSynopsis(manifest, digest4) {
   const kinds = /* @__PURE__ */ new Map();
   let deferredStatistics = 0;
   let binaryFiles = 0;
@@ -4206,7 +4274,7 @@ function bulkSynopsis(manifest, digest3) {
   }
   const kindSummary2 = [...kinds.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([kind, count]) => `${kind}=${count}`).join(", ");
   const fixedLines = [
-    `${manifest.changeUnitCount} change units; manifest ${digest3}`,
+    `${manifest.changeUnitCount} change units; manifest ${digest4}`,
     `Kinds: ${kindSummary2}`,
     `Statistics: additions=${serializedStatistic(manifest.statistics?.additions)}, deletions=${serializedStatistic(manifest.statistics?.deletions)}, binary=${binaryFiles}, deferred=${deferredStatistics}`
   ];
@@ -4229,11 +4297,11 @@ function createScopeSynopsis(manifest) {
   if (!manifest || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length) {
     throw new Error("A scope synopsis requires an exact manifest.");
   }
-  const digest3 = manifestDigest(manifest);
-  const text = typeof manifest.scopeSynopsis === "string" ? manifest.scopeSynopsis : manifest.changeUnitCount < 50 ? exactSynopsis(manifest, digest3) : bulkSynopsis(manifest, digest3);
+  const digest4 = manifestDigest(manifest);
+  const text = typeof manifest.scopeSynopsis === "string" ? manifest.scopeSynopsis : manifest.changeUnitCount < 50 ? exactSynopsis(manifest, digest4) : bulkSynopsis(manifest, digest4);
   return {
     text,
-    manifestSha256: digest3,
+    manifestSha256: digest4,
     changeUnitCount: manifest.changeUnitCount,
     detailed: manifest.changeUnitCount < 50
   };
@@ -5070,8 +5138,8 @@ function writePacket(outputDirectory, descriptorData, payload) {
       `Packet ${descriptorData.id} exceeds ${descriptorData.maximumPacketLines} lines.`
     );
   }
-  const digest3 = sha256Bytes(packetBytes);
-  const artifact = `packets/${digest3}.packet`;
+  const digest4 = sha256Bytes(packetBytes);
+  const artifact = `packets/${digest4}.packet`;
   const temporaryPath = join2(
     outputDirectory,
     "packets",
@@ -5085,7 +5153,7 @@ function writePacket(outputDirectory, descriptorData, payload) {
     artifact,
     byteCount: packetBytes.length,
     lineCount: packetLineCount,
-    sha256: digest3,
+    sha256: digest4,
     rawArtifact: descriptorData.rawArtifact,
     rawByteStart: descriptorData.rawStart,
     rawByteEnd: descriptorData.rawEnd,
@@ -6323,8 +6391,8 @@ function validateOutputChannel(channel, label, expectedPaths) {
   for (const segment of ["head", "tail"]) {
     const path = channel[`${segment}Path`];
     const byteCount = channel[`${segment}ByteCount`];
-    const digest3 = channel[`${segment}Sha256`];
-    if (byteCount === 0 && (path !== null || digest3 !== null) || byteCount > 0 && (path === null || digest3 === null || resolve3(path) !== expectedPaths[segment])) {
+    const digest4 = channel[`${segment}Sha256`];
+    if (byteCount === 0 && (path !== null || digest4 !== null) || byteCount > 0 && (path === null || digest4 === null || resolve3(path) !== expectedPaths[segment])) {
       throw new Error(
         `${label} ${segment} segment is not bound to its transaction path and digest.`
       );
@@ -8217,9 +8285,9 @@ function assertValidationMatches(bytes, validation, source) {
       "Canonical message replacement requires one successful validation object."
     );
   }
-  const digest3 = sha256(bytes);
+  const digest4 = sha256(bytes);
   const expectedValidationSource = source === "finalized-extended" ? "structured-finalizer" : source;
-  if (validation.messageSha256 !== digest3 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
+  if (validation.messageSha256 !== digest4 || validation.byteCount !== bytes.length || validation.displayText !== bytes.toString("utf8") || validation.messageSource !== expectedValidationSource) {
     fail3(
       "MESSAGE_VALIDATION_MISMATCH",
       "Canonical validation does not describe the exact replacement message bytes."
@@ -13310,7 +13378,7 @@ function statusEntries(field) {
 async function observeWorkspaceEntries(root, { scope, enumerateAllUntracked = false, onEntry, stream = streamGit } = {}) {
   const scopeKind = typeof scope === "string" ? scope : scope?.kind;
   const untrackedMode = enumerateAllUntracked || scopeKind === "full" ? "all" : "normal";
-  const digest3 = createHash11("sha256");
+  const digest4 = createHash11("sha256");
   let pending = Buffer.alloc(0);
   let discardRenameSource = false;
   let observedEntries = 0;
@@ -13324,12 +13392,12 @@ async function observeWorkspaceEntries(root, { scope, enumerateAllUntracked = fa
       discardRenameSource = true;
     }
     for (const entry of entries) {
-      digest3.update(Buffer.from(entry.category, "ascii"));
-      digest3.update(Buffer.from([0]));
-      digest3.update(Buffer.from(entry.status, "ascii"));
-      digest3.update(Buffer.from([0]));
-      digest3.update(entry.pathBytes);
-      digest3.update(Buffer.from([0]));
+      digest4.update(Buffer.from(entry.category, "ascii"));
+      digest4.update(Buffer.from([0]));
+      digest4.update(Buffer.from(entry.status, "ascii"));
+      digest4.update(Buffer.from([0]));
+      digest4.update(entry.pathBytes);
+      digest4.update(Buffer.from([0]));
       observedEntries += 1;
       onEntry?.(entry, observedEntries - 1);
     }
@@ -13360,7 +13428,7 @@ async function observeWorkspaceEntries(root, { scope, enumerateAllUntracked = fa
   }
   return {
     observedEntries,
-    digest: digest3.digest("hex"),
+    digest: digest4.digest("hex"),
     untrackedMode,
     stdoutByteCount: result.stdoutByteCount,
     stdoutSha256: result.stdoutSha256
@@ -14945,7 +15013,7 @@ function containsUnsafeControl2(value) {
   });
 }
 function safePathDisplay(bytes) {
-  const digest3 = sha2563(bytes);
+  const digest4 = sha2563(bytes);
   let text;
   try {
     text = STRICT_UTF8_DECODER6.decode(bytes);
@@ -14957,7 +15025,7 @@ function safePathDisplay(bytes) {
   }
   const prefix = bytes.subarray(0, 48).toString("hex");
   const suffix = bytes.length > 48 ? bytes.subarray(-24).toString("hex") : "";
-  return `path-bytes:${prefix}${suffix ? `...${suffix}` : ""};bytes=${bytes.length};sha256=${digest3}`;
+  return `path-bytes:${prefix}${suffix ? `...${suffix}` : ""};bytes=${bytes.length};sha256=${digest4}`;
 }
 function validateSelectorsAgainstCandidates(scope, candidates) {
   for (const selector of scope.descriptors) {
@@ -17462,8 +17530,8 @@ function cursorFor({ catalogSha256, nextIndex, priorPacketSha256 }) {
     nextIndex,
     priorPacketSha256
   });
-  const digest3 = createHash17("sha256").update(identity).digest("hex");
-  return `review-v1-${digest3}`;
+  const digest4 = createHash17("sha256").update(identity).digest("hex");
+  return `review-v1-${digest4}`;
 }
 function assertDeliveryPacketIds(deliveryPacketIds, requiredPacketIds2) {
   const deliverySet = new Set(deliveryPacketIds);
@@ -19228,7 +19296,7 @@ var require_cross_spawn = __commonJS({
     var cp = __require("child_process");
     var parse = require_parse();
     var enoent = require_enoent();
-    function spawn5(command, args, options) {
+    function spawn6(command, args, options) {
       const parsed = parse(command, args, options);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -19240,8 +19308,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module.exports = spawn5;
-    module.exports.spawn = spawn5;
+    module.exports = spawn6;
+    module.exports.spawn = spawn6;
     module.exports.sync = spawnSync6;
     module.exports._parse = parse;
     module.exports._enoent = enoent;
@@ -22285,7 +22353,23 @@ function committedResult({ commitOid, commit, verification, displayText }) {
       commitOid,
       commit,
       verification,
-      displayText
+      displayText,
+      ...!blocked ? {
+        publicationPreparation: {
+          arguments: [
+            "workflow",
+            "publish",
+            "--commit-oid",
+            commitOid,
+            "--verification",
+            verification.finalPolicy
+          ],
+          requiredInputs: [
+            "authorized configured remote",
+            "full destination branch ref"
+          ]
+        }
+      } : {}
     }
   });
 }
@@ -23249,12 +23333,12 @@ function readRetainedReport({
       basename3(transaction.report.jsonPath)
     )?.[1];
     const suffix = revision && UUID_V4_PATTERN3.test(revision) ? `-publication-${revision}` : "";
-    const retained = (path, digest3, name) => {
+    const retained = (path, digest4, name) => {
       if (resolve29(path) !== resolve29(transaction.attemptDirectory, name))
         fail22("DETAIL_STATE_INVALID", "Report path is not transaction-owned.");
       assertRegularFile(path, name);
       const bytes = readFileSync9(path);
-      if (sha2569(bytes) !== digest3)
+      if (sha2569(bytes) !== digest4)
         fail22("DETAIL_STATE_INVALID", "Retained report digest does not match.");
       return bytes.toString("utf8");
     };
@@ -24317,25 +24401,705 @@ var init_publishWorkflow = __esm({
   }
 });
 
+// src/committing-to-git/workflow/memoryPublicationWorkflow.js
+import { spawn as spawn5 } from "node:child_process";
+import { createHash as createHash27, randomUUID as randomUUID10 } from "node:crypto";
+import { existsSync as existsSync20 } from "node:fs";
+import { TextDecoder as TextDecoder13 } from "node:util";
+function fail25(code, message, disposition = "unmet-prerequisite") {
+  throw new WorkflowDiagnosticError(code, message, {
+    disposition,
+    state: {
+      publicationState: disposition === "outcome-unknown" ? "unknown" : "not-requested",
+      recoveryRequired: disposition === "outcome-unknown"
+    }
+  });
+}
+function digest3(bytes) {
+  return createHash27("sha256").update(bytes).digest("hex");
+}
+function same(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function encode(binding) {
+  const token = PREFIX + Buffer.from(JSON.stringify(binding)).toString("base64url");
+  if (Buffer.byteLength(token) > MAXIMUM_TOKEN_BYTES) {
+    fail25(
+      "PUBLICATION_BINDING_TOO_LARGE",
+      "The exact publication binding exceeds its memory transport limit; no push was attempted."
+    );
+  }
+  return token;
+}
+function decodePublicationProposal(token) {
+  let value;
+  try {
+    if (typeof token !== "string" || Buffer.byteLength(token) > MAXIMUM_TOKEN_BYTES || !token.startsWith(PREFIX) || !/^[A-Za-z0-9_-]+$/u.test(token.slice(PREFIX.length)))
+      throw new Error();
+    value = JSON.parse(
+      new TextDecoder13("utf8", { fatal: true }).decode(
+        Buffer.from(token.slice(PREFIX.length), "base64url")
+      )
+    );
+    const keys = [
+      "schema",
+      "proposalId",
+      "repositoryRoot",
+      "commitOid",
+      "commit",
+      "verificationPolicy",
+      "signer",
+      "remote",
+      "pushUrl",
+      "observationUrl",
+      "destination",
+      "destinationOid",
+      "outgoingSha256",
+      "outgoingCount"
+    ];
+    if (value === null || typeof value !== "object" || !same(Object.keys(value), keys) || value.schema !== "publication-proposal/v1" || !/^[0-9a-f-]{36}$/u.test(value.proposalId) || typeof value.repositoryRoot !== "string" || !OID2.test(value.commitOid) || !POLICIES2.has(value.verificationPolicy) || typeof value.remote !== "string" || typeof value.pushUrl !== "string" || typeof value.observationUrl !== "string" || typeof value.destination !== "string" || value.destinationOid !== null && !OID2.test(value.destinationOid) || !DIGEST.test(value.outgoingSha256) || !Number.isSafeInteger(value.outgoingCount) || value.outgoingCount < 0 || encode(value) !== token)
+      throw new Error();
+    const commit = value.commit;
+    if (commit === null || typeof commit !== "object" || !same(Object.keys(commit), [
+      "treeOid",
+      "parentOids",
+      "messageSha256",
+      "signed"
+    ]) || !OID2.test(commit.treeOid) || !Array.isArray(commit.parentOids) || !commit.parentOids.every((oid) => OID2.test(oid)) || !DIGEST.test(commit.messageSha256) || commit.signed !== true)
+      throw new Error();
+    if (value.signer !== null && (typeof value.signer !== "object" || Array.isArray(value.signer)))
+      throw new Error();
+  } catch {
+    fail25(
+      "INVALID_PUBLICATION_PROPOSAL",
+      "Supply the exact caller-held publicationProposal returned by read-only publication preparation.",
+      "invalid-input"
+    );
+  }
+  return value;
+}
+function assertSafeUrl(text) {
+  if (/[\p{Cc}]/u.test(text))
+    fail25(
+      "PUBLICATION_ENDPOINT_INVALID",
+      "A publication endpoint contains control characters."
+    );
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(text)) {
+    let url;
+    try {
+      url = new URL(text);
+    } catch {
+      fail25(
+        "PUBLICATION_ENDPOINT_INVALID",
+        "The effective push URL cannot be safely bound."
+      );
+    }
+    if (url.password || /^https?:$/u.test(url.protocol) && url.username || url.search || url.hash) {
+      fail25(
+        "PUBLICATION_ENDPOINT_SENSITIVE",
+        "Remove embedded credentials or query/fragment data from the effective push endpoint before preparing a caller-held binding."
+      );
+    }
+  }
+}
+function pushUrlFor(root, remote) {
+  const urls = runReadOnlyGit(root, "publication-push-urls", [remote]).stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
+  if (urls.length !== 1)
+    fail25(
+      "PUBLICATION_ENDPOINT_AMBIGUOUS",
+      "Memory publication requires exactly one effective push URL."
+    );
+  const pushUrl = urls[0];
+  assertSafeUrl(pushUrl);
+  const pushUrls = runReadOnlyGit(
+    root,
+    "publication-raw-urls",
+    [remote, "pushurl"],
+    { allowFailure: true }
+  );
+  if (![0, 1].includes(pushUrls.status))
+    fail25(
+      "PUBLICATION_ENDPOINT_INVALID",
+      "The configured push URL could not be read."
+    );
+  const raw = pushUrls.status === 0 ? pushUrls.stdout : runReadOnlyGit(root, "publication-raw-urls", [remote, "url"]).stdout;
+  const rawUrls = raw.toString("utf8").split(/\r?\n/u).filter(Boolean);
+  if (rawUrls.length !== 1)
+    fail25(
+      "PUBLICATION_ENDPOINT_AMBIGUOUS",
+      "Memory publication requires one raw configured push URL."
+    );
+  for (const candidate of /* @__PURE__ */ new Set([rawUrls[0], pushUrl])) {
+    const resolved = runReadOnlyGit(
+      root,
+      "publication-resolve-url",
+      [candidate],
+      { allowFailure: true }
+    );
+    if (resolved.status === 0 && resolved.stdout.toString("utf8").replace(/\r?\n$/u, "") === pushUrl) {
+      assertSafeUrl(candidate);
+      return { pushUrl, observationUrl: candidate };
+    }
+  }
+  fail25(
+    "PUBLICATION_ENDPOINT_REWRITE_UNRESOLVED",
+    "Native read-only URL resolution cannot bind an observation to the effective push endpoint. Resolve that transport prerequisite before publication."
+  );
+}
+async function observe(root, pushUrl, destination) {
+  return observePublicationDestination(root, pushUrl, destination, {
+    stream: (_operation, args, options) => streamGit("publication-ls-remote", args, options)
+  });
+}
+function commitFacts2(root, commitOid) {
+  const object = inspectCommitObject(root, commitOid);
+  return {
+    treeOid: object.treeOid,
+    parentOids: object.parents,
+    messageSha256: digest3(object.messageBytes),
+    signed: object.signed
+  };
+}
+async function outgoingFacts(root, commitOid, destinationOid) {
+  const oids = [];
+  let count = 0;
+  let pending = "";
+  let invalid6 = false;
+  const args = [
+    commitOid,
+    ...destinationOid === null ? [] : [destinationOid]
+  ];
+  const result = await streamGit("publication-outgoing", args, {
+    cwd: root,
+    allowFailure: true,
+    onStdout(chunk) {
+      const lines = (pending + chunk.toString("ascii")).split("\n");
+      pending = lines.pop();
+      if (pending.length > 64) {
+        invalid6 = true;
+        pending = pending.slice(-65);
+      }
+      for (const oid of lines) {
+        invalid6 ||= !OID2.test(oid);
+        count += 1;
+        if (oids.length < 256) oids.push(oid);
+      }
+    }
+  });
+  if (result.status !== 0 || invalid6 || pending !== "" || !Number.isSafeInteger(count)) {
+    fail25(
+      "PUBLICATION_OUTGOING_INCOMPLETE",
+      "Complete outgoing ancestry could not be observed; no push was attempted."
+    );
+  }
+  return {
+    sha256: result.stdoutSha256,
+    count,
+    oids: count <= 256 ? oids : null,
+    inspection: count <= 256 ? null : {
+      arguments: [
+        "git",
+        "--no-lazy-fetch",
+        "--no-pager",
+        "rev-list",
+        "--topo-order",
+        commitOid,
+        ...destinationOid === null ? [] : [`^${destinationOid}`],
+        "--"
+      ],
+      environment: {
+        GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_NO_LAZY_FETCH: "1",
+        GIT_OPTIONAL_LOCKS: "0"
+      },
+      reason: "Inspect every outgoing commit using the exact bound range; the inline result never truncates it."
+    }
+  };
+}
+function verify(root, commitOid, policy, signatureVerifier) {
+  const preflight = preflightVerificationPolicy({
+    root,
+    verificationPolicy: policy,
+    signaturePreflightInspector: inspectSignatureRequirements
+  });
+  const attempt = policy === "skipped" ? null : policy === "advisory" && preflight.backend === "ssh" && preflight.trustSource?.state !== "readable" ? {
+    status: "unavailable",
+    reason: "trust-store-unreadable",
+    backend: "ssh",
+    identity: null,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  } : signatureVerifier(root, commitOid, {
+    backend: preflight.backend,
+    invoke: (args, options) => runGit(args, {
+      ...options,
+      env: { GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1" }
+    })
+  });
+  return applyVerificationPolicy({
+    commitOid,
+    initialPolicy: policy,
+    finalPolicy: policy,
+    verificationAttempt: attempt
+  });
+}
+async function inspectBinding({
+  commitOid,
+  remote,
+  destination,
+  verificationPolicy,
+  cwd,
+  environment,
+  remoteObserver,
+  signatureVerifier,
+  proposalId = randomUUID10()
+}) {
+  assertNoGitStorageOverrides(environment);
+  if (!OID2.test(commitOid) || !POLICIES2.has(verificationPolicy)) {
+    fail25(
+      "INVALID_PUBLICATION_INPUT",
+      "Memory publication needs an exact full commit OID and required, advisory or skipped verification.",
+      "invalid-input"
+    );
+  }
+  const root = repositoryRoot(cwd);
+  const historyFiles = runReadOnlyGit(root, "publication-history-files").stdout.toString("utf8").trim().split(/\r?\n/u);
+  if (["GIT_SHALLOW_FILE", "GIT_GRAFT_FILE"].some(
+    (key) => Object.hasOwn(environment, key)
+  ) || historyFiles.some((path) => existsSync20(path))) {
+    fail25(
+      "PUBLICATION_HISTORY_INCOMPLETE",
+      "Shallow or grafted history cannot establish complete outgoing ancestry for a memory publication binding."
+    );
+  }
+  validateDestination(root, remote, destination);
+  const { pushUrl, observationUrl } = pushUrlFor(root, remote);
+  const commit = commitFacts2(root, commitOid);
+  if (!commit.signed)
+    fail25(
+      "PUBLICATION_BLOCKED",
+      "The selected existing commit has no signature header."
+    );
+  const verification = verify(
+    root,
+    commitOid,
+    verificationPolicy,
+    signatureVerifier
+  );
+  if (verification.blocksPush)
+    fail25(
+      "PUBLICATION_BLOCKED",
+      "Current native signature verification blocks publication of the existing commit."
+    );
+  const observation = await remoteObserver(root, observationUrl, destination);
+  if (!["observed", "absent"].includes(observation.status)) {
+    fail25(
+      "PUBLICATION_DESTINATION_UNAVAILABLE",
+      "A complete live destination observation is required; no push was attempted."
+    );
+  }
+  const destinationOid = observation.observedOid;
+  if (destinationOid !== null) {
+    const ancestry = runReadOnlyGit(
+      root,
+      "publication-is-ancestor",
+      [destinationOid, commitOid],
+      { allowFailure: true }
+    );
+    if (ancestry.status !== 0)
+      fail25(
+        "PUBLICATION_ANCESTRY_UNRESOLVED",
+        "The live destination must be locally available and an ancestor of the authorized commit. Reconcile ancestry and scope without force pushing."
+      );
+  }
+  const outgoing = await outgoingFacts(root, commitOid, destinationOid);
+  const effective = verification.attempts[verification.effectiveAttempt];
+  const binding = {
+    schema: "publication-proposal/v1",
+    proposalId,
+    repositoryRoot: root,
+    commitOid,
+    commit,
+    verificationPolicy,
+    signer: effective.status === "verified" ? { backend: effective.backend, identity: effective.identity } : null,
+    remote,
+    pushUrl,
+    observationUrl,
+    destination,
+    destinationOid,
+    outgoingSha256: outgoing.sha256,
+    outgoingCount: outgoing.count
+  };
+  return { binding, verification, observation, outgoing };
+}
+function resultFor2(binding, status, data = {}, commitState = "created") {
+  const unknown = status === "unknown";
+  const success = [
+    "succeeded",
+    "observed-matching",
+    "publication-ready"
+  ].includes(status);
+  const token = encode(binding);
+  return createWorkflowResult({
+    disposition: success ? "succeeded" : unknown ? "outcome-unknown" : "rejected",
+    status,
+    code: success ? null : unknown ? "PUBLICATION_OUTCOME_UNKNOWN" : "PUBLICATION_REJECTED",
+    phase: status === "publication-ready" ? "reported" : success ? "published" : unknown ? "publication-pending" : "reported",
+    commitState,
+    publicationState: status === "publication-ready" ? "not-requested" : success ? "published" : unknown ? "unknown" : "rejected",
+    publicationAllowed: false,
+    recoveryRequired: unknown,
+    documentation: "references/publication-recovery.md",
+    recovery: {
+      kind: unknown ? "inspect-state" : "none",
+      automatic: false,
+      requiredInputs: unknown ? [
+        "Confirm the prior Git process and its children ended before any separately authorized new attempt."
+      ] : [],
+      commands: unknown ? [
+        {
+          arguments: [
+            "workflow",
+            "publish",
+            "--observe-publication",
+            token
+          ]
+        }
+      ] : []
+    },
+    data: {
+      stateStorage: "memory",
+      transaction: null,
+      commitOid: binding.commitOid,
+      historicalAssurance: "not-attested",
+      durableJournal: false,
+      publication: {
+        status,
+        remote: binding.remote,
+        destination: binding.destination,
+        commitOid: binding.commitOid
+      },
+      displayText: status === "publication-ready" ? `Existing commit ${binding.commitOid}: publication prepared for ${binding.remote} ${binding.destination}. This observation grants no push authority. Inspect all ${binding.outgoingCount} outgoing commits and current policy before the authorized attempt.
+` : `Publication ${status}: ${binding.commitOid} to ${binding.remote} ${binding.destination}.
+`,
+      ...data
+    }
+  });
+}
+async function prepareMemoryPublication({
+  verificationPolicy = "required",
+  cwd = process.cwd(),
+  environment = process.env,
+  remoteObserver = observe,
+  signatureVerifier = verifyCommitSignature,
+  ...options
+}) {
+  const { binding, verification, observation, outgoing } = await inspectBinding(
+    {
+      ...options,
+      verificationPolicy,
+      cwd,
+      environment,
+      remoteObserver,
+      signatureVerifier
+    }
+  );
+  const token = encode(binding);
+  return resultFor2(binding, "publication-ready", {
+    publicationProposal: token,
+    binding,
+    verification,
+    observation,
+    outgoingCommitOids: outgoing.oids,
+    outgoingInspection: outgoing.inspection,
+    publish: {
+      arguments: ["workflow", "publish", "--publication-proposal", token]
+    }
+  });
+}
+function classifyMemoryPushCompletion(transcript, binding) {
+  const outcome = classifyPushCompletion(transcript, binding.destination);
+  if (outcome !== "witnessed-success") return outcome;
+  if (!transcript.capturedStdoutComplete) return "unknown";
+  const refspec = `${binding.commitOid}:${binding.destination}`;
+  const records = transcript.capturedStdout.toString("utf8").split(/\r?\n/u).map((line) => line.split("	")).filter(([, ref]) => ref === refspec);
+  if (records.length !== 1) return "unknown";
+  const [[flag]] = records;
+  if (flag === "=") return "observed-matching";
+  return flag === " " || flag === "*" ? "witnessed-success" : "unknown";
+}
+async function pushOnce(binding, { environment, processLauncher, diagnosticWriter }) {
+  let child;
+  try {
+    child = processLauncher(
+      "git",
+      [
+        "-c",
+        `remote.${binding.remote}.mirror=false`,
+        "push",
+        "--porcelain",
+        "--no-force",
+        // inspectBinding proved this exact old tip is an ancestor, or absent.
+        `--force-with-lease=${binding.destination}:${binding.destinationOid ?? ""}`,
+        "--no-follow-tags",
+        "--recurse-submodules=no",
+        "--",
+        binding.remote,
+        `${binding.commitOid}:${binding.destination}`
+      ],
+      {
+        cwd: binding.repositoryRoot,
+        env: {
+          ...environment,
+          GIT_NO_REPLACE_OBJECTS: "1",
+          GIT_NO_LAZY_FETCH: "1",
+          GIT_PAGER: "cat",
+          PAGER: "cat",
+          NO_COLOR: "1"
+        },
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"]
+      }
+    );
+  } catch {
+    return {
+      outcome: "known-rejection",
+      reason: "not-launched",
+      exitCode: null,
+      signal: null
+    };
+  }
+  return new Promise((resolveCompletion) => {
+    let stdout = Buffer.alloc(0);
+    const stdoutHash = createHash27("sha256");
+    let complete = true;
+    let launchError = null;
+    child.stdout.on("data", (chunk) => {
+      stdoutHash.update(chunk);
+      const remaining = Math.max(0, MAXIMUM_CAPTURE_BYTES - stdout.length);
+      stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)]);
+      complete &&= chunk.length <= remaining;
+    });
+    child.stderr.on("data", (chunk) => {
+      try {
+        diagnosticWriter.write(chunk);
+      } catch {
+      }
+    });
+    child.once("error", (error) => {
+      launchError = { code: error.code ?? null };
+    });
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.once("error", (error) => {
+        launchError ??= { code: error.code ?? null };
+      });
+    }
+    child.once(
+      "close",
+      (status, signal) => resolveCompletion({
+        outcome: classifyMemoryPushCompletion(
+          {
+            status,
+            signal,
+            launchError,
+            capturedStdoutComplete: complete,
+            capturedStdout: stdout
+          },
+          binding
+        ),
+        exitCode: status,
+        signal,
+        stdoutSha256: stdoutHash.digest("hex"),
+        stdoutComplete: complete
+      })
+    );
+  });
+}
+async function publishMemoryProposal({
+  publicationProposal,
+  cwd = process.cwd(),
+  environment = process.env,
+  remoteObserver = observe,
+  signatureVerifier = verifyCommitSignature,
+  processLauncher = spawn5,
+  diagnosticWriter = { write() {
+  } }
+}) {
+  const binding = decodePublicationProposal(publicationProposal);
+  if (consumedProposals.has(publicationProposal))
+    fail25(
+      "PUBLICATION_PROPOSAL_CONSUMED",
+      "This process already consumed the publication proposal. Observe the destination; never replay an unknown attempt.",
+      "outcome-unknown"
+    );
+  const current = await inspectBinding({
+    ...binding,
+    cwd,
+    environment,
+    remoteObserver,
+    signatureVerifier
+  });
+  if (!same(current.binding, binding)) {
+    fail25(
+      "PUBLICATION_PROPOSAL_STALE",
+      "The repository, commit, signature, effective push endpoint, live ref or outgoing ancestry changed. Reconcile the changed facts and authority before preparing again.",
+      "rejected"
+    );
+  }
+  if (consumedProposals.has(publicationProposal))
+    fail25(
+      "PUBLICATION_PROPOSAL_CONSUMED",
+      "This process already consumed the publication proposal. Observe before another attempt.",
+      "outcome-unknown"
+    );
+  consumedProposals.add(publicationProposal);
+  if (binding.destinationOid === binding.commitOid) {
+    return resultFor2(binding, "observed-matching", {
+      observation: current.observation,
+      witnessedOutcome: null
+    });
+  }
+  const endpoint = pushUrlFor(binding.repositoryRoot, binding.remote);
+  if (endpoint.pushUrl !== binding.pushUrl || endpoint.observationUrl !== binding.observationUrl)
+    fail25(
+      "PUBLICATION_PROPOSAL_STALE",
+      "The effective push endpoint changed before launch; no push was attempted.",
+      "rejected"
+    );
+  const completion = await pushOnce(binding, {
+    environment,
+    processLauncher,
+    diagnosticWriter
+  });
+  if (completion.outcome === "observed-matching") {
+    return resultFor2(binding, "observed-matching", {
+      completion,
+      witnessedOutcome: null,
+      verification: current.verification
+    });
+  }
+  const status = completion.outcome === "witnessed-success" ? "succeeded" : completion.outcome === "known-rejection" ? "rejected" : "unknown";
+  return resultFor2(binding, status, {
+    completion,
+    witnessedOutcome: completion.outcome,
+    verification: current.verification
+  });
+}
+async function observeMemoryPublication({
+  publicationProposal,
+  cwd = process.cwd(),
+  environment = process.env,
+  remoteObserver = observe
+}) {
+  const binding = decodePublicationProposal(publicationProposal);
+  const unavailable = (reason, commitState2 = "unknown") => resultFor2(
+    binding,
+    "unknown",
+    {
+      observation: { status: "unavailable", observedOid: null, reason },
+      witnessedOutcome: null
+    },
+    commitState2
+  );
+  let root;
+  try {
+    assertNoGitStorageOverrides(environment);
+    root = repositoryRoot(cwd);
+    validateDestination(root, binding.remote, binding.destination);
+    const endpoint = pushUrlFor(root, binding.remote);
+    if (root !== binding.repositoryRoot || endpoint.pushUrl !== binding.pushUrl || endpoint.observationUrl !== binding.observationUrl) {
+      return unavailable("local-binding-changed");
+    }
+  } catch {
+    return unavailable("local-binding-unavailable");
+  }
+  let commitState = "unknown";
+  try {
+    commitFacts2(root, binding.commitOid);
+    commitState = "created";
+  } catch {
+  }
+  let observation;
+  try {
+    observation = await remoteObserver(
+      root,
+      binding.observationUrl,
+      binding.destination
+    );
+  } catch {
+    return unavailable("remote-query-unavailable", commitState);
+  }
+  return resultFor2(
+    binding,
+    observation.status === "observed" && observation.observedOid === binding.commitOid ? "observed-matching" : "unknown",
+    { observation, witnessedOutcome: null },
+    commitState
+  );
+}
+var OID2, DIGEST, PREFIX, MAXIMUM_TOKEN_BYTES, MAXIMUM_CAPTURE_BYTES, POLICIES2, consumedProposals;
+var init_memoryPublicationWorkflow = __esm({
+  "src/committing-to-git/workflow/memoryPublicationWorkflow.js"() {
+    init_diagnosticContract();
+    init_workflowDiagnosticError();
+    init_gitRepository();
+    init_commitReport();
+    init_commitSignature();
+    init_signaturePreflight();
+    init_prepareWorkflow();
+    init_publishWorkflow();
+    OID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+    DIGEST = /^[0-9a-f]{64}$/u;
+    PREFIX = "ctgp1.";
+    MAXIMUM_TOKEN_BYTES = 4096;
+    MAXIMUM_CAPTURE_BYTES = 64 * 1024;
+    POLICIES2 = /* @__PURE__ */ new Set(["required", "advisory", "skipped"]);
+    consumedProposals = /* @__PURE__ */ new Set();
+  }
+});
+
 // src/committing-to-git/cli/publishCommand.js
 var publishCommand_exports = {};
 __export(publishCommand_exports, {
   runPublishCommand: () => runPublishCommand
 });
-function fail25(code, message, options) {
+function fail26(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function parseArguments6(argv) {
   const flags = parseCommandArguments("workflow publish", argv).values;
   const format = flags.get("format") ?? "json";
   if (!["json", "text"].includes(format))
-    fail25("INVALID_FORMAT", "--format must be json or text.");
-  for (const required of ["transaction", "remote", "destination"]) {
+    fail26("INVALID_FORMAT", "--format must be json or text.");
+  const modes = [
+    "transaction",
+    "commit-oid",
+    "publication-proposal",
+    "observe-publication"
+  ].filter((name) => flags.has(name));
+  if (modes.length !== 1)
+    fail26(
+      "INVALID_ARGUMENT",
+      "Supply exactly one of --transaction, --commit-oid, --publication-proposal or --observe-publication."
+    );
+  const mode = modes[0];
+  const tokenMode = ["publication-proposal", "observe-publication"].includes(
+    mode
+  );
+  if (mode !== "transaction" && flags.has("retry-after-attempt") || mode !== "commit-oid" && flags.has("verification") || tokenMode && (flags.has("remote") || flags.has("destination"))) {
+    fail26(
+      "INVALID_ARGUMENT",
+      "Memory tokens already bind their endpoint and signature policy; disk retry tokens cannot be used on memory routes."
+    );
+  }
+  for (const required of tokenMode ? [] : ["remote", "destination"]) {
     if (!flags.get(required))
-      fail25("INVALID_ARGUMENT", `--${required} is required.`);
+      fail26("INVALID_ARGUMENT", `--${required} is required.`);
   }
   return {
     transactionPath: flags.get("transaction"),
+    mode,
+    commitOid: flags.get("commit-oid"),
+    publicationProposal: flags.get("publication-proposal") ?? flags.get("observe-publication"),
+    verificationPolicy: flags.get("verification") ?? "required",
     remote: flags.get("remote"),
     destination: flags.get("destination"),
     retryAfterAttempt: flags.get("retry-after-attempt") ?? null,
@@ -24346,10 +25110,18 @@ async function runPublishCommand(argv, { stdout = process.stdout, stderr = proce
   return executeCommand(argv, {
     parse: parseArguments6,
     includeProcessDiagnostics: true,
-    execute: (options) => publishWorkflow({
-      ...options,
-      diagnosticWriter: diagnosticWriterFor(options.format, stderr)
-    }),
+    execute: (options) => {
+      const operation = {
+        transaction: publishWorkflow,
+        "commit-oid": prepareMemoryPublication,
+        "publication-proposal": publishMemoryProposal,
+        "observe-publication": observeMemoryPublication
+      }[options.mode];
+      return operation({
+        ...options,
+        diagnosticWriter: diagnosticWriterFor(options.format, stderr)
+      });
+    },
     failureState: observeTransactionFailure,
     stdout
   });
@@ -24361,6 +25133,7 @@ var init_publishCommand = __esm({
     init_workflowDiagnosticError();
     init_transactionDiagnosticState();
     init_publishWorkflow();
+    init_memoryPublicationWorkflow();
   }
 });
 
@@ -24562,26 +25335,26 @@ var init_recoverTransactionCommand = __esm({
 });
 
 // src/committing-to-git/workflow/checkMessageWorkflow.js
-import { createHash as createHash27 } from "node:crypto";
+import { createHash as createHash28 } from "node:crypto";
 import { resolve as resolve32 } from "node:path";
-import { TextDecoder as TextDecoder13 } from "node:util";
-function fail26(code, message, options) {
+import { TextDecoder as TextDecoder14 } from "node:util";
+function fail27(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function sha25611(bytes) {
-  return createHash27("sha256").update(bytes).digest("hex");
+  return createHash28("sha256").update(bytes).digest("hex");
 }
 function decodeJson(bytes, label) {
   let text;
   try {
     text = STRICT_UTF8_DECODER14.decode(bytes);
   } catch {
-    fail26("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
+    fail27("INVALID_JSON_UTF8", `${label} must contain strict UTF-8 JSON.`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail26("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
+    fail27("INVALID_JSON_INPUT", `${label} is invalid JSON.`, { cause: error });
   }
 }
 function sameHeadAnchor2(manifest, headAnchor) {
@@ -24595,20 +25368,20 @@ function readExactRecordedSnapshot(transactionPath) {
   const { transaction, bytes } = opened;
   const expectedPath = resolve32(transaction.attemptDirectory, SNAPSHOT_NAME);
   if (resolve32(transaction.snapshot?.path ?? "") !== expectedPath) {
-    fail26(
+    fail27(
       "SNAPSHOT_PATH_MISMATCH",
       "The transaction snapshot does not use its fixed transaction-local path."
     );
   }
   if (sha25611(bytes) !== transaction.snapshot.sha256) {
-    fail26(
+    fail27(
       "SNAPSHOT_CHANGED",
       "The recorded snapshot bytes changed after preparation."
     );
   }
   const manifest = decodeJson(bytes, "Recorded snapshot");
   if (resolve32(manifest.repositoryRoot) !== resolve32(transaction.repositoryRoot) || manifest.indexTreeOid !== transaction.snapshot.indexTreeOid || manifest.changeUnitCount !== transaction.snapshot.changeUnitCount || !Array.isArray(manifest.changeUnits) || manifest.changeUnitCount !== manifest.changeUnits.length || !sameHeadAnchor2(manifest, transaction.headAnchor)) {
-    fail26(
+    fail27(
       "SNAPSHOT_ANCHOR_MISMATCH",
       "The recorded snapshot does not match the transaction repository, HEAD, tree, and inventory anchors."
     );
@@ -24626,7 +25399,7 @@ function resultBytes(result) {
 function assertMessageResultBudget(result) {
   const byteCount = resultBytes(result);
   if (byteCount > MAXIMUM_MESSAGE_RESULT_BYTES) {
-    fail26(
+    fail27(
       "MESSAGE_RESULT_BUDGET_EXCEEDED",
       `Message result is ${byteCount} bytes; maximum is ${MAXIMUM_MESSAGE_RESULT_BYTES}.`,
       { details: { byteCount, maximumBytes: MAXIMUM_MESSAGE_RESULT_BYTES } }
@@ -24694,7 +25467,7 @@ function assertCheckTransaction(transaction, transactionPath) {
   const receipt = transaction.review?.receipt;
   const extendedAllowed = transaction.route === "extended" && (/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) && transaction.review.semanticStructureRequired === false && receipt?.requiredPacketsReviewed === true && receipt.catalogSha256 === transaction.review.catalogSha256 && receipt.evidencePlanSha256 === transaction.review.evidencePlanSha256;
   if (!conciseAllowed && !extendedAllowed || transaction.commit !== null) {
-    fail26(
+    fail27(
       "MESSAGE_CHECK_NOT_ALLOWED",
       `Message checking requires concise evidence or a completed non-semantic extended review, not ${transaction.route ?? "unrouted"}/${transaction.phase}.`,
       { details: { transaction: resolve32(transactionPath) } }
@@ -24707,7 +25480,7 @@ function checkMessageWorkflow({
   forceCleanupIdentityUnavailable = false
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail26("MISSING_ARGUMENT", "--transaction is required for message check.");
+    fail27("MISSING_ARGUMENT", "--transaction is required for message check.");
   }
   const opened = readTransactionOwnedFile({
     transactionPath,
@@ -24783,7 +25556,7 @@ var init_checkMessageWorkflow = __esm({
     init_canonicalMessageState();
     init_recordedSnapshot();
     MAXIMUM_MESSAGE_RESULT_BYTES = 80 * 1024;
-    STRICT_UTF8_DECODER14 = new TextDecoder13("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER14 = new TextDecoder14("utf-8", { fatal: true });
     MESSAGE_INPUT_NAME = "message-input.txt";
     SNAPSHOT_NAME = "snapshot.json";
     FORMATS2 = /* @__PURE__ */ new Set(["json", "text"]);
@@ -24856,18 +25629,18 @@ __export(checkMessageCommand_exports, {
   parseMessageWorkflowArguments: () => parseMessageWorkflowArguments,
   runCheckMessageCommand: () => runCheckMessageCommand
 });
-function fail27(code, message, options) {
+function fail28(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function parseMessageWorkflowArguments(argv, command) {
   const { values } = parseCommandArguments(`message ${command}`, argv);
   const format = values.get("format") ?? "json";
   if (!FORMATS2.has(format)) {
-    fail27("INVALID_FORMAT", "--format must be json or text.");
+    fail28("INVALID_FORMAT", "--format must be json or text.");
   }
   if (values.has("proposal")) {
     if (values.has("transaction")) {
-      fail27(
+      fail28(
         "CONFLICTING_ARGUMENT",
         "--proposal and --transaction are alternatives."
       );
@@ -24875,7 +25648,7 @@ function parseMessageWorkflowArguments(argv, command) {
     return { proposal: values.get("proposal"), format };
   }
   if (!values.has("transaction")) {
-    fail27(
+    fail28(
       "MISSING_ARGUMENT",
       `--transaction is required for message ${command}.`
     );
@@ -24911,7 +25684,7 @@ var init_checkMessageCommand = __esm({
 });
 
 // src/committing-to-git/message/semanticContentValidation.js
-import { createHash as createHash28 } from "node:crypto";
+import { createHash as createHash29 } from "node:crypto";
 function isPlainObject5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -24920,15 +25693,15 @@ function boundedPointerToken(token) {
   if (Buffer.byteLength(value, "utf8") <= MAXIMUM_POINTER_TOKEN_BYTES) {
     return value;
   }
-  const digest3 = createHash28("sha256").update(value).digest("hex");
-  return `field-sha256:${digest3}`;
+  const digest4 = createHash29("sha256").update(value).digest("hex");
+  return `field-sha256:${digest4}`;
 }
 function childPointer(parent, token) {
   const escaped = String(token).replaceAll("~", "~0").replaceAll("/", "~1");
   return `${parent}/${escaped}`;
 }
 function diagnosticCollector() {
-  const digest3 = createHash28("sha256");
+  const digest4 = createHash29("sha256");
   const samples = [];
   let count = 0;
   return {
@@ -24939,7 +25712,7 @@ function diagnosticCollector() {
         ...pointerByteLength <= 4096 ? {} : {
           pointerOmitted: true,
           pointerByteLength,
-          pointerSha256: createHash28("sha256").update(pointer).digest("hex")
+          pointerSha256: createHash29("sha256").update(pointer).digest("hex")
         },
         code,
         message
@@ -24949,8 +25722,8 @@ function diagnosticCollector() {
           diagnostic[field] = Array.isArray(details[field]) ? [...details[field]] : details[field];
         }
       }
-      digest3.update(JSON.stringify(diagnostic));
-      digest3.update("\n");
+      digest4.update(JSON.stringify(diagnostic));
+      digest4.update("\n");
       count += 1;
       if (samples.length < DIAGNOSTIC_SAMPLE_LIMIT) {
         samples.push(diagnostic);
@@ -24963,7 +25736,7 @@ function diagnosticCollector() {
           count,
           samples,
           truncated: count > samples.length,
-          sha256: digest3.digest("hex")
+          sha256: digest4.digest("hex")
         }
       };
     }
@@ -25389,8 +26162,8 @@ var init_semanticContentValidation = __esm({
 // src/committing-to-git/workflow/finalizeMessageWorkflow.js
 import { lstatSync as lstatSync19, readFileSync as readFileSync10, realpathSync as realpathSync11 } from "node:fs";
 import { basename as basename4, isAbsolute as isAbsolute13, join as join21, relative as relative11, resolve as resolve33, sep as sep5 } from "node:path";
-import { TextDecoder as TextDecoder14 } from "node:util";
-function fail28(code, message, options) {
+import { TextDecoder as TextDecoder15 } from "node:util";
+function fail29(code, message, options) {
   throw new WorkflowDiagnosticError(code, message, options);
 }
 function decodeContent(bytes) {
@@ -25398,12 +26171,12 @@ function decodeContent(bytes) {
   try {
     text = STRICT_UTF8_DECODER15.decode(bytes);
   } catch {
-    fail28("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
+    fail29("INVALID_CONTENT_UTF8", "The fixed content.json is not strict UTF-8.");
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    fail28("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
+    fail29("INVALID_MESSAGE_CONTENT", "The fixed content.json is invalid JSON.", {
       cause: error
     });
   }
@@ -25412,7 +26185,7 @@ function containedPath(attemptDirectory, path, label) {
   const absolute = resolve33(path);
   const contained = relative11(attemptDirectory, absolute);
   if (contained === "" || contained === ".." || contained.startsWith(`..${sep5}`) || isAbsolute13(contained)) {
-    fail28(
+    fail29(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       `${label} escapes its transaction.`
     );
@@ -25423,13 +26196,13 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
   const absolute = containedPath(attemptDirectory, path, label);
   const stat = lstatSync19(absolute);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail28(
+    fail29(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} must be a non-link regular file.`
     );
   }
   if (realpathSync11(absolute) !== absolute) {
-    fail28(
+    fail29(
       "MESSAGE_ARTIFACT_REPLACED",
       `${label} no longer resolves to its recorded path.`
     );
@@ -25438,7 +26211,7 @@ function assertStableRecordedPath(attemptDirectory, path, label) {
 }
 function assertFinalizeTransaction(transaction, transactionPath) {
   if (transaction.route !== "extended") {
-    fail28(
+    fail29(
       "FINALIZER_REQUIRES_EXTENDED_TRANSACTION",
       "Structured finalization requires an extended transaction; concise text remains valid through message check or direct subject approval.",
       {
@@ -25450,7 +26223,7 @@ function assertFinalizeTransaction(transaction, transactionPath) {
     );
   }
   if (!(/* @__PURE__ */ new Set(["authoring-pending", "message-ready"])).has(transaction.phase) || transaction.commit !== null) {
-    fail28(
+    fail29(
       "MESSAGE_FINALIZE_NOT_ALLOWED",
       `Structured finalization is unavailable in phase ${transaction.phase}.`,
       {
@@ -25473,14 +26246,14 @@ function readCurrentCatalog2(transaction) {
     "Current review catalog"
   );
   if (relative11(expectedReviewDirectory, catalogPath).startsWith(`..${sep5}`) || isAbsolute13(relative11(expectedReviewDirectory, catalogPath))) {
-    fail28(
+    fail29(
       "MESSAGE_ARTIFACT_ESCAPES_TRANSACTION",
       "Review catalog is outside the fixed review directory."
     );
   }
   const catalog = readReviewCatalog(catalogPath);
   if (catalog.catalogSha256 !== transaction.review.catalogSha256 || catalog.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || catalog.indexTreeOid !== transaction.snapshot.indexTreeOid || catalog.manifestSha256 !== transaction.initialEvidencePlan.manifestSha256) {
-    fail28(
+    fail29(
       "REVIEW_CATALOG_MISMATCH",
       "The current review catalog does not match the transaction snapshot and evidence plan."
     );
@@ -25505,7 +26278,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
   try {
     stored = JSON.parse(STRICT_UTF8_DECODER15.decode(opened.bytes));
   } catch (error) {
-    fail28("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
+    fail29("INVALID_EVIDENCE_PLAN", "Current evidence plan is invalid JSON.", {
       cause: error
     });
   }
@@ -25514,7 +26287,7 @@ function readCurrentEvidencePlan(transactionPath, transaction, manifest) {
     groups: stored.groups
   });
   if (canonical.evidencePlanSha256 !== transaction.review.evidencePlanSha256 || stored.evidencePlanSha256 !== canonical.evidencePlanSha256 || stored.manifestSha256 !== canonical.manifestSha256 || !stableJsonBytes(stored).equals(stableJsonBytes(canonical))) {
-    fail28(
+    fail29(
       "EVIDENCE_PLAN_MISMATCH",
       "The current evidence plan artifact is not canonical for this snapshot."
     );
@@ -25536,20 +26309,20 @@ function receiptCoverage(transaction, catalog) {
       coverage: verifyReviewReceipt({ catalogPath: revisionPath, receipt })
     };
   } catch (error) {
-    fail28("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+    fail29("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
       cause: error
     });
   }
 }
 function assertLiveSnapshotAnchor(transaction, manifest) {
   if (JSON.stringify(captureHeadAnchor(transaction.repositoryRoot)) !== JSON.stringify(transaction.headAnchor)) {
-    fail28("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
+    fail29("HEAD_DRIFT", "HEAD changed after evidence preparation.", {
       disposition: "unmet-prerequisite"
     });
   }
   const operations = activeGitOperations(transaction.repositoryRoot);
   if (operations.length > 0) {
-    fail28(
+    fail29(
       "ACTIVE_GIT_OPERATION",
       `Message finalization cannot revise evidence during an active ${operations.join(", ")} operation.`,
       { disposition: "unmet-prerequisite" }
@@ -25560,7 +26333,7 @@ function assertLiveSnapshotAnchor(transaction, manifest) {
     manifest.indexTreeOid,
     manifestEnvironment(manifest)
   )) {
-    fail28(
+    fail29(
       "INDEX_DRIFT",
       "The prepared index tree changed before evidence revision.",
       {
@@ -25577,7 +26350,7 @@ function writeEvidencePlanRevision2(transaction, evidencePlan) {
   try {
     createOrVerifyFile(path, stableJsonBytes(evidencePlan));
   } catch (error) {
-    fail28(
+    fail29(
       "EVIDENCE_PLAN_COLLISION",
       "An immutable evidence-plan revision has conflicting or unsafe bytes.",
       { cause: error }
@@ -25721,7 +26494,7 @@ async function finalizeMessageWorkflow({
   afterContentOpen
 } = {}) {
   if (typeof transactionPath !== "string" || transactionPath.length === 0) {
-    fail28("MISSING_ARGUMENT", "--transaction is required for message finalize.");
+    fail29("MISSING_ARGUMENT", "--transaction is required for message finalize.");
   }
   let transaction = readTransaction(transactionPath);
   assertFinalizeTransaction(transaction, transactionPath);
@@ -25736,7 +26509,7 @@ async function finalizeMessageWorkflow({
   const content = decodeContent(opened.bytes);
   const structural = validateCompleteSemanticContent(content);
   if (!structural.valid) {
-    fail28(
+    fail29(
       "INVALID_MESSAGE_CONTENT",
       `Semantic content has ${structural.diagnostics.count} independent structural problem${structural.diagnostics.count === 1 ? "" : "s"}; correct the reported JSON pointers before retrying.`,
       {
@@ -25764,7 +26537,7 @@ async function finalizeMessageWorkflow({
     );
   }
   if (content.mode !== transaction.review.structuredMessageMode) {
-    fail28(
+    fail29(
       "MESSAGE_PRESENTATION_MODE_MISMATCH",
       `Semantic content mode ${content.mode} does not match the helper-selected ${transaction.review.structuredMessageMode} mode.`
     );
@@ -25857,7 +26630,7 @@ async function finalizeMessageWorkflow({
     }
   } else {
     if (receipt?.requiredPacketsReviewed !== true || receipt.catalogSha256 !== currentCatalog.catalogSha256 || receipt.evidencePlanSha256 !== recordedPlan.evidencePlanSha256) {
-      fail28(
+      fail29(
         "CURRENT_REVIEW_RECEIPT_REQUIRED",
         "Finalization requires a reviewed receipt for the current catalog and evidence plan."
       );
@@ -25868,7 +26641,7 @@ async function finalizeMessageWorkflow({
         receipt
       });
     } catch (error) {
-      fail28("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
+      fail29("REVIEW_RECEIPT_INVALID", "Review receipt is invalid.", {
         cause: error
       });
     }
@@ -25935,7 +26708,7 @@ var init_finalizeMessageWorkflow = __esm({
     init_diagnosticContract();
     init_authoringProgress();
     CONTENT_NAME = "content.json";
-    STRICT_UTF8_DECODER15 = new TextDecoder14("utf-8", { fatal: true });
+    STRICT_UTF8_DECODER15 = new TextDecoder15("utf-8", { fatal: true });
   }
 });
 
@@ -25966,7 +26739,7 @@ init_commandArguments();
 init_commandExecution();
 init_diagnosticContract();
 import { fileURLToPath } from "node:url";
-import { createHash as createHash29 } from "node:crypto";
+import { createHash as createHash30 } from "node:crypto";
 import { readFileSync as readFileSync11, realpathSync as realpathSync12 } from "node:fs";
 var COMMANDS = /* @__PURE__ */ new Map([
   [
@@ -26224,11 +26997,11 @@ async function writeInvalidResult(result, args, stdout) {
 }
 async function dispatchCommitWorkflow(args, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (args.length === 1 && args[0] === "--version") {
-    const digest3 = createHash29("sha256").update(readFileSync11(new URL(import.meta.url))).digest("hex");
+    const digest4 = createHash30("sha256").update(readFileSync11(new URL(import.meta.url))).digest("hex");
     await writeWorkflowOutput(stdout, {
       result: { disposition: "succeeded", commitState: "unknown" },
       output: `${JSON.stringify({
-        implementation: { algorithm: "sha256", digest: digest3 },
+        implementation: { algorithm: "sha256", digest: digest4 },
         diagnosticContractVersion: DIAGNOSTIC_CONTRACT_VERSION
       })}
 `

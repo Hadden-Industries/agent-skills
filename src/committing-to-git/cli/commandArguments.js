@@ -261,6 +261,26 @@ export const COMMAND_ARGUMENTS = {
     },
   },
   "workflow publish": {
+    "commit-oid": {
+      ...stringOption,
+      description:
+        "<full-oid>  Read-only memory publication preparation for an existing commit; returns publicationProposal and grants no push authority.",
+    },
+    "publication-proposal": {
+      ...stringOption,
+      description:
+        "<proposal>  Revalidate a caller-held memory binding and make one authorized push with an exact expected branch value. Never replay an unknown attempt.",
+    },
+    "observe-publication": {
+      ...stringOption,
+      description:
+        "<proposal>  Observe the bound destination after interruption; never pushes or attests historical success.",
+    },
+    verification: {
+      ...stringOption,
+      description:
+        "<required|advisory|skipped>  Signature policy for --commit-oid preparation; default: required. Reuse the authorized policy.",
+    },
     remote: {
       ...stringOption,
       description: "<name>  Required configured Git remote name, not a URL.",
@@ -301,7 +321,7 @@ export function commandOptions(command) {
           transaction: {
             ...stringOption,
             description:
-              "<transaction.json>  Opaque helper-returned disk-storage path;\n    required unless the command accepts --proposal and it is supplied.",
+              "<transaction.json>  Opaque helper-returned disk-storage path;\n    alternative to a supported memory proposal or existing-commit route.",
           },
         }),
     format: {
