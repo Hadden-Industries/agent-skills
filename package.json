@@ -23,6 +23,8 @@
     "build": "node scripts/buildRepository.js",
     "build:check": "npm run format:check && npm run lint && node scripts/buildRepository.js --check",
     "package:plugin": "node scripts/packagePluginArchive.js",
+    "plan:skill-reconciliation": "node scripts/runRepositoryPython.js tools/repository-skills.pyz plan",
+    "apply:skill-reconciliation-plan": "node scripts/runRepositoryPython.js tools/repository-skills.pyz apply",
     "test": "node --test --test-concurrency=4 \"tests/**/*.test.mjs\"",
     "skills:validate": "node scripts/validateSkills.js",
     "skills:lint": "node scripts/lintSkills.js",
