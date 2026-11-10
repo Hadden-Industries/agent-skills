@@ -686,6 +686,7 @@ def acquire_remote_skills(
             )
             directories[name] = destination
             entry = dict(lock["skills"][name])
+            entry.pop("installMode", None)
             if requested_ref is None:
                 entry.pop("ref", None)
             else:

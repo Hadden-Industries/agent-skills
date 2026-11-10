@@ -358,6 +358,7 @@ class RemoteSourceTests(unittest.TestCase):
                     if self.root_skill
                     else f"skills/{name}/SKILL.md",
                     "computedHash": digest,
+                    "installMode": "copy",
                 }
                 display_names = {
                     "codex": "Codex",
@@ -457,6 +458,7 @@ class RemoteSourceTests(unittest.TestCase):
             {"example": {"source": "owner/repo"}}, ("claude-code",)
         )
         self.assertNotIn("ref", entries["example"])
+        self.assertNotIn("installMode", entries["example"])
         self.assertTrue(directories["example"].joinpath("SKILL.md").is_file())
         native_commands = [
             command
