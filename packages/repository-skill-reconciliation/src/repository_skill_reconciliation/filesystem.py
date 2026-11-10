@@ -84,6 +84,8 @@ def fingerprint(path: Path) -> str | None:
     except (FileNotFoundError, NotADirectoryError):
         return None
     digest = hashlib.sha256()
+    # Reuse storage across files while bounding memory for large assets.
+    buffer = memoryview(bytearray(256 * 1024))
 
     def visit(current, relative, facts):
         is_directory = stat.S_ISDIR(facts.st_mode)
@@ -100,9 +102,9 @@ def fingerprint(path: Path) -> str | None:
                 # DirEntry.stat() does not provide the Windows hard-link count.
                 visit(child, relative + "/" + child.name, _reject_alias(child))
         else:
-            with current.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
+            with current.open("rb", buffering=0) as stream:
+                while size := stream.readinto(buffer):
+                    digest.update(buffer[:size])
         digest.update(b"\0")
 
     visit(path, "", facts)

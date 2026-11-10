@@ -289,12 +289,15 @@ class RepositoryCliTests(RepositoryFixture):
         )
         self.assertEqual(0, self.invoke("apply", plan_id).returncode)
 
-    def test_apply_rejects_source_edit_after_review_without_publishing(self):
+    def test_apply_rejects_source_edit_beyond_the_first_fingerprint_chunk(self):
         source = self.local_skill()
+        asset = source / "asset.bin"
+        prefix = b"\0" * (1024 * 1024)
+        asset.write_bytes(prefix + b"a")
         result = self.invoke("plan", "--local-only")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         plan_id = json.loads(result.stdout)["planId"]
-        (source / "asset.bin").write_bytes(b"Changed after review")
+        asset.write_bytes(prefix + b"b")
         result = self.invoke("apply", plan_id)
         self.assertEqual(3, result.returncode, result.stdout + result.stderr)
         self.assertFalse((self.root / ".agents/skills/team-conventions").exists())

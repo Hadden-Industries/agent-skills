@@ -3,12 +3,12 @@
 from io import StringIO
 from pathlib import Path
 
-from ruamel.yaml import YAML
-
 from .errors import ReconciliationError
 
 
 def _yaml():
+    from ruamel.yaml import YAML
+
     parser = YAML(typ="rt", pure=True)
     parser.preserve_quotes = True
     parser.allow_duplicate_keys = False

@@ -6,13 +6,6 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .configuration import (
-    SCHEMA,
-    derive_skill_declarations,
-    load_configuration,
-    load_lock,
-    repository_root,
-)
 from .errors import ReconciliationError
 
 
@@ -104,6 +97,14 @@ def _arguments(arguments):
 
 
 def _dispatch(arguments):
+    from .configuration import (
+        SCHEMA,
+        derive_skill_declarations,
+        load_configuration,
+        load_lock,
+        repository_root,
+    )
+
     if arguments.command == "print-config-schema":
         return SCHEMA
     root = repository_root(arguments.directory)
@@ -145,6 +146,8 @@ def main(arguments=None):
             )
             return 0
         result = {"schemaVersion": 1, **_dispatch(parsed)}
+        for warning in result.get("warnings", []):
+            print(f"warning: {warning}", file=sys.stderr)
         if parsed.json:
             print(json.dumps(result, ensure_ascii=False, allow_nan=False))
         else:

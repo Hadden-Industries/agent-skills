@@ -1,62 +1,70 @@
 # Repository skills
 
-One independently deployed Python archive reconciles repository-local skills.
-Each consumer maintains the archive, additional options in `repository-skills.json` and native remote declarations in `skills-lock.json`.
-Agent applications, HISEW, sibling checkouts and per-consumer pip installs are unnecessary at runtime.
-Python 3.10+ is the shared library floor; each repository retains its actual development runtime policy.
+Use `repository-skills.pyz` to check a repository's skill declarations, review the files it would install, and apply the changes you approve.
 
-## Commands
+## Check, plan, and apply
+
+Run these commands from the root of a Git checkout that contains `tools/repository-skills.pyz`, `repository-skills.json`, and `skills-lock.json`.
+Use the repository's selected Python runtime.
+The archive supports Python 3.10 and later and bundles its Python dependencies.
+
+1. **Check the declarations.**
+   This read-only check works offline, even before the skills are installed.
+
+   ```text
+   python tools/repository-skills.pyz check
+   ```
+
+2. **Plan and review the changes.**
+   The command stages the exact files it would install and prints a diff and a plan ID.
+   Review the diff before continuing.
+
+   ```text
+   python tools/repository-skills.pyz plan
+   ```
+
+   Plans with remote skills use Node.js and npm to resolve `skills@latest` once per plan.
+   Use `plan --local-only` to stage only repository-local skills offline and preserve the native lock file byte for byte.
+
+3. **Apply the reviewed plan.**
+   Replace `PLAN_ID` with the ID printed by `plan`.
+   A successful apply removes other saved plans and finished runs it found before publication.
+
+   ```text
+   python tools/repository-skills.pyz apply PLAN_ID
+   ```
+
+   The command publishes the saved files without downloading them again.
+   If an input, installed output, or staged file has changed, create a fresh plan and review its diff.
+
+New plan IDs are lowercase, hyphenated UUIDv4 strings.
+If you update the archive or change the configuration, create and review a fresh plan before applying it.
+
+## Recover an interrupted apply
+
+If the tool reports `recovery-required` or asks you to recover an interrupted plan, use the plan ID in that message.
 
 ```text
-python tools/repository-skills.pyz print-config-schema
-python tools/repository-skills.pyz check
-python tools/repository-skills.pyz plan
-python tools/repository-skills.pyz apply PLAN_ID
 python tools/repository-skills.pyz recover PLAN_ID
 ```
 
-`check` is offline/read-only and works without installed outputs.
-`plan` resolves `skills@latest` once, stages actual bytes and returns the exact proposed diff and plan ID.
-Review it before applying.
-`apply` never reacquires; stale inputs or modified candidates fail.
+Recovery uses the journal to restore the affected paths to their state before the interrupted apply.
+It works even if the configuration has changed.
+Legacy compact UUIDv4 IDs still work for recovery.
 
-`recover` restores an interrupted publication while preserving conflicting user edits.
-Apply and recovery share a writer lock acquired before authoritative checks.
-They are not globally atomic to other readers.
+Keep `.agent-tools/skill-reconciliation/` until recovery succeeds.
+If the tool reports a changed link or a conflicting edit, it stops and preserves the affected files.
+Inspect the path in the error before trying again.
 
-`print-config-schema` prints the canonical embedded Draft 7 JSON Schema directly to stdout, including descriptions and examples.
-It needs no Git checkout, configuration, installed outputs or network.
-It uses no result envelope, including with `--json`.
-Editors and other tools can consume that export without a fourth maintained consumer file.
-No schema URL, editor setting or runtime network validation is required.
+## Configure skills
 
-Use `-C/--directory DIR` and `--json` before or after the subcommand.
-`check`/`plan` accept `--config FILE`; default is root `repository-skills.json`. `plan --local-only` uses configured local source paths without npm/network acquisition.
-It preserves remote lock bytes and does not synthesize native hashes for local skills.
+Each repository keeps two data files alongside the archive.
 
-## Additional repository options
-
-```json
-{
-  "schemaVersion": 1,
-  "targetAgents": ["codex", "antigravity", "claude-code"],
-  "invocationPolicyOverrides": {
-    "brooks-review": { "codex": "explicit-only" }
-  }
-}
-```
-
-Native lock entries alone select remote skills and supply their source and optional `ref` (branch, tag or commit).
-Sources and pins are never repeated in the options file.
-The first remote provider is GitHub; unsupported providers fail explicitly.
-
-Optional `localSkillSources` maps canonical skill names to repository-contained `./relative/path` source directories.
-Native locks can represent local sources; this tool deliberately keeps direct local copies outside that acquisition contract.
-These declarations neither create native lock entries nor synthesize hashes.
-
-Moving them into native lock authority would require a separate change to declaration, hash and local-only semantics.
-A local/native name collision fails rather than overriding either declaration.
-The existing source `SKILL.md` must declare the same name and a nonempty description; `check` and planning validate that identity before creating operation state.
+- **`skills-lock.json`** selects remote skills and records their source, optional `ref`, and native acquisition metadata.
+  The tool supports GitHub sources.
+  Use a commit for a fixed source revision, since branches and tags can move.
+- **`repository-skills.json`** selects agent targets and optionally declares local sources and invocation policies.
+  Keep remote sources and pins in the lock file.
 
 ```json
 {
@@ -64,74 +72,121 @@ The existing source `SKILL.md` must declare the same name and a nonempty descrip
   "targetAgents": ["codex", "claude-code"],
   "localSkillSources": {
     "team-conventions": "./skills/team-conventions"
+  },
+  "invocationPolicyOverrides": {
+    "team-conventions": { "codex": "explicit-only" }
   }
 }
 ```
 
-`invocationPolicyOverrides` references declared skill names and maps selected, supported agents to `explicit-only` or `implicit-allowed`.
-Omission inherits source metadata on the next reconciliation; it does not retain a previously installed override.
-An empty outer optional map is equivalent to omission; an empty per-skill override is rejected.
+### Select targets and sources
 
-There is no static default invocation mode.
-Codex maps the values to `policy.allow_implicit_invocation: false/true`.
-Claude maps them to `disable-model-invocation: true/false` while preserving `user-invocable`; implicit eligibility does not enable a disabled manual route.
+Set `schemaVersion` to `1` and select one or more `targetAgents` from `codex`, `antigravity`, and `claude-code`.
 
-Explicit-only conflicts with `user-invocable: false` and is rejected.
-Antigravity remains an installation target but has no supported invocation override.
-Dangling skill references, unsupported or unselected targets, unknown/duplicate JSON keys and unsafe paths fail with configuration filename and field-path diagnostics.
+Use `localSkillSources` to map a skill name to a `./relative/path` inside the checkout.
+Its `SKILL.md` must declare the same name and a nonempty description.
+Give local and remote skills distinct names.
 
-`targetAgents` names logical agent applications, not exclusive filesystem consumers.
-Codex and Antigravity share `.agents/skills`; Claude uses `.claude/skills`.
-Selecting a target does not isolate outputs from other applications reading that tree.
-An existing `.claude/skills/<name>` directory junction or symbolic link to the matching `.agents/skills/<name>` keeps one physical skill installation.
+The tool copies local skills directly and reserves native lock entries and hashes for remote acquisition.
+Removing a declaration stops management and leaves the installed files in place.
 
-The helper combines selected agents' metadata projections in that canonical tree and publishes it once, preserving the link itself.
-This shared layout requires Codex or Antigravity to be selected alongside Claude.
-A fresh Claude-only installation uses a physical `.claude/skills/<name>` directory without creating a canonical `.agents/skills/<name>` installation or link.
+### Set invocation policy
 
-An existing shared Claude link conflicts with Claude-only selection; the helper stops before preparing or publishing changes and requires an explicitly approved conversion to a physical Claude directory.
-It creates no links and does not convert existing independent directories.
+Use `invocationPolicyOverrides` to choose `explicit-only` or `implicit-allowed` for a declared skill and a selected Codex or Claude Code target.
 
-The unreleased configuration contract retains `schemaVersion: 1` for this explicit pre-release revision.
-The prior `agents`, `localSkills` and `invocationPolicies` fields are rejected without aliases.
-Update each deployed archive and configuration together.
+- **Codex** sets `policy.allow_implicit_invocation` to `false` for `explicit-only` and `true` for `implicit-allowed`.
+- **Claude Code** sets `disable-model-invocation` to `true` for `explicit-only` and `false` for `implicit-allowed`.
+  It preserves `user-invocable`.
+  Choose `explicit-only` only when the skill permits manual invocation.
 
-Saved plans bind both exact configuration bytes and the CLI digest, so changed plans must be regenerated; interrupted-publication recovery remains independent of current configuration.
-Future breaking changes to a released contract require an explicit version decision.
-This configuration version is independent of the CLI, native lock, result and operation-record versions.
+Omit an override to inherit the source metadata on the next apply.
+An empty optional map is equivalent to omitting it.
+Provide at least one agent policy when adding a per-skill override.
 
-The schema's `$schema` identifies its JSON Schema dialect; it is not an accepted instance field.
-A `$id` would identify a published schema, but no such publication or URL is required here.
+If validation points to a file and field, correct that field and run `check` again.
 
-The two data files hold complementary information.
-The lock owns remote selections, sources, optional refs and native acquisition metadata; the options file owns agent targets, invocation policies and optional local paths.
-Neither duplicates the other's facts.
+The pre-release configuration uses schema version 1.
+The CLI, native lock, JSON results, and journals each have their own version.
+For older configurations, replace `agents`, `localSkills`, and `invocationPolicies` with `targetAgents`, `localSkillSources`, and `invocationPolicyOverrides`.
+Deploy the matching archive and configuration together.
 
-A floating ref does not guarantee exact replay.
-Removing a native or local declaration stops management without pruning installed content.
-Local-only plans preserve all remote lock bytes.
-Generated skills preserve source metadata except requested policy and same-revision resource normalization.
+## Where skills are installed
 
-Managed outputs must be ignored/untracked.
-Only the matching Claude-to-canonical directory links described above are accepted; parent links, chains, external or unexpected targets, nested links, other reparse points and hardlinked files remain rejected.
-Planning freezes link targets and filesystem identities separately from canonical content.
+Codex and Antigravity share `.agents/skills/`.
+Claude Code uses `.claude/skills/`.
+Agent selection controls which installations the tool manages.
+Applications that read a shared directory can see the same files.
 
-Apply and recovery revalidate those identities and operate on canonical paths without writing through links.
-A link may briefly be dangling while its canonical directory is replaced; interrupted publication restores the canonical tree using the retained journal.
-Changed links and conflicting user edits stop the operation for inspection rather than being overwritten.
+An existing Claude skill junction or directory symlink can share the matching `.agents/skills/<name>` installation.
+Select Claude Code and either Codex or Antigravity to use this layout.
+The tool combines their metadata changes in the shared directory and keeps the link in place.
 
-Generated candidate bytes, baselines and recovery records live in ignored `.agent-tools/skill-reconciliation/`.
-Retain failed recovery state.
-Normal external npm caches/temp are expected; this is ordinary developer-tool trust, not an OS sandbox against malicious dependencies.
-No global configuration is changed.
+A fresh Claude-only installation uses a physical `.claude/skills/<name>` directory.
+To switch an existing shared link to Claude-only, arrange an approved conversion to a physical directory first.
+The tool uses the layout it finds.
 
-Exit statuses: 0 success, 1 operational failure, 2 invalid input, 3 conflict/drift, 4 recovery required, 130 interrupted with safe repository state.
-JSON results have `schemaVersion: 1`; diagnostics and native command chatter go to stderr.
+Keep generated skill directories untracked and Git-ignored.
+The matching Claude link is the supported exception to the ordinary directory layout.
+The tool rejects linked parents, link chains, and links to external or unexpected targets.
+It also rejects nested links, other reparse points, and hard-linked files.
 
-## Build and verify
+Planning records the shared link's target and identity.
+Apply and recovery check both and replace the physical directory.
+The link can briefly be dangling during replacement.
+Installed skills inherit source metadata and incorporate any requested invocation policies.
+The tool normalizes shared resources from the same source revision.
 
-Use an external build workspace.
-Native pip verifies the exact approved wheel hashes; no dependency source is vendored into consumer checkouts:
+## Saved plans and journals
+
+Candidate files, fingerprints, and recovery journals live in the Git-ignored `.agent-tools/skill-reconciliation/` directory.
+Apply and recovery take the same writer lock before checking the repository.
+Other readers can see changes before the entire apply finishes.
+
+After a successful apply, the tool keeps the applied plan's journal.
+Rerun `apply` with that ID to verify the published result while the journal is retained.
+Plans in preparation and interrupted publications keep their records.
+Cleanup also recognizes older compact UUIDv4 IDs and reports removal failures as warnings.
+
+Remote acquisition uses normal npm cache and temporary directories.
+Run it with the same trust you grant other developer tools that fetch dependencies.
+
+## Command options and exit codes
+
+Pass `-C DIR` or `--directory DIR` to select a checkout.
+Pass `--json` to receive one structured result on stdout with `schemaVersion: 1`.
+Both options work before or after the subcommand.
+Diagnostics and output from underlying tools go to stderr.
+
+`check` and `plan` accept `--config FILE`.
+The default is `repository-skills.json` at the root of the checkout.
+
+| Exit code | Meaning                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------- |
+| `0`       | Success. Read any cleanup warnings for files that still need attention.                      |
+| `1`       | Operation failed. Check the diagnostic for the cause.                                        |
+| `2`       | Invalid input. Correct the reported argument, file, or path.                                 |
+| `3`       | Conflict or drift. Check the diagnostic and create a new plan if the reviewed state changed. |
+| `4`       | Recovery required. [Recover the interrupted apply](#recover-an-interrupted-apply).           |
+| `130`     | Interrupted before publication or after a safe restore.                                      |
+
+### Export the configuration schema
+
+```text
+python tools/repository-skills.pyz print-config-schema
+```
+
+This command prints the embedded Draft 7 JSON Schema directly, including when you pass `--json`.
+Use the output in an editor or validation tool.
+The export works offline and outside a Git checkout.
+To run it from another directory, pass the full path to the archive.
+
+Keep the schema's `$schema` declaration in the schema document itself.
+
+## Build and verify the archive
+
+Run these commands from the producer checkout.
+Replace `BUILD_WORKSPACE` with an external build directory.
+Pip verifies the locked hashes before installing the wheels there.
 
 ```text
 python -m pip install --no-deps --require-hashes --only-binary=:all: --target BUILD_WORKSPACE/vendor -r packages/repository-skill-reconciliation/requirements.lock
@@ -140,13 +195,10 @@ python -B packages/repository-skill-reconciliation/build_archive.py --check
 python -B -m unittest discover -s packages/repository-skill-reconciliation/tests -v
 ```
 
-Producer tests import bundled dependencies while exercising maintained source, then independently execute the deployed archive for conformance.
-Consumers run the archive's offline `check`; they do not import a Python test interface.
-Repository-specific runtime tests stay with each consumer's runtime tooling.
+The build embeds the source and dependency identities, original licenses, and notices with deterministic ZIP metadata.
+The test suite exercises both maintained source and the deployed archive.
+`npm test` includes the suite and checks that the archive matches the source.
 
-`npm test` includes that source suite and archive/source drift check through the existing test glob. Builds have deterministic ZIP metadata, embedded source/dependency identities and original licenses/notices.
-Deploy the same reviewed archive independently; there is no automatic cross-repo upgrade.
-
-Runtime wrappers remain only where they enforce a repository's genuine Python policy.
-Bootstrap runners check declarations; skill publication always uses an explicit reviewed plan ID.
-Configuration approval, commit and push retain their separate authorization requirements.
+Deploy the same reviewed archive to each consumer checkout and run its offline `check`.
+Keep runtime checks with the repository that owns the runtime policy.
+Follow the repository's approval rules for configuration changes, commits, and pushes.

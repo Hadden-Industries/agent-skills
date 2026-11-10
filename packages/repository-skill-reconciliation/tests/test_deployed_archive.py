@@ -1,10 +1,13 @@
 """Producer-owned conformance tests for the independently deployed archive."""
 
 import json
+import os
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -100,12 +103,43 @@ class DeployedArchiveTests(unittest.TestCase):
             unrelated = root / ".agents" / "skills" / "unmanaged"
             unrelated.mkdir(parents=True)
             (unrelated / "keep.txt").write_bytes(b"leave alone")
-            result = self.invoke(root, "plan", "--local-only")
-            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-            plan_id = json.loads(result.stdout)["planId"]
+
+            def save_plan():
+                result = self.invoke(root, "plan", "--local-only")
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                plan = json.loads(result.stdout)
+                identifier = uuid.UUID(plan["planId"])
+                self.assertEqual(4, identifier.version)
+                self.assertEqual(str(identifier), plan["planId"])
+                return plan
+
+            previous = save_plan()
+            previous_journal = Path(previous["record"])
+            legacy_id = uuid.UUID(previous["planId"]).hex
+            record = json.loads(previous_journal.read_bytes())
+            record["planId"] = legacy_id
+            previous_journal.write_text(json.dumps(record), encoding="utf-8")
+            previous_run = previous_journal.parent.rename(
+                previous_journal.parent.with_name(legacy_id)
+            )
+            pack = previous_run / "acquisition/snapshot/.git/objects/pack/test.pack"
+            pack.parent.mkdir(parents=True)
+            pack.write_bytes(b"staged Git pack")
+            if os.name == "nt":
+                pack.chmod(stat.S_IREAD)
+            runs = previous_run.parent
+            unmanaged = runs / "manual-notes"
+            unmanaged.mkdir()
+            notes = unmanaged / "keep.txt"
+            notes.write_bytes(b"manual notes")
+            other = save_plan()
+            plan_id = save_plan()["planId"]
             self.assertFalse((root / ".agents/skills/example").exists())
             result = self.invoke(root, "apply", plan_id)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertFalse(previous_run.exists())
+            self.assertFalse(Path(other["record"]).parent.exists())
+            self.assertEqual(b"manual notes", notes.read_bytes())
             for prefix in (".agents/skills", ".claude/skills"):
                 self.assertEqual(
                     source_bytes, (root / prefix / "example/SKILL.md").read_bytes()
@@ -116,3 +150,13 @@ class DeployedArchiveTests(unittest.TestCase):
                 )
             self.assertEqual(lock_bytes, (root / "skills-lock.json").read_bytes())
             self.assertEqual(b"leave alone", (unrelated / "keep.txt").read_bytes())
+            empty = save_plan()
+            self.assertEqual(0, empty["changeCount"])
+            retry = self.invoke(root, "apply", plan_id)
+            self.assertEqual(0, retry.returncode, retry.stdout + retry.stderr)
+            self.assertTrue(json.loads(retry.stdout)["alreadyComplete"])
+            self.assertTrue(Path(empty["record"]).is_file())
+            result = self.invoke(root, "apply", empty["planId"])
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertFalse((runs / plan_id).exists())
+            self.assertTrue(Path(empty["record"]).is_file())

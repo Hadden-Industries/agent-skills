@@ -142,8 +142,17 @@ def _writer(root):
         ) from error
 
 
+def _valid_plan_id(value):
+    """Recognize canonical UUIDv4 IDs and previously emitted compact IDs."""
+    try:
+        identifier = uuid.UUID(value)
+    except ValueError:
+        return False
+    return identifier.version == 4 and value in (str(identifier), identifier.hex)
+
+
 def _run_directory(root, plan_id):
-    if not re.fullmatch(r"[0-9a-f]{32}", plan_id):
+    if not _valid_plan_id(plan_id):
         raise ReconciliationError(
             "PLAN_ID must be an emitted plan identifier, not a path.",
             "invalid-input",
@@ -230,13 +239,11 @@ def _expected_outputs(record):
     }
 
 
-def _active_publication(state, excluding=None):
-    """A retained incomplete journal blocks another publication, never another check."""
-    runs = state / "runs"
-    if not runs.exists():
-        return
-    for child in runs.iterdir():
-        if child.name == excluding:
+def _superseded_runs(state, selected):
+    """Block on interrupted publication and snapshot the other finished plans."""
+    superseded = []
+    for child in (state / "runs").iterdir():
+        if child.name == selected["planId"]:
             continue
         if (
             child.is_symlink()
@@ -246,12 +253,59 @@ def _active_publication(state, excluding=None):
         path = child / "operation.json"
         if path.exists():
             validate_tree(path)
-            if _record_phase(read_json(path)) in ("applying", "recovery-required"):
+            record = read_json(path)
+            phase = _record_phase(record)
+            if phase in ("applying", "recovery-required"):
                 raise ReconciliationError(
                     f"Recover interrupted plan {child.name} before applying another.",
                     "recovery-required",
                     4,
                 )
+            if (
+                phase in ("planned", "complete", "restored")
+                and _valid_plan_id(child.name)
+                and record.get("planId") == child.name
+                and record.get("schemaVersion") == selected["schemaVersion"]
+                and record.get("repository") == selected["repository"]
+            ):
+                superseded.append(child.name)
+    return superseded
+
+
+def _prune_run(run):
+    """Remove owned artifacts first so a partial cleanup keeps its journal."""
+
+    def remove_readonly_file(function, filename, exc_info):
+        # Windows Git packs can be read-only. Never change permissions through a link.
+        error = exc_info[1]
+        if function is not os.unlink or not isinstance(error, PermissionError):
+            raise error
+        path = Path(filename)
+        facts = path.lstat()
+        attributes = getattr(facts, "st_file_attributes", 0)
+        if (
+            not attributes & stat.FILE_ATTRIBUTE_READONLY
+            or attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
+            or not stat.S_ISREG(facts.st_mode)
+            or facts.st_nlink != 1
+            or not path.is_relative_to(run)
+            or path.resolve(strict=True) != path
+        ):
+            raise error
+        path.chmod(facts.st_mode | stat.S_IWRITE)
+        path.unlink()
+
+    journal = contained_path(run, "operation.json", allow_missing=False)
+    for child in run.iterdir():
+        if child == journal:
+            continue
+        child = contained_path(run, child.name, allow_missing=False)
+        if child.is_dir():
+            shutil.rmtree(child, onerror=remove_readonly_file)
+        else:
+            child.unlink()
+    journal.unlink()
+    run.rmdir()
 
 
 def _describe_change(root, change, candidate):
@@ -338,7 +392,7 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
         for relative in sorted(set(destinations.values()))
     }
     _state_directory(root)
-    plan_id = uuid.uuid4().hex
+    plan_id = str(uuid.uuid4())
     run = contained_path(root, f"{STATE}/runs/{plan_id}")
     run.mkdir(parents=True)
     prepared = run / "prepared"
@@ -513,7 +567,7 @@ def apply_plan(root, plan_id):
     """Publish only saved bytes under writer exclusion and fresh input/path checks."""
     with _writer(root) as state:
         run, record = _read_record(root, plan_id, for_apply=True)
-        _active_publication(state, excluding=plan_id)
+        superseded = _superseded_runs(state, record)
         if record["phase"] in ("applying", "recovery-required"):
             raise ReconciliationError(
                 f"Recover interrupted plan {plan_id} first.", "recovery-required", 4
@@ -619,12 +673,26 @@ def apply_plan(root, plan_id):
         except BaseException as error:
             _publication_failure(root, run, record, error)
             raise
-        return {
+        result = {
             "status": "applied",
             "repository": str(root),
             "planId": plan_id,
             "changeCount": len(record["changes"]),
         }
+        warnings = []
+        for previous_id in superseded:
+            try:
+                _prune_run(_run_directory(root, previous_id))
+            except KeyboardInterrupt:
+                warnings.append("Superseded plan cleanup was interrupted.")
+                break
+            except (OSError, ReconciliationError) as error:
+                warnings.append(
+                    f"Could not remove superseded plan {previous_id}: {error}"
+                )
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
 
 def recover_plan(root, plan_id):

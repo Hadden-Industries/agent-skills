@@ -3,6 +3,8 @@
 import json
 import os
 import sys
+import uuid
+from pathlib import Path
 from unittest.mock import patch
 
 from test_cli import SOURCE, VENDOR, RepositoryFixture
@@ -28,6 +30,7 @@ class PublicationTests(RepositoryFixture):
 
     def test_later_publication_failure_restores_both_previous_trees(self):
         _, plan_id = self.plan_with_previous_installations()
+        previous = operations.create_plan(self.root, local_only=True)
         replace = os.replace
 
         def fail_second_tree(source, destination):
@@ -49,6 +52,7 @@ class PublicationTests(RepositoryFixture):
         self.assertEqual(
             "recovered", operations.recover_plan(self.root, plan_id)["status"]
         )
+        self.assertTrue(Path(previous["record"]).is_file())
 
     def test_failed_restore_preserves_user_edit_and_blocks_another_apply(self):
         _, plan_id = self.plan_with_previous_installations()
@@ -81,12 +85,56 @@ class PublicationTests(RepositoryFixture):
         with self.assertRaises(ReconciliationError) as caught:
             operations.apply_plan(self.root, another)
         self.assertEqual(4, caught.exception.exit_status)
+        record = operations._run_directory(self.root, plan_id) / "operation.json"
+        self.assertEqual("recovery-required", json.loads(record.read_bytes())["phase"])
+
+    def test_apply_preserves_a_plan_still_in_preparation(self):
+        _, plan_id = self.plan_with_previous_installations()
+        concurrent = operations.create_plan(self.root, local_only=True)
+        journal = Path(concurrent["record"])
+        record = json.loads(journal.read_bytes())
+        write_record = operations.atomic_json
+        write_record(journal, {**record, "phase": "preparing"})
+
+        def finish_planning_during_publication(path, value):
+            write_record(path, value)
+            if value["planId"] == plan_id and value["phase"] == "applying":
+                write_record(journal, record)
+
+        with patch.object(
+            operations, "atomic_json", side_effect=finish_planning_during_publication
+        ):
+            self.assertEqual(
+                "applied", operations.apply_plan(self.root, plan_id)["status"]
+            )
+        self.assertEqual(record, json.loads(journal.read_bytes()))
+
+    def test_prune_failure_keeps_apply_success_and_allows_later_cleanup(self):
+        _, plan_id = self.plan_with_previous_installations()
+        previous = operations.create_plan(self.root, local_only=True)
+        journal = Path(previous["record"])
+        with patch.object(
+            operations.shutil, "rmtree", side_effect=PermissionError("in use")
+        ):
+            applied = operations.apply_plan(self.root, plan_id)
+        self.assertEqual("applied", applied["status"])
+        self.assertIn(previous["planId"], applied["warnings"][0])
+        self.assertTrue(journal.is_file())
+        self.assertTrue(operations.apply_plan(self.root, plan_id)["alreadyComplete"])
+        later = operations.create_plan(self.root, local_only=True)
+        self.assertEqual(
+            "applied", operations.apply_plan(self.root, later["planId"])["status"]
+        )
+        self.assertFalse(journal.parent.exists())
 
     def test_recover_after_crash_between_moves_needs_no_valid_current_config(self):
         _, plan_id = self.plan_with_previous_installations()
-        run = self.root / ".agent-tools/skill-reconciliation/runs" / plan_id
+        runs = self.root / ".agent-tools/skill-reconciliation/runs"
+        legacy_id = uuid.UUID(plan_id).hex
+        run = (runs / plan_id).rename(runs / legacy_id)
         record_path = run / "operation.json"
         record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["planId"] = legacy_id
         first = record["changes"][0]
         backup = run / first["backup"]
         backup.parent.mkdir()
@@ -101,14 +149,14 @@ class PublicationTests(RepositoryFixture):
         (self.root / "repository-skills.json").write_text(
             json.dumps({"schemaVersion": 1, "agents": ["codex"]}), encoding="utf-8"
         )
-        result = operations.recover_plan(self.root, plan_id)
+        result = operations.recover_plan(self.root, legacy_id)
         self.assertEqual("recovered", result["status"])
         self.assertEqual(
             b"prior installation",
             (self.root / first["destination"] / "old.bin").read_bytes(),
         )
         self.assertEqual(
-            "recovered", operations.recover_plan(self.root, plan_id)["status"]
+            "recovered", operations.recover_plan(self.root, legacy_id)["status"]
         )
 
     def test_writer_exclusion_precedes_state_validation(self):

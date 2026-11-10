@@ -3,9 +3,8 @@
 import json
 import re
 from collections.abc import Iterable
+from functools import cache
 from pathlib import Path
-
-import fastjsonschema
 
 from .agent_targets import AGENT_ROOTS
 from .errors import ReconciliationError
@@ -90,10 +89,15 @@ SCHEMA = {
         },
     ],
 }
-_validate_schema = fastjsonschema.compile(SCHEMA, use_default=False)
-_validate_skill_name = fastjsonschema.compile(
-    SCHEMA["definitions"]["skillName"], use_default=False
-)
+
+
+@cache
+def _compile_schema(definition=None):
+    """Compile validators only on commands that read configuration."""
+    import fastjsonschema
+
+    schema = SCHEMA if definition is None else SCHEMA["definitions"][definition]
+    return fastjsonschema.compile(schema, use_default=False)
 
 
 def _unique_object(pairs):
@@ -165,6 +169,8 @@ def load_configuration(
     root: Path, filename: str = "repository-skills.json"
 ) -> tuple[Path, dict]:
     """Read only information absent from the native lock; never duplicate remote intent."""
+    from fastjsonschema import JsonSchemaException
+
     candidate = Path(filename)
     if candidate.is_absolute():
         try:
@@ -178,8 +184,8 @@ def load_configuration(
     path = contained_path(root, filename, allow_missing=False)
     config = read_json(path)
     try:
-        _validate_schema(config)
-    except fastjsonschema.JsonSchemaException as error:
+        _compile_schema()(config)
+    except JsonSchemaException as error:
         parts = list(error.path)[1:]
         message = error.message
         if (
@@ -187,10 +193,11 @@ def load_configuration(
             and parts
             and parts[-1] in ("localSkillSources", "invocationPolicyOverrides")
         ):
+            validate_name = _compile_schema("skillName")
             for name in config[parts[-1]]:
                 try:
-                    _validate_skill_name(name)
-                except fastjsonschema.JsonSchemaException:
+                    validate_name(name)
+                except JsonSchemaException:
                     parts.append(name)
                     break
         if (
