@@ -27,15 +27,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Select the assessed npm toolchain
-        shell: pwsh
-        run: |
-          if ($IsWindows) {
-            npm install --global npm@12.2.0 --prefix (Split-Path (node -p 'process.execPath'))
-          } else {
-            npm install --global npm@12.2.0
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((npm --version) -ne '12.2.0') { throw 'Unexpected npm version' }
+        uses: ./.github/actions/setup-npm
       - name: Install locked root dependencies
         run: npm ci --include=dev --ignore-scripts
       - name: Check maintained Markdown

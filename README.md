@@ -444,10 +444,12 @@ The bootstrap expects:
 
 - **Git**
 - **Stable Python at or above `.development-runtimes.json#python`** (shared by local authoring and evaluation CI)
-- **Node.js 24 or newer**
-- **npm / npx 12.2.0 or newer**
+- **Stable Node.js meeting the minimum in [`package.json`](./package.json) and supported by the locked authoring tools**
+- **npm / npx compatible with the selected Node version and locked authoring tools**
 
-CI selects the exact Node.js reference in [`.node-version`](./.node-version).
+Local development has no separate npm version floor.
+Routine CI and qualification select the exact Node.js reference in [`.node-version`](./.node-version) and the exact npm `packageManager` in [package.json](./package.json).
+The local Node minimum is independent of that CI reference; npm and the locked authoring tools must also support the selected Node release.
 The Python workflows read both `python` and the `uv` provisioner version from [`.development-runtimes.json`](./.development-runtimes.json), so toolchain updates have one maintained declaration per tool.
 
 Check the basics:
@@ -1491,8 +1493,8 @@ npm test
 Run `npm ci --ignore-scripts` to install the committed root dependency graph, including Markdown Quality, before verification.
 Root registry development dependencies use stable `>=` floors, permitting deliberate upgrades across majors; the committed lockfile selects the exact graph reproduced by `npm ci`.
 
-Native `devEngines.packageManager` requires npm `>=12.2.0`, while root dependency CI consumers bootstrap exact npm `12.2.0` before npm probes and installation.
-The separate Markdown archive graph retains its own qualified source, lock, and workflow identities.
+The root manifest owns the exact CI npm selection; the shared [setup action](./.github/actions/setup-npm/action.yml) installs and verifies it before npm probes and locked installation.
+Markdown checks use the same root dependency graph.
 Refreshing the four evaluation packages also requires updating their exact identities in `evaluation-toolchain.json` and requalifying their consumers; a permitted range is not qualification evidence.
 
 These tests cover skills that ship executable scripts and the repository tooling that builds or installs them.
@@ -1504,7 +1506,7 @@ This matters because a skill's instructions branch on specific output fields.
 If one output changes without its schema and consumer, the workflow can silently stage, inspect, approve, verify, publish, or report a different state.
 The suite validates representative cross-route payloads; exact Git-tree, path, signature, report, and publication invariants; transactional staging failure behavior; CLI help and exit semantics; and agreement between validator issue codes and schema enums.
 
-The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with Node 24.
+The manually dispatched [Linux verification workflow](./.github/workflows/committing-to-git-linux.yml) accepts a repository revision and runs build checks, the committing-to-git suite, and native path-adapter and evaluation-home tests on Ubuntu with the Node version in [`.node-version`](./.node-version).
 It records the tested commit and tool versions and retains build and TAP output.
 
 See [workflow runs](https://github.com/Hadden-Industries/agent-skills/actions/workflows/committing-to-git-linux.yml) for results and [native evaluation platform boundaries](./docs/evaluation-platform-boundaries.md) for supported storage, credential handling, and platform limitations.
@@ -1518,7 +1520,7 @@ Its prebuild gate checks formatting and lint before regenerating artifacts.
 Run the non-mutating `npm run build:check` to check code formatting, lint, the deployable/evaluation boundary, ASCII-only canonical `SKILL.md` files, and committed artifact currency.
 
 Run `npm run check:markdown` for shared Markdown layout, GFM lint and local links; the full verification command includes both checks.
-Node 24 treats the test runner's positional arguments as glob patterns, so the package script passes a quoted glob rather than a bare `tests/` directory.
+The package script quotes the test file glob so Node expands it consistently across shells.
 
 ### Run deterministic local verification
 

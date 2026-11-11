@@ -3,15 +3,9 @@
   "private": true,
   "license": "MPL-2.0",
   "type": "module",
+  "packageManager": "npm@12.2.2",
   "engines": {
-    "node": ">=24"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": ">=12.2.0",
-      "onFail": "error"
-    }
+    "node": ">=22.22.2"
   },
   "scripts": {
     "format": "prettier --write \"eslint.config.js\" \"package.json\" \"scripts/**/*.js\" \"lib/**/*.js\" \"src/**/*.{js,json}\" \"tests/**/*.mjs\"",

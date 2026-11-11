@@ -13,7 +13,9 @@ Repository-policy, dependency, lockfile, build, test, and CI configuration chang
 
 ## Development setup
 
-Use Node.js 24 or newer and npm 12.2.0 or newer, as declared in [package.json](package.json).
+Use a stable Node.js version that meets the minimum in [package.json](package.json) and is supported by the locked authoring tools.
+Local development can use the npm bundled with a compatible Node.js installation; the repository does not enforce a separate npm floor.
+To reproduce CI, use the exact Node reference in [`.node-version`](.node-version) and the npm selection in [the root manifest](package.json).
 The [bootstrap prerequisites](README.md#prerequisites) describe Python and the additional tools needed for complete skill verification.
 For an existing development environment, install the committed root dependency graph with:
 

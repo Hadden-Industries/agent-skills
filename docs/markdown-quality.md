@@ -48,6 +48,8 @@ This repository owns policy, npm dependency selection, domain ASCII/build checks
 `.markdown-quality-execution.json` retains the existing 30-second execution ceiling using schema 2; other ordinary bounds use finite package defaults.
 The shared `.development-runtimes.json` declares Python for independent evaluation and bootstrap consumers, plus uv for Python CI provisioning; `.node-version` selects the exact Node reference for repository workflows.
 Markdown checks use the installed supported Node runtime.
+CI installs and verifies the exact npm `packageManager` from [the root manifest](../package.json) before installing that lock.
+Local npm only needs to support the selected Node runtime and locked tools; it has no separate repository-enforced floor.
 
 The Markdown workflow installs the frozen root graph and runs the complete check plus installed-consumer tests on Windows and Linux.
 Its three consumer checks use the root npm commands to verify authored selection, independently expected preserved records, skill metadata and literal bytes, read-only checking and native exit propagation.

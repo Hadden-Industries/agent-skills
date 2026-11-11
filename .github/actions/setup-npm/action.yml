@@ -1,0 +1,18 @@
+name: Set up npm
+description: Install and verify the repository's pinned npm version
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        $selector = node -p "require(process.argv[1]).packageManager" (Join-Path $env:GITHUB_WORKSPACE 'package.json')
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($selector -cnotmatch '^npm@\d+\.\d+\.\d+$') { throw 'Expected an exact npm packageManager in package.json' }
+        $nodeDirectory = Split-Path -Parent (node -p 'process.execPath')
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $npmPrefix = if ($IsWindows) { $nodeDirectory } else { Split-Path -Parent $nodeDirectory }
+        npm install --global --prefix "$npmPrefix" "$selector" --ignore-scripts --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $actual = npm --version
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ("npm@$actual" -cne $selector) { throw "Expected $selector, got npm@$actual" }

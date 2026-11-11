@@ -37,9 +37,7 @@ jobs:
           package-manager-cache: false
 
       - name: Select the assessed npm toolchain
-        run: |
-          npm install --global npm@12.2.0
-          test "$(npm --version)" = "12.2.0"
+        uses: ./.github/actions/setup-npm
 
       - name: Record the tested revision and environment
         run: |

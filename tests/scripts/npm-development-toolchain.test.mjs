@@ -15,7 +15,6 @@ import { test } from "node:test";
 import { parse } from "yaml";
 
 const root = resolve(import.meta.dirname, "../..");
-const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 function npmCli() {
   // npm test supplies its actual CLI. Direct node --test also works on the
@@ -33,18 +32,10 @@ function npmCli() {
 function fixture(t) {
   const cwd = mkdtempSync(join(tmpdir(), "agent-skills-npm-policy-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const policy = structuredClone(manifest.devEngines?.packageManager);
-  assert.deepEqual(policy, {
-    name: "npm",
-    version: ">=12.2.0",
-    onFail: "error",
-  });
   const contents = {
     name: "native-npm-policy-fixture",
     version: "1.0.0",
     private: true,
-    devEngines: { packageManager: policy },
-    scripts: { probe: "node -e \"process.stdout.write('FIXTURE_EXECUTED')\"" },
   };
   const run = (...args) =>
     spawnSync(process.execPath, [npmCli(), ...args], {
@@ -59,21 +50,6 @@ function fixture(t) {
   save();
   return { cwd, contents, run, save };
 }
-
-test("native npm admits the declared floor and rejects an incompatible minimum before executing a command", (t) => {
-  const f = fixture(t);
-  const accepted = f.run("run", "probe", "--silent");
-  assert.equal(accepted.status, 0, accepted.stderr);
-  assert.equal(accepted.stdout, "FIXTURE_EXECUTED");
-
-  // Exercise npm itself, rather than copying its version comparison logic.
-  f.contents.devEngines.packageManager.version = ">=999.0.0";
-  f.save();
-  const denied = f.run("run", "probe");
-  assert.notEqual(denied.status, 0);
-  assert.match(denied.stderr, /EBADDEVENGINES/u);
-  assert.doesNotMatch(denied.stdout, /FIXTURE_EXECUTED/u);
-});
 
 test("frozen npm install refuses a manifest dependency absent from its lock", (t) => {
   const f = fixture(t);
@@ -96,10 +72,11 @@ test("frozen npm install refuses a manifest dependency absent from its lock", (t
   assert.deepEqual(readFileSync(join(f.cwd, "package-lock.json")), lock);
 });
 
-for (const [workflow, jobId, shell] of [
-  ["evaluation-conformance", "conformance", "pwsh"],
-  ["committing-to-git-linux", "verify", "bash"],
-  ["defining-concepts-linux", "verify", "bash"],
+for (const [workflow, jobId] of [
+  ["evaluation-conformance", "conformance"],
+  ["committing-to-git-linux", "verify"],
+  ["defining-concepts-linux", "verify"],
+  ["markdown-quality", "markdown"],
 ]) {
   test(`${workflow} selects exact npm before project npm consumers`, () => {
     const document = parse(
@@ -111,34 +88,31 @@ for (const [workflow, jobId, shell] of [
     );
     assert.ok(setupIndex >= 0);
     assert.equal(job.steps[setupIndex].with["package-manager-cache"], false);
-    const npmSteps = job.steps
-      .map((step, index) => ({ ...step, index }))
-      .filter((step) => /\bnpm\b/u.test(step.run ?? ""));
-    const bootstrap = npmSteps[0];
-    assert.ok(bootstrap.index > setupIndex);
-    assert.equal(bootstrap.name, "Select the assessed npm toolchain");
-    assert.match(bootstrap.run, /npm install --global npm@12\.2\.0/u);
+    const bootstrapIndex = job.steps.findIndex(
+      (step) => step.uses === "./.github/actions/setup-npm",
+    );
+    const firstNpmCommand = job.steps.findIndex((step) =>
+      /\bnpm\b/u.test(step.run ?? ""),
+    );
+    assert.ok(bootstrapIndex > setupIndex && firstNpmCommand > bootstrapIndex);
+    const bootstrap = job.steps[bootstrapIndex];
     assert.notEqual(bootstrap["continue-on-error"], true);
     assert.equal(bootstrap.if, undefined);
-    if (shell === "pwsh") {
-      const bootstrapCommands = bootstrap.run.replace(/^\s*#.*$/gmu, "");
-      assert.match(
-        bootstrapCommands,
-        /if \(\$IsWindows\) \{\s*npm install --global npm@12\.2\.0 --prefix \(Split-Path \(node -p 'process\.execPath'\)\)/u,
-        "Install beside the selected Node executable consumed by the Windows evidence launcher",
-      );
-      assert.match(
-        bootstrap.run,
-        /\} else \{\s*npm install --global npm@12\.2\.0\s*\}/u,
-      );
-      assert.match(bootstrap.run, /if \(\$LASTEXITCODE -ne 0\)/u);
-      assert.match(bootstrap.run, /if \(\(npm --version\) -ne '12\.2\.0'\)/u);
-    } else {
-      assert.match(bootstrap.run, /test "\$\(npm --version\)" = "12\.2\.0"/u);
-    }
-    assert.ok(
-      npmSteps.length > 1,
-      "Exercise a workflow with real npm consumers",
-    );
   });
 }
+
+test("shared npm setup installs and verifies the same exact version", () => {
+  const action = parse(
+    readFileSync(join(root, ".github/actions/setup-npm/action.yml"), "utf8"),
+  );
+  const [setup] = action.runs.steps;
+  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  assert.equal(setup.shell, "pwsh");
+  assert.match(manifest.packageManager, /^npm@\d+\.\d+\.\d+$/u);
+  assert.match(setup.run, /require\(process\.argv\[1\]\)\.packageManager/u);
+  assert.match(
+    setup.run,
+    /npm install --global --prefix "\$npmPrefix" "\$selector"/u,
+  );
+  assert.match(setup.run, /"npm@\$actual" -cne \$selector/u);
+});

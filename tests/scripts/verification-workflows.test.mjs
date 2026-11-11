@@ -198,6 +198,7 @@ test("defining-concepts Linux route provisions the supported tools before the sc
   assertCanonicalPython(job);
 
   for (const step of job.steps.filter((step) => step.uses)) {
+    if (step.uses === "./.github/actions/setup-npm") continue;
     assert.match(
       step.uses,
       /^(?:actions\/(?:checkout|setup-node)|astral-sh\/setup-uv)@[0-9a-f]{40}$/u,
@@ -269,6 +270,7 @@ for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
           .filter(
             (step) =>
               step.uses &&
+              step.uses !== "./.github/actions/setup-npm" &&
               !/^(?:actions\/(?:upload-artifact|setup-python)|astral-sh\/setup-uv)@/u.test(
                 step.uses,
               ),
@@ -465,7 +467,7 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
         /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/gu,
       ) ?? []
     ).length,
-    9,
+    8,
   );
   assert.match(
     scripts,
@@ -505,20 +507,14 @@ test("Markdown workflow checks the complete installed graph on both supported pl
   assert.deepEqual(job.strategy.matrix.os, ["ubuntu-24.04", "windows-2025"]);
   const commands = job.steps.filter((step) => step.run);
   assert.deepEqual(
-    commands.slice(1).map((step) => step.run),
+    commands.map((step) => step.run),
     [
       "npm ci --include=dev --ignore-scripts",
       "npm run check:markdown",
       "npm run test:markdown",
     ],
   );
-  assert.equal(commands[0].shell, "pwsh");
-  assert.match(commands[0].run, /npm install --global npm@12\.2\.0/u);
-  assert.match(
-    commands[0].run,
-    /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/u,
-  );
-  assert.match(commands[0].run, /if \(\(npm --version\) -ne '12\.2\.0'\)/u);
+  assert.equal(job.steps[2].uses, "./.github/actions/setup-npm");
   for (const step of commands) {
     assert.equal(step.if, undefined);
     assert.equal(step["continue-on-error"], undefined);
@@ -526,12 +522,13 @@ test("Markdown workflow checks the complete installed graph on both supported pl
   assert.equal(job.if, undefined);
   assert.equal(job["continue-on-error"], undefined);
   for (const step of job.steps.filter((entry) => entry.uses)) {
+    if (step.uses === "./.github/actions/setup-npm") continue;
     assert.match(step.uses, /^actions\/[a-z-]+@[a-f0-9]{40}$/u);
   }
   assert.equal(job.steps[0].with["persist-credentials"], false);
 });
 
-test("every Node workflow selects the single exact repository runtime", () => {
+test("every Node workflow selects its runtime from .node-version", () => {
   const version = readFileSync(".node-version", "utf8").trim();
   assert.match(version, /^\d+\.\d+\.\d+$/u);
   let consumers = 0;
