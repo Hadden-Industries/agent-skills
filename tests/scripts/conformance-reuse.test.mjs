@@ -25,9 +25,15 @@ import {
   verifyReceiptProvenance,
   runCommand,
 } from "../../scripts/ci/conformanceReuse.js";
+import {
+  observeConformanceRunner,
+  ubuntuRunner,
+} from "../../scripts/ci/runnerPolicy.js";
 
 const sha = (digit) => digit.repeat(40);
 const now = Date.parse("2026-10-10T10:00:00Z");
+const wrongUbuntuRunner =
+  ubuntuRunner === "ubuntu-24.04" ? "ubuntu-26.04" : "ubuntu-24.04";
 
 // External GitHub metadata is mocked; the merge admission decision remains real.
 function proofFixture() {
@@ -118,11 +124,12 @@ function proofFixture() {
     pullRequest: 7,
     snapshot: { ...structuredClone(context.snapshot), commit: sha("9") },
     recordedAt: "2026-10-10T08:20:00.000Z",
-    lanes: ["conformance (windows-2025)", "conformance (ubuntu-24.04)"],
+    lanes: ["conformance (windows-2025)", "conformance (" + ubuntuRunner + ")"],
   };
   const jobs = receipt.lanes.map((name, index) => ({
     id: index + 400,
     name,
+    labels: [index === 0 ? "windows-2025" : ubuntuRunner],
     run_id: 100,
     run_attempt: 2,
     status: "completed",
@@ -130,6 +137,7 @@ function proofFixture() {
     steps: [
       "Check out the candidate",
       "Set up the assessed Node runtime",
+      "Verify the hosted runner image",
       "Select the assessed npm toolchain",
       "Read the canonical Python target",
       "Set up the Python provisioner",
@@ -208,6 +216,67 @@ test("proof job fixtures match the actual conformance workflow step inventory", 
       workflow.jobs.conformance.steps.map((step) => step.name),
     );
   }
+});
+
+test("conformance records the observed Ubuntu image and rejects wrong OS or architecture", () => {
+  const release = ubuntuRunner.slice("ubuntu-".length);
+  const input = {
+    expected: ubuntuRunner,
+    platform: "linux",
+    arch: "x64",
+    runnerArch: "X64",
+    imageOS: "ubuntu" + release.slice(0, 2),
+    imageVersion: "20261109.1.0",
+    osRelease: 'ID=ubuntu\nVERSION_ID="' + release + '"\n',
+  };
+  assert.deepEqual(observeConformanceRunner(input), {
+    runner: ubuntuRunner,
+    imageOS: input.imageOS,
+    imageVersion: input.imageVersion,
+    arch: "x64",
+    release,
+  });
+  assert.throws(
+    () =>
+      observeConformanceRunner({
+        ...input,
+        osRelease:
+          'ID=ubuntu\nVERSION_ID="' +
+          wrongUbuntuRunner.slice("ubuntu-".length) +
+          '"\n',
+      }),
+    /OS does not match/u,
+  );
+  assert.throws(
+    () => observeConformanceRunner({ ...input, runnerArch: "ARM64" }),
+    /x64/u,
+  );
+  assert.throws(
+    () => observeConformanceRunner({ ...input, imageVersion: "" }),
+    /metadata/u,
+  );
+  assert.throws(
+    () =>
+      observeConformanceRunner({
+        ...input,
+        imageOS: "ubuntu" + wrongUbuntuRunner.slice(7, 9),
+      }),
+    /OS does not match/u,
+  );
+  assert.deepEqual(
+    observeConformanceRunner({
+      ...input,
+      expected: "windows-2025",
+      platform: "win32",
+      imageOS: "win25",
+    }),
+    {
+      runner: "windows-2025",
+      imageOS: "win25",
+      imageVersion: input.imageVersion,
+      arch: "x64",
+    },
+  );
 });
 
 for (const stepName of [
@@ -517,6 +586,14 @@ const verificationFailures = {
   },
   "wrong job run": (f) => {
     f.jobs[0].run_id = 99;
+  },
+  "wrong hosted runner": (f) => {
+    f.jobs[1].labels = [wrongUbuntuRunner];
+  },
+  "missing runner image verification": (f) => {
+    f.jobs[1].steps = f.jobs[1].steps.filter(
+      (step) => step.name !== "Verify the hosted runner image",
+    );
   },
   "skipped native tests": (f) => {
     f.jobs[0].steps.find((step) =>

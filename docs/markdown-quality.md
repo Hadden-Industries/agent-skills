@@ -55,4 +55,8 @@ The Markdown workflow installs the frozen root graph and runs the complete check
 Its three consumer checks use the root npm commands to verify authored selection, independently expected preserved records, skill metadata and literal bytes, read-only checking and native exit propagation.
 
 Historical qualification records keep their original identities and evidence claims.
-Evaluation-conformance receipt reuse is an independent contract and remains unchanged.
+
+The Linux verification and conformance workflows share the Ubuntu release in [the runner policy](../.github/runner-policy.json).
+After a policy edit, run `node scripts/ci/syncUbuntuRunners.js --write` to update the workflow selectors.
+The workflow tests in `npm run verify` check for drift.
+Conformance records the observed runner image and requires the expected GitHub job labels and a passing image check before reusing evidence.

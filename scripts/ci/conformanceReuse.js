@@ -7,6 +7,7 @@ import {
   appendFileSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
@@ -14,13 +15,20 @@ import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
 import { readStableFile } from "../../lib/filesystem/stableFile.js";
+import {
+  observeConformanceRunner,
+  ubuntuRunner,
+  windowsRunner,
+} from "./runnerPolicy.js";
 
 const WORKFLOW = ".github/workflows/evaluation-conformance.yml";
 const POLICY = "scripts/ci/conformanceReuse.js";
-const LANES = ["conformance (windows-2025)", "conformance (ubuntu-24.04)"];
+const RUNNERS = [windowsRunner, ubuntuRunner];
+const LANES = RUNNERS.map((runner) => "conformance (" + runner + ")");
 const NATIVE_STEPS = [
   "Check out the candidate",
   "Set up the assessed Node runtime",
+  "Verify the hosted runner image",
   "Select the assessed npm toolchain",
   "Read the canonical Python target",
   "Set up the Python provisioner",
@@ -255,10 +263,14 @@ export async function verifyProof({
     ),
     "jobs",
   );
-  for (const lane of LANES) {
+  for (const [index, lane] of LANES.entries()) {
     const matching = jobs.filter((job) => job.name === lane);
     fact(matching.length === 1, "Expected exactly one job per platform");
     const job = matching[0];
+    fact(
+      isDeepStrictEqual(job.labels, [RUNNERS[index]]),
+      "Platform job used the wrong hosted runner label",
+    );
     fact(
       job.run_id === current.run.id &&
         job.run_attempt === current.run.run_attempt &&
@@ -526,6 +538,21 @@ export async function runCommand(
   env = process.env,
   { fetchImpl = fetch, execute = spawnSync } = {},
 ) {
+  if (command === "verify-runner") {
+    const platform = process.platform;
+    const observation = observeConformanceRunner({
+      expected: env.CONFORMANCE_RUNNER,
+      platform,
+      arch: process.arch,
+      runnerArch: env.RUNNER_ARCH,
+      imageOS: env.ImageOS,
+      imageVersion: env.ImageVersion,
+      osRelease:
+        platform === "linux" ? readFileSync("/etc/os-release", "utf8") : "",
+    });
+    process.stdout.write(JSON.stringify(observation) + "\n");
+    return;
+  }
   const root =
     env.CONFORMANCE_REUSE_ROOT ||
     (env.RUNNER_TEMP && join(env.RUNNER_TEMP, "conformance-reuse"));

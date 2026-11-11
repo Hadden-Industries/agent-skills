@@ -12,7 +12,7 @@ permissions:
 jobs:
   verification:
     name: Conformance verification strategy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 4
     permissions:
       contents: read
@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, ubuntu-24.04]
+        os: [windows-2025, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -83,6 +83,11 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+
+      - name: Verify the hosted runner image
+        env:
+          CONFORMANCE_RUNNER: ${{ matrix.os }}
+        run: node scripts/ci/conformanceReuse.js verify-runner
 
       - name: Select the assessed npm toolchain
         uses: ./.github/actions/setup-npm
@@ -140,7 +145,7 @@ jobs:
     name: Conformance required
     if: ${{ always() }}
     needs: [verification, conformance]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 4
     permissions:
       contents: read
