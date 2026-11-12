@@ -426,7 +426,14 @@ def create_plan(root, filename="repository-skills.json", *, local_only=False):
             raise ReconciliationError(
                 "Native acquisition changed the requested skill set."
             )
-        candidate_lock = {"version": 1, "skills": {**lock["skills"], **entries}}
+        native_version = identity["lockVersion"]
+        if native_version < lock["version"]:
+            raise ReconciliationError(
+                f"Native acquisition returned lock version {native_version} for a "
+                f"version {lock['version']} project lock. Update the skills CLI.",
+                "invalid-native-result",
+            )
+        candidate_lock = {"version": native_version, "skills": entries}
         atomic_json(prepared / "skills-lock.json", candidate_lock)
         record["acquisition"] = identity
     for name, declaration in selected.items():

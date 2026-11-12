@@ -17,6 +17,7 @@ from .invocation_policy import (
 from .processes import run_command
 
 SKILL_NAME = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+NATIVE_LOCK_VERSIONS = (1, 2)
 SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Repository Skills configuration",
@@ -246,18 +247,18 @@ def load_configuration(
 
 
 def load_lock(root: Path, *, allow_missing: bool = False) -> dict:
-    """Read native v1 conservatively; corrupt locks are never treated as empty."""
+    """Read a supported native lock; corrupt locks are never treated as empty."""
     path = contained_path(root, "skills-lock.json")
     if not path.exists() and allow_missing:
         return {"version": 1, "skills": {}}
     lock = read_json(path)
     if (
         type(lock.get("version")) is not int
-        or lock["version"] != 1
+        or lock["version"] not in NATIVE_LOCK_VERSIONS
         or not isinstance(lock.get("skills"), dict)
     ):
         raise ReconciliationError(
-            "Expected native skills-lock.json version 1 and a skills object.",
+            "Expected native skills-lock.json version 1 or 2 and a skills object.",
             "invalid-input",
             2,
         )
@@ -278,7 +279,10 @@ def load_lock(root: Path, *, allow_missing: bool = False) -> dict:
             )
         if any(
             not isinstance(entry.get(key), str) or not entry[key]
-            for key in ("source", "sourceType", "computedHash")
+            for key in ("source", "sourceType")
+        ) or (
+            not isinstance(entry.get("computedHash"), str)
+            or (lock["version"] == 1 and not entry["computedHash"])
         ):
             raise ReconciliationError(
                 f"Incomplete native lock entry: {name}", "invalid-input", 2

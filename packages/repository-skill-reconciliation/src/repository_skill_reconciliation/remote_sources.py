@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from .agent_targets import AGENT_ROOTS
+from .configuration import NATIVE_LOCK_VERSIONS
 from .errors import ReconciliationError
 from .filesystem import copy_tree, validate_tree
 from .processes import run_command
@@ -33,10 +34,9 @@ _NATIVE_AGENT_NAMES = {
 }
 _NATIVE_OMITTED_DIRECTORIES = {".git", "__pycache__", "__pypackages__"}
 
-# Independent source hash oracle using the native runtime's path collation.
-# This is a native *source* hash, never a normalized-output digest. Source tree
-# links are rejected separately before this program is allowed to read it.
-_SOURCE_HASH_PROGRAM = r"""
+# V1 used the native runtime's locale-dependent path collation. Source tree
+# links are rejected separately before either version's hash is calculated.
+_V1_SOURCE_HASH_PROGRAM = r"""
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -492,22 +492,52 @@ def _checkout_snapshot(snapshot, tree, paths, commit, environment):
     )
 
 
-def _installed_inventory(directory, *, source=False):
-    result = {}
+def _skill_files(directory, *, source=False):
     for path in directory.rglob("*"):
         relative = path.relative_to(directory)
         if source and (
             any(part in _NATIVE_OMITTED_DIRECTORIES for part in relative.parts[:-1])
-            or path.name == "metadata.json"
+            or "metadata.json" in relative.parts
         ):
             continue
         if path.is_file():
-            digest = hashlib.sha256()
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            result[relative.as_posix()] = digest.digest()
+            yield relative.as_posix(), path
+
+
+def _installed_inventory(directory, *, source=False):
+    result = {}
+    for relative, path in _skill_files(directory, source=source):
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result[relative] = digest.digest()
     return result
+
+
+def _source_hash(directory, version, cwd, environment):
+    if version == 1:
+        return run_command(
+            ["node", "--eval", _V1_SOURCE_HASH_PROGRAM, str(directory)],
+            cwd,
+            environment,
+        ).strip()
+
+    # V2 hashes the copied file set in UTF-8 path order. Normalize CRLF only in
+    # files without NUL bytes. The installed inventory still checks exact bytes.
+    files = sorted(
+        (relative.encode("utf-8"), path)
+        for relative, path in _skill_files(directory, source=True)
+    )
+    digest = hashlib.sha256()
+    for relative, path in files:
+        content = path.read_bytes()
+        if b"\0" not in content:
+            content = content.replace(b"\r\n", b"\n")
+        digest.update(relative)
+        digest.update(f"\0{len(content)}\0".encode("ascii"))
+        digest.update(content)
+    return digest.hexdigest()
 
 
 def acquire_remote_skills(
@@ -587,13 +617,20 @@ def acquire_remote_skills(
             ) from error
         if (
             not isinstance(lock, dict)
-            or lock.get("version") != 1
             or set(lock) != {"version", "skills"}
+            or type(lock["version"]) is not int
+            or lock["version"] not in NATIVE_LOCK_VERSIONS
             or not isinstance(lock.get("skills"), dict)
             or set(lock["skills"]) != set(names)
         ):
             raise _invalid(
                 "Native project lock is incomplete or uses an unsupported format",
+                "invalid-native-result",
+            )
+        lock_version = lock["version"]
+        if identities.setdefault("lockVersion", lock_version) != lock_version:
+            raise _invalid(
+                "Native acquisition returned inconsistent project lock versions",
                 "invalid-native-result",
             )
         if (
@@ -658,11 +695,7 @@ def acquire_remote_skills(
         for name in names:
             source_skill = snapshot.joinpath(*paths[name].parent.parts)
             validate_tree(source_skill)
-            checksum = run_command(
-                ["node", "--eval", _SOURCE_HASH_PROGRAM, str(source_skill)],
-                group,
-                environment,
-            ).strip()
+            checksum = _source_hash(source_skill, lock_version, group, environment)
             if checksum != lock["skills"][name]["computedHash"]:
                 raise _invalid(
                     "Native content hash does not match the resolved source commit",

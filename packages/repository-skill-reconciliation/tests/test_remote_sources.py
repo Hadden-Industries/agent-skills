@@ -217,6 +217,7 @@ class RemoteSourceTests(unittest.TestCase):
         self.bad_ref = False
         self.registry_array = False
         self.root_skill = False
+        self.lock_version = 1
         self.environment = dict(
             os.environ,
             GIT_CONFIG_NOSYSTEM="1",
@@ -329,12 +330,18 @@ class RemoteSourceTests(unittest.TestCase):
             for name in names:
                 files = self.source_files(commit, name)
                 checksum = hashlib.sha256()
-                # Independent ordering for this ASCII-only fixture: native
-                # locale collation puts data.bin before SKILL.md.
-                for relative in sorted(files, key=str.casefold):
-                    content = files[relative]
-                    checksum.update(relative.encode())
-                    checksum.update(content)
+                if self.lock_version == 2:
+                    files.pop("metadata.json", None)
+                    for relative, content in sorted(files.items()):
+                        if b"\0" not in content:
+                            content = content.replace(b"\r\n", b"\n")
+                        checksum.update(f"{relative}\0{len(content)}\0".encode())
+                        checksum.update(content)
+                else:
+                    # Native v1 locale collation puts data.bin before SKILL.md.
+                    for relative in sorted(files, key=str.casefold):
+                        checksum.update(relative.encode())
+                        checksum.update(files[relative])
                 digest = "0" * 64 if self.bad_hash else checksum.hexdigest()
                 for target in targets:
                     base = (
@@ -379,7 +386,7 @@ class RemoteSourceTests(unittest.TestCase):
                 )
             if not self.omit_lock:
                 Path(cwd).joinpath("skills-lock.json").write_text(
-                    json.dumps({"version": 1, "skills": entries})
+                    json.dumps({"version": self.lock_version, "skills": entries})
                 )
             return json.dumps(report)
         effective = list(arguments)
@@ -466,6 +473,44 @@ class RemoteSourceTests(unittest.TestCase):
             if command[0] == "node" and "add" in command
         ]
         self.assertNotIn("codex", native_commands[0])
+
+    def test_v2_native_lock_verifies_portable_hash_against_the_pinned_commit(self):
+        self.lock_version = 2
+        directory = self.remote / "skills/example"
+        skill = directory / "SKILL.md"
+        skill.write_bytes(skill.read_bytes().replace(b"\n", b"\r\n"))
+        (directory / "data.bin").write_bytes(b"\x00B\r\n")
+        (directory / "metadata.json").write_bytes(b"{}\n")
+        self.git("add", "skills/example")
+        self.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "v2 fixture",
+        )
+
+        directories, entries, identity = self.acquire()
+
+        self.assertEqual(identity["lockVersion"], 2)
+        self.assertRegex(entries["example"]["computedHash"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            (directories["example"] / "data.bin").read_bytes(), b"\x00B\r\n"
+        )
+        self.assertFalse((directories["example"] / "metadata.json").exists())
+
+    def test_v2_native_lock_with_invented_hash_is_rejected(self):
+        self.lock_version = 2
+        self.bad_hash = True
+
+        with self.assertRaises(ReconciliationError) as caught:
+            self.acquire()
+
+        self.assertEqual(caught.exception.code, "source-revision-mismatch")
 
     def root_skill_revision(self):
         """Commit a root skill with real nested reference and executable-source bytes."""

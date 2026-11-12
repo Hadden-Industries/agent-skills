@@ -105,6 +105,24 @@ class RepositoryCliTests(RepositoryFixture):
         self.assertEqual(before, after)
         self.assertFalse((self.root / ".agents").exists())
 
+    def test_check_accepts_v2_lock_with_a_hash_awaiting_reacquisition(self):
+        self.lock = {
+            "version": 2,
+            "skills": {
+                "example": {
+                    "source": "owner/repo",
+                    "sourceType": "github",
+                    "computedHash": "",
+                }
+            },
+        }
+        self.write_inputs()
+
+        result = self.invoke("check")
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("checked", json.loads(result.stdout)["status"])
+
     def test_check_rejects_unknown_and_duplicate_config_keys(self):
         for body in [
             '{"schemaVersion":1,"targetAgents":["codex"],"agentz":[]}',

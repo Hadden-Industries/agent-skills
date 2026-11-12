@@ -63,6 +63,8 @@ Each repository keeps two data files alongside the archive.
 - **`skills-lock.json`** selects remote skills and records their source, optional `ref`, and native acquisition metadata.
   The tool supports GitHub sources.
   Use a commit for a fixed source revision, since branches and tags can move.
+  The tool reads native lock versions 1 and 2.
+  A remote plan stages the lock version and verified hashes produced by the native CLI for the selected skills.
 - **`repository-skills.json`** selects agent targets and optionally declares local sources and invocation policies.
   Keep remote sources and pins in the lock file.
 
