@@ -1,7 +1,7 @@
 # Markdown quality
 
 Run `npm ci --ignore-scripts` to install the root locked development dependencies.
-The root manifest declares `@hadden-industries/markdown-quality` with the `>=3.0.0` minimum; the root lock freezes the core and matching optional Windows/Linux native packages.
+The root manifest declares `@hadden-industries/markdown-quality` with the `>=3.0.1` minimum; the root lock freezes the core and matching optional Windows/Linux native packages.
 
 ## Choose a command
 
