@@ -6,7 +6,10 @@ import { normalizeScopePayload } from "./preparationInputs.js";
 
 export const COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
 // A proposal travels as one command argument and one recovery operand.
-export const MAXIMUM_PROPOSAL_BYTES = 4096;
+// Six KiB admits ordinary multi-file path scopes while leaving about two KiB
+// below cmd.exe's 8,191-character limit for launcher paths, flags and quoting.
+// Launchers must still account for their complete command line.
+export const MAXIMUM_PROPOSAL_BYTES = 6 * 1024;
 
 const PROPOSAL_PREFIX = "ctg1.";
 const PROPOSAL_FIELDS = [

@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   COMMIT_PROPOSAL_SCHEMA,
+  MAXIMUM_PROPOSAL_BYTES,
   decodeCommitProposal,
   encodeCommitProposal,
 } from "../../src/committing-to-git/workflow/commitProposal.js";
@@ -110,7 +111,10 @@ test("path proposals retain validated literal selectors and selected index bindi
 test("proposal transport overflow requires a human storage decision", () => {
   assert.throws(
     () =>
-      encodeCommitProposal({ ...PROPOSAL, repositoryRoot: "x".repeat(4096) }),
+      encodeCommitProposal({
+        ...PROPOSAL,
+        repositoryRoot: "x".repeat(MAXIMUM_PROPOSAL_BYTES),
+      }),
     (error) => {
       assert.equal(error.code, "PROPOSAL_TOO_LARGE");
       assert.equal(error.disposition, "unmet-prerequisite");
