@@ -46,7 +46,9 @@ The shared producer owns formatting, linting, selection, local-link checks, repo
 This repository owns policy, npm dependency selection, domain ASCII/build checks and representative consumer assertions.
 
 `.markdown-quality-execution.json` retains the existing 30-second execution ceiling using schema 2; other ordinary bounds use finite package defaults.
-The shared `.development-runtimes.json` declares Python for independent evaluation and bootstrap consumers, plus uv for Python CI provisioning; `.node-version` selects the exact Node reference for repository workflows.
+The shared `.development-runtimes.json` declares Python for independent evaluation and bootstrap consumers.
+Python CI provisioning uses `actions/setup-python`, while repository setup retains ownership of `.venv`.
+The `.node-version` file selects the exact Node reference for repository workflows.
 Markdown checks use the installed supported Node runtime.
 CI installs and verifies the exact npm `packageManager` from [the root manifest](../package.json) before installing that lock.
 Local npm only needs to support the selected Node runtime and locked tools; it has no separate repository-enforced floor.

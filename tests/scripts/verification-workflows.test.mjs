@@ -251,7 +251,7 @@ test("defining-concepts Linux route provisions the supported tools before the sc
     if (step.uses === "./.github/actions/setup-npm") continue;
     assert.match(
       step.uses,
-      /^(?:actions\/(?:checkout|setup-node)|astral-sh\/setup-uv)@[0-9a-f]{40}$/u,
+      /^actions\/(?:checkout|setup-node|setup-python)@[0-9a-f]{40}$/u,
     );
   }
   const scripts = job.steps.map((step) => step.run ?? "").join("\n");
@@ -524,7 +524,7 @@ test("evaluation retains the native sequence, telemetry and isolated fixture tem
         /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/gu,
       ) ?? []
     ).length,
-    8,
+    6,
   );
   assert.match(
     scripts,
@@ -616,7 +616,7 @@ test("every Node workflow selects its runtime from .node-version", () => {
 });
 
 for (const name of ["defining-concepts-linux", "evaluation-conformance"]) {
-  test(`${name} propagates changes to both shared Python toolchain targets`, (t) => {
+  test(`${name} propagates the canonical Python target without acquiring uv`, (t) => {
     const workflow = workflows(name).current;
     const job = workflow.jobs.conformance ?? workflow.jobs.verify;
     assertCanonicalPython(job);
@@ -653,10 +653,7 @@ for (const name of ["defining-concepts-linux", "evaluation-conformance"]) {
         },
       );
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(
-        readFileSync(output, "utf8"),
-        `python=${targets.python}\nuv=${targets.uv}\n`,
-      );
+      assert.equal(readFileSync(output, "utf8"), `python=${targets.python}\n`);
     }
   });
 }
@@ -695,23 +692,21 @@ function assertCanonicalPython(job) {
   assert.match(target.run, /readFileSync\("\.development-runtimes\.json"/u);
   assert.match(target.run, /GITHUB_OUTPUT/u);
   const provision = job.steps.find((step) =>
-    step.uses?.startsWith("astral-sh/setup-uv@"),
+    step.uses?.startsWith("actions/setup-python@"),
   );
   assert.equal(
     provision.uses,
-    "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
+    "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
   );
   assert.deepEqual(provision.with, {
-    version: "${{ steps.python-target.outputs.uv }}",
     "python-version": "${{ steps.python-target.outputs.python }}",
-    "enable-cache": false,
   });
   const base = job.steps.find(
-    (step) => step.name === "Select the canonical base Python interpreter",
+    (step) => step.name === "Verify the canonical base Python interpreter",
   );
-  assert.match(base.run, /uv python install/u);
-  assert.match(base.run, /uv python find --system/u);
-  assert.match(base.run, /GITHUB_PATH/u);
+  assert.match(base.run, /python -c/u);
+  assert.match(base.run, /sys\.prefix == sys\.base_prefix/u);
+  assert.doesNotMatch(base.run, /uv python|GITHUB_PATH/u);
   assert.doesNotMatch(base.run, /venv/u);
   assert.ok(job.steps.indexOf(target) < job.steps.indexOf(provision));
   assert.ok(job.steps.indexOf(provision) < job.steps.indexOf(base));

@@ -32,7 +32,7 @@ const NATIVE_STEPS = [
   "Select the assessed npm toolchain",
   "Read the canonical Python target",
   "Set up the Python provisioner",
-  "Select the canonical base Python interpreter",
+  "Verify the canonical base Python interpreter",
   "Acquire locked dependencies and pinned native consumer",
   "Verify generated distribution and deterministic consumer contracts",
   "Report conformance and acquisition diagnostics",

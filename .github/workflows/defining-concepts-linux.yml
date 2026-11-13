@@ -44,20 +44,15 @@ jobs:
       - name: Read the canonical Python target
         id: python-target
         shell: bash
-        run: node --input-type=module -e 'import {readFileSync,appendFileSync} from "node:fs"; const {python,uv}=JSON.parse(readFileSync(".development-runtimes.json","utf8")); appendFileSync(process.env.GITHUB_OUTPUT, `python=${python}\nuv=${uv}\n`);'
+        run: node --input-type=module -e 'import {readFileSync,appendFileSync} from "node:fs"; const {python}=JSON.parse(readFileSync(".development-runtimes.json","utf8")); appendFileSync(process.env.GITHUB_OUTPUT, `python=${python}\n`);'
 
       - name: Set up the Python provisioner
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          version: ${{ steps.python-target.outputs.uv }}
           python-version: ${{ steps.python-target.outputs.python }}
-          enable-cache: false
 
-      - name: Select the canonical base Python interpreter
-        run: |
-          uv python install "$UV_PYTHON"
-          python_path=$(uv python find --system "$UV_PYTHON")
-          dirname "$python_path" >> "$GITHUB_PATH"
+      - name: Verify the canonical base Python interpreter
+        run: python -c "import sys; assert sys.prefix == sys.base_prefix; print(sys.executable)"
 
       - name: Record the tested revision and environment
         run: |

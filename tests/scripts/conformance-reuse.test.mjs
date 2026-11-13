@@ -141,7 +141,7 @@ function proofFixture() {
       "Select the assessed npm toolchain",
       "Read the canonical Python target",
       "Set up the Python provisioner",
-      "Select the canonical base Python interpreter",
+      "Verify the canonical base Python interpreter",
       "Acquire locked dependencies and pinned native consumer",
       "Verify generated distribution and deterministic consumer contracts",
       "Report conformance and acquisition diagnostics",
@@ -282,7 +282,7 @@ test("conformance records the observed Ubuntu image and rejects wrong OS or arch
 for (const stepName of [
   "Read the canonical Python target",
   "Set up the Python provisioner",
-  "Select the canonical base Python interpreter",
+  "Verify the canonical base Python interpreter",
 ]) {
   for (const conclusion of ["missing", "failure", "skipped"]) {
     test(`downloaded proof rejects ${conclusion} Python step: ${stepName}`, async () => {

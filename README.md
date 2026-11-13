@@ -450,7 +450,8 @@ The bootstrap expects:
 Local development has no separate npm version floor.
 Routine CI and qualification select the exact Node.js reference in [`.node-version`](./.node-version) and the exact npm `packageManager` in [package.json](./package.json).
 The local Node minimum is independent of that CI reference; npm and the locked authoring tools must also support the selected Node release.
-The Python workflows read both `python` and the `uv` provisioner version from [`.development-runtimes.json`](./.development-runtimes.json), so toolchain updates have one maintained declaration per tool.
+The Python workflows read `python` from [`.development-runtimes.json`](./.development-runtimes.json).
+They provision the base interpreter with `actions/setup-python`; repository setup retains ownership of `.venv`.
 
 Check the basics:
 
@@ -1543,7 +1544,8 @@ It reports shared repository Markdown quality as an omitted global check; run `n
 It explicitly reports repository-wide Prettier/ESLint, Tessl plugin-package lint, unrelated Node tests, and the repository-wide diff check as global-only checks that were not run.
 A scoped pass is inner-loop evidence, not a substitute for the complete `npm run verify` integration gate.
 
-The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu 24.04 runner with Node selected from `.node-version` and Python plus uv selected from `.development-runtimes.json`.
+The manually dispatched [defining-concepts Linux workflow](./.github/workflows/defining-concepts-linux.yml) runs that exact scoped command on a fresh Ubuntu runner.
+Node is selected from `.node-version` and Python from `.development-runtimes.json` through `actions/setup-python`.
 Dispatch from `main` and pass a commit, tag, or branch in `revision`; prefer a full commit ID for an immutable target:
 
 ```sh
