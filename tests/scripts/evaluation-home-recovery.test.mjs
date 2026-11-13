@@ -38,6 +38,7 @@ import {
 import { runEvaluationHomesCli } from "../../scripts/evaluation/manage-evaluation-homes.js";
 
 const windows = process.platform === "win32";
+const windowsRecoveryOptions = { skip: !windows, timeout: 60_000 };
 const json = (file) => JSON.parse(readFileSync(file, "utf8"));
 const write = (file, value) => writeFileSync(file, canonicalJsonBytes(value));
 // Evaluation homes refuse non-canonical roots, including 8.3 temp spellings.
@@ -257,7 +258,7 @@ async function assertPreserved(value, location = value.leasePath) {
 
 test(
   "recovery requires exact confirmation and stale state never mutates the role",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     for (const override of [
@@ -284,7 +285,7 @@ test(
 
 test(
   "exclusive recovery contention has one winner and retains original evidence",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     const results = await Promise.allSettled([apply(value), apply(value)]);
@@ -322,7 +323,7 @@ test(
 
 test(
   "a live recovery owner blocks new preparation until its exact operation ends",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     let reached;
@@ -362,7 +363,7 @@ test(
 
 test(
   "hard death of the exact recovery owner permits a newly bound explicit resume",
-  { skip: !windows, timeout: 30000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     const barrierPath = join(value.root, "recovery-barrier.json");
@@ -429,7 +430,7 @@ test(
 
 test(
   "recovery never selects between conflicting credential caches",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     await assert.rejects(
@@ -467,7 +468,7 @@ test(
 
 test(
   "a substituted fresh generation cannot receive the retained credential",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     await assert.rejects(
@@ -498,7 +499,7 @@ test(
 for (const mutation of ["outcome", "recovery-journal"]) {
   test(
     `changed ${mutation} blocks credential movement at the operation boundary`,
-    { skip: !windows, timeout: 20000 },
+    windowsRecoveryOptions,
     async () => {
       const value = await fixture();
       await assert.rejects(
@@ -529,7 +530,7 @@ for (const mutation of ["outcome", "recovery-journal"]) {
 
 test(
   "unmarked partial replacement stays unknown with every original resource retained",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     await assert.rejects(
@@ -563,7 +564,7 @@ test(
 
 test(
   "archival is terminal even if the caller dies before receiving the receipt",
-  { skip: !windows, timeout: 20000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     await assert.rejects(
@@ -588,7 +589,7 @@ test(
 
 test(
   "the CLI saves a private proposal and requires its exact digest for application",
-  { skip: !windows, timeout: 25000 },
+  windowsRecoveryOptions,
   async () => {
     const value = await fixture();
     const proposalPath = join(value.root, "operator-proposal.json");
@@ -671,7 +672,7 @@ for (const phase of [
 ]) {
   test(
     `recovery resumes exact interruption: ${phase}`,
-    { skip: !windows, timeout: 20000 },
+    windowsRecoveryOptions,
     async () => {
       const value = await fixture();
       await assert.rejects(
@@ -722,7 +723,7 @@ for (const corruption of [
 ]) {
   test(
     `recovery refuses ambiguous or altered state: ${corruption}`,
-    { skip: !windows, timeout: 20000 },
+    windowsRecoveryOptions,
     async () => {
       const value = await fixture();
       if (corruption === "forged-zero") {

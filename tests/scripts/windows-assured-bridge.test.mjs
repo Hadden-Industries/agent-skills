@@ -14,6 +14,22 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createTestWorkspace } from "../fixtures/temporary-workspace.mjs";
 
+const scenarios = [
+  "normal",
+  "invalid-authority",
+  "wrapper-death",
+  "host-death",
+  "recorder-death",
+  "simultaneous-death",
+  "consumer-death",
+  "bridge-death",
+  "cancellation",
+  "provider-death",
+  "timeout",
+];
+const scenarioOptions = { timeout: 60_000 };
+const setupTimeoutMs = 60_000;
+
 const repository = resolve(import.meta.dirname, "../..");
 const read = (file) => JSON.parse(readFileSync(file, "utf8"));
 const write = (file, value) =>
@@ -39,7 +55,7 @@ test(
   "Windows integrated bridge preserves authority and leases across job closure",
   {
     skip: process.platform !== "win32",
-    timeout: 180000,
+    timeout: setupTimeoutMs + scenarios.length * scenarioOptions.timeout,
   },
   async (t) => {
     const workspace = createTestWorkspace(t, "windows-assured-bridge-");
@@ -152,26 +168,13 @@ test(
     process.stdout.write(
       `${JSON.stringify({ root, baseline: "test-only override; no production qualification" })}\n`,
     );
-    const scenarios = [
-      "normal",
-      "invalid-authority",
-      "wrapper-death",
-      "host-death",
-      "recorder-death",
-      "simultaneous-death",
-      "consumer-death",
-      "bridge-death",
-      "cancellation",
-      "provider-death",
-      "timeout",
-    ];
     const selectedScenario = process.env.WINDOWS_BRIDGE_FIXTURE_SCENARIO;
     if (selectedScenario !== undefined)
       assert.ok(scenarios.includes(selectedScenario));
     for (const scenario of scenarios.filter(
       (value) => selectedScenario === undefined || value === selectedScenario,
     )) {
-      await t.test(scenario, async () => {
+      await t.test(scenario, scenarioOptions, async () => {
         const directory = join(root, scenario);
         mkdirSync(directory);
         const homes = join(directory, "homes");

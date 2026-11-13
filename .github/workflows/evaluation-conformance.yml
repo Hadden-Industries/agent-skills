@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, ubuntu-26.04]
+        os: [windows-2025-vs2026, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:

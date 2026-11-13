@@ -2228,7 +2228,8 @@ for (const [scenario, failureClass, errorCode] of [
     const execution = await executeAdapterFixture(t, {
       controller,
       scenario,
-      timeoutMs: 500,
+      // These cases wait for a protocol or provider error from the fixture process.
+      timeoutMs: 60_000,
     });
 
     assert.equal(execution.result.status, "failed");

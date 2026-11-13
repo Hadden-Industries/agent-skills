@@ -12230,7 +12230,7 @@ var init_commitProposal = __esm({
     init_workflowStateStorage();
     init_preparationInputs();
     COMMIT_PROPOSAL_SCHEMA = "commit-proposal/v1";
-    MAXIMUM_PROPOSAL_BYTES = 4096;
+    MAXIMUM_PROPOSAL_BYTES = 6 * 1024;
     PROPOSAL_PREFIX = "ctg1.";
     PROPOSAL_FIELDS = [
       "schema",

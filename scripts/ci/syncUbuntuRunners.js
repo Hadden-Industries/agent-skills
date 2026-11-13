@@ -2,7 +2,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
-import { ubuntuRunner, windowsRunner } from "./runnerPolicy.js";
+import {
+  ubuntuLabel,
+  ubuntuRunner,
+  windowsLabel,
+  windowsRunner,
+} from "./runnerPolicy.js";
 
 const workflows = {
   "committing-to-git-linux": { verify: "direct" },
@@ -14,12 +19,19 @@ const workflows = {
   },
   "markdown-quality": { markdown: "matrix" },
 };
-const ubuntuLabel = /^ubuntu-\d[02468]\.04$/u;
-
-export function projectUbuntuRunners(name, source, runner = ubuntuRunner) {
+/** Project both pins into literal YAML selectors without reserializing the workflow. */
+export function projectWorkflowRunners(
+  name,
+  source,
+  { ubuntu = ubuntuRunner, windows = windowsRunner } = {},
+) {
   const workflow = parseDocument(source, { uniqueKeys: true });
-  if (workflow.errors.length > 0 || !ubuntuLabel.test(runner)) {
-    throw new Error("Invalid workflow YAML or Ubuntu runner for " + name);
+  if (
+    workflow.errors.length ||
+    !ubuntuLabel.test(ubuntu) ||
+    !windowsLabel.test(windows)
+  ) {
+    throw new Error("Invalid workflow YAML or runner selection for " + name);
   }
 
   const selectors = Object.entries(workflows[name]);
@@ -29,10 +41,23 @@ export function projectUbuntuRunners(name, source, runner = ubuntuRunner) {
       name + " job inventory differs from its managed selectors.",
     );
   }
-  const ranges = [];
+  const replacements = [];
+  function replaceLabel(node, pattern, target, job) {
+    if (
+      !isScalar(node) ||
+      !pattern.test(node.value) ||
+      source.slice(node.range[0], node.range[1]) !== node.value
+    ) {
+      throw new Error(
+        name + "/" + job + " has an unsupported runner selector.",
+      );
+    }
+    if (node.value !== target)
+      replacements.push([node.range[0], node.range[1], target]);
+  }
   for (const [job, selector] of selectors) {
     const path = ["jobs", job];
-    let label = workflow.getIn([...path, "runs-on"], true);
+    const label = workflow.getIn([...path, "runs-on"], true);
     if (selector === "matrix") {
       const matrix = workflow.getIn([...path, "strategy", "matrix"], true);
       const os =
@@ -40,27 +65,31 @@ export function projectUbuntuRunners(name, source, runner = ubuntuRunner) {
       if (
         label?.value !== "${{ matrix.os }}" ||
         !isSeq(os) ||
-        os.items.length !== 2 ||
-        os.items.filter((entry) => entry?.value === windowsRunner).length !== 1
+        os.items.length !== 2
       ) {
         throw new Error(
           name + "/" + job + " must select exactly Ubuntu and Windows.",
         );
       }
-      label = os.items.find((entry) => entry?.value !== windowsRunner);
+      replaceLabel(
+        os.items.find((entry) => ubuntuLabel.test(entry?.value)),
+        ubuntuLabel,
+        ubuntu,
+        job,
+      );
+      replaceLabel(
+        os.items.find((entry) => windowsLabel.test(entry?.value)),
+        windowsLabel,
+        windows,
+        job,
+      );
+    } else {
+      replaceLabel(label, ubuntuLabel, ubuntu, job);
     }
-    if (
-      !isScalar(label) ||
-      !ubuntuLabel.test(label.value) ||
-      source.slice(label.range[0], label.range[1]) !== label.value
-    ) {
-      throw new Error(name + "/" + job + " has no supported Ubuntu selector.");
-    }
-    if (label.value !== runner) ranges.push(label.range);
   }
   let result = source;
-  for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) {
-    result = result.slice(0, start) + runner + result.slice(end);
+  for (const [start, end, target] of replacements.sort((a, b) => b[0] - a[0])) {
+    result = result.slice(0, start) + target + result.slice(end);
   }
   return result;
 }
@@ -76,12 +105,12 @@ function sync(args) {
       import.meta.url,
     );
     const original = readFileSync(file, "utf8");
-    const updated = projectUbuntuRunners(name, original);
+    const updated = projectWorkflowRunners(name, original);
     return original === updated ? [] : [{ file, name, updated }];
   });
   if (!write && updates.length > 0) {
     throw new Error(
-      "Regenerate Ubuntu selectors for " +
+      "Regenerate runner selectors for " +
         updates.map(({ name }) => name).join(", "),
     );
   }

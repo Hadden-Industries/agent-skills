@@ -1,22 +1,26 @@
 import { readFileSync } from "node:fs";
 
-const { ubuntuRelease } = JSON.parse(
+const { ubuntuRelease, windowsRelease } = JSON.parse(
   readFileSync(
     new URL("../../.github/runner-policy.json", import.meta.url),
     "utf8",
   ),
 );
-if (
-  typeof ubuntuRelease !== "string" ||
-  !/^\d[02468]\.04$/u.test(ubuntuRelease)
-) {
+export const ubuntuLabel = /^ubuntu-\d[02468]\.04$/u;
+export const windowsLabel = /^windows-20\d{2}(?:-vs20\d{2})?$/u;
+
+export const ubuntuRunner = "ubuntu-" + ubuntuRelease;
+export const windowsRunner = "windows-" + windowsRelease;
+if (typeof ubuntuRelease !== "string" || !ubuntuLabel.test(ubuntuRunner)) {
   throw new Error(
     "ubuntuRelease must be an even-year Ubuntu LTS release in YY.04 format.",
   );
 }
-
-export const ubuntuRunner = "ubuntu-" + ubuntuRelease;
-export const windowsRunner = "windows-2025";
+if (typeof windowsRelease !== "string" || !windowsLabel.test(windowsRunner)) {
+  throw new Error("windowsRelease must name a versioned Windows Server image.");
+}
+// GitHub's ImageOS drops the century from the server year and retains the VS suffix.
+const windowsImageOS = "win" + windowsRelease.slice(2);
 
 export function observeConformanceRunner({
   expected,
@@ -42,7 +46,7 @@ export function observeConformanceRunner({
   } else if (
     expected === windowsRunner &&
     platform === "win32" &&
-    imageOS === "win25"
+    imageOS === windowsImageOS
   ) {
     return { runner: expected, imageOS, imageVersion, arch };
   }

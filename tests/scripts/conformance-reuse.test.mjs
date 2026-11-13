@@ -28,12 +28,15 @@ import {
 import {
   observeConformanceRunner,
   ubuntuRunner,
+  windowsRunner,
 } from "../../scripts/ci/runnerPolicy.js";
 
 const sha = (digit) => digit.repeat(40);
 const now = Date.parse("2026-10-10T10:00:00Z");
 const wrongUbuntuRunner =
   ubuntuRunner === "ubuntu-24.04" ? "ubuntu-26.04" : "ubuntu-24.04";
+const otherWindowsRunner =
+  windowsRunner === "windows-2025" ? "windows-2022" : "windows-2025";
 
 // External GitHub metadata is mocked; the merge admission decision remains real.
 function proofFixture() {
@@ -124,12 +127,12 @@ function proofFixture() {
     pullRequest: 7,
     snapshot: { ...structuredClone(context.snapshot), commit: sha("9") },
     recordedAt: "2026-10-10T08:20:00.000Z",
-    lanes: ["conformance (windows-2025)", "conformance (" + ubuntuRunner + ")"],
+    lanes: [`conformance (${windowsRunner})`, `conformance (${ubuntuRunner})`],
   };
   const jobs = receipt.lanes.map((name, index) => ({
     id: index + 400,
     name,
-    labels: [index === 0 ? "windows-2025" : ubuntuRunner],
+    labels: [index === 0 ? windowsRunner : ubuntuRunner],
     run_id: 100,
     run_attempt: 2,
     status: "completed",
@@ -263,20 +266,55 @@ test("conformance records the observed Ubuntu image and rejects wrong OS or arch
       }),
     /OS does not match/u,
   );
-  assert.deepEqual(
-    observeConformanceRunner({
-      ...input,
-      expected: "windows-2025",
-      platform: "win32",
-      imageOS: "win25",
-    }),
-    {
-      runner: "windows-2025",
-      imageOS: "win25",
-      imageVersion: input.imageVersion,
+});
+
+test("conformance qualifies the pinned Windows image across patch builds", () => {
+  const input = {
+    expected: windowsRunner,
+    platform: "win32",
+    arch: "x64",
+    runnerArch: "X64",
+    imageOS: windowsRunner.replace("windows-20", "win"),
+    imageVersion: "20261103.298",
+  };
+  for (const imageVersion of [input.imageVersion, "20261112.1"]) {
+    assert.deepEqual(observeConformanceRunner({ ...input, imageVersion }), {
+      runner: input.expected,
+      imageOS: input.imageOS,
+      imageVersion,
       arch: "x64",
-    },
-  );
+    });
+  }
+  for (const mismatch of [
+    { expected: otherWindowsRunner },
+    { imageOS: otherWindowsRunner.replace("windows-20", "win") },
+    { imageOS: input.imageOS + "-arm64" },
+    { platform: "linux" },
+    { arch: "arm64" },
+    { runnerArch: "ARM64" },
+    { imageVersion: "" },
+  ]) {
+    assert.throws(() => observeConformanceRunner({ ...input, ...mismatch }));
+  }
+});
+
+test("the Windows image from failed run 43466822735 qualifies only for its matching pin", () => {
+  const observed = {
+    expected: "windows-2025-vs2026",
+    platform: "win32",
+    arch: "x64",
+    runnerArch: "X64",
+    imageOS: "win25-vs2026",
+    imageVersion: "20261103.298",
+  };
+  if (windowsRunner === observed.expected) {
+    assert.equal(observeConformanceRunner(observed).imageOS, observed.imageOS);
+  } else {
+    assert.throws(
+      () => observeConformanceRunner(observed),
+      /OS does not match/u,
+    );
+  }
 });
 
 for (const stepName of [
@@ -589,6 +627,9 @@ const verificationFailures = {
   },
   "wrong hosted runner": (f) => {
     f.jobs[1].labels = [wrongUbuntuRunner];
+  },
+  "different Windows runner label": (f) => {
+    f.jobs[0].labels = [otherWindowsRunner];
   },
   "missing runner image verification": (f) => {
     f.jobs[1].steps = f.jobs[1].steps.filter(

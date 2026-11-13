@@ -58,7 +58,9 @@ Its three consumer checks use the root npm commands to verify authored selection
 
 Historical qualification records keep their original identities and evidence claims.
 
-The Linux verification and conformance workflows share the Ubuntu release in [the runner policy](../.github/runner-policy.json).
+The verification workflows take their Ubuntu release and Windows Server image from [the runner policy](../.github/runner-policy.json).
+For Windows, pin the versioned x64 image from [GitHub's runner image inventory](https://github.com/actions/runner-images#available-images), including its Visual Studio suffix when present.
+Conformance checks that image identity and records the patch build supplied by GitHub.
 After a policy edit, run `node scripts/ci/syncUbuntuRunners.js --write` to update the workflow selectors.
 The workflow tests in `npm run verify` check for drift.
 Conformance records the observed runner image and requires the expected GitHub job labels and a passing image check before reusing evidence.

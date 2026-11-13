@@ -233,6 +233,28 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
       "utf8",
     ),
   ).files;
+  const pathScopedProposal = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        "tests/fixtures/evaluation-preservation/path-scoped-proposal-runtime-change.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(pathScopedProposal.schemaVersion, 1);
+  assert.equal(
+    pathScopedProposal.baselineRevision,
+    "fd82e2b987d5a3e297ece6fbcf36d9511722ced3",
+  );
+  assert.equal(
+    pathScopedProposal.revision,
+    "6e82efd8c9e2fe9ea3c28b53b3c2388a3417ba14",
+  );
+  assert.deepEqual(
+    pathScopedProposal.files.map(({ path }) => path),
+    ["skills/committing-to-git/scripts/commitWorkflow.mjs"],
+  );
   const markdownMaintenance = JSON.parse(
     readFileSync(
       join(root, "evidence/migrations/2026-10-10-markdown-formatting.json"),
@@ -461,7 +483,19 @@ test("runtime inventory matches 57 maintained payload identities, recorded addit
         beforePythonPreparation.sha256,
         file.path,
       );
-    const expectedIdentity = pythonPreparationChange ?? beforePythonPreparation;
+    const beforeProposalChange =
+      pythonPreparationChange ?? beforePythonPreparation;
+    const proposalChange = pathScopedProposal.files.find(
+      ({ path }) => path === file.path,
+    );
+    if (proposalChange) {
+      assert.equal(
+        proposalChange.previousSha256,
+        beforeProposalChange.sha256,
+        file.path,
+      );
+    }
+    const expectedIdentity = proposalChange ?? beforeProposalChange;
     assert.equal(
       comparisonBytes.length,
       expectedIdentity.byteLength,

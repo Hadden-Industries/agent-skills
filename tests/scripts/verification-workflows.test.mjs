@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { parse } from "yaml";
-import { ubuntuRunner } from "../../scripts/ci/runnerPolicy.js";
-import { projectUbuntuRunners } from "../../scripts/ci/syncUbuntuRunners.js";
+import { ubuntuRunner, windowsRunner } from "../../scripts/ci/runnerPolicy.js";
+import { projectWorkflowRunners } from "../../scripts/ci/syncUbuntuRunners.js";
 
 // Native contract from 0b5193609dbfbd45bb39db1f3ca4904dbf9a7498, with approved action release pins.
 const originalWorkflows = {
@@ -177,50 +177,73 @@ function workflows(name) {
   };
 }
 
-test("the single Ubuntu policy projects every managed workflow without changing other bytes", () => {
+test("the runner policy projects both pins without changing other workflow bytes", () => {
   const selectors = {
-    "committing-to-git-linux": 1,
-    "defining-concepts-linux": 1,
-    "evaluation-conformance": 3,
-    "markdown-quality": 1,
+    "committing-to-git-linux": [1, 0],
+    "defining-concepts-linux": [1, 0],
+    "evaluation-conformance": [3, 1],
+    "markdown-quality": [1, 1],
   };
   const alternate =
     ubuntuRunner === "ubuntu-24.04" ? "ubuntu-26.04" : "ubuntu-24.04";
-  for (const [name, count] of Object.entries(selectors)) {
+  const previousWindows =
+    windowsRunner === "windows-2025" ? "windows-2022" : "windows-2025";
+  for (const [name, [ubuntuCount, windowsCount]] of Object.entries(selectors)) {
     const path = ".github/workflows/" + name + ".yml";
     const current = readFileSync(path, "utf8");
-    const stale = current.replaceAll(ubuntuRunner, alternate);
-    assert.equal(current.split(ubuntuRunner).length - 1, count, path);
-    assert.equal(projectUbuntuRunners(name, current), current);
-    assert.equal(projectUbuntuRunners(name, current, alternate), stale);
-    assert.equal(projectUbuntuRunners(name, stale), current);
+    const stale = current
+      .replaceAll(ubuntuRunner, alternate)
+      .replaceAll(windowsRunner, previousWindows);
+    assert.equal(current.split(ubuntuRunner).length - 1, ubuntuCount, path);
+    assert.equal(current.split(windowsRunner).length - 1, windowsCount, path);
+    assert.equal(projectWorkflowRunners(name, current), current);
+    assert.equal(
+      projectWorkflowRunners(name, current, {
+        ubuntu: alternate,
+        windows: previousWindows,
+      }),
+      stale,
+    );
+    assert.equal(projectWorkflowRunners(name, stale), current);
   }
 });
 
-test("the Ubuntu projector rejects matrix entries that change its job coverage", () => {
+test("the runner projector rejects matrix entries that change its job coverage", () => {
   const name = "evaluation-conformance";
   const current = readFileSync(".github/workflows/" + name + ".yml", "utf8");
   const changed = current.replace(
-    "os: [windows-2025, " + ubuntuRunner + "]",
-    "os: [windows-2025, " +
-      ubuntuRunner +
-      "]\n        include: [{os: ubuntu-22.04}]",
+    `os: [${windowsRunner}, ${ubuntuRunner}]`,
+    `os: [${windowsRunner}, ${ubuntuRunner}]\n        include: [{os: ubuntu-22.04}]`,
   );
   assert.notEqual(changed, current);
   assert.throws(
-    () => projectUbuntuRunners(name, changed),
+    () => projectWorkflowRunners(name, changed),
     /exactly Ubuntu and Windows/u,
   );
+  for (const unsupported of [
+    ubuntuRunner,
+    "windows-latest",
+    `"${windowsRunner}"`,
+  ]) {
+    assert.throws(
+      () =>
+        projectWorkflowRunners(
+          name,
+          current.replace(windowsRunner, unsupported),
+        ),
+      /unsupported runner selector/u,
+    );
+  }
 });
 
-test("the Ubuntu projector rejects a new job outside the managed selectors", () => {
+test("the runner projector rejects a new job outside the managed selectors", () => {
   const name = "defining-concepts-linux";
   const current = readFileSync(".github/workflows/" + name + ".yml", "utf8");
   const changed =
     current.trimEnd() +
     "\n  extra:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo extra\n";
   assert.throws(
-    () => projectUbuntuRunners(name, changed),
+    () => projectWorkflowRunners(name, changed),
     /job inventory differs/u,
   );
 });
@@ -309,8 +332,12 @@ for (const name of ["committing-to-git-linux", "evaluation-conformance"]) {
       if (before["runs-on"] === "ubuntu-24.04")
         before["runs-on"] = ubuntuRunner;
       if (before.strategy?.matrix?.os) {
-        before.strategy.matrix.os = before.strategy.matrix.os.map((label) =>
-          label === "ubuntu-24.04" ? ubuntuRunner : label,
+        const currentPins = {
+          "ubuntu-24.04": ubuntuRunner,
+          "windows-2025": windowsRunner,
+        };
+        before.strategy.matrix.os = before.strategy.matrix.os.map(
+          (label) => currentPins[label] ?? label,
         );
       }
       const after = current.jobs[jobId];
@@ -561,7 +588,7 @@ test("Markdown workflow checks the complete installed graph on both supported pl
   assert.deepEqual(workflow.permissions, {});
   const job = workflow.jobs.markdown;
   assert.deepEqual(job.permissions, { contents: "read" });
-  assert.deepEqual(job.strategy.matrix.os, [ubuntuRunner, "windows-2025"]);
+  assert.deepEqual(job.strategy.matrix.os, [ubuntuRunner, windowsRunner]);
   const commands = job.steps.filter((step) => step.run);
   assert.deepEqual(
     commands.map((step) => step.run),
